@@ -28,6 +28,10 @@ INDEPENDENCE_STATEMENT = (
 NOT_WHOLLY_ORIGINAL_STATEMENT = (
     "It incorporates predecessor work and is not wholly original."
 )
+EXTRACTION_BOUNDARY_STATEMENT = (
+    "The standalone repository begins with the SDK extraction baseline instead "
+    "of embedding the predecessor application's unrelated Git history."
+)
 
 
 @dataclass(frozen=True)
@@ -192,6 +196,10 @@ def validate_documents(documents: Documents, label: str) -> list[str]:
             "TVHStream predecessor attribution",
         ),
         (re.escape(NOT_WHOLLY_ORIGINAL_STATEMENT), "not-wholly-original statement"),
+        (
+            re.escape(EXTRACTION_BOUNDARY_STATEMENT),
+            "SDK extraction-history boundary",
+        ),
         (re.escape(INDEPENDENCE_STATEMENT), "independence statement"),
         (
             r"not affiliated with, endorsed by, or sponsored by the TVHeadend project",
@@ -219,6 +227,10 @@ def validate_documents(documents: Documents, label: str) -> list[str]:
             "root independence statement",
         ),
         (r"descends from.*Preclikos/tvhstream", "root predecessor attribution"),
+        (
+            re.escape(EXTRACTION_BOUNDARY_STATEMENT),
+            "root SDK extraction-history boundary",
+        ),
     )
     for pattern, description in root_patterns:
         require_visible_pattern(errors, normalized_root, pattern, description, label)
@@ -231,6 +243,10 @@ def validate_documents(documents: Documents, label: str) -> list[str]:
         (
             r"not affiliated with, endorsed by, or sponsored by the.*Tvheadend project",
             "notice independence statement",
+        ),
+        (
+            re.escape(EXTRACTION_BOUNDARY_STATEMENT),
+            "notice SDK extraction-history boundary",
         ),
     )
     for pattern, description in notice_patterns:
@@ -330,6 +346,11 @@ def validate_documents(documents: Documents, label: str) -> list[str]:
         ),
         (r"\b(?:is|are)\s+wholly original\b", "contradictory originality claim"),
         (
+            r"\b(?:preserves?|retains?)\s+(?:(?:the|that)\s+)?(?:complete\s+)?"
+            r"(?:predecessor|project(?:'s)?)\s+Git history\b",
+            "contradictory embedded-history claim",
+        ),
+        (
             r"\b(?:the\s+)?TVHeadend project\s+officially\s+"
             r"(?:develops|maintains|publishes|supports)\s+(?:this|the)\s+"
             r"(?:TVHeadend Player\s+)?(?:SDK|repository|project)\b",
@@ -406,6 +427,13 @@ def verify_mutation_coverage(documents: Documents, errors: list[str]) -> None:
         NOT_WHOLLY_ORIGINAL_STATEMENT,
         f"```text\n{NOT_WHOLLY_ORIGINAL_STATEMENT}\n```",
         "not-wholly-original statement",
+    )
+    mutate_authority(
+        "embedded predecessor history claim",
+        "The standalone repository begins with the SDK extraction baseline instead of\n"
+        "embedding the predecessor application's unrelated Git history.",
+        "The standalone repository preserves the complete predecessor Git history.",
+        "SDK extraction-history boundary",
     )
     mutations.append(
         (
