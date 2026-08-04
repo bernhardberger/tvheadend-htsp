@@ -428,13 +428,6 @@ def verify_mutation_coverage(documents: Documents, errors: list[str]) -> None:
         f"```text\n{NOT_WHOLLY_ORIGINAL_STATEMENT}\n```",
         "not-wholly-original statement",
     )
-    mutate_authority(
-        "embedded predecessor history claim",
-        "The standalone repository begins with the SDK extraction baseline instead of\n"
-        "embedding the predecessor application's unrelated Git history.",
-        "The standalone repository preserves the complete predecessor Git history.",
-        "SDK extraction-history boundary",
-    )
     mutations.append(
         (
             "contradictory official claim",
@@ -473,6 +466,11 @@ def verify_mutation_coverage(documents: Documents, errors: list[str]) -> None:
             "contradictory active sponsorship claim",
             "The TVHeadend project sponsors this SDK.",
             "contradictory active sponsorship claim",
+        ),
+        (
+            "contradictory embedded-history claim",
+            "The standalone repository preserves the complete predecessor Git history.",
+            "contradictory embedded-history claim",
         ),
     )
     for name, claim, required_error in contradiction_mutations:
