@@ -652,9 +652,9 @@
           "name": "time",
           "type": "s32",
           "direction": "reply",
-          "presence": "unknown",
+          "presence": "required",
           "evidence": "htsmsg_add_s32",
-          "confidence": "mechanical",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 1
         },
@@ -662,9 +662,9 @@
           "name": "timezone",
           "type": "s32",
           "direction": "reply",
-          "presence": "unknown",
+          "presence": "required",
           "evidence": "htsmsg_add_s32",
-          "confidence": "mechanical",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 2
         },
@@ -672,9 +672,9 @@
           "name": "gmtoffset",
           "type": "s32",
           "direction": "reply",
-          "presence": "unknown",
+          "presence": "optional",
           "evidence": "htsmsg_add_s32",
-          "confidence": "mechanical",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 3
         }
@@ -686,12 +686,12 @@
       },
       "replyShape": {
         "kind": "fields",
-        "completeness": "partial",
-        "evidence": "bounded handler/helper extraction plus exact-pin annotations"
+        "completeness": "complete",
+        "evidence": "bounded htsp_method_getSysTime emits exactly time, timezone, and gmtoffset as method-specific reply fields"
       },
       "sdk": {
-        "referenced": false,
-        "outgoingRequest": false
+        "referenced": true,
+        "outgoingRequest": true
       }
     },
     {
@@ -7955,6 +7955,7 @@
         "getDvrConfigs",
         "getEvents",
         "getProfiles",
+        "getSysTime",
         "hello",
         "subscribe",
         "subscriptionSeek",
@@ -7963,7 +7964,7 @@
         "unsubscribe",
         "updateDvrEntry"
       ],
-      "referencedCount": 21,
+      "referencedCount": 22,
       "outgoingRequests": [
         "addDvrEntry",
         "authenticate",
@@ -7979,6 +7980,7 @@
         "getDvrConfigs",
         "getEvents",
         "getProfiles",
+        "getSysTime",
         "hello",
         "subscribe",
         "subscriptionSeek",
@@ -7986,10 +7988,9 @@
         "unsubscribe",
         "updateDvrEntry"
       ],
-      "outgoingRequestCount": 20,
+      "outgoingRequestCount": 21,
       "unreferenced": [
         "api",
-        "getSysTime",
         "getChannel",
         "getEvent",
         "epgQuery",
@@ -8047,8 +8048,8 @@
       ]
     },
     "metrics": {
-      "referencedClientMethods": 21,
-      "outgoingClientMethods": 20,
+      "referencedClientMethods": 22,
+      "outgoingClientMethods": 21,
       "handledServerMessages": 23,
       "notes": [
         "referenced counts exact string literals in SDK production main sources",
@@ -8063,6 +8064,12 @@
       "id": "getDiskSpace-used-field-missing-from-client-docs",
       "summary": "The pinned htsp_method_getDiskSpace source emits useddiskspace in addition to freediskspace and totaldiskspace, while the official Client-to-Server RPC methods page documents only the latter two fields.",
       "authority": "src/htsp_server.c htsp_method_getDiskSpace",
+      "docsUrl": "https://docs.tvheadend.org/documentation/development/htsp/client-to-server-rpc-methods"
+    },
+    {
+      "id": "getSysTime-time-type-source-doc-mismatch",
+      "summary": "The pinned htsp_method_getSysTime source emits time through htsmsg_add_s32, while the official Client-to-Server RPC methods page specifies required s64 Unix time. This records a source/docs evidence mismatch; it is not a decision to coerce or truncate the SDK public value.",
+      "authority": "src/htsp_server.c htsp_method_getSysTime",
       "docsUrl": "https://docs.tvheadend.org/documentation/development/htsp/client-to-server-rpc-methods"
     },
     {

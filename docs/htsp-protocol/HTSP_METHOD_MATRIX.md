@@ -16,8 +16,8 @@ Primary authority is the pinned TVHeadend server source. Official HTSP documenta
 
 ## SDK coverage (exact-literal metric)
 
-- Client→server methods referenced in production sources: **21 / 39**
-- Distinct outgoing request names: **20 / 39**
+- Client→server methods referenced in production sources: **22 / 39**
+- Distinct outgoing request names: **21 / 39**
 - Server→client messages handled (exact literal): **23 / 30**
 - Distinguish **referenced** from **outgoing**: a name can appear because an inbound handler mentions it (for example `subscriptionSkip`) while the client sends a synonym (`subscriptionSeek`).
 - Never claim methods are implemented/called merely because they are referenced.
@@ -49,7 +49,7 @@ These fields are protocol-wide and are **not** method-specific success fields.
 | 2 | `authenticate` | `ACCESS_ANONYMOUS` | — | yes | yes | _knownEmpty/complete_ | `noaccess`:u32 [unknown], `admin`:u32 [unknown] ≥v26, `streaming`:u32 [unknown] ≥v26, `dvr`:u32 [unknown] ≥v26, `faileddvr`:u32 [unknown] ≥v26, `anonymous`:u32 [unknown] ≥v26, `limitall`:u32 [unknown] ≥v26, `limitdvr`:u32 [unknown] ≥v26, `limitstreaming`:u32 [unknown] ≥v26, `uilevel`:u32 [unknown] ≥v26, `uilanguage`:str [unknown] ≥v26 — fields/partial |
 | 3 | `api` | `ACCESS_ANONYMOUS` | 24 (annotated) |  |  | `args`:msg [unknown], `path`:str [unknown] — fields/partial | `noaccess`:u32 [unknown], `response`:msg [unknown] — fields/partial |
 | 4 | `getDiskSpace` | `ACCESS_HTSP_STREAMING` | 3 (annotated) | yes | yes | _knownEmpty/complete_ | `freediskspace`:s64 [unknown], `useddiskspace`:s64 [unknown], `totaldiskspace`:s64 [unknown] — fields/partial |
-| 5 | `getSysTime` | `ACCESS_HTSP_STREAMING` | 3 (annotated) |  |  | _knownEmpty/complete_ | `time`:s32 [unknown], `timezone`:s32 [unknown], `gmtoffset`:s32 [unknown] — fields/partial |
+| 5 | `getSysTime` | `ACCESS_HTSP_STREAMING` | 3 (annotated) | yes | yes | _knownEmpty/complete_ | `time`:s32 [required], `timezone`:s32 [required], `gmtoffset`:s32 [optional] — fields/complete |
 | 6 | `enableAsyncMetadata` | `ACCESS_HTSP_STREAMING` | — | yes | yes | `epg`:u32 [unknown], `lastUpdate`:s64 [unknown], `epgMaxTime`:s64 [unknown], `language`:str [unknown] — fields/partial | _knownEmpty/complete_ |
 | 7 | `getChannel` | `ACCESS_HTSP_STREAMING` | 14 (annotated) |  |  | `channelId`:u32 [unknown] — fields/partial | `channelId`:u32 [unknown], `channelIdStr`:str [unknown], `channelNumber`:u32 [unknown], `channelNumberMinor`:u32 [unknown], `channelName`:str [unknown], `channelIcon`:str [unknown], `eventId`:u32 [unknown], `nextEventId`:u32 [unknown], `services`:msg [unknown], `tags`:msg [unknown] — fields/partial |
 | 8 | `getEvent` | `ACCESS_HTSP_STREAMING` | — |  |  | `eventId`:u32 [unknown], `language`:str [unknown] — fields/partial | `eventId`:u32 [unknown], `channelId`:u32 [unknown], `start`:s64 [unknown], `stop`:s64 [unknown], `title`:str [unknown], `description`:str [unknown], `summary`:str [unknown], `subtitle`:str [unknown], `credits`:msg [unknown], `serieslinkUri`:str [unknown], `episodeUri`:str [unknown], `contentType`:u32 [unknown], `ageRating`:u32 [unknown], `ratingLabel`:str [unknown], `ratingIcon`:str [unknown], `ratingAuthority`:str [unknown], `ratingCountry`:str [unknown], `starRating`:u32 [unknown], `copyrightYear`:u32 [unknown], `firstAired`:s64 [unknown], `isNew`:u32 [unknown], `image`:str [unknown], `dvrId`:u32 [unknown], `nextEventId`:u32 [unknown] — fields/partial |
@@ -127,6 +127,13 @@ These fields are protocol-wide and are **not** method-specific success fields.
 The pinned htsp_method_getDiskSpace source emits useddiskspace in addition to freediskspace and totaldiskspace, while the official Client-to-Server RPC methods page documents only the latter two fields.
 
 - Authority: src/htsp_server.c htsp_method_getDiskSpace
+- Docs URL: https://docs.tvheadend.org/documentation/development/htsp/client-to-server-rpc-methods
+
+### `getSysTime-time-type-source-doc-mismatch`
+
+The pinned htsp_method_getSysTime source emits time through htsmsg_add_s32, while the official Client-to-Server RPC methods page specifies required s64 Unix time. This records a source/docs evidence mismatch; it is not a decision to coerce or truncate the SDK public value.
+
+- Authority: src/htsp_server.c htsp_method_getSysTime
 - Docs URL: https://docs.tvheadend.org/documentation/development/htsp/client-to-server-rpc-methods
 
 ### `stopDvrEntry-missing-from-client-docs`

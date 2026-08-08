@@ -145,6 +145,7 @@ EXPECTED_DOCS_URLS = {
     "protocolChanges": "https://docs.tvheadend.org/documentation/development/htsp/protocol-changes",
 }
 EXPECTED_SCAN_ROOTS = ["sdk/htsp/src/main", "sdk/playback-media3/src/main"]
+SYSTEM_TIME_LIMITATION_ID = "getSysTime-time-type-source-doc-mismatch"
 WIRE_TYPES = {"u32", "s32", "s64", "str", "bin", "msg", "list", "bool", "dbl", "uuid", "unknown"}
 PRESENCE_VALUES = {"required", "optional", "conditional", "alternative", "unknown"}
 COMPLETENESS_VALUES = {"complete", "partial", "opaque"}
@@ -387,6 +388,21 @@ def validate_spec(spec: dict[str, Any], upstream: dict[str, Any] | None = None) 
         errors.append("epgQuery reply must model eventIds/events alternatives")
     if method_map.get("getEpgObject", {}).get("replyShape", {}).get("kind") != "dynamic":
         errors.append("getEpgObject reply must be explicitly dynamic/opaque")
+    system_time = method_map.get("getSysTime", {})
+    system_time_fields = [
+        (field.get("name"), field.get("type"), field.get("presence"))
+        for field in system_time.get("replyFields", [])
+    ]
+    if system_time_fields != [
+        ("time", "s32", "required"),
+        ("timezone", "s32", "required"),
+        ("gmtoffset", "s32", "optional"),
+    ]:
+        errors.append("getSysTime reply must preserve exact s32 source types and required/required/optional presence")
+    if system_time.get("requestShape", {}).get("kind") != "knownEmpty":
+        errors.append("getSysTime request shape must be known-empty")
+    if system_time.get("replyShape", {}).get("kind") != "fields" or system_time.get("replyShape", {}).get("completeness") != "complete":
+        errors.append("getSysTime reply shape must be fields/complete")
 
     coverage = spec.get("coverage") or {}
     client_cov = coverage.get("clientMethods") or {}
@@ -447,13 +463,13 @@ def validate_spec(spec: dict[str, Any], upstream: dict[str, Any] | None = None) 
         errors.append("outgoingRequestCount cannot exceed referencedCount")
 
     # Current repository acceptance targets (exact-literal metric).
-    if ref_count not in (None, 21):
+    if ref_count not in (None, 22):
         errors.append(
-            f"expected referenced client methods == 21 under current metric, got {ref_count}"
+            f"expected referenced client methods == 22 under current metric, got {ref_count}"
         )
-    if out_count not in (None, 20):
+    if out_count not in (None, 21):
         errors.append(
-            f"expected outgoing client methods == 20 under current metric, got {out_count}"
+            f"expected outgoing client methods == 21 under current metric, got {out_count}"
         )
     if handled_count not in (None, 23):
         errors.append(
@@ -471,6 +487,8 @@ def validate_spec(spec: dict[str, Any], upstream: dict[str, Any] | None = None) 
         errors.append("subscriptionSkip must be referenced inbound but not outgoing")
     if "subscriptionSeek" not in outgoing_list:
         errors.append("subscriptionSeek must be the outgoing seek synonym")
+    if "getSysTime" not in referenced_list or "getSysTime" not in outgoing_list:
+        errors.append("getSysTime must be fresh referenced and outgoing production coverage")
 
     # sdk flags must match coverage lists
     ref_set = set(client_cov.get("referenced") or [])
@@ -497,8 +515,36 @@ def validate_spec(spec: dict[str, Any], upstream: dict[str, Any] | None = None) 
         if bool(sdk.get("handled")) != (name in handled_set):
             errors.append(f"{name}: sdk.handled flag disagrees with coverage")
 
-    if not isinstance(spec.get("docLimitations"), list) or not spec.get("docLimitations"):
+    limitations = spec.get("docLimitations")
+    if not isinstance(limitations, list) or not limitations:
         errors.append("docLimitations must be a non-empty list")
+    else:
+        limitation_ids = []
+        for limitation in limitations:
+            if not isinstance(limitation, dict) or set(limitation) != {"id", "summary", "authority", "docsUrl"}:
+                errors.append("docLimitations entries must use the exact evidence schema")
+                continue
+            limitation_ids.append(limitation.get("id"))
+            if not all(
+                isinstance(limitation.get(key), str) and limitation.get(key)
+                for key in ("id", "summary", "authority")
+            ) or not (
+                limitation.get("docsUrl") is None
+                or isinstance(limitation.get("docsUrl"), str) and limitation.get("docsUrl")
+            ):
+                errors.append("docLimitations entries must contain required text and an optional docs URL")
+        if len(limitation_ids) != len(set(limitation_ids)):
+            errors.append("docLimitations IDs must be unique")
+        system_time_limitation = next(
+            (item for item in limitations if isinstance(item, dict) and item.get("id") == SYSTEM_TIME_LIMITATION_ID),
+            None,
+        )
+        summary = system_time_limitation.get("summary", "") if system_time_limitation else ""
+        if not system_time_limitation or not all(
+            token in summary
+            for token in ("htsmsg_add_s32", "s64 Unix time", "not a decision to coerce or truncate")
+        ):
+            errors.append("getSysTime source/docs type-mismatch limitation is missing or incomplete")
 
     global_rpc = spec.get("globalRpc") or {}
     if set(global_rpc) != {"requestFields", "replyFields"}:
@@ -1007,9 +1053,9 @@ def self_test() -> None:
             "clientMethods": {
                 "total": 39,
                 "referenced": [],
-                "referencedCount": 21,
+                "referencedCount": 22,
                 "outgoingRequests": [],
-                "outgoingRequestCount": 20,
+                "outgoingRequestCount": 21,
                 "unreferenced": [],
             },
             "serverMessages": {
@@ -1019,8 +1065,8 @@ def self_test() -> None:
                 "unhandled": list(EXPECTED_UNHANDLED_MESSAGES),
             },
             "metrics": {
-                "referencedClientMethods": 21,
-                "outgoingClientMethods": 20,
+                "referencedClientMethods": 22,
+                "outgoingClientMethods": 21,
                 "handledServerMessages": 23,
             },
         },
@@ -1030,17 +1076,17 @@ def self_test() -> None:
 
     # Populate inventories with minimal valid entries.
     ref_names = list(EXPECTED_CLIENT_METHODS[:20]) + ["subscriptionSkip"]
-    # 21 referenced including subscriptionSkip; 20 outgoing without it.
+    # 22 referenced including subscriptionSkip; 21 outgoing without it.
     out_names = list(EXPECTED_CLIENT_METHODS[:20])
     # Ensure subscriptionSkip is omitted from the outgoing fixture.
-    out_names = [n for n in EXPECTED_CLIENT_METHODS if n != "subscriptionSkip"][:20]
+    out_names = [n for n in EXPECTED_CLIENT_METHODS if n != "subscriptionSkip"][:21]
     ref_names = out_names + ["subscriptionSkip"]
     handled = [n for n in EXPECTED_SERVER_MESSAGES if n not in EXPECTED_UNHANDLED_MESSAGES]
 
     good_spec["coverage"]["clientMethods"]["referenced"] = ref_names
-    good_spec["coverage"]["clientMethods"]["referencedCount"] = 21
+    good_spec["coverage"]["clientMethods"]["referencedCount"] = 22
     good_spec["coverage"]["clientMethods"]["outgoingRequests"] = out_names
-    good_spec["coverage"]["clientMethods"]["outgoingRequestCount"] = 20
+    good_spec["coverage"]["clientMethods"]["outgoingRequestCount"] = 21
     good_spec["coverage"]["serverMessages"]["handled"] = handled
     good_spec["coverage"]["serverMessages"]["handledCount"] = 23
 
@@ -1079,6 +1125,33 @@ def self_test() -> None:
 
     errors = validate_spec(good_spec)
     check("good-spec", errors == [], str(errors))
+
+    bad = json.loads(json.dumps(good_spec))
+    get_system_time = next(m for m in bad["clientMethods"] if m["name"] == "getSysTime")
+    get_system_time["replyFields"][0]["presence"] = "optional"
+    err = validate_spec(bad)
+    check("reject-getSysTime-presence-drift", any("getSysTime reply" in e for e in err), str(err))
+
+    bad = json.loads(json.dumps(good_spec))
+    get_system_time = next(m for m in bad["clientMethods"] if m["name"] == "getSysTime")
+    get_system_time["replyShape"]["completeness"] = "partial"
+    err = validate_spec(bad)
+    check("reject-getSysTime-shape-drift", any("getSysTime reply shape" in e for e in err), str(err))
+
+    bad = json.loads(json.dumps(good_spec))
+    bad["docLimitations"] = [
+        item for item in bad["docLimitations"] if item["id"] != SYSTEM_TIME_LIMITATION_ID
+    ]
+    err = validate_spec(bad)
+    check("reject-getSysTime-limitation-drift", any("type-mismatch limitation" in e for e in err), str(err))
+
+    bad = json.loads(json.dumps(good_spec))
+    bad["coverage"]["clientMethods"]["outgoingRequests"].remove("getSysTime")
+    bad["coverage"]["clientMethods"]["outgoingRequestCount"] -= 1
+    bad["coverage"]["metrics"]["outgoingClientMethods"] -= 1
+    next(m for m in bad["clientMethods"] if m["name"] == "getSysTime")["sdk"]["outgoingRequest"] = False
+    err = validate_spec(bad)
+    check("reject-getSysTime-production-coverage-drift", any("getSysTime must be fresh" in e for e in err), str(err))
 
     # Schema/governance mutation regressions. Each mutation must be rejected
     # independently rather than relying on generated counts.
@@ -1220,17 +1293,17 @@ def self_test() -> None:
     err = validate_spec(bad)
     check("reject-reordered-method", any("inventory/order" in e for e in err), str(err))
 
-    # False 21-called: outgoing forced to equal referenced without distinction.
+    # False 22-called: outgoing forced to equal referenced without distinction.
     bad = json.loads(json.dumps(good_spec))
     bad["coverage"]["clientMethods"]["outgoingRequests"] = list(ref_names)
-    bad["coverage"]["clientMethods"]["outgoingRequestCount"] = 21
-    bad["coverage"]["metrics"]["outgoingClientMethods"] = 21
+    bad["coverage"]["clientMethods"]["outgoingRequestCount"] = 22
+    bad["coverage"]["metrics"]["outgoingClientMethods"] = 22
     for method in bad["clientMethods"]:
         method["sdk"]["outgoingRequest"] = method["name"] in ref_names
     err = validate_spec(bad)
     check(
-        "reject-false-21-called",
-        any("outgoing client methods == 20" in e for e in err),
+        "reject-false-22-called",
+        any("outgoing client methods == 21" in e for e in err),
         str(err),
     )
 

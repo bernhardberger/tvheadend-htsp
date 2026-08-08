@@ -276,6 +276,21 @@ DOC_LIMITATIONS = [
         ),
     },
     {
+        "id": "getSysTime-time-type-source-doc-mismatch",
+        "summary": (
+            "The pinned htsp_method_getSysTime source emits time through "
+            "htsmsg_add_s32, while the official Client-to-Server RPC methods "
+            "page specifies required s64 Unix time. This records a source/docs "
+            "evidence mismatch; it is not a decision to coerce or truncate the "
+            "SDK public value."
+        ),
+        "authority": "src/htsp_server.c htsp_method_getSysTime",
+        "docsUrl": (
+            "https://docs.tvheadend.org/documentation/development/htsp/"
+            "client-to-server-rpc-methods"
+        ),
+    },
+    {
         "id": "stopDvrEntry-missing-from-client-docs",
         "summary": (
             "stopDvrEntry is present in the pinned htsp_methods[] dispatch table "
@@ -713,6 +728,9 @@ def apply_field_versions(
 
 
 PRESENCE_ANNOTATIONS: dict[tuple[str, str, str, str], tuple[str, str | None]] = {
+    ("clientMethod", "getSysTime", "reply", "time"): ("required", None),
+    ("clientMethod", "getSysTime", "reply", "timezone"): ("required", None),
+    ("clientMethod", "getSysTime", "reply", "gmtoffset"): ("optional", None),
     ("clientMethod", "subscribe", "request", "subscriptionId"): ("required", None),
     ("clientMethod", "subscribe", "request", "channelId"): ("alternative", "exactly one of channelId or channelName identifies the channel"),
     ("clientMethod", "subscribe", "request", "channelName"): ("alternative", "exactly one of channelId or channelName identifies the channel"),
@@ -951,6 +969,15 @@ def derive_client_methods(server_c: str) -> list[dict[str, Any]]:
             method["replyShape"] = {
                 "kind": "knownEmpty", "completeness": "complete",
                 "evidence": "bounded handler and official method page define no method-specific reply fields",
+            }
+        if name == "getSysTime":
+            method["replyShape"] = {
+                "kind": "fields",
+                "completeness": "complete",
+                "evidence": (
+                    "bounded htsp_method_getSysTime emits exactly time, timezone, "
+                    "and gmtoffset as method-specific reply fields"
+                ),
             }
         if name == "getEpgObject":
             method["replyFields"] = []
@@ -1269,7 +1296,7 @@ def scan_sdk_coverage(
     """Exact-literal coverage over SDK production main sources.
 
     Scans htsp plus playback production main trees so the accepted
-    21-referenced / 20-outgoing / 23-handled metrics remain checkable.
+    22-referenced / 21-outgoing / 23-handled metrics remain checkable.
     Tests and non-production fixtures are excluded.
     """
     method_set = set(client_method_names)
@@ -1773,6 +1800,42 @@ def self_test() -> None:
     check("getEvents-nested", methods_by_name["getEvents"].get("replyShape", {}).get("kind") == "fields")
     check("epgQuery-alternative", methods_by_name["epgQuery"].get("replyShape", {}).get("kind") == "alternative")
     check("cutpoints-shape", "cutpoint" in committed.get("shapes", {}))
+    system_time = methods_by_name["getSysTime"]
+    check(
+        "getSysTime-exact-reply-fields",
+        [
+            (field["name"], field["type"], field["presence"])
+            for field in system_time["replyFields"]
+        ] == [
+            ("time", "s32", "required"),
+            ("timezone", "s32", "required"),
+            ("gmtoffset", "s32", "optional"),
+        ],
+    )
+    check(
+        "getSysTime-complete-reply-shape",
+        system_time.get("replyShape", {}).get("completeness") == "complete",
+    )
+    limitation_ids = {item.get("id") for item in committed.get("docLimitations", [])}
+    check(
+        "getSysTime-source-doc-mismatch-limitation",
+        "getSysTime-time-type-source-doc-mismatch" in limitation_ids,
+    )
+    live_coverage = scan_sdk_coverage(EXPECTED_CLIENT_METHODS, EXPECTED_SERVER_MESSAGES)
+    check(
+        "current-production-coverage",
+        (
+            live_coverage["clientMethods"]["referencedCount"],
+            live_coverage["clientMethods"]["outgoingRequestCount"],
+            live_coverage["serverMessages"]["handledCount"],
+        ) == (22, 21, 23),
+        str(live_coverage.get("metrics")),
+    )
+    check(
+        "getSysTime-current-production-coverage",
+        "getSysTime" in live_coverage["clientMethods"]["referenced"]
+        and "getSysTime" in live_coverage["clientMethods"]["outgoingRequests"],
+    )
 
     with tempfile.TemporaryDirectory(prefix="htsp-pin-regression-") as pin_tmp:
         wrong_manifest = json.loads(UPSTREAM_MANIFEST_PATH.read_text(encoding="utf-8"))
@@ -2026,16 +2089,16 @@ def self_test() -> None:
     # Coverage metric semantics: one referenced method is not an outgoing request.
     fake_coverage = {
         "clientMethods": {
-            "referencedCount": 21,
-            "outgoingRequestCount": 20,
-            "referenced": ["hello"] * 21,
-            "outgoingRequests": ["hello"] * 20,
+            "referencedCount": 22,
+            "outgoingRequestCount": 21,
+            "referenced": ["hello"] * 22,
+            "outgoingRequests": ["hello"] * 21,
         }
     }
     check(
-        "no-false-21-called",
-        fake_coverage["clientMethods"]["outgoingRequestCount"] != 21
-        or fake_coverage["clientMethods"]["referencedCount"] == 21,
+        "no-false-22-called",
+        fake_coverage["clientMethods"]["outgoingRequestCount"] != 22
+        or fake_coverage["clientMethods"]["referencedCount"] == 22,
     )
     check(
         "distinguish-ref-vs-out",
