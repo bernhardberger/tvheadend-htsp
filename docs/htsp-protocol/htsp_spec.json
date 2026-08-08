@@ -636,8 +636,8 @@
         "evidence": "bounded handler/helper extraction plus exact-pin annotations"
       },
       "sdk": {
-        "referenced": false,
-        "outgoingRequest": false
+        "referenced": true,
+        "outgoingRequest": true
       }
     },
     {
@@ -7951,6 +7951,7 @@
         "fileRead",
         "fileSeek",
         "fileStat",
+        "getDiskSpace",
         "getDvrConfigs",
         "getEvents",
         "getProfiles",
@@ -7962,7 +7963,7 @@
         "unsubscribe",
         "updateDvrEntry"
       ],
-      "referencedCount": 20,
+      "referencedCount": 21,
       "outgoingRequests": [
         "addDvrEntry",
         "authenticate",
@@ -7974,6 +7975,7 @@
         "fileRead",
         "fileSeek",
         "fileStat",
+        "getDiskSpace",
         "getDvrConfigs",
         "getEvents",
         "getProfiles",
@@ -7984,10 +7986,9 @@
         "unsubscribe",
         "updateDvrEntry"
       ],
-      "outgoingRequestCount": 19,
+      "outgoingRequestCount": 20,
       "unreferenced": [
         "api",
-        "getDiskSpace",
         "getSysTime",
         "getChannel",
         "getEvent",
@@ -8046,8 +8047,8 @@
       ]
     },
     "metrics": {
-      "referencedClientMethods": 20,
-      "outgoingClientMethods": 19,
+      "referencedClientMethods": 21,
+      "outgoingClientMethods": 20,
       "handledServerMessages": 23,
       "notes": [
         "referenced counts exact string literals in SDK production main sources",
@@ -8058,6 +8059,12 @@
     }
   },
   "docLimitations": [
+    {
+      "id": "getDiskSpace-used-field-missing-from-client-docs",
+      "summary": "The pinned htsp_method_getDiskSpace source emits useddiskspace in addition to freediskspace and totaldiskspace, while the official Client-to-Server RPC methods page documents only the latter two fields.",
+      "authority": "src/htsp_server.c htsp_method_getDiskSpace",
+      "docsUrl": "https://docs.tvheadend.org/documentation/development/htsp/client-to-server-rpc-methods"
+    },
     {
       "id": "stopDvrEntry-missing-from-client-docs",
       "summary": "stopDvrEntry is present in the pinned htsp_methods[] dispatch table but absent from the Client-to-Server RPC methods documentation page.",

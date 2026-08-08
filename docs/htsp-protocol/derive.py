@@ -263,6 +263,19 @@ FIELD_MIN_VERSION: dict[tuple[str, str, str], int] = {
 
 DOC_LIMITATIONS = [
     {
+        "id": "getDiskSpace-used-field-missing-from-client-docs",
+        "summary": (
+            "The pinned htsp_method_getDiskSpace source emits useddiskspace in "
+            "addition to freediskspace and totaldiskspace, while the official "
+            "Client-to-Server RPC methods page documents only the latter two fields."
+        ),
+        "authority": "src/htsp_server.c htsp_method_getDiskSpace",
+        "docsUrl": (
+            "https://docs.tvheadend.org/documentation/development/htsp/"
+            "client-to-server-rpc-methods"
+        ),
+    },
+    {
         "id": "stopDvrEntry-missing-from-client-docs",
         "summary": (
             "stopDvrEntry is present in the pinned htsp_methods[] dispatch table "
@@ -1256,7 +1269,7 @@ def scan_sdk_coverage(
     """Exact-literal coverage over SDK production main sources.
 
     Scans htsp plus playback production main trees so the accepted
-    20-referenced / 19-outgoing / 23-handled metrics remain checkable.
+    21-referenced / 20-outgoing / 23-handled metrics remain checkable.
     Tests and non-production fixtures are excluded.
     """
     method_set = set(client_method_names)
@@ -2010,19 +2023,19 @@ def self_test() -> None:
         check("unknown-type", by_name["b"]["type"] == "unknown")
         check("unknown-confidence", by_name["b"]["confidence"] == "unknown")
 
-    # coverage metric semantics: do not claim 20-called when only 19 outgoing
+    # Coverage metric semantics: one referenced method is not an outgoing request.
     fake_coverage = {
         "clientMethods": {
-            "referencedCount": 20,
-            "outgoingRequestCount": 19,
-            "referenced": ["hello"] * 20,
-            "outgoingRequests": ["hello"] * 19,
+            "referencedCount": 21,
+            "outgoingRequestCount": 20,
+            "referenced": ["hello"] * 21,
+            "outgoingRequests": ["hello"] * 20,
         }
     }
     check(
-        "no-false-20-called",
-        fake_coverage["clientMethods"]["outgoingRequestCount"] != 20
-        or fake_coverage["clientMethods"]["referencedCount"] == 20,
+        "no-false-21-called",
+        fake_coverage["clientMethods"]["outgoingRequestCount"] != 21
+        or fake_coverage["clientMethods"]["referencedCount"] == 21,
     )
     check(
         "distinguish-ref-vs-out",

@@ -447,13 +447,13 @@ def validate_spec(spec: dict[str, Any], upstream: dict[str, Any] | None = None) 
         errors.append("outgoingRequestCount cannot exceed referencedCount")
 
     # Current repository acceptance targets (exact-literal metric).
-    if ref_count not in (None, 20):
+    if ref_count not in (None, 21):
         errors.append(
-            f"expected referenced client methods == 20 under current metric, got {ref_count}"
+            f"expected referenced client methods == 21 under current metric, got {ref_count}"
         )
-    if out_count not in (None, 19):
+    if out_count not in (None, 20):
         errors.append(
-            f"expected outgoing client methods == 19 under current metric, got {out_count}"
+            f"expected outgoing client methods == 20 under current metric, got {out_count}"
         )
     if handled_count not in (None, 23):
         errors.append(
@@ -1007,9 +1007,9 @@ def self_test() -> None:
             "clientMethods": {
                 "total": 39,
                 "referenced": [],
-                "referencedCount": 20,
+                "referencedCount": 21,
                 "outgoingRequests": [],
-                "outgoingRequestCount": 19,
+                "outgoingRequestCount": 20,
                 "unreferenced": [],
             },
             "serverMessages": {
@@ -1019,8 +1019,8 @@ def self_test() -> None:
                 "unhandled": list(EXPECTED_UNHANDLED_MESSAGES),
             },
             "metrics": {
-                "referencedClientMethods": 20,
-                "outgoingClientMethods": 19,
+                "referencedClientMethods": 21,
+                "outgoingClientMethods": 20,
                 "handledServerMessages": 23,
             },
         },
@@ -1029,19 +1029,18 @@ def self_test() -> None:
     }
 
     # Populate inventories with minimal valid entries.
-    ref_names = list(EXPECTED_CLIENT_METHODS[:19]) + ["subscriptionSkip"]
-    # 20 referenced including subscriptionSkip; 19 outgoing without it.
-    out_names = list(EXPECTED_CLIENT_METHODS[:19])
-    # Ensure subscriptionSkip not in first 19 of expected - first 19 don't include it.
-    # EXPECTED has subscriptionSkip at index of subscriptionSkip.
-    out_names = [n for n in EXPECTED_CLIENT_METHODS if n != "subscriptionSkip"][:19]
+    ref_names = list(EXPECTED_CLIENT_METHODS[:20]) + ["subscriptionSkip"]
+    # 21 referenced including subscriptionSkip; 20 outgoing without it.
+    out_names = list(EXPECTED_CLIENT_METHODS[:20])
+    # Ensure subscriptionSkip is omitted from the outgoing fixture.
+    out_names = [n for n in EXPECTED_CLIENT_METHODS if n != "subscriptionSkip"][:20]
     ref_names = out_names + ["subscriptionSkip"]
     handled = [n for n in EXPECTED_SERVER_MESSAGES if n not in EXPECTED_UNHANDLED_MESSAGES]
 
     good_spec["coverage"]["clientMethods"]["referenced"] = ref_names
-    good_spec["coverage"]["clientMethods"]["referencedCount"] = 20
+    good_spec["coverage"]["clientMethods"]["referencedCount"] = 21
     good_spec["coverage"]["clientMethods"]["outgoingRequests"] = out_names
-    good_spec["coverage"]["clientMethods"]["outgoingRequestCount"] = 19
+    good_spec["coverage"]["clientMethods"]["outgoingRequestCount"] = 20
     good_spec["coverage"]["serverMessages"]["handled"] = handled
     good_spec["coverage"]["serverMessages"]["handledCount"] = 23
 
@@ -1221,17 +1220,17 @@ def self_test() -> None:
     err = validate_spec(bad)
     check("reject-reordered-method", any("inventory/order" in e for e in err), str(err))
 
-    # false 20-called: outgoing forced to 20 while claiming called==referenced without distinction
+    # False 21-called: outgoing forced to equal referenced without distinction.
     bad = json.loads(json.dumps(good_spec))
     bad["coverage"]["clientMethods"]["outgoingRequests"] = list(ref_names)
-    bad["coverage"]["clientMethods"]["outgoingRequestCount"] = 20
-    bad["coverage"]["metrics"]["outgoingClientMethods"] = 20
+    bad["coverage"]["clientMethods"]["outgoingRequestCount"] = 21
+    bad["coverage"]["metrics"]["outgoingClientMethods"] = 21
     for method in bad["clientMethods"]:
         method["sdk"]["outgoingRequest"] = method["name"] in ref_names
     err = validate_spec(bad)
     check(
-        "reject-false-20-called",
-        any("outgoing client methods == 19" in e for e in err),
+        "reject-false-21-called",
+        any("outgoing client methods == 20" in e for e in err),
         str(err),
     )
 
