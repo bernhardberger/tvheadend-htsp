@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "repository": "https://github.com/tvheadend/tvheadend",
+  "revision": "27295c5a48f2c575678bb224014cb9a26a773083",
+  "htspProtoVersion": 44,
+  "files": {
+    "src/htsp_server.c": {
+      "gitBlobSha1": "2837efd3b41ae0ba7f82de2853d8a1d4a1ea88e1",
+      "bytes": 134765
+    },
+    "src/htsp_server.h": {
+      "gitBlobSha1": "3b6470d51ab45e1d9bc9bacc710b0e1f6f49b1b0",
+      "bytes": 2050
+    },
+    "lib/py/tvh/htsp.py": {
+      "gitBlobSha1": "bab234beafc924a608e830d32cc4596152df0863",
+      "bytes": 2963,
+      "notes": [
+        "Limited demo client pinned at HTSP_PROTO_VERSION 33.",
+        "Covers only hello, authenticate, and enableAsyncMetadata.",
+        "Never treat as completeness authority."
+      ]
+    }
+  },
+  "docsUrls": {
+    "communication": "https://docs.tvheadend.org/documentation/development/htsp/communication",
+    "clientToServer": "https://docs.tvheadend.org/documentation/development/htsp/client-to-server-rpc-methods",
+    "serverToClient": "https://docs.tvheadend.org/documentation/development/htsp/server-to-client-methods",
+    "protocolChanges": "https://docs.tvheadend.org/documentation/development/htsp/protocol-changes"
+  }
+}
