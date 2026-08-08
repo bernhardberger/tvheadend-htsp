@@ -256,6 +256,9 @@ FIELD_MIN_VERSION: dict[tuple[str, str, str], int] = {
     ("clientMethod", "authenticate", "limitstreaming"): 26,
     ("clientMethod", "authenticate", "uilevel"): 26,
     ("clientMethod", "authenticate", "uilanguage"): 26,
+    ("clientMethod", "getChannel", "channelIdStr"): 41,
+    ("serverMessage", "channelAdd", "channelIdStr"): 41,
+    ("serverMessage", "channelUpdate", "channelIdStr"): 41,
     ("serverMessage", "signalStatus", "feAbsoluteSNR"): 44,
     ("serverMessage", "signalStatus", "feAbsoluteSignal"): 44,
     ("serverMessage", "descrambleInfo", "subscriptionId"): 24,
@@ -288,6 +291,22 @@ DOC_LIMITATIONS = [
         "docsUrl": (
             "https://docs.tvheadend.org/documentation/development/htsp/"
             "client-to-server-rpc-methods"
+        ),
+    },
+    {
+        "id": "channel-service-fields-underdocumented",
+        "summary": (
+            "The pinned htsp_build_channel source always emits service name, "
+            "type, and u32 content; conditionally emits caid, caname, dynamic "
+            "hbbtv, and providername. The official Server-to-Client methods "
+            "channelAdd section is the governing field list and omits "
+            "current-source content and hbbtv; hbbtv therefore remains "
+            "explicitly opaque."
+        ),
+        "authority": "src/htsp_server.c htsp_build_channel",
+        "docsUrl": (
+            "https://docs.tvheadend.org/documentation/development/htsp/"
+            "server-to-client-methods"
         ),
     },
     {
@@ -826,6 +845,41 @@ def field_shape(fields: list[dict[str, Any]], completeness: str = "partial") -> 
     }
 
 
+def require_channel_builder_source_facts(server_c: str) -> None:
+    """Reject drift in the bounded getChannel/channel-service source shape."""
+    body = find_function_body(server_c, "htsp_build_channel")
+    if body is None:
+        raise ValueError("htsp_build_channel body not found")
+    expected_adds = (
+        ("channelId", "u32"),
+        ("channelIdStr", "str2?"),
+        ("channelNumber", "u32"),
+        ("channelNumberMinor", "u32"),
+        ("channelName", "str2?"),
+        ("channelIcon", "str2?"),
+        ("eventId", "u32"),
+        ("nextEventId", "u32"),
+        ("services", "msg"),
+        ("tags", "msg"),
+        ("name", "str2?"),
+        ("type", "str2?"),
+        ("content", "u32"),
+        ("caid", "u32"),
+        ("caname", "str2?"),
+        ("hbbtv", "msg"),
+        ("providername", "str2?"),
+    )
+    for field_name, type_pattern in expected_adds:
+        pattern = (
+            rf'htsmsg_add_{type_pattern}(?:_(?:alloc|ptr))?\('
+            rf'\s*[A-Za-z_][A-Za-z0-9_]*\s*,\s*"{re.escape(field_name)}"'
+        )
+        if re.search(pattern, body) is None:
+            raise ValueError(
+                f"htsp_build_channel missing bounded source field {field_name}"
+            )
+
+
 def helper_bodies(server_c: str, names: tuple[str, ...]) -> list[str]:
     bodies = []
     for name in names:
@@ -889,11 +943,51 @@ def derive_client_methods(server_c: str) -> list[dict[str, Any]]:
                 request_fields,
             )
         if name in {"getChannel"}:
-            build_body = find_function_body(server_c, "htsp_build_channel") or ""
-            reply_fields = merge_field_lists(
-                reply_fields,
-                extract_add_fields(build_body, ("out",)),
-            )
+            require_channel_builder_source_facts(server_c)
+            if [(field["name"], field["type"]) for field in request_fields] != [
+                ("channelId", "u32")
+            ]:
+                raise ValueError("htsp_method_getChannel request shape drift")
+            request_fields = [exact_field(
+                "channelId", "u32", "request", "required",
+                "htsp_method_getChannel requires htsmsg_get_u32 channelId",
+            )]
+            reply_fields = [
+                exact_field("channelId", "u32", "reply", "required", "htsp_build_channel unconditional field"),
+                exact_field(
+                    "channelIdStr", "str", "reply", "conditional",
+                    "pinned current htsp_build_channel unconditionally emits channelIdStr; v41 is historical compatibility evidence",
+                    condition=(
+                        "required for negotiated protocol version 41 or newer; "
+                        "may be absent from older server implementations "
+                        "supporting versions 14 through 40"
+                    ),
+                ),
+                exact_field("channelNumber", "u32", "reply", "required", "htsp_build_channel unconditional field"),
+                exact_field(
+                    "channelNumberMinor", "u32", "reply", "conditional",
+                    "htsp_build_channel nonzero branch",
+                    condition="emitted when the channel minor number is nonzero",
+                ),
+                exact_field("channelName", "str", "reply", "required", "htsp_build_channel unconditional field"),
+                exact_field(
+                    "channelIcon", "str", "reply", "conditional",
+                    "htsp_build_channel present-icon branch",
+                    condition="emitted when the channel has an icon",
+                ),
+                exact_field("eventId", "u32", "reply", "required", "htsp_build_channel emits zero when no current event exists"),
+                exact_field("nextEventId", "u32", "reply", "required", "htsp_build_channel emits zero when no next event exists"),
+                exact_field(
+                    "services", "list", "reply", "required",
+                    "htsp_build_channel always adds the service list",
+                    shape_ref="service",
+                ),
+                exact_field(
+                    "tags", "list", "reply", "required",
+                    "htsp_build_channel always adds the tag-id list",
+                    shape_ref="u32",
+                ),
+            ]
         if name in {"getEvent"}:
             build_body = find_function_body(server_c, "htsp_build_event") or ""
             reply_fields = merge_field_lists(
@@ -978,6 +1072,17 @@ def derive_client_methods(server_c: str) -> list[dict[str, Any]]:
                     "bounded htsp_method_getSysTime emits exactly time, timezone, "
                     "and gmtoffset as method-specific reply fields"
                 ),
+            }
+        if name == "getChannel":
+            method["requestShape"] = {
+                "kind": "fields",
+                "completeness": "complete",
+                "evidence": "bounded htsp_method_getChannel accepts exactly required channelId",
+            }
+            method["replyShape"] = {
+                "kind": "fields",
+                "completeness": "complete",
+                "evidence": "bounded htsp_method_getChannel delegates its complete reply to htsp_build_channel",
             }
         if name == "getEpgObject":
             method["replyFields"] = []
@@ -1296,7 +1401,7 @@ def scan_sdk_coverage(
     """Exact-literal coverage over SDK production main sources.
 
     Scans htsp plus playback production main trees so the accepted
-    22-referenced / 21-outgoing / 23-handled metrics remain checkable.
+    23-referenced / 22-outgoing / 23-handled metrics remain checkable.
     Tests and non-production fixtures are excluded.
     """
     method_set = set(client_method_names)
@@ -1586,9 +1691,39 @@ def build_spec(
                 "kind": "object", "completeness": "opaque",
                 "evidence": "nested profile maps are intentionally not expanded in this artifact",
             }),
-            ("service", {
+            ("hbbtvDynamic", {
                 "kind": "object", "completeness": "opaque",
-                "evidence": "nested channel service maps are intentionally not expanded in this artifact",
+                "evidence": "current channel service hbbtv data is dynamic and deliberately bounded opaque",
+            }),
+            ("service", {
+                "kind": "object", "completeness": "complete",
+                "evidence": "bounded current-source service object emitted by htsp_build_channel",
+                "fields": [
+                    exact_field("name", "str", "nested", "required", "htsp_build_channel unconditional service field"),
+                    exact_field("type", "str", "nested", "required", "htsp_build_channel unconditional service field"),
+                    exact_field("content", "u32", "nested", "required", "htsp_build_channel unconditional service field"),
+                    exact_field(
+                        "caid", "u32", "nested", "conditional",
+                        "htsp_build_channel encrypted-service branch",
+                        condition="emitted for an encrypted service when conditional-access data is available",
+                    ),
+                    exact_field(
+                        "caname", "str", "nested", "conditional",
+                        "htsp_build_channel encrypted-service branch",
+                        condition="emitted for an encrypted service when the conditional-access name is available",
+                    ),
+                    exact_field(
+                        "hbbtv", "msg", "nested", "conditional",
+                        "htsp_build_channel dynamic HbbTV branch",
+                        condition="emitted when dynamic HbbTV service data is available",
+                        shape_ref="hbbtvDynamic",
+                    ),
+                    exact_field(
+                        "providername", "str", "nested", "conditional",
+                        "htsp_build_channel provider branch",
+                        condition="emitted when the service provider name is available",
+                    ),
+                ],
             }),
             ("recordingFile", {
                 "kind": "object", "completeness": "opaque",
@@ -1660,6 +1795,7 @@ def _minimal_server_c(
     )
     handlers = []
     for name, handler, _access in methods:
+        request_field = "channelId" if name == "getChannel" else "demoField"
         handlers.append(
             f"""
 static htsmsg_t *
@@ -1667,7 +1803,7 @@ static htsmsg_t *
 {{
   uint32_t v;
   htsmsg_t *r = htsmsg_create_map();
-  if(!htsmsg_get_u32(in, "demoField", &v))
+  if(!htsmsg_get_u32(in, "{request_field}", &v))
     htsmsg_add_u32(r, "demoReply", v);
   (void)htsp; (void)name_{name};
   return r;
@@ -1706,7 +1842,24 @@ static void emit_all(void) {
 }
 static htsmsg_t *htsp_build_channel(void *ch, const char *method, void *htsp) {
   htsmsg_t *out = htsmsg_create_map();
+  htsmsg_t *svc = htsmsg_create_map();
   htsmsg_add_u32(out, "channelId", 1);
+  htsmsg_add_str(out, "channelIdStr", "uuid");
+  htsmsg_add_u32(out, "channelNumber", 1);
+  htsmsg_add_u32(out, "channelNumberMinor", 1);
+  htsmsg_add_str(out, "channelName", "name");
+  htsmsg_add_str(out, "channelIcon", "icon");
+  htsmsg_add_u32(out, "eventId", 0);
+  htsmsg_add_u32(out, "nextEventId", 0);
+  htsmsg_add_str(svc, "name", "service");
+  htsmsg_add_str(svc, "type", "SDTV");
+  htsmsg_add_u32(svc, "content", 0);
+  htsmsg_add_u32(svc, "caid", 0);
+  htsmsg_add_str(svc, "caname", "ca");
+  htsmsg_add_msg(svc, "hbbtv", htsmsg_create_map());
+  htsmsg_add_str(svc, "providername", "provider");
+  htsmsg_add_msg(out, "services", htsmsg_create_list());
+  htsmsg_add_msg(out, "tags", htsmsg_create_list());
   htsmsg_add_str(out, "method", method);
   return out;
 }
@@ -1828,13 +1981,48 @@ def self_test() -> None:
             live_coverage["clientMethods"]["referencedCount"],
             live_coverage["clientMethods"]["outgoingRequestCount"],
             live_coverage["serverMessages"]["handledCount"],
-        ) == (22, 21, 23),
+        ) == (23, 22, 23),
         str(live_coverage.get("metrics")),
     )
     check(
         "getSysTime-current-production-coverage",
         "getSysTime" in live_coverage["clientMethods"]["referenced"]
         and "getSysTime" in live_coverage["clientMethods"]["outgoingRequests"],
+    )
+    get_channel = methods_by_name["getChannel"]
+    check(
+        "getChannel-exact-request-shape",
+        [(field["name"], field["type"], field["presence"]) for field in get_channel["requestFields"]]
+        == [("channelId", "u32", "required")]
+        and get_channel.get("requestShape", {}).get("completeness") == "complete",
+    )
+    check(
+        "getChannel-complete-nested-reply-shape",
+        get_channel.get("replyShape", {}).get("completeness") == "complete"
+        and next(field for field in get_channel["replyFields"] if field["name"] == "services").get("shapeRef") == "service"
+        and next(field for field in get_channel["replyFields"] if field["name"] == "tags").get("shapeRef") == "u32",
+    )
+    service_shape = committed.get("shapes", {}).get("service", {})
+    check(
+        "channel-service-bounded-source-shape",
+        [field.get("name") for field in service_shape.get("fields", [])]
+        == ["name", "type", "content", "caid", "caname", "hbbtv", "providername"]
+        and next(field for field in service_shape.get("fields", []) if field.get("name") == "hbbtv").get("shapeRef") == "hbbtvDynamic",
+    )
+    check(
+        "channel-service-doc-limitation",
+        "channel-service-fields-underdocumented" in limitation_ids,
+    )
+    check(
+        "getChannel-current-production-coverage",
+        (
+            live_coverage["clientMethods"]["referencedCount"],
+            live_coverage["clientMethods"]["outgoingRequestCount"],
+            live_coverage["serverMessages"]["handledCount"],
+        ) == (23, 22, 23)
+        and "getChannel" in live_coverage["clientMethods"]["referenced"]
+        and "getChannel" in live_coverage["clientMethods"]["outgoingRequests"],
+        str(live_coverage.get("metrics")),
     )
 
     with tempfile.TemporaryDirectory(prefix="htsp-pin-regression-") as pin_tmp:
@@ -1958,6 +2146,36 @@ def self_test() -> None:
             == list(EXPECTED_SERVER_MESSAGES),
         )
         check("proto", spec["upstream"]["htspProtoVersion"] == 44)
+
+        for label, mutated_c, expected_error in (
+            (
+                "reject-getChannel-request-source-drift",
+                server_c.replace(
+                    'htsmsg_get_u32(in, "channelId"',
+                    'htsmsg_get_u32(in, "staleChannelId"',
+                    1,
+                ),
+                "request shape drift",
+            ),
+            (
+                "reject-omitted-channel-service-source-field",
+                server_c.replace('  htsmsg_add_u32(svc, "content", 0);\n', "", 1),
+                "bounded source field content",
+            ),
+        ):
+            mutated_data, mutated_sha, mutated_len = _pin_bytes_and_sha(mutated_c)
+            (root / "src" / "htsp_server.c").write_bytes(mutated_data)
+            mutated_manifest = json.loads(json.dumps(manifest))
+            mutated_manifest["files"]["src/htsp_server.c"] = {
+                "gitBlobSha1": mutated_sha,
+                "bytes": mutated_len,
+            }
+            try:
+                build_spec(root, mutated_manifest, enforce_exact_pin=False)
+                check(label, False, "stale bounded getChannel source accepted")
+            except ValueError as exc:
+                check(label, expected_error in str(exc), str(exc))
+        (root / "src" / "htsp_server.c").write_bytes(c_data)
 
         # wrong protocol version
         bad_proto_manifest = json.loads(json.dumps(manifest))

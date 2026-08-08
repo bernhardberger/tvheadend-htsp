@@ -103,6 +103,9 @@ EXPECTED_UNHANDLED_MESSAGES = (
 )
 
 EXPECTED_FIELD_SHAPE_REFS: tuple[tuple[str, str, str, str, str], ...] = (
+    ("shape", "service", "fields", "hbbtv", "hbbtvDynamic"),
+    ("clientMethod", "getChannel", "replyFields", "services", "service"),
+    ("clientMethod", "getChannel", "replyFields", "tags", "u32"),
     ("clientMethod", "getEvents", "replyFields", "events", "event"),
     ("clientMethod", "epgQuery", "replyFields", "eventIds", "u32"),
     ("clientMethod", "epgQuery", "replyFields", "events", "event"),
@@ -146,6 +149,26 @@ EXPECTED_DOCS_URLS = {
 }
 EXPECTED_SCAN_ROOTS = ["sdk/htsp/src/main", "sdk/playback-media3/src/main"]
 SYSTEM_TIME_LIMITATION_ID = "getSysTime-time-type-source-doc-mismatch"
+CHANNEL_SERVICE_LIMITATION_ID = "channel-service-fields-underdocumented"
+CHANNEL_ID_STR_EVIDENCE = (
+    "pinned current htsp_build_channel unconditionally emits channelIdStr; "
+    "v41 is historical compatibility evidence"
+)
+CHANNEL_ID_STR_CONDITION = (
+    "required for negotiated protocol version 41 or newer; may be absent from "
+    "older server implementations supporting versions 14 through 40"
+)
+CHANNEL_SERVICE_DOCS_URL = (
+    "https://docs.tvheadend.org/documentation/development/htsp/"
+    "server-to-client-methods"
+)
+CHANNEL_SERVICE_SUMMARY = (
+    "The pinned htsp_build_channel source always emits service name, type, and "
+    "u32 content; conditionally emits caid, caname, dynamic hbbtv, and "
+    "providername. The official Server-to-Client methods channelAdd section is "
+    "the governing field list and omits current-source content and hbbtv; hbbtv "
+    "therefore remains explicitly opaque."
+)
 WIRE_TYPES = {"u32", "s32", "s64", "str", "bin", "msg", "list", "bool", "dbl", "uuid", "unknown"}
 PRESENCE_VALUES = {"required", "optional", "conditional", "alternative", "unknown"}
 COMPLETENESS_VALUES = {"complete", "partial", "opaque"}
@@ -404,6 +427,71 @@ def validate_spec(spec: dict[str, Any], upstream: dict[str, Any] | None = None) 
     if system_time.get("replyShape", {}).get("kind") != "fields" or system_time.get("replyShape", {}).get("completeness") != "complete":
         errors.append("getSysTime reply shape must be fields/complete")
 
+    get_channel = method_map.get("getChannel", {})
+    channel_request_fields = [
+        (field.get("name"), field.get("type"), field.get("presence"))
+        for field in get_channel.get("requestFields", [])
+    ]
+    if channel_request_fields != [("channelId", "u32", "required")]:
+        errors.append("getChannel request must contain exactly required u32 channelId")
+    if get_channel.get("requestShape", {}).get("kind") != "fields" or get_channel.get("requestShape", {}).get("completeness") != "complete":
+        errors.append("getChannel request shape must be fields/complete")
+    channel_reply_fields = [
+        (
+            field.get("name"),
+            field.get("type"),
+            field.get("presence"),
+            field.get("shapeRef"),
+            field.get("minVersion"),
+        )
+        for field in get_channel.get("replyFields", [])
+    ]
+    if channel_reply_fields != [
+        ("channelId", "u32", "required", None, None),
+        ("channelIdStr", "str", "conditional", None, 41),
+        ("channelNumber", "u32", "required", None, None),
+        ("channelNumberMinor", "u32", "conditional", None, None),
+        ("channelName", "str", "required", None, None),
+        ("channelIcon", "str", "conditional", None, None),
+        ("eventId", "u32", "required", None, None),
+        ("nextEventId", "u32", "required", None, None),
+        ("services", "list", "required", "service", None),
+        ("tags", "list", "required", "u32", None),
+    ]:
+        errors.append("getChannel reply fields must preserve exact bounded shape, requiredness, and shape refs")
+    channel_id_str = next(
+        (field for field in get_channel.get("replyFields", []) if field.get("name") == "channelIdStr"),
+        {},
+    )
+    if channel_id_str.get("evidence") != CHANNEL_ID_STR_EVIDENCE:
+        errors.append("getChannel.channelIdStr must distinguish unconditional pinned-current-source emission from historical v41 evidence")
+    if channel_id_str.get("condition") != CHANNEL_ID_STR_CONDITION:
+        errors.append("getChannel.channelIdStr must preserve exact v41 and older-server compatibility wording")
+    if get_channel.get("replyShape", {}).get("kind") != "fields" or get_channel.get("replyShape", {}).get("completeness") != "complete":
+        errors.append("getChannel reply shape must be fields/complete")
+    channel_update_shape = message_map.get("channelUpdate", {}).get("messageShape", {})
+    if channel_update_shape.get("kind") != "fields" or channel_update_shape.get("completeness") != "partial":
+        errors.append("channelUpdate message shape must remain fields/partial")
+
+    service_shape = shapes.get("service") or {}
+    service_fields = [
+        (field.get("name"), field.get("type"), field.get("presence"), field.get("shapeRef"))
+        for field in service_shape.get("fields", [])
+    ]
+    if service_shape.get("kind") != "object" or service_shape.get("completeness") != "complete" or service_fields != [
+        ("name", "str", "required", None),
+        ("type", "str", "required", None),
+        ("content", "u32", "required", None),
+        ("caid", "u32", "conditional", None),
+        ("caname", "str", "conditional", None),
+        ("hbbtv", "msg", "conditional", "hbbtvDynamic"),
+        ("providername", "str", "conditional", None),
+    ]:
+        errors.append("service shape must preserve the complete bounded current-source object")
+    hbbtv_shape = shapes.get("hbbtvDynamic") or {}
+    if hbbtv_shape.get("kind") != "object" or hbbtv_shape.get("completeness") != "opaque" or "fields" in hbbtv_shape:
+        errors.append("hbbtvDynamic must remain an explicit opaque object shape")
+
     coverage = spec.get("coverage") or {}
     client_cov = coverage.get("clientMethods") or {}
     server_cov = coverage.get("serverMessages") or {}
@@ -463,13 +551,13 @@ def validate_spec(spec: dict[str, Any], upstream: dict[str, Any] | None = None) 
         errors.append("outgoingRequestCount cannot exceed referencedCount")
 
     # Current repository acceptance targets (exact-literal metric).
-    if ref_count not in (None, 22):
+    if ref_count not in (None, 23):
         errors.append(
-            f"expected referenced client methods == 22 under current metric, got {ref_count}"
+            f"expected referenced client methods == 23 under current metric, got {ref_count}"
         )
-    if out_count not in (None, 21):
+    if out_count not in (None, 22):
         errors.append(
-            f"expected outgoing client methods == 21 under current metric, got {out_count}"
+            f"expected outgoing client methods == 22 under current metric, got {out_count}"
         )
     if handled_count not in (None, 23):
         errors.append(
@@ -489,6 +577,8 @@ def validate_spec(spec: dict[str, Any], upstream: dict[str, Any] | None = None) 
         errors.append("subscriptionSeek must be the outgoing seek synonym")
     if "getSysTime" not in referenced_list or "getSysTime" not in outgoing_list:
         errors.append("getSysTime must be fresh referenced and outgoing production coverage")
+    if "getChannel" not in referenced_list or "getChannel" not in outgoing_list:
+        errors.append("getChannel must be fresh referenced and outgoing production coverage")
 
     # sdk flags must match coverage lists
     ref_set = set(client_cov.get("referenced") or [])
@@ -545,6 +635,16 @@ def validate_spec(spec: dict[str, Any], upstream: dict[str, Any] | None = None) 
             for token in ("htsmsg_add_s32", "s64 Unix time", "not a decision to coerce or truncate")
         ):
             errors.append("getSysTime source/docs type-mismatch limitation is missing or incomplete")
+        channel_service_limitation = next(
+            (item for item in limitations if isinstance(item, dict) and item.get("id") == CHANNEL_SERVICE_LIMITATION_ID),
+            None,
+        )
+        if not channel_service_limitation or (
+            channel_service_limitation.get("summary") != CHANNEL_SERVICE_SUMMARY
+            or channel_service_limitation.get("authority") != "src/htsp_server.c htsp_build_channel"
+            or channel_service_limitation.get("docsUrl") != CHANNEL_SERVICE_DOCS_URL
+        ):
+            errors.append("channel service limitation must identify the governing Server-to-Client channelAdd documentation")
 
     global_rpc = spec.get("globalRpc") or {}
     if set(global_rpc) != {"requestFields", "replyFields"}:
@@ -1126,6 +1226,140 @@ def self_test() -> None:
     errors = validate_spec(good_spec)
     check("good-spec", errors == [], str(errors))
 
+    get_channel = next(m for m in good_spec["clientMethods"] if m["name"] == "getChannel")
+    check(
+        "getChannel-fresh-shape",
+        get_channel.get("requestShape", {}).get("completeness") == "complete"
+        and get_channel.get("replyShape", {}).get("completeness") == "complete"
+        and next(f for f in get_channel["replyFields"] if f["name"] == "services").get("shapeRef") == "service"
+        and next(f for f in get_channel["replyFields"] if f["name"] == "tags").get("shapeRef") == "u32",
+    )
+    check(
+        "getChannel-fresh-coverage",
+        good_spec["coverage"]["clientMethods"]["referencedCount"] == 23
+        and good_spec["coverage"]["clientMethods"]["outgoingRequestCount"] == 22
+        and "getChannel" in good_spec["coverage"]["clientMethods"]["outgoingRequests"],
+    )
+
+    channel_id_str = next(f for f in get_channel["replyFields"] if f["name"] == "channelIdStr")
+    check(
+        "getChannel-channelIdStr-current-source-history-distinction",
+        channel_id_str.get("evidence") == CHANNEL_ID_STR_EVIDENCE
+        and channel_id_str.get("condition") == CHANNEL_ID_STR_CONDITION,
+    )
+
+    bad = json.loads(json.dumps(good_spec))
+    get_channel_bad = next(m for m in bad["clientMethods"] if m["name"] == "getChannel")
+    next(f for f in get_channel_bad["replyFields"] if f["name"] == "channelIdStr")["evidence"] = "htsp_build_channel protocol-version branch"
+    err = validate_spec(bad)
+    check(
+        "reject-invented-channelIdStr-current-source-version-branch",
+        any("unconditional pinned-current-source" in e for e in err),
+        str(err),
+    )
+
+    bad = json.loads(json.dumps(good_spec))
+    get_channel_bad = next(m for m in bad["clientMethods"] if m["name"] == "getChannel")
+    next(f for f in get_channel_bad["replyFields"] if f["name"] == "channelIdStr")["condition"] = "required for negotiated protocol version 41 or newer; absent on older supported versions"
+    err = validate_spec(bad)
+    check(
+        "reject-categorical-channelIdStr-older-version-absence",
+        any("older-server compatibility wording" in e for e in err),
+        str(err),
+    )
+
+    channel_limitation = next(
+        item for item in good_spec["docLimitations"]
+        if item["id"] == CHANNEL_SERVICE_LIMITATION_ID
+    )
+    check(
+        "channel-service-governing-server-to-client-channelAdd-docs",
+        channel_limitation.get("summary") == CHANNEL_SERVICE_SUMMARY
+        and channel_limitation.get("docsUrl") == CHANNEL_SERVICE_DOCS_URL,
+    )
+
+    bad = json.loads(json.dumps(good_spec))
+    next(
+        item for item in bad["docLimitations"]
+        if item["id"] == CHANNEL_SERVICE_LIMITATION_ID
+    )["docsUrl"] = EXPECTED_DOCS_URLS["clientToServer"]
+    err = validate_spec(bad)
+    check(
+        "reject-channel-service-client-to-server-url",
+        any("governing Server-to-Client channelAdd" in e for e in err),
+        str(err),
+    )
+
+    bad = json.loads(json.dumps(good_spec))
+    next(
+        item for item in bad["docLimitations"]
+        if item["id"] == CHANNEL_SERVICE_LIMITATION_ID
+    )["summary"] = CHANNEL_SERVICE_SUMMARY.replace(
+        "Server-to-Client methods channelAdd section",
+        "Client-to-Server RPC methods page",
+    )
+    err = validate_spec(bad)
+    check(
+        "reject-channel-service-client-rpc-governing-wording",
+        any("governing Server-to-Client channelAdd" in e for e in err),
+        str(err),
+    )
+
+    bad = json.loads(json.dumps(good_spec))
+    next(m for m in bad["clientMethods"] if m["name"] == "getChannel")["requestFields"][0]["presence"] = "optional"
+    err = validate_spec(bad)
+    check("reject-getChannel-requiredness-drift", any("exactly required" in e for e in err), str(err))
+
+    bad = json.loads(json.dumps(good_spec))
+    get_channel_bad = next(m for m in bad["clientMethods"] if m["name"] == "getChannel")
+    next(f for f in get_channel_bad["replyFields"] if f["name"] == "services").pop("shapeRef")
+    err = validate_spec(bad)
+    check("reject-getChannel-missing-shape-ref", any("shape ref" in e or "shapeRef" in e for e in err), str(err))
+
+    bad = json.loads(json.dumps(good_spec))
+    get_channel_bad = next(m for m in bad["clientMethods"] if m["name"] == "getChannel")
+    next(f for f in get_channel_bad["replyFields"] if f["name"] == "tags")["shapeRef"] = "service"
+    err = validate_spec(bad)
+    check("reject-getChannel-wrong-shape-ref", any("shape ref" in e or "shapeRef" in e for e in err), str(err))
+
+    bad = json.loads(json.dumps(good_spec))
+    bad["shapes"]["service"]["fields"] = [
+        field for field in bad["shapes"]["service"]["fields"] if field["name"] != "content"
+    ]
+    for order, field in enumerate(bad["shapes"]["service"]["fields"], start=1):
+        field["order"] = order
+    err = validate_spec(bad)
+    check("reject-omitted-service-source-field", any("service shape" in e for e in err), str(err))
+
+    bad = json.loads(json.dumps(good_spec))
+    next(m for m in bad["clientMethods"] if m["name"] == "getChannel")["replyShape"]["completeness"] = "partial"
+    err = validate_spec(bad)
+    check("reject-getChannel-stale-incompleteness", any("reply shape" in e for e in err), str(err))
+
+    bad = json.loads(json.dumps(good_spec))
+    next(m for m in bad["serverMessages"] if m["name"] == "channelUpdate")["messageShape"]["completeness"] = "complete"
+    err = validate_spec(bad)
+    check("reject-channelUpdate-false-completeness", any("channelUpdate message shape" in e for e in err), str(err))
+
+    bad = json.loads(json.dumps(good_spec))
+    bad["docLimitations"] = [
+        item for item in bad["docLimitations"] if item["id"] != CHANNEL_SERVICE_LIMITATION_ID
+    ]
+    err = validate_spec(bad)
+    check("reject-channel-service-missing-limitation", any("channel service" in e for e in err), str(err))
+
+    bad = json.loads(json.dumps(good_spec))
+    bad["coverage"]["clientMethods"]["referenced"].remove("getChannel")
+    bad["coverage"]["clientMethods"]["referencedCount"] -= 1
+    bad["coverage"]["clientMethods"]["outgoingRequests"].remove("getChannel")
+    bad["coverage"]["clientMethods"]["outgoingRequestCount"] -= 1
+    bad["coverage"]["metrics"]["referencedClientMethods"] -= 1
+    bad["coverage"]["metrics"]["outgoingClientMethods"] -= 1
+    get_channel_bad = next(m for m in bad["clientMethods"] if m["name"] == "getChannel")
+    get_channel_bad["sdk"] = {"referenced": False, "outgoingRequest": False}
+    err = validate_spec(bad)
+    check("reject-getChannel-stale-live-coverage", any("getChannel must be fresh" in e for e in err), str(err))
+
     bad = json.loads(json.dumps(good_spec))
     get_system_time = next(m for m in bad["clientMethods"] if m["name"] == "getSysTime")
     get_system_time["replyFields"][0]["presence"] = "optional"
@@ -1293,17 +1527,17 @@ def self_test() -> None:
     err = validate_spec(bad)
     check("reject-reordered-method", any("inventory/order" in e for e in err), str(err))
 
-    # False 22-called: outgoing forced to equal referenced without distinction.
+    # False all-called: outgoing forced to equal referenced without distinction.
     bad = json.loads(json.dumps(good_spec))
     bad["coverage"]["clientMethods"]["outgoingRequests"] = list(ref_names)
-    bad["coverage"]["clientMethods"]["outgoingRequestCount"] = 22
-    bad["coverage"]["metrics"]["outgoingClientMethods"] = 22
+    bad["coverage"]["clientMethods"]["outgoingRequestCount"] = len(ref_names)
+    bad["coverage"]["metrics"]["outgoingClientMethods"] = len(ref_names)
     for method in bad["clientMethods"]:
         method["sdk"]["outgoingRequest"] = method["name"] in ref_names
     err = validate_spec(bad)
     check(
-        "reject-false-22-called",
-        any("outgoing client methods == 21" in e for e in err),
+        "reject-false-all-called",
+        any("outgoing client methods == 22" in e for e in err),
         str(err),
     )
 

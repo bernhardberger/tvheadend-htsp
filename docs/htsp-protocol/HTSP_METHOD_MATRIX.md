@@ -16,8 +16,8 @@ Primary authority is the pinned TVHeadend server source. Official HTSP documenta
 
 ## SDK coverage (exact-literal metric)
 
-- Client→server methods referenced in production sources: **22 / 39**
-- Distinct outgoing request names: **21 / 39**
+- Client→server methods referenced in production sources: **23 / 39**
+- Distinct outgoing request names: **22 / 39**
 - Server→client messages handled (exact literal): **23 / 30**
 - Distinguish **referenced** from **outgoing**: a name can appear because an inbound handler mentions it (for example `subscriptionSkip`) while the client sends a synonym (`subscriptionSeek`).
 - Never claim methods are implemented/called merely because they are referenced.
@@ -51,7 +51,7 @@ These fields are protocol-wide and are **not** method-specific success fields.
 | 4 | `getDiskSpace` | `ACCESS_HTSP_STREAMING` | 3 (annotated) | yes | yes | _knownEmpty/complete_ | `freediskspace`:s64 [unknown], `useddiskspace`:s64 [unknown], `totaldiskspace`:s64 [unknown] — fields/partial |
 | 5 | `getSysTime` | `ACCESS_HTSP_STREAMING` | 3 (annotated) | yes | yes | _knownEmpty/complete_ | `time`:s32 [required], `timezone`:s32 [required], `gmtoffset`:s32 [optional] — fields/complete |
 | 6 | `enableAsyncMetadata` | `ACCESS_HTSP_STREAMING` | — | yes | yes | `epg`:u32 [unknown], `lastUpdate`:s64 [unknown], `epgMaxTime`:s64 [unknown], `language`:str [unknown] — fields/partial | _knownEmpty/complete_ |
-| 7 | `getChannel` | `ACCESS_HTSP_STREAMING` | 14 (annotated) |  |  | `channelId`:u32 [unknown] — fields/partial | `channelId`:u32 [unknown], `channelIdStr`:str [unknown], `channelNumber`:u32 [unknown], `channelNumberMinor`:u32 [unknown], `channelName`:str [unknown], `channelIcon`:str [unknown], `eventId`:u32 [unknown], `nextEventId`:u32 [unknown], `services`:msg [unknown], `tags`:msg [unknown] — fields/partial |
+| 7 | `getChannel` | `ACCESS_HTSP_STREAMING` | 14 (annotated) | yes | yes | `channelId`:u32 [required] — fields/complete | `channelId`:u32 [required], `channelIdStr`:str [conditional] ≥v41, `channelNumber`:u32 [required], `channelNumberMinor`:u32 [conditional], `channelName`:str [required], `channelIcon`:str [conditional], `eventId`:u32 [required], `nextEventId`:u32 [required], `services`:list [required] → `service`, `tags`:list [required] → `u32` — fields/complete |
 | 8 | `getEvent` | `ACCESS_HTSP_STREAMING` | — |  |  | `eventId`:u32 [unknown], `language`:str [unknown] — fields/partial | `eventId`:u32 [unknown], `channelId`:u32 [unknown], `start`:s64 [unknown], `stop`:s64 [unknown], `title`:str [unknown], `description`:str [unknown], `summary`:str [unknown], `subtitle`:str [unknown], `credits`:msg [unknown], `serieslinkUri`:str [unknown], `episodeUri`:str [unknown], `contentType`:u32 [unknown], `ageRating`:u32 [unknown], `ratingLabel`:str [unknown], `ratingIcon`:str [unknown], `ratingAuthority`:str [unknown], `ratingCountry`:str [unknown], `starRating`:u32 [unknown], `copyrightYear`:u32 [unknown], `firstAired`:s64 [unknown], `isNew`:u32 [unknown], `image`:str [unknown], `dvrId`:u32 [unknown], `nextEventId`:u32 [unknown] — fields/partial |
 | 9 | `getEvents` | `ACCESS_HTSP_STREAMING` | 4 (annotated) | yes | yes | `channelId`:u32 [unknown], `eventId`:u32 [unknown], `language`:str [unknown], `numFollowing`:u32 [unknown], `maxTime`:s64 [unknown] — fields/partial | `events`:list [required] → `event` — fields/partial |
 | 10 | `epgQuery` | `ACCESS_HTSP_STREAMING` | 4 (annotated) |  |  | `query`:str [unknown], `channelId`:u32 [unknown], `tagId`:u32 [unknown], `contentType`:u32 [unknown], `language`:str [unknown], `fulltext`:bool [unknown], `mergetext`:bool [unknown], `full`:u32 [unknown], `minduration`:u32 [unknown], `maxduration`:u32 [unknown] — fields/partial | `eventIds`:list [alternative] → `u32`, `events`:list [alternative] → `event` — alternative/complete |
@@ -89,8 +89,8 @@ These fields are protocol-wide and are **not** method-specific success fields.
 
 | # | Message | Min ver | SDK handled | Fields |
 |---:|---|---:|:---:|---|
-| 1 | `channelAdd` | — | yes | `channelId`:u32 [unknown], `channelIdStr`:str [unknown], `channelNumber`:u32 [unknown], `channelNumberMinor`:u32 [unknown], `channelName`:str [unknown], `channelIcon`:str [unknown], `eventId`:u32 [unknown], `nextEventId`:u32 [unknown], `services`:list [unknown] → `service`, `tags`:list [unknown] → `u32` — fields/partial |
-| 2 | `channelUpdate` | — | yes | `channelId`:u32 [unknown], `channelIdStr`:str [unknown], `channelNumber`:u32 [unknown], `channelNumberMinor`:u32 [unknown], `channelName`:str [unknown], `channelIcon`:str [unknown], `eventId`:u32 [unknown], `nextEventId`:u32 [unknown], `services`:list [unknown] → `service`, `tags`:list [unknown] → `u32` — fields/partial |
+| 1 | `channelAdd` | — | yes | `channelId`:u32 [unknown], `channelIdStr`:str [unknown] ≥v41, `channelNumber`:u32 [unknown], `channelNumberMinor`:u32 [unknown], `channelName`:str [unknown], `channelIcon`:str [unknown], `eventId`:u32 [unknown], `nextEventId`:u32 [unknown], `services`:list [unknown] → `service`, `tags`:list [unknown] → `u32` — fields/partial |
+| 2 | `channelUpdate` | — | yes | `channelId`:u32 [unknown], `channelIdStr`:str [unknown] ≥v41, `channelNumber`:u32 [unknown], `channelNumberMinor`:u32 [unknown], `channelName`:str [unknown], `channelIcon`:str [unknown], `eventId`:u32 [unknown], `nextEventId`:u32 [unknown], `services`:list [unknown] → `service`, `tags`:list [unknown] → `u32` — fields/partial |
 | 3 | `channelDelete` | — | yes | `channelId`:u32 [required] — fields/complete |
 | 4 | `tagAdd` | — | yes | `tagId`:u32 [unknown], `tagIdStr`:str [unknown], `tagIndex`:u32 [unknown], `tagName`:str [unknown], `tagIcon`:str [unknown], `tagTitledIcon`:u32 [unknown], `members`:list [unknown] → `u32` — fields/partial |
 | 5 | `tagUpdate` | — | yes | `tagId`:u32 [unknown], `tagIdStr`:str [unknown], `tagIndex`:u32 [unknown], `tagName`:str [unknown], `tagIcon`:str [unknown], `tagTitledIcon`:u32 [unknown], `members`:list [unknown] → `u32` — fields/partial |
@@ -135,6 +135,13 @@ The pinned htsp_method_getSysTime source emits time through htsmsg_add_s32, whil
 
 - Authority: src/htsp_server.c htsp_method_getSysTime
 - Docs URL: https://docs.tvheadend.org/documentation/development/htsp/client-to-server-rpc-methods
+
+### `channel-service-fields-underdocumented`
+
+The pinned htsp_build_channel source always emits service name, type, and u32 content; conditionally emits caid, caname, dynamic hbbtv, and providername. The official Server-to-Client methods channelAdd section is the governing field list and omits current-source content and hbbtv; hbbtv therefore remains explicitly opaque.
+
+- Authority: src/htsp_server.c htsp_build_channel
+- Docs URL: https://docs.tvheadend.org/documentation/development/htsp/server-to-client-methods
 
 ### `stopDvrEntry-missing-from-client-docs`
 

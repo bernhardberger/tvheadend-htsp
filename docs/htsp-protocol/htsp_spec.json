@@ -198,10 +198,92 @@
       "completeness": "opaque",
       "evidence": "nested profile maps are intentionally not expanded in this artifact"
     },
-    "service": {
+    "hbbtvDynamic": {
       "kind": "object",
       "completeness": "opaque",
-      "evidence": "nested channel service maps are intentionally not expanded in this artifact"
+      "evidence": "current channel service hbbtv data is dynamic and deliberately bounded opaque"
+    },
+    "service": {
+      "kind": "object",
+      "completeness": "complete",
+      "evidence": "bounded current-source service object emitted by htsp_build_channel",
+      "fields": [
+        {
+          "name": "name",
+          "type": "str",
+          "direction": "nested",
+          "presence": "required",
+          "evidence": "htsp_build_channel unconditional service field",
+          "confidence": "mechanical+annotated",
+          "minVersion": null,
+          "order": 1
+        },
+        {
+          "name": "type",
+          "type": "str",
+          "direction": "nested",
+          "presence": "required",
+          "evidence": "htsp_build_channel unconditional service field",
+          "confidence": "mechanical+annotated",
+          "minVersion": null,
+          "order": 2
+        },
+        {
+          "name": "content",
+          "type": "u32",
+          "direction": "nested",
+          "presence": "required",
+          "evidence": "htsp_build_channel unconditional service field",
+          "confidence": "mechanical+annotated",
+          "minVersion": null,
+          "order": 3
+        },
+        {
+          "name": "caid",
+          "type": "u32",
+          "direction": "nested",
+          "presence": "conditional",
+          "evidence": "htsp_build_channel encrypted-service branch",
+          "confidence": "mechanical+annotated",
+          "minVersion": null,
+          "condition": "emitted for an encrypted service when conditional-access data is available",
+          "order": 4
+        },
+        {
+          "name": "caname",
+          "type": "str",
+          "direction": "nested",
+          "presence": "conditional",
+          "evidence": "htsp_build_channel encrypted-service branch",
+          "confidence": "mechanical+annotated",
+          "minVersion": null,
+          "condition": "emitted for an encrypted service when the conditional-access name is available",
+          "order": 5
+        },
+        {
+          "name": "hbbtv",
+          "type": "msg",
+          "direction": "nested",
+          "presence": "conditional",
+          "evidence": "htsp_build_channel dynamic HbbTV branch",
+          "confidence": "mechanical+annotated",
+          "minVersion": null,
+          "condition": "emitted when dynamic HbbTV service data is available",
+          "shapeRef": "hbbtvDynamic",
+          "order": 6
+        },
+        {
+          "name": "providername",
+          "type": "str",
+          "direction": "nested",
+          "presence": "conditional",
+          "evidence": "htsp_build_channel provider branch",
+          "confidence": "mechanical+annotated",
+          "minVersion": null,
+          "condition": "emitted when the service provider name is available",
+          "order": 7
+        }
+      ]
     },
     "recordingFile": {
       "kind": "object",
@@ -769,9 +851,9 @@
           "name": "channelId",
           "type": "u32",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_u32",
-          "confidence": "mechanical",
+          "presence": "required",
+          "evidence": "htsp_method_getChannel requires htsmsg_get_u32 channelId",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 1
         }
@@ -781,9 +863,9 @@
           "name": "channelId",
           "type": "u32",
           "direction": "reply",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_u32",
-          "confidence": "mechanical",
+          "presence": "required",
+          "evidence": "htsp_build_channel unconditional field",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 1
         },
@@ -791,19 +873,23 @@
           "name": "channelIdStr",
           "type": "str",
           "direction": "reply",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_str",
-          "confidence": "mechanical",
-          "minVersion": null,
+          "presence": "conditional",
+          "evidence": "pinned current htsp_build_channel unconditionally emits channelIdStr; v41 is historical compatibility evidence",
+          "confidence": "mechanical+annotated",
+          "minVersion": 41,
+          "condition": "required for negotiated protocol version 41 or newer; may be absent from older server implementations supporting versions 14 through 40",
+          "notes": [
+            "minVersion from annotated catalog"
+          ],
           "order": 2
         },
         {
           "name": "channelNumber",
           "type": "u32",
           "direction": "reply",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_u32",
-          "confidence": "mechanical",
+          "presence": "required",
+          "evidence": "htsp_build_channel unconditional field",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 3
         },
@@ -811,19 +897,20 @@
           "name": "channelNumberMinor",
           "type": "u32",
           "direction": "reply",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_u32",
-          "confidence": "mechanical",
+          "presence": "conditional",
+          "evidence": "htsp_build_channel nonzero branch",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
+          "condition": "emitted when the channel minor number is nonzero",
           "order": 4
         },
         {
           "name": "channelName",
           "type": "str",
           "direction": "reply",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_str",
-          "confidence": "mechanical",
+          "presence": "required",
+          "evidence": "htsp_build_channel unconditional field",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 5
         },
@@ -831,19 +918,20 @@
           "name": "channelIcon",
           "type": "str",
           "direction": "reply",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_str",
-          "confidence": "mechanical",
+          "presence": "conditional",
+          "evidence": "htsp_build_channel present-icon branch",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
+          "condition": "emitted when the channel has an icon",
           "order": 6
         },
         {
           "name": "eventId",
           "type": "u32",
           "direction": "reply",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_u32",
-          "confidence": "mechanical",
+          "presence": "required",
+          "evidence": "htsp_build_channel emits zero when no current event exists",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 7
         },
@@ -851,46 +939,48 @@
           "name": "nextEventId",
           "type": "u32",
           "direction": "reply",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_u32",
-          "confidence": "mechanical",
+          "presence": "required",
+          "evidence": "htsp_build_channel emits zero when no next event exists",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 8
         },
         {
           "name": "services",
-          "type": "msg",
+          "type": "list",
           "direction": "reply",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_msg",
-          "confidence": "mechanical",
+          "presence": "required",
+          "evidence": "htsp_build_channel always adds the service list",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
+          "shapeRef": "service",
           "order": 9
         },
         {
           "name": "tags",
-          "type": "msg",
+          "type": "list",
           "direction": "reply",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_msg",
-          "confidence": "mechanical",
+          "presence": "required",
+          "evidence": "htsp_build_channel always adds the tag-id list",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
+          "shapeRef": "u32",
           "order": 10
         }
       ],
       "requestShape": {
         "kind": "fields",
-        "completeness": "partial",
-        "evidence": "bounded handler/helper extraction plus exact-pin annotations"
+        "completeness": "complete",
+        "evidence": "bounded htsp_method_getChannel accepts exactly required channelId"
       },
       "replyShape": {
         "kind": "fields",
-        "completeness": "partial",
-        "evidence": "bounded handler/helper extraction plus exact-pin annotations"
+        "completeness": "complete",
+        "evidence": "bounded htsp_method_getChannel delegates its complete reply to htsp_build_channel"
       },
       "sdk": {
-        "referenced": false,
-        "outgoingRequest": false
+        "referenced": true,
+        "outgoingRequest": true
       }
     },
     {
@@ -4292,8 +4382,11 @@
           "direction": "message",
           "presence": "unknown",
           "evidence": "htsmsg_add_str",
-          "confidence": "mechanical",
-          "minVersion": null,
+          "confidence": "mechanical+annotated",
+          "minVersion": 41,
+          "notes": [
+            "minVersion from annotated catalog"
+          ],
           "order": 2
         },
         {
@@ -4409,8 +4502,11 @@
           "direction": "message",
           "presence": "unknown",
           "evidence": "htsmsg_add_str",
-          "confidence": "mechanical",
-          "minVersion": null,
+          "confidence": "mechanical+annotated",
+          "minVersion": 41,
+          "notes": [
+            "minVersion from annotated catalog"
+          ],
           "order": 2
         },
         {
@@ -7951,6 +8047,7 @@
         "fileRead",
         "fileSeek",
         "fileStat",
+        "getChannel",
         "getDiskSpace",
         "getDvrConfigs",
         "getEvents",
@@ -7964,7 +8061,7 @@
         "unsubscribe",
         "updateDvrEntry"
       ],
-      "referencedCount": 22,
+      "referencedCount": 23,
       "outgoingRequests": [
         "addDvrEntry",
         "authenticate",
@@ -7976,6 +8073,7 @@
         "fileRead",
         "fileSeek",
         "fileStat",
+        "getChannel",
         "getDiskSpace",
         "getDvrConfigs",
         "getEvents",
@@ -7988,10 +8086,9 @@
         "unsubscribe",
         "updateDvrEntry"
       ],
-      "outgoingRequestCount": 21,
+      "outgoingRequestCount": 22,
       "unreferenced": [
         "api",
-        "getChannel",
         "getEvent",
         "epgQuery",
         "getEpgObject",
@@ -8048,8 +8145,8 @@
       ]
     },
     "metrics": {
-      "referencedClientMethods": 22,
-      "outgoingClientMethods": 21,
+      "referencedClientMethods": 23,
+      "outgoingClientMethods": 22,
       "handledServerMessages": 23,
       "notes": [
         "referenced counts exact string literals in SDK production main sources",
@@ -8071,6 +8168,12 @@
       "summary": "The pinned htsp_method_getSysTime source emits time through htsmsg_add_s32, while the official Client-to-Server RPC methods page specifies required s64 Unix time. This records a source/docs evidence mismatch; it is not a decision to coerce or truncate the SDK public value.",
       "authority": "src/htsp_server.c htsp_method_getSysTime",
       "docsUrl": "https://docs.tvheadend.org/documentation/development/htsp/client-to-server-rpc-methods"
+    },
+    {
+      "id": "channel-service-fields-underdocumented",
+      "summary": "The pinned htsp_build_channel source always emits service name, type, and u32 content; conditionally emits caid, caname, dynamic hbbtv, and providername. The official Server-to-Client methods channelAdd section is the governing field list and omits current-source content and hbbtv; hbbtv therefore remains explicitly opaque.",
+      "authority": "src/htsp_server.c htsp_build_channel",
+      "docsUrl": "https://docs.tvheadend.org/documentation/development/htsp/server-to-client-methods"
     },
     {
       "id": "stopDvrEntry-missing-from-client-docs",
