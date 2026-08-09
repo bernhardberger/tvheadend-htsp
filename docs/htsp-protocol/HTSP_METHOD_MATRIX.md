@@ -18,7 +18,7 @@ Primary authority is the pinned TVHeadend server source. Official HTSP documenta
 
 - Client→server methods referenced in production sources: **29 / 39**
 - Distinct outgoing request names: **28 / 39**
-- Server→client messages handled (exact literal): **23 / 30**
+- Server→client messages handled (exact literal): **24 / 30**
 - Distinguish **referenced** from **outgoing**: a name can appear because an inbound handler mentions it (for example `subscriptionSkip`) while the client sends a synonym (`subscriptionSeek`).
 - Never claim methods are implemented/called merely because they are referenced.
 
@@ -30,7 +30,6 @@ Unhandled server messages:
 - `timerecEntryAdd`
 - `timerecEntryUpdate`
 - `timerecEntryDelete`
-- `descrambleInfo`
 
 ## Global RPC fields
 
@@ -115,7 +114,7 @@ These fields are protocol-wide and are **not** method-specific success fields.
 | 24 | `subscriptionGrace` | 13 | yes | `subscriptionId`:u32 [unknown], `graceTimeout`:u32 [unknown] — fields/partial |
 | 25 | `subscriptionStatus` | — | yes | `subscriptionId`:u32 [unknown], `status`:str [unknown], `subscriptionError`:str [unknown] — fields/partial |
 | 26 | `signalStatus` | — | yes | `subscriptionId`:u32 [unknown], `feStatus`:str [unknown], `feSNR`:u32 [unknown], `feAbsoluteSNR`:s64 [unknown] ≥v44, `feSignal`:u32 [unknown], `feAbsoluteSignal`:s64 [unknown] ≥v44, `feBER`:u32 [unknown], `feUNC`:u32 [unknown] — fields/partial |
-| 27 | `descrambleInfo` | 24 |  | `subscriptionId`:u32 [unknown] ≥v24, `pid`:u32 [unknown], `caid`:u32 [unknown], `provid`:u32 [unknown], `ecmtime`:u32 [unknown], `hops`:u32 [unknown], `cardsystem`:str [unknown], `reader`:str [unknown], `from`:str [unknown], `protocol`:str [unknown] — fields/partial |
+| 27 | `descrambleInfo` | 24 | yes | `subscriptionId`:u32 [unknown] ≥v24, `pid`:u32 [unknown], `caid`:u32 [unknown], `provid`:u32 [unknown], `ecmtime`:u32 [unknown], `hops`:u32 [unknown], `cardsystem`:str [unknown], `reader`:str [unknown], `from`:str [unknown], `protocol`:str [unknown] — fields/partial |
 | 28 | `subscriptionSpeed` | 9 | yes | `subscriptionId`:u32 [unknown], `speed`:s32 [unknown] — fields/partial |
 | 29 | `timeshiftStatus` | 9 | yes | `subscriptionId`:u32 [unknown], `full`:u32 [unknown], `shift`:s64 [unknown], `start`:s64 [unknown], `end`:s64 [unknown] — fields/partial |
 | 30 | `subscriptionSkip` | 9 | yes | `subscriptionId`:u32 [unknown], `absolute`:u32 [unknown], `error`:u32 [unknown], `time`:s64 [unknown], `size`:s64 [unknown] — fields/partial |

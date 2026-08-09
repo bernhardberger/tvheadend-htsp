@@ -8268,7 +8268,7 @@
         "Source returns early when htsp_version < 24 or anonymize is set."
       ],
       "sdk": {
-        "handled": false
+        "handled": true
       }
     },
     {
@@ -8536,6 +8536,7 @@
         "channelAdd",
         "channelDelete",
         "channelUpdate",
+        "descrambleInfo",
         "dvrEntryAdd",
         "dvrEntryDelete",
         "dvrEntryUpdate",
@@ -8557,21 +8558,20 @@
         "tagUpdate",
         "timeshiftStatus"
       ],
-      "handledCount": 23,
+      "handledCount": 24,
       "unhandled": [
         "autorecEntryAdd",
         "autorecEntryUpdate",
         "autorecEntryDelete",
         "timerecEntryAdd",
         "timerecEntryUpdate",
-        "timerecEntryDelete",
-        "descrambleInfo"
+        "timerecEntryDelete"
       ]
     },
     "metrics": {
       "referencedClientMethods": 29,
       "outgoingClientMethods": 28,
-      "handledServerMessages": 23,
+      "handledServerMessages": 24,
       "notes": [
         "referenced counts exact string literals in SDK production main sources",
         "outgoing counts method = \"...\" / method = CONST assignments only",

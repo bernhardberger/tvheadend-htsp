@@ -100,7 +100,6 @@ EXPECTED_UNHANDLED_MESSAGES = (
     "timerecEntryAdd",
     "timerecEntryUpdate",
     "timerecEntryDelete",
-    "descrambleInfo",
 )
 
 EXPECTED_FIELD_SHAPE_REFS: tuple[tuple[str, str, str, str, str], ...] = (
@@ -1066,9 +1065,9 @@ def validate_spec(spec: dict[str, Any], upstream: dict[str, Any] | None = None) 
         errors.append(
             f"expected outgoing client methods == 28 under current metric, got {out_count}"
         )
-    if handled_count not in (None, 23):
+    if handled_count not in (None, 24):
         errors.append(
-            f"expected handled server messages == 23 under current metric, got {handled_count}"
+            f"expected handled server messages == 24 under current metric, got {handled_count}"
         )
 
     unhandled = list(server_cov.get("unhandled") or [])
@@ -1921,13 +1920,13 @@ def self_test() -> None:
             "serverMessages": {
                 "total": 30,
                 "handled": [],
-                "handledCount": 23,
+                "handledCount": 24,
                 "unhandled": list(EXPECTED_UNHANDLED_MESSAGES),
             },
             "metrics": {
                 "referencedClientMethods": 22,
                 "outgoingClientMethods": 21,
-                "handledServerMessages": 23,
+                "handledServerMessages": 24,
             },
         },
         "docLimitations": [{"id": "x", "summary": "y", "authority": "z"}],
@@ -1948,7 +1947,7 @@ def self_test() -> None:
     good_spec["coverage"]["clientMethods"]["outgoingRequests"] = out_names
     good_spec["coverage"]["clientMethods"]["outgoingRequestCount"] = 21
     good_spec["coverage"]["serverMessages"]["handled"] = handled
-    good_spec["coverage"]["serverMessages"]["handledCount"] = 23
+    good_spec["coverage"]["serverMessages"]["handledCount"] = 24
 
     for name in EXPECTED_CLIENT_METHODS:
         good_spec["clientMethods"].append(
@@ -2040,7 +2039,7 @@ def self_test() -> None:
         "getEvents-fresh-unchanged-coverage",
         good_spec["coverage"]["clientMethods"]["referencedCount"] == 29
         and good_spec["coverage"]["clientMethods"]["outgoingRequestCount"] == 28
-        and good_spec["coverage"]["serverMessages"]["handledCount"] == 23
+        and good_spec["coverage"]["serverMessages"]["handledCount"] == 24
         and "getEvents" in good_spec["coverage"]["clientMethods"]["outgoingRequests"],
     )
     stop_dvr_entry = next(

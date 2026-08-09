@@ -4122,7 +4122,7 @@ def self_test() -> None:
             live_coverage["clientMethods"]["referencedCount"],
             live_coverage["clientMethods"]["outgoingRequestCount"],
             live_coverage["serverMessages"]["handledCount"],
-        ) == (29, 28, 23)
+        ) == (29, 28, 24)
         and "stopDvrEntry" in live_coverage["clientMethods"]["referenced"]
         and "stopDvrEntry" in live_coverage["clientMethods"]["outgoingRequests"]
         and "subscriptionChangeWeight" in live_coverage["clientMethods"]["referenced"]
@@ -4168,7 +4168,7 @@ def self_test() -> None:
             live_coverage["clientMethods"]["referencedCount"],
             live_coverage["clientMethods"]["outgoingRequestCount"],
             live_coverage["serverMessages"]["handledCount"],
-        ) == (29, 28, 23)
+        ) == (29, 28, 24)
         and "getChannel" in live_coverage["clientMethods"]["referenced"]
         and "getChannel" in live_coverage["clientMethods"]["outgoingRequests"],
         str(live_coverage.get("metrics")),
@@ -4221,7 +4221,7 @@ def self_test() -> None:
             live_coverage["clientMethods"]["referencedCount"],
             live_coverage["clientMethods"]["outgoingRequestCount"],
             live_coverage["serverMessages"]["handledCount"],
-        ) == (29, 28, 23)
+        ) == (29, 28, 24)
         and "getEvents" in live_coverage["clientMethods"]["referenced"]
         and "getEvents" in live_coverage["clientMethods"]["outgoingRequests"],
     )
