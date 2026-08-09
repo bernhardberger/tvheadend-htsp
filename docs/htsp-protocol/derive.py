@@ -257,6 +257,11 @@ FIELD_MIN_VERSION: dict[tuple[str, str, str], int] = {
     ("clientMethod", "authenticate", "uilevel"): 26,
     ("clientMethod", "authenticate", "uilanguage"): 26,
     ("clientMethod", "getChannel", "channelIdStr"): 41,
+    ("clientMethod", "getEvents", "channelId"): 6,
+    ("clientMethod", "getEvents", "eventId"): 6,
+    ("clientMethod", "getEvents", "language"): 6,
+    ("clientMethod", "getEvents", "numFollowing"): 6,
+    ("clientMethod", "getEvents", "maxTime"): 6,
     ("serverMessage", "channelAdd", "channelIdStr"): 41,
     ("serverMessage", "channelUpdate", "channelIdStr"): 41,
     ("serverMessage", "signalStatus", "feAbsoluteSNR"): 44,
@@ -288,6 +293,39 @@ DOC_LIMITATIONS = [
             "SDK public value."
         ),
         "authority": "src/htsp_server.c htsp_method_getSysTime",
+        "docsUrl": (
+            "https://docs.tvheadend.org/documentation/development/htsp/"
+            "client-to-server-rpc-methods"
+        ),
+    },
+    {
+        "id": "getEvents-maxTime-type-source-doc-mismatch",
+        "summary": (
+            "The pinned htsp_method_getEvents source reads maxTime through "
+            "htsmsg_get_s64_or_default into signed int64_t with zero as the "
+            "no-time-bound sentinel, while the official Client-to-Server RPC "
+            "methods page documents maxTime as optional u64 since version 6. "
+            "This records a source/docs evidence mismatch; it does not coerce "
+            "the pinned current-source s64 contract to u64."
+        ),
+        "authority": "src/htsp_server.c htsp_method_getEvents",
+        "docsUrl": (
+            "https://docs.tvheadend.org/documentation/development/htsp/"
+            "client-to-server-rpc-methods"
+        ),
+    },
+    {
+        "id": "getEvents-filter-interaction-underdocumented",
+        "summary": (
+            "Pinned htsp_method_getEvents source gives eventId selection "
+            "precedence when both eventId and channelId are present, applies "
+            "a nonzero maxTime start cutoff, treats positive numFollowing as "
+            "an inclusive maximum count, resets that count per channel in "
+            "all-channel mode, and filters inaccessible channels. The official "
+            "Client-to-Server RPC methods page lists the optional version-6 "
+            "filters but does not specify those interactions."
+        ),
+        "authority": "src/htsp_server.c htsp_method_getEvents",
         "docsUrl": (
             "https://docs.tvheadend.org/documentation/development/htsp/"
             "client-to-server-rpc-methods"
@@ -964,6 +1002,190 @@ def event_fields(direction: str, *, partial_update: bool = False) -> list[dict[s
     return fields
 
 
+def require_get_events_source_facts(server_c: str) -> None:
+    """Reject drift in the bounded pinned getEvents filter and reply contract."""
+    source = strip_c_comments(server_c)
+    body = find_function_body(source, "htsp_method_getEvents")
+    if body is None:
+        raise ValueError("htsp_method_getEvents body not found")
+    compact = re.sub(r"\s+", " ", body).strip()
+
+    getter_inventory = {
+        field["name"]: field["type"]
+        for field in extract_get_fields(body, "in")
+    }
+    if getter_inventory != {
+        "channelId": "u32",
+        "eventId": "u32",
+        "language": "str",
+        "numFollowing": "u32",
+        "maxTime": "s64",
+    }:
+        raise ValueError("htsp_method_getEvents request getter inventory/type drift")
+
+    def block_after(match: re.Match[str], text: str) -> tuple[str, int]:
+        open_index = match.end() - 1
+        block = extract_balanced_block(text, open_index)
+        return block, open_index + len(block) + 1
+
+    def require_optional_selector(field_name: str, target: str, lookup_name: str) -> None:
+        guards = list(re.finditer(
+            rf'if\s*\(\s*!\s*htsmsg_get_u32\(\s*in\s*,\s*"{field_name}"\s*,'
+            rf'\s*&(?P<selector>[A-Za-z_][A-Za-z0-9_]*)\s*\)\s*\)',
+            body,
+        ))
+        if len(guards) != 1:
+            raise ValueError(
+                f"htsp_method_getEvents {field_name} must remain an optional u32 selector"
+            )
+        guard = guards[0]
+        nested = re.match(
+            rf'\s*if\s*\(\s*!\s*\(\s*{target}\s*=\s*{lookup_name}\s*\('
+            rf'\s*{re.escape(guard.group("selector"))}\s*\)\s*\)\s*\)',
+            body[guard.end():],
+        )
+        if nested is None:
+            raise ValueError(
+                f"htsp_method_getEvents {field_name} must look up pinned {target} selector"
+            )
+        nested_end = guard.end() + nested.end()
+        if re.match(
+            r'\s*return\s+htsp_error\s*\([^;]*\)\s*;',
+            body[nested_end:],
+        ) is None:
+            raise ValueError(
+                f"htsp_method_getEvents missing unknown {field_name.removesuffix('Id')} error"
+            )
+
+    require_optional_selector("channelId", "ch", "channel_find_by_id")
+    require_optional_selector("eventId", "e", "epg_broadcast_find_by_id")
+
+    language_lookup = r'htsmsg_get_str\(\s*in\s*,\s*"language"\s*\)'
+    if re.search(
+        rf'{language_lookup}\s*\?\:\s*htsp->(?:htsp_)?language',
+        compact,
+    ) is None:
+        raise ValueError("htsp_method_getEvents missing optional language fallback")
+
+    if re.search(
+        r'\bnumFollowing\s*=\s*htsmsg_get_u32_or_default\('
+        r'\s*in\s*,\s*"numFollowing"\s*,\s*0\s*\)', compact,
+    ) is None:
+        raise ValueError("htsp_method_getEvents numFollowing must remain optional u32 default zero")
+
+    if re.search(
+        r'\bmaxTime\s*=\s*htsmsg_get_s64_or_default\('
+        r'\s*in\s*,\s*"maxTime"\s*,\s*0\s*\)', compact,
+    ) is None:
+        raise ValueError("htsp_method_getEvents maxTime must remain optional s64 default zero")
+
+    selected_match = re.search(r'if\s*\(\s*e\s*\|\|\s*ch\s*\)\s*\{', body)
+    if selected_match is None:
+        raise ValueError(
+            "htsp_method_getEvents missing mutually exclusive selected/all-channel branch topology"
+        )
+    selected_body, selected_close = block_after(selected_match, body)
+    else_match = re.match(r'\s*else\s*\{', body[selected_close + 1:])
+    if else_match is None:
+        raise ValueError(
+            "htsp_method_getEvents missing mutually exclusive selected/all-channel branch topology"
+        )
+    else_absolute = selected_close + 1 + else_match.end() - 1
+    all_body = extract_balanced_block(body, else_absolute)
+    all_close = else_absolute + len(all_body) + 1
+    selected_compact = re.sub(r"\s+", " ", selected_body).strip()
+    all_compact = re.sub(r"\s+", " ", all_body).strip()
+
+    if re.search(
+        r'if\s*\(\s*!\s*e\s*\)\s*e\s*=\s*ch->ch_epg_now\s*\?\:\s*ch->ch_epg_next\s*;',
+        selected_compact,
+    ) is None:
+        raise ValueError("htsp_method_getEvents missing explicit event selector precedence guard")
+    selected_access = (
+        r'if\s*\(\s*e\s*&&\s*!\s*htsp_user_access_channel\s*\('
+        r'\s*htsp\s*,\s*e->channel\s*\)\s*\)\s*'
+        r'return\s+htsp_error\s*\([^;]*\)\s*;'
+    )
+    if len(re.findall(selected_access, selected_compact)) != 1:
+        raise ValueError("htsp_method_getEvents missing selected access filtering")
+    all_access = (
+        r'if\s*\(\s*!\s*htsp_user_access_channel\s*\('
+        r'\s*htsp\s*,\s*ch\s*\)\s*\)\s*continue\s*;'
+    )
+    if len(re.findall(all_access, all_compact)) != 1:
+        raise ValueError("htsp_method_getEvents missing all-channel access filtering")
+
+    cutoff = r'if\s*\(\s*maxTime\s*&&\s*e->start\s*>\s*maxTime\s*\)\s*break\s*;'
+    if len(re.findall(cutoff, selected_compact)) != 1:
+        raise ValueError("htsp_method_getEvents missing selected nonzero maxTime start cutoff")
+    if len(re.findall(cutoff, all_compact)) != 1:
+        raise ValueError("htsp_method_getEvents missing all-channel nonzero maxTime start cutoff")
+
+    selected_count = (
+        r'if\s*\(\s*numFollowing\s*==\s*1\s*\)\s*break\s*;\s*'
+        r'if\s*\(\s*numFollowing\s*\)\s*numFollowing\s*--\s*;'
+    )
+    if len(re.findall(selected_count, selected_compact)) != 1:
+        raise ValueError(
+            "htsp_method_getEvents missing selected inclusive numFollowing decrement sequence"
+        )
+
+    channel_loop_match = re.search(
+        r'(?:\bfor|\b[A-Z][A-Z0-9_]*)\s*\([^\{]*?\bch\b[^\{]*?\)\s*\{',
+        all_body,
+    )
+    if channel_loop_match is None:
+        raise ValueError("htsp_method_getEvents missing all-channel iteration")
+    channel_loop_body, _channel_close = block_after(channel_loop_match, all_body)
+    channel_compact = re.sub(r"\s+", " ", channel_loop_body).strip()
+    if len(re.findall(r'\bint\s+num\s*=\s*numFollowing\s*;', channel_compact)) != 1:
+        raise ValueError("htsp_method_getEvents missing per-channel numFollowing reset")
+    if len(re.findall(r'\bint\s+num\s*=\s*numFollowing\s*;', all_compact)) != 1:
+        raise ValueError("htsp_method_getEvents per-channel numFollowing reset is misplaced")
+    all_count = (
+        r'if\s*\(\s*num\s*==\s*1\s*\)\s*break\s*;\s*'
+        r'if\s*\(\s*num\s*\)\s*num\s*--\s*;'
+    )
+    if len(re.findall(all_count, channel_compact)) != 1:
+        raise ValueError(
+            "htsp_method_getEvents missing all-channel inclusive numFollowing decrement sequence"
+        )
+
+    insertion_pattern = (
+        r'htsmsg_add_msg\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*,\s*NULL\s*,\s*'
+        r'htsp_build_event\s*\([^;]*?\)\s*\)\s*;'
+    )
+    selected_insertions = re.findall(insertion_pattern, selected_compact)
+    if len(selected_insertions) != 1:
+        raise ValueError("htsp_method_getEvents missing exact selected htsp_build_event list insertion")
+    all_insertions = re.findall(insertion_pattern, channel_compact)
+    if len(all_insertions) != 1:
+        raise ValueError("htsp_method_getEvents missing exact all-channel htsp_build_event list insertion")
+    if selected_insertions[0] != all_insertions[0]:
+        raise ValueError("htsp_method_getEvents branch insertions must target the same event list")
+    if len(re.findall(insertion_pattern, compact)) != 2:
+        raise ValueError("htsp_method_getEvents must contain exactly two branch-specific event insertions")
+    list_var = selected_insertions[0]
+    reply_tail = re.sub(r"\s+", " ", body[all_close + 1:]).strip()
+    tail_returns = re.findall(r'\breturn\s+([^;]+?)\s*;', reply_tail)
+    if len(tail_returns) != 1 or re.fullmatch(
+        r'[A-Za-z_][A-Za-z0-9_]*', tail_returns[0]
+    ) is None:
+        raise ValueError("htsp_method_getEvents must return exactly one reply map")
+    reply_var = tail_returns[0]
+    reply_adds = re.findall(
+        r'htsmsg_add_msg\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*,\s*"([^"]+)"\s*,\s*([A-Za-z_][A-Za-z0-9_]*)\s*\)',
+        reply_tail,
+    )
+    events_adds = [
+        item
+        for item in reply_adds
+        if item == (reply_var, "events", list_var)
+    ]
+    if len(events_adds) != 1 or len(reply_adds) != 1:
+        raise ValueError("htsp_method_getEvents reply must contain exactly required events list")
+
+
 def field_shape(fields: list[dict[str, Any]], completeness: str = "partial") -> dict[str, Any]:
     if not fields:
         return {
@@ -1344,17 +1566,40 @@ def derive_client_methods(server_c: str) -> list[dict[str, Any]]:
                 ),
             ]
             reply_fields = event_fields("reply")
+        if name == "getEvents":
+            require_get_events_source_facts(server_c)
+            request_fields = [
+                exact_field(
+                    "channelId", "u32", "request", "optional",
+                    "htsp_method_getEvents optional channel selector",
+                ),
+                exact_field(
+                    "eventId", "u32", "request", "optional",
+                    "htsp_method_getEvents optional event selector with precedence over channelId",
+                ),
+                exact_field(
+                    "language", "str", "request", "optional",
+                    "htsp_method_getEvents uses supplied language or connection language",
+                ),
+                exact_field(
+                    "numFollowing", "u32", "request", "optional",
+                    "htsp_method_getEvents reads u32 default zero and enforces a positive inclusive maximum count",
+                ),
+                exact_field(
+                    "maxTime", "s64", "request", "optional",
+                    "htsp_method_getEvents reads signed s64 default zero and stops before a later event start",
+                ),
+            ]
+            reply_fields = [exact_field(
+                "events", "list", "reply", "required",
+                "htsp_method_getEvents adds exactly one required list of htsp_build_event maps",
+                shape_ref="event",
+            )]
 
         if name == "fileRead":
             reply_fields = [exact_field(
                 "data", "bin", "reply", "required",
                 "htsp_method_fileRead htsmsg_add_bin_alloc",
-            )]
-        elif name == "getEvents":
-            reply_fields = [exact_field(
-                "events", "list", "reply", "required",
-                "htsp_method_getEvents adds a list of htsp_build_event maps",
-                shape_ref="event",
             )]
         elif name == "epgQuery":
             reply_fields = [
@@ -1444,6 +1689,17 @@ def derive_client_methods(server_c: str) -> list[dict[str, Any]]:
                 "kind": "fields",
                 "completeness": "complete",
                 "evidence": "bounded htsp_method_getEvent delegates its complete successful reply to htsp_build_event",
+            }
+        if name == "getEvents":
+            method["requestShape"] = {
+                "kind": "fields",
+                "completeness": "complete",
+                "evidence": "bounded pinned htsp_method_getEvents selector/filter extraction",
+            }
+            method["replyShape"] = {
+                "kind": "fields",
+                "completeness": "complete",
+                "evidence": "bounded pinned htsp_method_getEvents required events-list construction",
             }
         if name == "getEpgObject":
             method["replyFields"] = []
@@ -2201,6 +2457,45 @@ def _minimal_server_c(
                 '    return htsp_error("Event does not exist");'
             )
             reply_lines = '  return htsp_build_event(e, NULL, lang, 0, htsp);'
+        elif name == "getEvents":
+            request_lines = (
+                '  uint32_t u32;\n'
+                '  uint32_t numFollowing = htsmsg_get_u32_or_default(in, "numFollowing", 0);\n'
+                '  int64_t maxTime = htsmsg_get_s64_or_default(in, "maxTime", 0);\n'
+                '  const char *lang;\n'
+                '  void *ch = NULL;\n'
+                '  void *e = NULL;\n'
+                '  if (!htsmsg_get_u32(in, "channelId", &u32))\n'
+                '    if (!(ch = channel_find_by_id(u32)))\n'
+                '      return htsp_error(htsp, N_("Channel does not exist"));\n'
+                '  if (!htsmsg_get_u32(in, "eventId", &u32))\n'
+                '    if (!(e = epg_broadcast_find_by_id(u32)))\n'
+                '      return htsp_error(htsp, N_("Event does not exist"));\n'
+                '  lang = htsmsg_get_str(in, "language") ?: htsp->htsp_language;\n'
+                '  if (e || ch) {\n'
+                '    if (!e) e = ch->ch_epg_now ?: ch->ch_epg_next;\n'
+                '    if (e && !htsp_user_access_channel(htsp, e->channel)) return htsp_error("Access denied");\n'
+                '    while (e) {\n'
+                '      if (maxTime && e->start > maxTime) break;\n'
+                '      htsmsg_add_msg(l, NULL, htsp_build_event(e, NULL, lang, 0, htsp));\n'
+                '      if (numFollowing == 1) break;\n'
+                '      if (numFollowing) numFollowing--;\n'
+                '      e = epg_broadcast_get_next(e);\n'
+                '    }\n'
+                '  } else {\n'
+                '    for (ch = channel_first(); ch; ch = channel_next(ch)) {\n'
+                '      int num = numFollowing;\n'
+                '      if (!htsp_user_access_channel(htsp, ch)) continue;\n'
+                '      for (e = ch->ch_epg_now ?: ch->ch_epg_next; e; e = epg_broadcast_get_next(e)) {\n'
+                '        if (maxTime && e->start > maxTime) break;\n'
+                '        htsmsg_add_msg(l, NULL, htsp_build_event(e, NULL, lang, 0, htsp));\n'
+                '        if (num == 1) break;\n'
+                '        if (num) num--;\n'
+                '      }\n'
+                '    }\n'
+                '  }'
+            )
+            reply_lines = '  htsmsg_add_msg(r, "events", l);\n  return r;'
         else:
             request_lines = '  htsmsg_get_u32(in, "demoField", &v);'
             reply_lines = '  htsmsg_add_u32(r, "demoReply", v);\n  return r;'
@@ -2210,6 +2505,7 @@ static htsmsg_t *
 {handler}(htsp_connection_t *htsp, htsmsg_t *in)
 {{
   uint32_t v;
+  htsmsg_t *l = htsmsg_create_list();
   htsmsg_t *r = htsmsg_create_map();
 {request_lines}
 {reply_lines}
@@ -2541,6 +2837,47 @@ def self_test() -> None:
         "getEvent" in live_coverage["clientMethods"]["referenced"]
         and "getEvent" in live_coverage["clientMethods"]["outgoingRequests"],
     )
+    get_events = methods_by_name["getEvents"]
+    check(
+        "getEvents-complete-filter-request-shape",
+        [
+            (field["name"], field["type"], field["presence"], field.get("minVersion"))
+            for field in get_events["requestFields"]
+        ] == [
+            ("channelId", "u32", "optional", 6),
+            ("eventId", "u32", "optional", 6),
+            ("language", "str", "optional", 6),
+            ("numFollowing", "u32", "optional", 6),
+            ("maxTime", "s64", "optional", 6),
+        ]
+        and get_events.get("minVersion") == 4
+        and get_events.get("requestShape", {}).get("completeness") == "complete",
+    )
+    check(
+        "getEvents-complete-required-events-reply",
+        [
+            (field["name"], field["type"], field["presence"], field.get("shapeRef"))
+            for field in get_events["replyFields"]
+        ] == [("events", "list", "required", "event")]
+        and get_events.get("replyShape", {}).get("completeness") == "complete",
+    )
+    check(
+        "getEvents-current-production-coverage-unchanged",
+        (
+            live_coverage["clientMethods"]["referencedCount"],
+            live_coverage["clientMethods"]["outgoingRequestCount"],
+            live_coverage["serverMessages"]["handledCount"],
+        ) == (24, 23, 23)
+        and "getEvents" in live_coverage["clientMethods"]["referenced"]
+        and "getEvents" in live_coverage["clientMethods"]["outgoingRequests"],
+    )
+    check(
+        "getEvents-exact-documentation-limitations",
+        {
+            "getEvents-maxTime-type-source-doc-mismatch",
+            "getEvents-filter-interaction-underdocumented",
+        } <= limitation_ids,
+    )
     check(
         "eventAdd-complete-eventUpdate-partial",
         messages_by_name["eventAdd"].get("messageShape", {}).get("completeness") == "complete"
@@ -2640,7 +2977,11 @@ def self_test() -> None:
     method_rows = [
         (
             name,
-            "htsp_method_getEvent" if name == "getEvent" else f"htsp_method_{idx}",
+            (
+                f"htsp_method_{name}"
+                if name in {"getEvent", "getEvents"}
+                else f"htsp_method_{idx}"
+            ),
             "ACCESS_ANONYMOUS",
         )
         for idx, name in enumerate(EXPECTED_CLIENT_METHODS)
@@ -2746,6 +3087,429 @@ def self_test() -> None:
             ),
         )
         for label, mutated_c, expected_error in (
+            (
+                "reject-getEvents-required-channelId-selector",
+                server_c.replace(
+                    'if (!htsmsg_get_u32(in, "channelId", &u32))',
+                    'if (htsmsg_get_u32(in, "channelId", &u32))',
+                    1,
+                ),
+                "channelId must remain an optional u32 selector",
+            ),
+            (
+                "reject-getEvents-removed-channelId-optional-guard",
+                server_c.replace(
+                    '  if (!htsmsg_get_u32(in, "channelId", &u32))\n',
+                    '  htsmsg_get_u32(in, "channelId", &u32);\n',
+                    1,
+                ),
+                "channelId must remain an optional u32 selector",
+            ),
+            (
+                "reject-getEvents-inverted-eventId-optional-guard",
+                server_c.replace(
+                    'if (!htsmsg_get_u32(in, "eventId", &u32))',
+                    'if (htsmsg_get_u32(in, "eventId", &u32))',
+                    1,
+                ),
+                "eventId must remain an optional u32 selector",
+            ),
+            (
+                "reject-getEvents-removed-eventId-optional-guard",
+                server_c.replace(
+                    '  if (!htsmsg_get_u32(in, "eventId", &u32))\n',
+                    '  htsmsg_get_u32(in, "eventId", &u32);\n',
+                    1,
+                ),
+                "eventId must remain an optional u32 selector",
+            ),
+            (
+                "reject-getEvents-ignored-eventId-selector",
+                server_c.replace(
+                    'htsmsg_get_u32(in, "eventId", &u32)',
+                    'htsmsg_get_u32(in, "ignoredEventId", &u32)',
+                    1,
+                ),
+                "request getter inventory/type drift",
+            ),
+            (
+                "reject-getEvents-wrong-numFollowing-getter",
+                server_c.replace(
+                    'htsmsg_get_u32_or_default(in, "numFollowing", 0)',
+                    'htsmsg_get_s64_or_default(in, "numFollowing", 0)',
+                    1,
+                ),
+                "request getter inventory/type drift",
+            ),
+            (
+                "reject-getEvents-wrong-numFollowing-default",
+                server_c.replace(
+                    'htsmsg_get_u32_or_default(in, "numFollowing", 0)',
+                    'htsmsg_get_u32_or_default(in, "numFollowing", 1)',
+                    1,
+                ),
+                "numFollowing must remain optional u32 default zero",
+            ),
+            (
+                "reject-getEvents-selected-count-off-by-one",
+                server_c.replace('if (numFollowing == 1) break;', 'if (numFollowing == 0) break;', 1),
+                "selected inclusive numFollowing decrement sequence",
+            ),
+            (
+                "reject-getEvents-selected-decrement-removed",
+                server_c.replace('      if (numFollowing) numFollowing--;\n', '', 1),
+                "selected inclusive numFollowing decrement sequence",
+            ),
+            (
+                "reject-getEvents-selected-decrement-corrupted",
+                server_c.replace('if (numFollowing) numFollowing--;', 'if (numFollowing) numFollowing++;', 1),
+                "selected inclusive numFollowing decrement sequence",
+            ),
+            (
+                "reject-getEvents-wrong-maxTime-getter",
+                server_c.replace(
+                    'htsmsg_get_s64_or_default(in, "maxTime", 0)',
+                    'htsmsg_get_u32_or_default(in, "maxTime", 0)',
+                    1,
+                ),
+                "request getter inventory/type drift",
+            ),
+            (
+                "reject-getEvents-wrong-maxTime-default",
+                server_c.replace(
+                    'htsmsg_get_s64_or_default(in, "maxTime", 0)',
+                    'htsmsg_get_s64_or_default(in, "maxTime", 1)',
+                    1,
+                ),
+                "maxTime must remain optional s64 default zero",
+            ),
+            (
+                "reject-getEvents-removed-selected-start-cutoff",
+                server_c.replace('      if (maxTime && e->start > maxTime) break;\n', '', 1),
+                "selected nonzero maxTime start cutoff",
+            ),
+            (
+                "reject-getEvents-changed-selected-start-cutoff",
+                server_c.replace('if (maxTime && e->start > maxTime) break;', 'if (maxTime && e->start >= maxTime) break;', 1),
+                "selected nonzero maxTime start cutoff",
+            ),
+            (
+                "reject-getEvents-removed-all-channel-start-cutoff",
+                server_c.replace('        if (maxTime && e->start > maxTime) break;\n', '', 1),
+                "all-channel nonzero maxTime start cutoff",
+            ),
+            (
+                "reject-getEvents-changed-all-channel-start-cutoff",
+                server_c.replace('        if (maxTime && e->start > maxTime) break;', '        if (maxTime && e->start >= maxTime) break;', 1),
+                "all-channel nonzero maxTime start cutoff",
+            ),
+            (
+                "reject-getEvents-required-language",
+                server_c.replace(
+                    'htsmsg_get_str(in, "language") ?: htsp->htsp_language',
+                    'htsmsg_get_str(in, "language")',
+                    1,
+                ),
+                "optional language fallback",
+            ),
+            (
+                "reject-getEvents-removed-unknown-channel-error",
+                server_c.replace(
+                    'return htsp_error(htsp, N_("Channel does not exist"));',
+                    'ch = NULL;',
+                    1,
+                ),
+                "missing unknown channel error",
+            ),
+            (
+                "reject-getEvents-removed-channelId-nested-lookup-sequence",
+                server_c.replace(
+                    '    if (!(ch = channel_find_by_id(u32)))\n'
+                    '      return htsp_error(htsp, N_("Channel does not exist"));',
+                    '    ch = NULL;',
+                    1,
+                ),
+                "channelId must look up pinned ch selector",
+            ),
+            (
+                "reject-getEvents-channelId-lookup-targets-wrong-selector-variable",
+                server_c.replace(
+                    'if (!(ch = channel_find_by_id(u32)))',
+                    'if (!(e = channel_find_by_id(u32)))',
+                    1,
+                ),
+                "channelId must look up pinned ch selector",
+            ),
+            (
+                "reject-getEvents-removed-unknown-event-error",
+                server_c.replace(
+                    'return htsp_error(htsp, N_("Event does not exist"));',
+                    'e = NULL;',
+                    1,
+                ),
+                "missing unknown event error",
+            ),
+            (
+                "reject-getEvents-removed-eventId-nested-lookup-sequence",
+                server_c.replace(
+                    '    if (!(e = epg_broadcast_find_by_id(u32)))\n'
+                    '      return htsp_error(htsp, N_("Event does not exist"));',
+                    '    e = NULL;',
+                    1,
+                ),
+                "eventId must look up pinned e selector",
+            ),
+            (
+                "reject-getEvents-eventId-lookup-targets-wrong-selector-variable",
+                server_c.replace(
+                    'if (!(e = epg_broadcast_find_by_id(u32)))',
+                    'if (!(ch = epg_broadcast_find_by_id(u32)))',
+                    1,
+                ),
+                "eventId must look up pinned e selector",
+            ),
+            (
+                "reject-getEvents-selector-decoy-outside-bounded-handler",
+                server_c.replace(
+                    '    if (!(ch = channel_find_by_id(u32)))\n'
+                    '      return htsp_error(htsp, N_("Channel does not exist"));',
+                    '    ch = NULL;',
+                    1,
+                ) + (
+                    '\nstatic void get_events_selector_decoy(htsp_connection_t *htsp, htsmsg_t *in) {\n'
+                    '  uint32_t u32; void *ch; void *e;\n'
+                    '  if (!htsmsg_get_u32(in, "channelId", &u32)) {\n'
+                    '    if (!(ch = channel_find_by_id(u32)))\n'
+                    '      return htsp_error(htsp, N_("Channel does not exist"));\n'
+                    '  }\n'
+                    '  if (!htsmsg_get_u32(in, "eventId", &u32)) {\n'
+                    '    if (!(e = epg_broadcast_find_by_id(u32)))\n'
+                    '      return htsp_error(htsp, N_("Event does not exist"));\n'
+                    '  }\n'
+                    '}\n'
+                ),
+                "channelId must look up pinned ch selector",
+            ),
+            (
+                "reject-getEvents-event-precedence-guard-removed",
+                server_c.replace('if (!e) e = ch->ch_epg_now ?: ch->ch_epg_next;', 'e = ch->ch_epg_now ?: ch->ch_epg_next;', 1),
+                "explicit event selector precedence",
+            ),
+            (
+                "reject-getEvents-invented-unified-loop-topology",
+                server_c.replace(
+                    '  if (e || ch) {',
+                    '  while (e || (ch = channel_next(ch))) {',
+                    1,
+                ),
+                "mutually exclusive selected/all-channel branch topology",
+            ),
+            (
+                "reject-getEvents-branch-decoy-outside-bounded-handler",
+                server_c.replace('  if (e || ch) {', '  if (e && ch) {', 1) + (
+                    '\nstatic void get_events_branch_decoy(htsp_connection_t *htsp) {\n'
+                    '  void *ch = NULL; void *e = NULL; unsigned numFollowing = 0;\n'
+                    '  long maxTime = 0; const char *lang = NULL; htsmsg_t *l = NULL;\n'
+                    '  if (e || ch) {\n'
+                    '    if (!e) e = ch->ch_epg_now ?: ch->ch_epg_next;\n'
+                    '    if (!htsp_user_access_channel(htsp, e->channel)) return;\n'
+                    '    while (e) {\n'
+                    '      if (maxTime && e->start > maxTime) break;\n'
+                    '      htsmsg_add_msg(l, NULL, htsp_build_event(e, NULL, lang, 0, htsp));\n'
+                    '      if (numFollowing == 1) break;\n'
+                    '      if (numFollowing) numFollowing--;\n'
+                    '      e = epg_broadcast_get_next(e);\n'
+                    '    }\n'
+                    '  } else {\n'
+                    '    for (ch = channel_first(); ch; ch = channel_next(ch)) {\n'
+                    '      int num = numFollowing;\n'
+                    '      if (!htsp_user_access_channel(htsp, ch)) continue;\n'
+                    '      for (e = ch->ch_epg_now; e; e = epg_broadcast_get_next(e)) {\n'
+                    '        if (maxTime && e->start > maxTime) break;\n'
+                    '        htsmsg_add_msg(l, NULL, htsp_build_event(e, NULL, lang, 0, htsp));\n'
+                    '        if (num == 1) break;\n'
+                    '        if (num) num--;\n'
+                    '      }\n'
+                    '    }\n'
+                    '  }\n'
+                    '}\n'
+                ),
+                "mutually exclusive selected/all-channel branch topology",
+            ),
+            (
+                "reject-getEvents-event-precedence-guard-inverted",
+                server_c.replace('if (!e) e = ch->ch_epg_now ?: ch->ch_epg_next;', 'if (e) e = ch->ch_epg_now ?: ch->ch_epg_next;', 1),
+                "explicit event selector precedence",
+            ),
+            (
+                "reject-getEvents-removed-selected-event-access-filter",
+                server_c.replace('htsp_user_access_channel(htsp, e->channel)', 'channel_visible(htsp, e->channel)', 1),
+                "selected access filtering",
+            ),
+            (
+                "reject-getEvents-inverted-selected-event-access-polarity",
+                server_c.replace(
+                    'e && !htsp_user_access_channel(htsp, e->channel)',
+                    'e && htsp_user_access_channel(htsp, e->channel)',
+                    1,
+                ),
+                "selected access filtering",
+            ),
+            (
+                "reject-getEvents-altered-selected-event-access-rejection",
+                server_c.replace(
+                    'return htsp_error("Access denied");',
+                    'return NULL;',
+                    1,
+                ),
+                "selected access filtering",
+            ),
+            (
+                "reject-getEvents-removed-all-channel-access-filter",
+                server_c.replace('htsp_user_access_channel(htsp, ch)', 'channel_visible(htsp, ch)', 1),
+                "all-channel access filtering",
+            ),
+            (
+                "reject-getEvents-inverted-all-channel-access-polarity",
+                server_c.replace(
+                    '!htsp_user_access_channel(htsp, ch)',
+                    'htsp_user_access_channel(htsp, ch)',
+                    1,
+                ),
+                "all-channel access filtering",
+            ),
+            (
+                "reject-getEvents-altered-all-channel-access-control-flow",
+                server_c.replace(
+                    'if (!htsp_user_access_channel(htsp, ch)) continue;',
+                    'if (!htsp_user_access_channel(htsp, ch)) break;',
+                    1,
+                ),
+                "all-channel access filtering",
+            ),
+            (
+                "reject-getEvents-removed-selected-builder-list-insertion",
+                server_c.replace(
+                    '      htsmsg_add_msg(l, NULL, htsp_build_event(e, NULL, lang, 0, htsp));',
+                    '      (void)e;',
+                    1,
+                ),
+                "selected htsp_build_event list insertion",
+            ),
+            (
+                "reject-getEvents-replaced-selected-builder-list-insertion",
+                server_c.replace(
+                    'htsmsg_add_msg(l, NULL, htsp_build_event(e, NULL, lang, 0, htsp))',
+                    'htsmsg_add_msg(l, NULL, htsp_build_channel(e, NULL, htsp))',
+                    1,
+                ),
+                "selected htsp_build_event list insertion",
+            ),
+            (
+                "reject-getEvents-multiplied-selected-builder-list-insertion",
+                server_c.replace(
+                    '      htsmsg_add_msg(l, NULL, htsp_build_event(e, NULL, lang, 0, htsp));',
+                    '      htsmsg_add_msg(l, NULL, htsp_build_event(e, NULL, lang, 0, htsp));\n'
+                    '      htsmsg_add_msg(l, NULL, htsp_build_event(e, NULL, lang, 0, htsp));',
+                    1,
+                ),
+                "selected htsp_build_event list insertion",
+            ),
+            (
+                "reject-getEvents-removed-all-channel-builder-list-insertion",
+                server_c.replace(
+                    '        htsmsg_add_msg(l, NULL, htsp_build_event(e, NULL, lang, 0, htsp));',
+                    '        (void)e;',
+                    1,
+                ),
+                "all-channel htsp_build_event list insertion",
+            ),
+            (
+                "reject-getEvents-replaced-all-channel-builder-list-insertion",
+                server_c.replace(
+                    '        htsmsg_add_msg(l, NULL, htsp_build_event(e, NULL, lang, 0, htsp));',
+                    '        htsmsg_add_msg(l, NULL, htsp_build_channel(e, NULL, htsp));',
+                    1,
+                ),
+                "all-channel htsp_build_event list insertion",
+            ),
+            (
+                "reject-getEvents-multiplied-all-channel-builder-list-insertion",
+                server_c.replace(
+                    '        htsmsg_add_msg(l, NULL, htsp_build_event(e, NULL, lang, 0, htsp));',
+                    '        htsmsg_add_msg(l, NULL, htsp_build_event(e, NULL, lang, 0, htsp));\n'
+                    '        htsmsg_add_msg(l, NULL, htsp_build_event(e, NULL, lang, 0, htsp));',
+                    1,
+                ),
+                "all-channel htsp_build_event list insertion",
+            ),
+            (
+                "reject-getEvents-wrong-reply-list-field",
+                server_c.replace('htsmsg_add_msg(r, "events", l)', 'htsmsg_add_msg(r, "items", l)', 1),
+                "exactly required events list",
+            ),
+            (
+                "reject-getEvents-duplicated-final-events-field",
+                server_c.replace(
+                    '  htsmsg_add_msg(r, "events", l);',
+                    '  htsmsg_add_msg(r, "events", l);\n  htsmsg_add_msg(r, "events", l);',
+                    1,
+                ),
+                "exactly required events list",
+            ),
+            (
+                "reject-getEvents-final-events-field-wrong-list",
+                server_c.replace('htsmsg_add_msg(r, "events", l)', 'htsmsg_add_msg(r, "events", other)', 1),
+                "exactly required events list",
+            ),
+            (
+                "reject-getEvents-final-events-field-wrong-destination",
+                server_c.replace('htsmsg_add_msg(r, "events", l)', 'htsmsg_add_msg(other, "events", l)', 1),
+                "exactly required events list",
+            ),
+            (
+                "reject-getEvents-returned-wrong-reply-map",
+                server_c.replace(
+                    '  htsmsg_add_msg(r, "events", l);\n  return r;',
+                    '  htsmsg_add_msg(r, "events", l);\n  return other;',
+                    1,
+                ),
+                "exactly required events list",
+            ),
+            (
+                "reject-getEvents-all-channel-count-reset-removed",
+                server_c.replace('      int num = numFollowing;\n', '', 1),
+                "per-channel numFollowing reset",
+            ),
+            (
+                "reject-getEvents-all-channel-count-reset-wrong-initializer",
+                server_c.replace('int num = numFollowing;', 'int num = 0;', 1),
+                "per-channel numFollowing reset",
+            ),
+            (
+                "reject-getEvents-all-channel-count-reset-moved-outside-loop",
+                server_c.replace(
+                    '    for (ch = channel_first(); ch; ch = channel_next(ch)) {\n      int num = numFollowing;',
+                    '    int num = numFollowing;\n    for (ch = channel_first(); ch; ch = channel_next(ch)) {',
+                    1,
+                ),
+                "per-channel numFollowing reset",
+            ),
+            (
+                "reject-getEvents-all-channel-count-off-by-one",
+                server_c.replace('if (num == 1) break;', 'if (num == 0) break;', 1),
+                "all-channel inclusive numFollowing decrement sequence",
+            ),
+            (
+                "reject-getEvents-all-channel-decrement-removed",
+                server_c.replace('        if (num) num--;\n', '', 1),
+                "all-channel inclusive numFollowing decrement sequence",
+            ),
+            (
+                "reject-getEvents-all-channel-decrement-corrupted",
+                server_c.replace('if (num) num--;', 'if (num) num++;', 1),
+                "all-channel inclusive numFollowing decrement sequence",
+            ),
             (
                 "reject-getChannel-request-source-drift",
                 server_c.replace(

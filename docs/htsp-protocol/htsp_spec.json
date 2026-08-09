@@ -1413,50 +1413,65 @@
           "name": "channelId",
           "type": "u32",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_u32",
-          "confidence": "mechanical",
-          "minVersion": null,
+          "presence": "optional",
+          "evidence": "htsp_method_getEvents optional channel selector",
+          "confidence": "mechanical+annotated",
+          "minVersion": 6,
+          "notes": [
+            "minVersion from annotated catalog"
+          ],
           "order": 1
         },
         {
           "name": "eventId",
           "type": "u32",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_u32",
-          "confidence": "mechanical",
-          "minVersion": null,
+          "presence": "optional",
+          "evidence": "htsp_method_getEvents optional event selector with precedence over channelId",
+          "confidence": "mechanical+annotated",
+          "minVersion": 6,
+          "notes": [
+            "minVersion from annotated catalog"
+          ],
           "order": 2
         },
         {
           "name": "language",
           "type": "str",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_str",
-          "confidence": "mechanical",
-          "minVersion": null,
+          "presence": "optional",
+          "evidence": "htsp_method_getEvents uses supplied language or connection language",
+          "confidence": "mechanical+annotated",
+          "minVersion": 6,
+          "notes": [
+            "minVersion from annotated catalog"
+          ],
           "order": 3
         },
         {
           "name": "numFollowing",
           "type": "u32",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_u32_or_default",
-          "confidence": "mechanical",
-          "minVersion": null,
+          "presence": "optional",
+          "evidence": "htsp_method_getEvents reads u32 default zero and enforces a positive inclusive maximum count",
+          "confidence": "mechanical+annotated",
+          "minVersion": 6,
+          "notes": [
+            "minVersion from annotated catalog"
+          ],
           "order": 4
         },
         {
           "name": "maxTime",
           "type": "s64",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_s64_or_default",
-          "confidence": "mechanical",
-          "minVersion": null,
+          "presence": "optional",
+          "evidence": "htsp_method_getEvents reads signed s64 default zero and stops before a later event start",
+          "confidence": "mechanical+annotated",
+          "minVersion": 6,
+          "notes": [
+            "minVersion from annotated catalog"
+          ],
           "order": 5
         }
       ],
@@ -1466,7 +1481,7 @@
           "type": "list",
           "direction": "reply",
           "presence": "required",
-          "evidence": "htsp_method_getEvents adds a list of htsp_build_event maps",
+          "evidence": "htsp_method_getEvents adds exactly one required list of htsp_build_event maps",
           "confidence": "mechanical+annotated",
           "minVersion": null,
           "shapeRef": "event",
@@ -1475,13 +1490,13 @@
       ],
       "requestShape": {
         "kind": "fields",
-        "completeness": "partial",
-        "evidence": "bounded handler/helper extraction plus exact-pin annotations"
+        "completeness": "complete",
+        "evidence": "bounded pinned htsp_method_getEvents selector/filter extraction"
       },
       "replyShape": {
         "kind": "fields",
-        "completeness": "partial",
-        "evidence": "bounded handler/helper extraction plus exact-pin annotations"
+        "completeness": "complete",
+        "evidence": "bounded pinned htsp_method_getEvents required events-list construction"
       },
       "sdk": {
         "referenced": true,
@@ -8548,6 +8563,18 @@
       "id": "getSysTime-time-type-source-doc-mismatch",
       "summary": "The pinned htsp_method_getSysTime source emits time through htsmsg_add_s32, while the official Client-to-Server RPC methods page specifies required s64 Unix time. This records a source/docs evidence mismatch; it is not a decision to coerce or truncate the SDK public value.",
       "authority": "src/htsp_server.c htsp_method_getSysTime",
+      "docsUrl": "https://docs.tvheadend.org/documentation/development/htsp/client-to-server-rpc-methods"
+    },
+    {
+      "id": "getEvents-maxTime-type-source-doc-mismatch",
+      "summary": "The pinned htsp_method_getEvents source reads maxTime through htsmsg_get_s64_or_default into signed int64_t with zero as the no-time-bound sentinel, while the official Client-to-Server RPC methods page documents maxTime as optional u64 since version 6. This records a source/docs evidence mismatch; it does not coerce the pinned current-source s64 contract to u64.",
+      "authority": "src/htsp_server.c htsp_method_getEvents",
+      "docsUrl": "https://docs.tvheadend.org/documentation/development/htsp/client-to-server-rpc-methods"
+    },
+    {
+      "id": "getEvents-filter-interaction-underdocumented",
+      "summary": "Pinned htsp_method_getEvents source gives eventId selection precedence when both eventId and channelId are present, applies a nonzero maxTime start cutoff, treats positive numFollowing as an inclusive maximum count, resets that count per channel in all-channel mode, and filters inaccessible channels. The official Client-to-Server RPC methods page lists the optional version-6 filters but does not specify those interactions.",
+      "authority": "src/htsp_server.c htsp_method_getEvents",
       "docsUrl": "https://docs.tvheadend.org/documentation/development/htsp/client-to-server-rpc-methods"
     },
     {

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import sys
 import tempfile
@@ -239,6 +240,35 @@ EVENT_UPDATE_NOTE = (
 EVENT_UPDATE_SHAPE_EVIDENCE = (
     "pinned current eventUpdate call sites use the shared full htsp_build_event "
     "snapshot; compatibility remains partial by eventId"
+)
+GET_EVENTS_MAX_TIME_LIMITATION_ID = "getEvents-maxTime-type-source-doc-mismatch"
+GET_EVENTS_FILTER_LIMITATION_ID = "getEvents-filter-interaction-underdocumented"
+GET_EVENTS_DOCS_URL = (
+    "https://docs.tvheadend.org/documentation/development/htsp/"
+    "client-to-server-rpc-methods"
+)
+GET_EVENTS_MAX_TIME_LIMITATION_SUMMARY = (
+    "The pinned htsp_method_getEvents source reads maxTime through "
+    "htsmsg_get_s64_or_default into signed int64_t with zero as the "
+    "no-time-bound sentinel, while the official Client-to-Server RPC methods "
+    "page documents maxTime as optional u64 since version 6. This records a "
+    "source/docs evidence mismatch; it does not coerce the pinned "
+    "current-source s64 contract to u64."
+)
+GET_EVENTS_FILTER_LIMITATION_SUMMARY = (
+    "Pinned htsp_method_getEvents source gives eventId selection precedence "
+    "when both eventId and channelId are present, applies a nonzero maxTime "
+    "start cutoff, treats positive numFollowing as an inclusive maximum count, "
+    "resets that count per channel in all-channel mode, and filters inaccessible "
+    "channels. The official Client-to-Server RPC methods page lists the optional "
+    "version-6 filters but does not specify those interactions."
+)
+GET_EVENTS_REQUEST_CONTRACT = (
+    ("channelId", "u32", "optional", 6),
+    ("eventId", "u32", "optional", 6),
+    ("language", "str", "optional", 6),
+    ("numFollowing", "u32", "optional", 6),
+    ("maxTime", "s64", "optional", 6),
 )
 WIRE_TYPES = {"u32", "s32", "s64", "str", "bin", "msg", "list", "bool", "dbl", "uuid", "unknown"}
 PRESENCE_VALUES = {"required", "optional", "conditional", "alternative", "unknown"}
@@ -584,6 +614,26 @@ def validate_spec(spec: dict[str, Any], upstream: dict[str, Any] | None = None) 
     if get_event.get("replyShape", {}).get("kind") != "fields" or get_event.get("replyShape", {}).get("completeness") != "complete":
         errors.append("getEvent reply shape must be fields/complete")
 
+    get_events = method_map.get("getEvents", {})
+    get_events_request = [
+        (field.get("name"), field.get("type"), field.get("presence"), field.get("minVersion"))
+        for field in get_events.get("requestFields", [])
+    ]
+    if get_events.get("minVersion") != 4:
+        errors.append("getEvents method minimum version must remain 4")
+    if get_events_request != list(GET_EVENTS_REQUEST_CONTRACT):
+        errors.append("getEvents request must preserve exact optional version-6 filter contract")
+    if get_events.get("requestShape", {}).get("kind") != "fields" or get_events.get("requestShape", {}).get("completeness") != "complete":
+        errors.append("getEvents request shape must be fields/complete")
+    get_events_reply = [
+        (field.get("name"), field.get("type"), field.get("presence"), field.get("shapeRef"))
+        for field in get_events.get("replyFields", [])
+    ]
+    if get_events_reply != [("events", "list", "required", "event")]:
+        errors.append("getEvents reply must be exactly required events:list -> event")
+    if get_events.get("replyShape", {}).get("kind") != "fields" or get_events.get("replyShape", {}).get("completeness") != "complete":
+        errors.append("getEvents reply shape must be fields/complete")
+
     event_add = message_map.get("eventAdd", {})
     event_add_fields = [
         (field.get("name"), field.get("type"), field.get("presence"), field.get("shapeRef"))
@@ -702,6 +752,8 @@ def validate_spec(spec: dict[str, Any], upstream: dict[str, Any] | None = None) 
         errors.append("getChannel must be fresh referenced and outgoing production coverage")
     if "getEvent" not in referenced_list or "getEvent" not in outgoing_list:
         errors.append("getEvent must be fresh referenced and outgoing production coverage")
+    if "getEvents" not in referenced_list or "getEvents" not in outgoing_list:
+        errors.append("getEvents must remain fresh referenced and outgoing production coverage")
 
     # sdk flags must match coverage lists
     ref_set = set(client_cov.get("referenced") or [])
@@ -778,6 +830,26 @@ def validate_spec(spec: dict[str, Any], upstream: dict[str, Any] | None = None) 
             or event_limitation.get("docsUrl") != EVENT_DOCS_URL
         ):
             errors.append("event limitation must preserve pinned s64/u32 source facts and governing Server-to-Client URL")
+        get_events_max_time = next(
+            (item for item in limitations if isinstance(item, dict) and item.get("id") == GET_EVENTS_MAX_TIME_LIMITATION_ID),
+            None,
+        )
+        if not get_events_max_time or (
+            get_events_max_time.get("summary") != GET_EVENTS_MAX_TIME_LIMITATION_SUMMARY
+            or get_events_max_time.get("authority") != "src/htsp_server.c htsp_method_getEvents"
+            or get_events_max_time.get("docsUrl") != GET_EVENTS_DOCS_URL
+        ):
+            errors.append("getEvents maxTime limitation must preserve pinned s64 source type and governing Client-to-Server URL")
+        get_events_filters = next(
+            (item for item in limitations if isinstance(item, dict) and item.get("id") == GET_EVENTS_FILTER_LIMITATION_ID),
+            None,
+        )
+        if not get_events_filters or (
+            get_events_filters.get("summary") != GET_EVENTS_FILTER_LIMITATION_SUMMARY
+            or get_events_filters.get("authority") != "src/htsp_server.c htsp_method_getEvents"
+            or get_events_filters.get("docsUrl") != GET_EVENTS_DOCS_URL
+        ):
+            errors.append("getEvents filter-interaction limitation must preserve exact pinned behavior and governing Client-to-Server URL")
 
     global_rpc = spec.get("globalRpc") or {}
     if set(global_rpc) != {"requestFields", "replyFields"}:
@@ -1231,6 +1303,93 @@ def validate_repository_artifacts(
     return errors
 
 
+def _derive_fresh_self_test_spec() -> dict[str, Any]:
+    """Build report validation input from an isolated exact-topology source fixture."""
+    module_name = "_htsp_report_self_test_derive"
+    if module_name in sys.modules:
+        raise AssertionError("isolated derive self-test module name is already loaded")
+    module_spec = importlib.util.spec_from_file_location(module_name, SCRIPT_DIR / "derive.py")
+    if module_spec is None or module_spec.loader is None:
+        raise AssertionError("unable to create isolated derive self-test import")
+    derive_module = importlib.util.module_from_spec(module_spec)
+    module_spec.loader.exec_module(derive_module)
+    if module_name in sys.modules:
+        raise AssertionError("isolated derive self-test import polluted sys.modules")
+
+    method_rows = [
+        (
+            name,
+            f"htsp_method_{name}" if name in {"getEvent", "getEvents"} else f"htsp_method_{index}",
+            "ACCESS_ANONYMOUS",
+        )
+        for index, name in enumerate(EXPECTED_CLIENT_METHODS)
+    ]
+    server_c = derive_module._minimal_server_c(method_rows, proto=44)
+    server_h = "/* report self-test header fixture */\nvoid htsp_init(const char *bindaddr);\n"
+    htsp_py = (
+        "HTSP_PROTO_VERSION = 33\n"
+        "class HTSPClient(object):\n"
+        "    def fixture(self):\n"
+        "        self.send('hello')\n"
+        "        self.send('authenticate')\n"
+        "        self.send('enableAsyncMetadata')\n"
+    )
+
+    with tempfile.TemporaryDirectory(prefix="htsp-report-derived-selftest-") as tmp:
+        root = Path(tmp)
+        (root / "src").mkdir()
+        (root / "lib" / "py" / "tvh").mkdir(parents=True)
+        fixture_files = {
+            "src/htsp_server.c": server_c,
+            "src/htsp_server.h": server_h,
+            "lib/py/tvh/htsp.py": htsp_py,
+        }
+        file_metadata: dict[str, dict[str, Any]] = {}
+        for relative, content in fixture_files.items():
+            data, digest, size = derive_module._pin_bytes_and_sha(content)
+            (root / relative).write_bytes(data)
+            file_metadata[relative] = {"gitBlobSha1": digest, "bytes": size}
+        fixture_manifest = {
+            "schemaVersion": 1,
+            "repository": EXPECTED_REPOSITORY,
+            "revision": "self-test-exact-topology",
+            "htspProtoVersion": EXPECTED_PROTO_VERSION,
+            "files": file_metadata,
+            "docsUrls": {},
+        }
+        fresh = derive_module.build_spec(
+            root,
+            fixture_manifest,
+            enforce_exact_pin=False,
+        )
+
+    # Report validation owns schema/policy, not fixture-byte pin verification.
+    # Evaluate freshly derived getEvents/event evidence inside the complete
+    # committed-schema baseline; unrelated minimal fixture handlers deliberately
+    # do not pretend to model every pinned method.
+    upstream = load_json(UPSTREAM_PATH)
+    fresh["upstream"] = {key: value for key, value in upstream.items() if key != "schemaVersion"}
+    candidate = load_json(SPEC_PATH)
+    fresh_methods = {item["name"]: item for item in fresh["clientMethods"]}
+    candidate["clientMethods"] = [
+        fresh_methods["getEvents"] if item["name"] == "getEvents" else item
+        for item in candidate["clientMethods"]
+    ]
+    fresh_messages = {item["name"]: item for item in fresh["serverMessages"]}
+    candidate["serverMessages"] = [
+        fresh_messages[item["name"]]
+        if item["name"] in {"eventAdd", "eventUpdate"}
+        else item
+        for item in candidate["serverMessages"]
+    ]
+    for shape_name in ("event", "str", "eventCreditsDynamic"):
+        candidate["shapes"][shape_name] = fresh["shapes"][shape_name]
+    candidate["coverage"] = fresh["coverage"]
+    candidate["pythonDemo"] = fresh["pythonDemo"]
+    candidate["docLimitations"] = fresh["docLimitations"]
+    return candidate
+
+
 def self_test() -> None:
     failures: list[str] = []
 
@@ -1350,9 +1509,16 @@ def self_test() -> None:
             }
         )
 
-    # The committed generated artifact is the complete valid-schema fixture;
-    # every following test mutates one independently meaningful contract.
-    good_spec = load_json(SPEC_PATH)
+    # The positive fixture must be freshly derived from exact-pin-shaped source,
+    # independently of the committed generated artifact. Every following test
+    # mutates one independently meaningful contract.
+    good_spec = _derive_fresh_self_test_spec()
+    committed_spec = load_json(SPEC_PATH)
+    check(
+        "committed-spec-still-valid",
+        validate_spec(committed_spec) == [],
+        str(validate_spec(committed_spec)),
+    )
     ref_names = list(good_spec["coverage"]["clientMethods"]["referenced"])
     out_names = list(good_spec["coverage"]["clientMethods"]["outgoingRequests"])
 
@@ -1386,6 +1552,28 @@ def self_test() -> None:
         "getEvent-fresh-coverage",
         "getEvent" in good_spec["coverage"]["clientMethods"]["referenced"]
         and "getEvent" in good_spec["coverage"]["clientMethods"]["outgoingRequests"],
+    )
+    get_events = next(m for m in good_spec["clientMethods"] if m["name"] == "getEvents")
+    check(
+        "getEvents-fresh-complete-contract",
+        get_events.get("minVersion") == 4
+        and [
+            (f["name"], f["type"], f["presence"], f.get("minVersion"))
+            for f in get_events["requestFields"]
+        ] == list(GET_EVENTS_REQUEST_CONTRACT)
+        and get_events.get("requestShape", {}).get("completeness") == "complete"
+        and [
+            (f["name"], f["type"], f["presence"], f.get("shapeRef"))
+            for f in get_events["replyFields"]
+        ] == [("events", "list", "required", "event")]
+        and get_events.get("replyShape", {}).get("completeness") == "complete",
+    )
+    check(
+        "getEvents-fresh-unchanged-coverage",
+        good_spec["coverage"]["clientMethods"]["referencedCount"] == 24
+        and good_spec["coverage"]["clientMethods"]["outgoingRequestCount"] == 23
+        and good_spec["coverage"]["serverMessages"]["handledCount"] == 23
+        and "getEvents" in good_spec["coverage"]["clientMethods"]["outgoingRequests"],
     )
     event_update = next(m for m in good_spec["serverMessages"] if m["name"] == "eventUpdate")
     check(
@@ -1626,6 +1814,89 @@ def self_test() -> None:
     }
     err = validate_spec(bad)
     check("reject-getEvent-stale-live-coverage", any("getEvent must be fresh" in e for e in err), str(err))
+
+    for label, mutate in (
+        (
+            "required-channelId",
+            lambda method: next(f for f in method["requestFields"] if f["name"] == "channelId").update({"presence": "required"}),
+        ),
+        (
+            "wrong-numFollowing-type",
+            lambda method: next(f for f in method["requestFields"] if f["name"] == "numFollowing").update({"type": "s64"}),
+        ),
+        (
+            "wrong-maxTime-type",
+            lambda method: next(f for f in method["requestFields"] if f["name"] == "maxTime").update({"type": "u32"}),
+        ),
+        (
+            "wrong-filter-min-version",
+            lambda method: next(f for f in method["requestFields"] if f["name"] == "language").update({"minVersion": 4}),
+        ),
+        (
+            "wrong-method-min-version",
+            lambda method: method.update({"minVersion": 6}),
+        ),
+        (
+            "partial-request-shape",
+            lambda method: method["requestShape"].update({"completeness": "partial"}),
+        ),
+        (
+            "optional-events-reply",
+            lambda method: method["replyFields"][0].update({"presence": "optional"}),
+        ),
+        (
+            "wrong-events-reply-type",
+            lambda method: method["replyFields"][0].update({"type": "msg"}),
+        ),
+        (
+            "partial-reply-shape",
+            lambda method: method["replyShape"].update({"completeness": "partial"}),
+        ),
+    ):
+        bad = json.loads(json.dumps(good_spec))
+        mutate(next(m for m in bad["clientMethods"] if m["name"] == "getEvents"))
+        err = validate_spec(bad)
+        check(
+            f"reject-getEvents-{label}",
+            any("getEvents" in error for error in err),
+            str(err),
+        )
+
+    bad = json.loads(json.dumps(good_spec))
+    get_events_bad = next(m for m in bad["clientMethods"] if m["name"] == "getEvents")
+    get_events_bad["replyFields"].append(json.loads(json.dumps(get_events_bad["replyFields"][0])))
+    get_events_bad["replyFields"][1].update({"name": "extra", "order": 2})
+    err = validate_spec(bad)
+    check("reject-getEvents-extra-reply-field", any("getEvents reply" in e for e in err), str(err))
+
+    for limitation_id, key, value, expected in (
+        (
+            GET_EVENTS_MAX_TIME_LIMITATION_ID,
+            "summary",
+            GET_EVENTS_MAX_TIME_LIMITATION_SUMMARY.replace("s64", "u64"),
+            "maxTime limitation",
+        ),
+        (
+            GET_EVENTS_MAX_TIME_LIMITATION_ID,
+            "docsUrl",
+            EXPECTED_DOCS_URLS["serverToClient"],
+            "maxTime limitation",
+        ),
+        (
+            GET_EVENTS_FILTER_LIMITATION_ID,
+            "summary",
+            GET_EVENTS_FILTER_LIMITATION_SUMMARY.replace("inclusive maximum", "unbounded"),
+            "filter-interaction limitation",
+        ),
+    ):
+        bad = json.loads(json.dumps(good_spec))
+        next(item for item in bad["docLimitations"] if item["id"] == limitation_id)[key] = value
+        err = validate_spec(bad)
+        check(
+            f"reject-{limitation_id}-{key}",
+            any(expected in error for error in err),
+            str(err),
+        )
 
     for mutation_name, mutate in (
         (

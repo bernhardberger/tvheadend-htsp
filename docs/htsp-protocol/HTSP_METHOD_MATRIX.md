@@ -53,7 +53,7 @@ These fields are protocol-wide and are **not** method-specific success fields.
 | 6 | `enableAsyncMetadata` | `ACCESS_HTSP_STREAMING` | — | yes | yes | `epg`:u32 [unknown], `lastUpdate`:s64 [unknown], `epgMaxTime`:s64 [unknown], `language`:str [unknown] — fields/partial | _knownEmpty/complete_ |
 | 7 | `getChannel` | `ACCESS_HTSP_STREAMING` | 14 (annotated) | yes | yes | `channelId`:u32 [required] — fields/complete | `channelId`:u32 [required], `channelIdStr`:str [conditional] ≥v41, `channelNumber`:u32 [required], `channelNumberMinor`:u32 [conditional], `channelName`:str [required], `channelIcon`:str [conditional], `eventId`:u32 [required], `nextEventId`:u32 [required], `services`:list [required] → `service`, `tags`:list [required] → `u32` — fields/complete |
 | 8 | `getEvent` | `ACCESS_HTSP_STREAMING` | — | yes | yes | `eventId`:u32 [required], `language`:str [optional] — fields/complete | `eventId`:u32 [required], `channelId`:u32 [conditional], `start`:s64 [required], `stop`:s64 [required], `title`:str [conditional], `subtitle`:str [conditional], `summary`:str [conditional], `description`:str [conditional], `credits`:msg [conditional] → `eventCreditsDynamic`, `category`:list [conditional] → `str`, `keyword`:list [conditional] → `str`, `serieslinkUri`:str [conditional], `episodeUri`:str [conditional], `contentType`:u32 [conditional], `ageRating`:u32 [conditional], `ratingLabel`:str [conditional], `ratingIcon`:str [conditional], `ratingAuthority`:str [conditional], `ratingCountry`:str [conditional], `starRating`:u32 [conditional], `copyrightYear`:u32 [conditional], `firstAired`:s64 [conditional], `isNew`:u32 [conditional], `seasonNumber`:u32 [conditional], `seasonCount`:u32 [conditional], `episodeNumber`:u32 [conditional], `episodeCount`:u32 [conditional], `partNumber`:u32 [conditional], `partCount`:u32 [conditional], `episodeOnscreen`:str [conditional], `image`:str [conditional], `dvrId`:u32 [conditional], `nextEventId`:u32 [conditional] — fields/complete |
-| 9 | `getEvents` | `ACCESS_HTSP_STREAMING` | 4 (annotated) | yes | yes | `channelId`:u32 [unknown], `eventId`:u32 [unknown], `language`:str [unknown], `numFollowing`:u32 [unknown], `maxTime`:s64 [unknown] — fields/partial | `events`:list [required] → `event` — fields/partial |
+| 9 | `getEvents` | `ACCESS_HTSP_STREAMING` | 4 (annotated) | yes | yes | `channelId`:u32 [optional] ≥v6, `eventId`:u32 [optional] ≥v6, `language`:str [optional] ≥v6, `numFollowing`:u32 [optional] ≥v6, `maxTime`:s64 [optional] ≥v6 — fields/complete | `events`:list [required] → `event` — fields/complete |
 | 10 | `epgQuery` | `ACCESS_HTSP_STREAMING` | 4 (annotated) |  |  | `query`:str [unknown], `channelId`:u32 [unknown], `tagId`:u32 [unknown], `contentType`:u32 [unknown], `language`:str [unknown], `fulltext`:bool [unknown], `mergetext`:bool [unknown], `full`:u32 [unknown], `minduration`:u32 [unknown], `maxduration`:u32 [unknown] — fields/partial | `eventIds`:list [alternative] → `u32`, `events`:list [alternative] → `event` — alternative/complete |
 | 11 | `getEpgObject` | `ACCESS_HTSP_STREAMING` | — |  |  | `id`:u32 [unknown], `type`:u32 [unknown] — fields/partial | _dynamic/opaque_ |
 | 12 | `getDvrConfigs` | `ACCESS_HTSP_RECORDER` | 16 (annotated) | yes | yes | _knownEmpty/complete_ | `dvrconfigs`:list [unknown] → `dvrConfig` — fields/partial |
@@ -134,6 +134,20 @@ The pinned htsp_method_getDiskSpace source emits useddiskspace in addition to fr
 The pinned htsp_method_getSysTime source emits time through htsmsg_add_s32, while the official Client-to-Server RPC methods page specifies required s64 Unix time. This records a source/docs evidence mismatch; it is not a decision to coerce or truncate the SDK public value.
 
 - Authority: src/htsp_server.c htsp_method_getSysTime
+- Docs URL: https://docs.tvheadend.org/documentation/development/htsp/client-to-server-rpc-methods
+
+### `getEvents-maxTime-type-source-doc-mismatch`
+
+The pinned htsp_method_getEvents source reads maxTime through htsmsg_get_s64_or_default into signed int64_t with zero as the no-time-bound sentinel, while the official Client-to-Server RPC methods page documents maxTime as optional u64 since version 6. This records a source/docs evidence mismatch; it does not coerce the pinned current-source s64 contract to u64.
+
+- Authority: src/htsp_server.c htsp_method_getEvents
+- Docs URL: https://docs.tvheadend.org/documentation/development/htsp/client-to-server-rpc-methods
+
+### `getEvents-filter-interaction-underdocumented`
+
+Pinned htsp_method_getEvents source gives eventId selection precedence when both eventId and channelId are present, applies a nonzero maxTime start cutoff, treats positive numFollowing as an inclusive maximum count, resets that count per channel in all-channel mode, and filters inaccessible channels. The official Client-to-Server RPC methods page lists the optional version-6 filters but does not specify those interactions.
+
+- Authority: src/htsp_server.c htsp_method_getEvents
 - Docs URL: https://docs.tvheadend.org/documentation/development/htsp/client-to-server-rpc-methods
 
 ### `channel-service-fields-underdocumented`
