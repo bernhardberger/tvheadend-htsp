@@ -18,7 +18,7 @@ Primary authority is the pinned TVHeadend server source. Official HTSP documenta
 
 - Client→server methods referenced in production sources: **29 / 39**
 - Distinct outgoing request names: **28 / 39**
-- Server→client messages handled (exact literal): **24 / 30**
+- Server→client messages handled (exact literal): **27 / 30**
 - Distinguish **referenced** from **outgoing**: a name can appear because an inbound handler mentions it (for example `subscriptionSkip`) while the client sends a synonym (`subscriptionSeek`).
 - Never claim methods are implemented/called merely because they are referenced.
 
@@ -27,9 +27,6 @@ Unhandled server messages:
 - `autorecEntryAdd`
 - `autorecEntryUpdate`
 - `autorecEntryDelete`
-- `timerecEntryAdd`
-- `timerecEntryUpdate`
-- `timerecEntryDelete`
 
 ## Global RPC fields
 
@@ -100,9 +97,9 @@ These fields are protocol-wide and are **not** method-specific success fields.
 | 10 | `autorecEntryAdd` | 13 |  | `id`:str [unknown], `enabled`:u32 [unknown], `maxDuration`:u32 [unknown], `minDuration`:u32 [unknown], `retention`:u32 [unknown], `removal`:u32 [unknown], `daysOfWeek`:u32 [unknown], `approxTime`:s32 [unknown], `start`:s32 [unknown], `startWindow`:s32 [unknown], `priority`:u32 [unknown], `startExtra`:s64 [unknown], `stopExtra`:s64 [unknown], `dupDetect`:u32 [unknown], `maxCount`:u32 [unknown], `broadcastType`:u32 [unknown], `comment`:str [unknown], `title`:str [unknown], `fulltext`:u32 [unknown], `mergetext`:u32 [unknown], `name`:str [unknown], `directory`:str [unknown], `owner`:str [unknown], `creator`:str [unknown], `channel`:u32 [unknown], `serieslinkUri`:str [unknown], `configId`:str [unknown] — fields/partial |
 | 11 | `autorecEntryUpdate` | 13 |  | `id`:str [unknown], `enabled`:u32 [unknown], `maxDuration`:u32 [unknown], `minDuration`:u32 [unknown], `retention`:u32 [unknown], `removal`:u32 [unknown], `daysOfWeek`:u32 [unknown], `approxTime`:s32 [unknown], `start`:s32 [unknown], `startWindow`:s32 [unknown], `priority`:u32 [unknown], `startExtra`:s64 [unknown], `stopExtra`:s64 [unknown], `dupDetect`:u32 [unknown], `maxCount`:u32 [unknown], `broadcastType`:u32 [unknown], `comment`:str [unknown], `title`:str [unknown], `fulltext`:u32 [unknown], `mergetext`:u32 [unknown], `name`:str [unknown], `directory`:str [unknown], `owner`:str [unknown], `creator`:str [unknown], `channel`:u32 [unknown], `serieslinkUri`:str [unknown], `configId`:str [unknown] — fields/partial |
 | 12 | `autorecEntryDelete` | 13 |  | `id`:str [required] — fields/complete |
-| 13 | `timerecEntryAdd` | 18 |  | `id`:str [unknown], `enabled`:u32 [unknown], `daysOfWeek`:u32 [unknown], `retention`:u32 [unknown], `removal`:u32 [unknown], `priority`:u32 [unknown], `start`:s32 [unknown], `stop`:s32 [unknown], `comment`:str [unknown], `title`:str [unknown], `name`:str [unknown], `directory`:str [unknown], `owner`:str [unknown], `creator`:str [unknown], `channel`:u32 [unknown], `configId`:str [unknown] — fields/partial |
-| 14 | `timerecEntryUpdate` | 18 |  | `id`:str [unknown], `enabled`:u32 [unknown], `daysOfWeek`:u32 [unknown], `retention`:u32 [unknown], `removal`:u32 [unknown], `priority`:u32 [unknown], `start`:s32 [unknown], `stop`:s32 [unknown], `comment`:str [unknown], `title`:str [unknown], `name`:str [unknown], `directory`:str [unknown], `owner`:str [unknown], `creator`:str [unknown], `channel`:u32 [unknown], `configId`:str [unknown] — fields/partial |
-| 15 | `timerecEntryDelete` | 18 |  | `id`:str [required] — fields/complete |
+| 13 | `timerecEntryAdd` | 18 | yes | `id`:str [unknown], `enabled`:u32 [unknown], `daysOfWeek`:u32 [unknown], `retention`:u32 [unknown], `removal`:u32 [unknown], `priority`:u32 [unknown], `start`:s32 [unknown], `stop`:s32 [unknown], `comment`:str [unknown], `title`:str [unknown], `name`:str [unknown], `directory`:str [unknown], `owner`:str [unknown], `creator`:str [unknown], `channel`:u32 [unknown], `configId`:str [unknown] — fields/partial |
+| 14 | `timerecEntryUpdate` | 18 | yes | `id`:str [unknown], `enabled`:u32 [unknown], `daysOfWeek`:u32 [unknown], `retention`:u32 [unknown], `removal`:u32 [unknown], `priority`:u32 [unknown], `start`:s32 [unknown], `stop`:s32 [unknown], `comment`:str [unknown], `title`:str [unknown], `name`:str [unknown], `directory`:str [unknown], `owner`:str [unknown], `creator`:str [unknown], `channel`:u32 [unknown], `configId`:str [unknown] — fields/partial |
+| 15 | `timerecEntryDelete` | 18 | yes | `id`:str [required] — fields/complete |
 | 16 | `eventAdd` | 6 | yes | `eventId`:u32 [required], `channelId`:u32 [conditional], `start`:s64 [required], `stop`:s64 [required], `title`:str [conditional], `subtitle`:str [conditional], `summary`:str [conditional], `description`:str [conditional], `credits`:msg [conditional] → `eventCreditsDynamic`, `category`:list [conditional] → `str`, `keyword`:list [conditional] → `str`, `serieslinkUri`:str [conditional], `episodeUri`:str [conditional], `contentType`:u32 [conditional], `ageRating`:u32 [conditional], `ratingLabel`:str [conditional], `ratingIcon`:str [conditional], `ratingAuthority`:str [conditional], `ratingCountry`:str [conditional], `starRating`:u32 [conditional], `copyrightYear`:u32 [conditional], `firstAired`:s64 [conditional], `isNew`:u32 [conditional], `seasonNumber`:u32 [conditional], `seasonCount`:u32 [conditional], `episodeNumber`:u32 [conditional], `episodeCount`:u32 [conditional], `partNumber`:u32 [conditional], `partCount`:u32 [conditional], `episodeOnscreen`:str [conditional], `image`:str [conditional], `dvrId`:u32 [conditional], `nextEventId`:u32 [conditional] — fields/complete |
 | 17 | `eventUpdate` | 6 | yes | `eventId`:u32 [required], `channelId`:u32 [optional], `start`:s64 [optional], `stop`:s64 [optional], `title`:str [optional], `subtitle`:str [optional], `summary`:str [optional], `description`:str [optional], `credits`:msg [optional] → `eventCreditsDynamic`, `category`:list [optional] → `str`, `keyword`:list [optional] → `str`, `serieslinkUri`:str [optional], `episodeUri`:str [optional], `contentType`:u32 [optional], `ageRating`:u32 [optional], `ratingLabel`:str [optional], `ratingIcon`:str [optional], `ratingAuthority`:str [optional], `ratingCountry`:str [optional], `starRating`:u32 [optional], `copyrightYear`:u32 [optional], `firstAired`:s64 [optional], `isNew`:u32 [optional], `seasonNumber`:u32 [optional], `seasonCount`:u32 [optional], `episodeNumber`:u32 [optional], `episodeCount`:u32 [optional], `partNumber`:u32 [optional], `partCount`:u32 [optional], `episodeOnscreen`:str [optional], `image`:str [optional], `dvrId`:u32 [optional], `nextEventId`:u32 [optional] — fields/partial |
 | 18 | `eventDelete` | 6 | yes | `eventId`:u32 [required] — fields/complete |
@@ -189,6 +186,13 @@ The pinned htsp_build_channel source always emits service name, type, and u32 co
 The pinned current htsp_build_event source emits start and stop through htsmsg_add_s64 and isNew through htsmsg_add_u32, while the official Server-to-Client eventAdd documentation describes start and stop as u64 and isNew as str, omits several current-source fields, and lists historical ID fields not emitted by the current builder. This records incomplete/stale official documentation and does not reconcile it into the pinned current-source contract.
 
 - Authority: src/htsp_server.c htsp_build_event
+- Docs URL: https://docs.tvheadend.org/documentation/development/htsp/server-to-client-methods
+
+### `timerec-fields-source-docs-mismatch`
+
+The official Server-to-Client timerecEntryAdd section omits the string id that pinned htsp_build_timerecentry emits and that the documented update/delete messages use, contains stale autorec and enabled-field wording, and describes start/stop as u32 while the pinned builder emits s32. The pinned builder also emits u32 removal, which that page does not document. These gaps are retained as source/docs evidence and do not imply outbound time-rule RPC support or a public removal-field contract.
+
+- Authority: src/htsp_server.c htsp_build_timerecentry
 - Docs URL: https://docs.tvheadend.org/documentation/development/htsp/server-to-client-methods
 
 ### `stopDvrEntry-missing-from-client-docs`

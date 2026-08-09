@@ -6691,7 +6691,7 @@
         "evidence": "bounded handler/helper extraction plus exact-pin annotations"
       },
       "sdk": {
-        "handled": false
+        "handled": true
       }
     },
     {
@@ -6869,7 +6869,7 @@
         "Update messages reuse Add builders; non-key fields are effectively optional."
       ],
       "sdk": {
-        "handled": false
+        "handled": true
       }
     },
     {
@@ -6894,7 +6894,7 @@
         "evidence": "bounded handler/helper extraction plus exact-pin annotations"
       },
       "sdk": {
-        "handled": false
+        "handled": true
       }
     },
     {
@@ -8556,22 +8556,22 @@
         "tagAdd",
         "tagDelete",
         "tagUpdate",
+        "timerecEntryAdd",
+        "timerecEntryDelete",
+        "timerecEntryUpdate",
         "timeshiftStatus"
       ],
-      "handledCount": 24,
+      "handledCount": 27,
       "unhandled": [
         "autorecEntryAdd",
         "autorecEntryUpdate",
-        "autorecEntryDelete",
-        "timerecEntryAdd",
-        "timerecEntryUpdate",
-        "timerecEntryDelete"
+        "autorecEntryDelete"
       ]
     },
     "metrics": {
       "referencedClientMethods": 29,
       "outgoingClientMethods": 28,
-      "handledServerMessages": 24,
+      "handledServerMessages": 27,
       "notes": [
         "referenced counts exact string literals in SDK production main sources",
         "outgoing counts method = \"...\" / method = CONST assignments only",
@@ -8639,6 +8639,12 @@
       "id": "event-fields-source-docs-mismatch",
       "summary": "The pinned current htsp_build_event source emits start and stop through htsmsg_add_s64 and isNew through htsmsg_add_u32, while the official Server-to-Client eventAdd documentation describes start and stop as u64 and isNew as str, omits several current-source fields, and lists historical ID fields not emitted by the current builder. This records incomplete/stale official documentation and does not reconcile it into the pinned current-source contract.",
       "authority": "src/htsp_server.c htsp_build_event",
+      "docsUrl": "https://docs.tvheadend.org/documentation/development/htsp/server-to-client-methods"
+    },
+    {
+      "id": "timerec-fields-source-docs-mismatch",
+      "summary": "The official Server-to-Client timerecEntryAdd section omits the string id that pinned htsp_build_timerecentry emits and that the documented update/delete messages use, contains stale autorec and enabled-field wording, and describes start/stop as u32 while the pinned builder emits s32. The pinned builder also emits u32 removal, which that page does not document. These gaps are retained as source/docs evidence and do not imply outbound time-rule RPC support or a public removal-field contract.",
+      "authority": "src/htsp_server.c htsp_build_timerecentry",
       "docsUrl": "https://docs.tvheadend.org/documentation/development/htsp/server-to-client-methods"
     },
     {

@@ -97,9 +97,6 @@ EXPECTED_UNHANDLED_MESSAGES = (
     "autorecEntryAdd",
     "autorecEntryUpdate",
     "autorecEntryDelete",
-    "timerecEntryAdd",
-    "timerecEntryUpdate",
-    "timerecEntryDelete",
 )
 
 EXPECTED_FIELD_SHAPE_REFS: tuple[tuple[str, str, str, str, str], ...] = (
@@ -191,6 +188,16 @@ EVENT_LIMITATION_SUMMARY = (
     "ID fields not emitted by the current builder. This records incomplete/stale "
     "official documentation and does not reconcile it into the pinned "
     "current-source contract."
+)
+TIMEREC_LIMITATION_ID = "timerec-fields-source-docs-mismatch"
+TIMEREC_LIMITATION_SUMMARY = (
+    "The official Server-to-Client timerecEntryAdd section omits the string id "
+    "that pinned htsp_build_timerecentry emits and that the documented update/delete "
+    "messages use, contains stale autorec and enabled-field wording, and describes "
+    "start/stop as u32 while the pinned builder emits s32. The pinned builder also "
+    "emits u32 removal, which that page does not document. These gaps are retained "
+    "as source/docs evidence and do not imply outbound time-rule RPC support or a "
+    "public removal-field contract."
 )
 EVENT_FIELD_CONTRACT: tuple[tuple[str, str, str, str | None], ...] = (
     ("eventId", "u32", "required", None),
@@ -1065,9 +1072,9 @@ def validate_spec(spec: dict[str, Any], upstream: dict[str, Any] | None = None) 
         errors.append(
             f"expected outgoing client methods == 28 under current metric, got {out_count}"
         )
-    if handled_count not in (None, 24):
+    if handled_count not in (None, 27):
         errors.append(
-            f"expected handled server messages == 24 under current metric, got {handled_count}"
+            f"expected handled server messages == 27 under current metric, got {handled_count}"
         )
 
     unhandled = list(server_cov.get("unhandled") or [])
@@ -1185,6 +1192,18 @@ def validate_spec(spec: dict[str, Any], upstream: dict[str, Any] | None = None) 
             or event_limitation.get("docsUrl") != EVENT_DOCS_URL
         ):
             errors.append("event limitation must preserve pinned s64/u32 source facts and governing Server-to-Client URL")
+        timerec_limitation = next(
+            (item for item in limitations if isinstance(item, dict) and item.get("id") == TIMEREC_LIMITATION_ID),
+            None,
+        )
+        if not timerec_limitation or (
+            timerec_limitation.get("summary") != TIMEREC_LIMITATION_SUMMARY
+            or timerec_limitation.get("authority") != "src/htsp_server.c htsp_build_timerecentry"
+            or timerec_limitation.get("docsUrl") != EVENT_DOCS_URL
+        ):
+            errors.append(
+                "timerec limitation must preserve missing/stale docs, pinned s32/removal source facts, and non-support boundaries"
+            )
         get_events_max_time = next(
             (item for item in limitations if isinstance(item, dict) and item.get("id") == GET_EVENTS_MAX_TIME_LIMITATION_ID),
             None,
@@ -1920,13 +1939,13 @@ def self_test() -> None:
             "serverMessages": {
                 "total": 30,
                 "handled": [],
-                "handledCount": 24,
+                "handledCount": 27,
                 "unhandled": list(EXPECTED_UNHANDLED_MESSAGES),
             },
             "metrics": {
                 "referencedClientMethods": 22,
                 "outgoingClientMethods": 21,
-                "handledServerMessages": 24,
+                "handledServerMessages": 27,
             },
         },
         "docLimitations": [{"id": "x", "summary": "y", "authority": "z"}],
@@ -1947,7 +1966,7 @@ def self_test() -> None:
     good_spec["coverage"]["clientMethods"]["outgoingRequests"] = out_names
     good_spec["coverage"]["clientMethods"]["outgoingRequestCount"] = 21
     good_spec["coverage"]["serverMessages"]["handled"] = handled
-    good_spec["coverage"]["serverMessages"]["handledCount"] = 24
+    good_spec["coverage"]["serverMessages"]["handledCount"] = 27
 
     for name in EXPECTED_CLIENT_METHODS:
         good_spec["clientMethods"].append(
@@ -2039,7 +2058,7 @@ def self_test() -> None:
         "getEvents-fresh-unchanged-coverage",
         good_spec["coverage"]["clientMethods"]["referencedCount"] == 29
         and good_spec["coverage"]["clientMethods"]["outgoingRequestCount"] == 28
-        and good_spec["coverage"]["serverMessages"]["handledCount"] == 24
+        and good_spec["coverage"]["serverMessages"]["handledCount"] == 27
         and "getEvents" in good_spec["coverage"]["clientMethods"]["outgoingRequests"],
     )
     stop_dvr_entry = next(

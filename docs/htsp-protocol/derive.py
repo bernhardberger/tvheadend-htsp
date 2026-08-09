@@ -429,6 +429,24 @@ DOC_LIMITATIONS = [
         ),
     },
     {
+        "id": "timerec-fields-source-docs-mismatch",
+        "summary": (
+            "The official Server-to-Client timerecEntryAdd section omits the "
+            "string id that pinned htsp_build_timerecentry emits and that the "
+            "documented update/delete messages use, contains stale autorec and "
+            "enabled-field wording, and describes start/stop as u32 while the "
+            "pinned builder emits s32. The pinned builder also emits u32 removal, "
+            "which that page does not document. These gaps are retained as "
+            "source/docs evidence and do not imply outbound time-rule RPC support "
+            "or a public removal-field contract."
+        ),
+        "authority": "src/htsp_server.c htsp_build_timerecentry",
+        "docsUrl": (
+            "https://docs.tvheadend.org/documentation/development/htsp/"
+            "server-to-client-methods"
+        ),
+    },
+    {
         "id": "stopDvrEntry-missing-from-client-docs",
         "summary": (
             "stopDvrEntry is present in the pinned htsp_methods[] dispatch table "
@@ -4046,6 +4064,10 @@ def self_test() -> None:
         "stopDvrEntry-doc-limitation",
         "stopDvrEntry-missing-from-client-docs" in limitation_ids,
     )
+    check(
+        "timerec-source-docs-limitation",
+        "timerec-fields-source-docs-mismatch" in limitation_ids,
+    )
     subscription_change_weight = methods_by_name["subscriptionChangeWeight"]
     check(
         "subscriptionChangeWeight-committed-exact-contract",
@@ -4122,7 +4144,7 @@ def self_test() -> None:
             live_coverage["clientMethods"]["referencedCount"],
             live_coverage["clientMethods"]["outgoingRequestCount"],
             live_coverage["serverMessages"]["handledCount"],
-        ) == (29, 28, 24)
+        ) == (29, 28, 27)
         and "stopDvrEntry" in live_coverage["clientMethods"]["referenced"]
         and "stopDvrEntry" in live_coverage["clientMethods"]["outgoingRequests"]
         and "subscriptionChangeWeight" in live_coverage["clientMethods"]["referenced"]
@@ -4130,7 +4152,12 @@ def self_test() -> None:
         and "subscriptionLive" in live_coverage["clientMethods"]["referenced"]
         and "subscriptionLive" in live_coverage["clientMethods"]["outgoingRequests"]
         and "subscriptionFilterStream" in live_coverage["clientMethods"]["referenced"]
-        and "subscriptionFilterStream" in live_coverage["clientMethods"]["outgoingRequests"],
+        and "subscriptionFilterStream" in live_coverage["clientMethods"]["outgoingRequests"]
+        and {
+            "timerecEntryAdd",
+            "timerecEntryUpdate",
+            "timerecEntryDelete",
+        } <= set(live_coverage["serverMessages"]["handled"]),
         str(live_coverage.get("metrics")),
     )
     check(
@@ -4168,7 +4195,7 @@ def self_test() -> None:
             live_coverage["clientMethods"]["referencedCount"],
             live_coverage["clientMethods"]["outgoingRequestCount"],
             live_coverage["serverMessages"]["handledCount"],
-        ) == (29, 28, 24)
+        ) == (29, 28, 27)
         and "getChannel" in live_coverage["clientMethods"]["referenced"]
         and "getChannel" in live_coverage["clientMethods"]["outgoingRequests"],
         str(live_coverage.get("metrics")),
@@ -4221,7 +4248,7 @@ def self_test() -> None:
             live_coverage["clientMethods"]["referencedCount"],
             live_coverage["clientMethods"]["outgoingRequestCount"],
             live_coverage["serverMessages"]["handledCount"],
-        ) == (29, 28, 24)
+        ) == (29, 28, 27)
         and "getEvents" in live_coverage["clientMethods"]["referenced"]
         and "getEvents" in live_coverage["clientMethods"]["outgoingRequests"],
     )
