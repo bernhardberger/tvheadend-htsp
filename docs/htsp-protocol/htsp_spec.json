@@ -3869,9 +3869,9 @@
           "name": "subscriptionId",
           "type": "u32",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_u32",
-          "confidence": "mechanical",
+          "presence": "required",
+          "evidence": "bounded htsp_method_change_weight requires exactly decoded u32 subscriptionId",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 1
         },
@@ -3879,27 +3879,33 @@
           "name": "weight",
           "type": "u32",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_u32_or_default",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "bounded htsp_method_change_weight reads optional u32 weight with default zero",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
+          "condition": "when omitted, pinned current source supplies wire value 0 before subscription_change_weight",
           "order": 2
         }
       ],
       "replyFields": [],
       "requestShape": {
         "kind": "fields",
-        "completeness": "partial",
-        "evidence": "bounded handler/helper extraction plus exact-pin annotations"
+        "completeness": "complete",
+        "evidence": "bounded htsp_method_change_weight accepts exactly required subscriptionId and optional default-zero weight"
       },
       "replyShape": {
         "kind": "knownEmpty",
         "completeness": "complete",
-        "evidence": "bounded handler and official method page define no method-specific reply fields"
+        "evidence": "bounded htsp_method_change_weight queues exactly one empty reply map before subscription_change_weight"
       },
+      "notes": [
+        "Dispatch requires ACCESS_HTSP_STREAMING and the method is annotated as available since HTSP version 5.",
+        "Pinned current source defaults an omitted weight to zero before looking up the exact subscription ID.",
+        "Pinned current source queues the empty acknowledgement before exactly one subscription_change_weight call; acknowledgement does not prove settled or applied weight state."
+      ],
       "sdk": {
-        "referenced": false,
-        "outgoingRequest": false
+        "referenced": true,
+        "outgoingRequest": true
       }
     },
     {
@@ -8458,13 +8464,14 @@
         "hello",
         "stopDvrEntry",
         "subscribe",
+        "subscriptionChangeWeight",
         "subscriptionSeek",
         "subscriptionSkip",
         "subscriptionSpeed",
         "unsubscribe",
         "updateDvrEntry"
       ],
-      "referencedCount": 26,
+      "referencedCount": 27,
       "outgoingRequests": [
         "addDvrEntry",
         "authenticate",
@@ -8487,12 +8494,13 @@
         "hello",
         "stopDvrEntry",
         "subscribe",
+        "subscriptionChangeWeight",
         "subscriptionSeek",
         "subscriptionSpeed",
         "unsubscribe",
         "updateDvrEntry"
       ],
-      "outgoingRequestCount": 25,
+      "outgoingRequestCount": 26,
       "unreferenced": [
         "api",
         "epgQuery",
@@ -8504,7 +8512,6 @@
         "updateTimerecEntry",
         "deleteTimerecEntry",
         "getTicket",
-        "subscriptionChangeWeight",
         "subscriptionLive",
         "subscriptionFilterStream"
       ]
@@ -8548,8 +8555,8 @@
       ]
     },
     "metrics": {
-      "referencedClientMethods": 26,
-      "outgoingClientMethods": 25,
+      "referencedClientMethods": 27,
+      "outgoingClientMethods": 26,
       "handledServerMessages": 23,
       "notes": [
         "referenced counts exact string literals in SDK production main sources",
@@ -8588,6 +8595,12 @@
       "id": "getDvrCutpoints-coordinate-order-semantics-underdocumented",
       "summary": "The official Client-to-Server RPC methods page does not define the millisecond coordinate origin or chronological ordering, overlap, or uniqueness semantics for getDvrCutpoints. Pinned source serializes dc_start_ms and dc_end_ms and traverses the TAILQ in its observed order; the SDK preserves those values and order without interpreting them.",
       "authority": "src/htsp_server.c htsp_method_getDvrCutpoints",
+      "docsUrl": "https://docs.tvheadend.org/documentation/development/htsp/client-to-server-rpc-methods"
+    },
+    {
+      "id": "subscriptionChangeWeight-default-ack-order-underdocumented",
+      "summary": "The official Client-to-Server RPC methods page leaves the optional subscriptionChangeWeight weight field's omitted default and the acknowledgement/application ordering unspecified. Pinned current source defaults omitted weight to zero and queues an empty reply before invoking subscription_change_weight.",
+      "authority": "src/htsp_server.c htsp_method_change_weight",
       "docsUrl": "https://docs.tvheadend.org/documentation/development/htsp/client-to-server-rpc-methods"
     },
     {

@@ -305,6 +305,49 @@ STOP_DVR_ENTRY_NOTES = [
     "On helper success it calls exactly dvr_entry_stop; cancel and delete remain distinct operations.",
     "The standard success reply carries success=1 only; later asynchronous DVR metadata is authoritative for lifecycle state.",
 ]
+SUBSCRIPTION_CHANGE_WEIGHT_LIMITATION_ID = (
+    "subscriptionChangeWeight-default-ack-order-underdocumented"
+)
+SUBSCRIPTION_CHANGE_WEIGHT_DOCS_URL = GET_DVR_CUTPOINTS_DOCS_URL
+SUBSCRIPTION_CHANGE_WEIGHT_LIMITATION_SUMMARY = (
+    "The official Client-to-Server RPC methods page leaves the optional "
+    "subscriptionChangeWeight weight field's omitted default and the "
+    "acknowledgement/application ordering unspecified. Pinned current source "
+    "defaults omitted weight to zero and queues an empty reply before invoking "
+    "subscription_change_weight."
+)
+SUBSCRIPTION_CHANGE_WEIGHT_REQUEST_CONTRACT = (
+    (
+        "subscriptionId", "u32", "required", None,
+        "bounded htsp_method_change_weight requires exactly decoded u32 subscriptionId",
+    ),
+    (
+        "weight", "u32", "optional",
+        "when omitted, pinned current source supplies wire value 0 before subscription_change_weight",
+        "bounded htsp_method_change_weight reads optional u32 weight with default zero",
+    ),
+)
+SUBSCRIPTION_CHANGE_WEIGHT_REQUEST_SHAPE = {
+    "kind": "fields",
+    "completeness": "complete",
+    "evidence": (
+        "bounded htsp_method_change_weight accepts exactly required subscriptionId "
+        "and optional default-zero weight"
+    ),
+}
+SUBSCRIPTION_CHANGE_WEIGHT_REPLY_SHAPE = {
+    "kind": "knownEmpty",
+    "completeness": "complete",
+    "evidence": (
+        "bounded htsp_method_change_weight queues exactly one empty reply map "
+        "before subscription_change_weight"
+    ),
+}
+SUBSCRIPTION_CHANGE_WEIGHT_NOTES = [
+    "Dispatch requires ACCESS_HTSP_STREAMING and the method is annotated as available since HTSP version 5.",
+    "Pinned current source defaults an omitted weight to zero before looking up the exact subscription ID.",
+    "Pinned current source queues the empty acknowledgement before exactly one subscription_change_weight call; acknowledgement does not prove settled or applied weight state.",
+]
 WIRE_TYPES = {"u32", "s32", "s64", "str", "bin", "msg", "list", "bool", "dbl", "uuid", "unknown"}
 PRESENCE_VALUES = {"required", "optional", "conditional", "alternative", "unknown"}
 COMPLETENESS_VALUES = {"complete", "partial", "opaque"}
@@ -603,6 +646,39 @@ def validate_spec(spec: dict[str, Any], upstream: dict[str, Any] | None = None) 
         errors.append("stopDvrEntry must preserve the official-client-doc omission status")
     if stop_dvr_entry.get("notes") != STOP_DVR_ENTRY_NOTES:
         errors.append("stopDvrEntry notes must preserve exact stop/helper/async-state semantics")
+    subscription_change_weight = method_map.get("subscriptionChangeWeight", {})
+    if subscription_change_weight.get("handler") != "htsp_method_change_weight":
+        errors.append("subscriptionChangeWeight must preserve exact dispatch handler")
+    if subscription_change_weight.get("accessMask") != "ACCESS_HTSP_STREAMING":
+        errors.append("subscriptionChangeWeight must preserve streaming dispatch access")
+    if (
+        subscription_change_weight.get("minVersion") != 5
+        or subscription_change_weight.get("minVersionConfidence") != "annotated"
+    ):
+        errors.append("subscriptionChangeWeight must preserve annotated minimum version 5")
+    weight_request = [
+        (
+            field.get("name"), field.get("type"), field.get("presence"),
+            field.get("condition"), field.get("evidence"),
+        )
+        for field in subscription_change_weight.get("requestFields", [])
+    ]
+    if weight_request != list(SUBSCRIPTION_CHANGE_WEIGHT_REQUEST_CONTRACT):
+        errors.append(
+            "subscriptionChangeWeight request must preserve exact required ID and optional default-zero weight"
+        )
+    if subscription_change_weight.get("requestShape") != SUBSCRIPTION_CHANGE_WEIGHT_REQUEST_SHAPE:
+        errors.append("subscriptionChangeWeight request shape must preserve exact complete evidence")
+    if subscription_change_weight.get("replyFields") != []:
+        errors.append("subscriptionChangeWeight method-specific reply must remain exactly empty")
+    if subscription_change_weight.get("replyShape") != SUBSCRIPTION_CHANGE_WEIGHT_REPLY_SHAPE:
+        errors.append(
+            "subscriptionChangeWeight reply shape must preserve exact empty acknowledgement ordering evidence"
+        )
+    if subscription_change_weight.get("notes") != SUBSCRIPTION_CHANGE_WEIGHT_NOTES:
+        errors.append(
+            "subscriptionChangeWeight notes must preserve exact default, acknowledgement, and non-settlement semantics"
+        )
     cut_shape = shapes.get("cutpoint") or {}
     if (
         cut_shape.get("kind") != "object"
@@ -833,13 +909,13 @@ def validate_spec(spec: dict[str, Any], upstream: dict[str, Any] | None = None) 
         errors.append("outgoingRequestCount cannot exceed referencedCount")
 
     # Current repository acceptance targets (exact-literal metric).
-    if ref_count not in (None, 26):
+    if ref_count not in (None, 27):
         errors.append(
-            f"expected referenced client methods == 26 under current metric, got {ref_count}"
+            f"expected referenced client methods == 27 under current metric, got {ref_count}"
         )
-    if out_count not in (None, 25):
+    if out_count not in (None, 26):
         errors.append(
-            f"expected outgoing client methods == 25 under current metric, got {out_count}"
+            f"expected outgoing client methods == 26 under current metric, got {out_count}"
         )
     if handled_count not in (None, 23):
         errors.append(
@@ -869,6 +945,13 @@ def validate_spec(spec: dict[str, Any], upstream: dict[str, Any] | None = None) 
         errors.append("getDvrCutpoints must be fresh referenced and outgoing production coverage")
     if "stopDvrEntry" not in referenced_list or "stopDvrEntry" not in outgoing_list:
         errors.append("stopDvrEntry must be fresh referenced and outgoing production coverage")
+    if (
+        "subscriptionChangeWeight" not in referenced_list
+        or "subscriptionChangeWeight" not in outgoing_list
+    ):
+        errors.append(
+            "subscriptionChangeWeight must be fresh referenced and outgoing production coverage"
+        )
 
     # sdk flags must match coverage lists
     ref_set = set(client_cov.get("referenced") or [])
@@ -1001,6 +1084,25 @@ def validate_spec(spec: dict[str, Any], upstream: dict[str, Any] | None = None) 
         ):
             errors.append(
                 "stopDvrEntry limitation must preserve exact official-doc omission and pinned authority"
+            )
+        weight_limitation = next(
+            (
+                item for item in limitations
+                if isinstance(item, dict)
+                and item.get("id") == SUBSCRIPTION_CHANGE_WEIGHT_LIMITATION_ID
+            ),
+            None,
+        )
+        if not weight_limitation or (
+            weight_limitation.get("summary")
+            != SUBSCRIPTION_CHANGE_WEIGHT_LIMITATION_SUMMARY
+            or weight_limitation.get("authority")
+            != "src/htsp_server.c htsp_method_change_weight"
+            or weight_limitation.get("docsUrl")
+            != SUBSCRIPTION_CHANGE_WEIGHT_DOCS_URL
+        ):
+            errors.append(
+                "subscriptionChangeWeight limitation must preserve exact docs uncertainty and pinned source facts"
             )
 
     global_rpc = spec.get("globalRpc") or {}
@@ -1471,11 +1573,15 @@ def _derive_fresh_self_test_spec() -> dict[str, Any]:
     method_rows = [
         (
             name,
-            f"htsp_method_{name}"
+            "htsp_method_change_weight"
+            if name == "subscriptionChangeWeight"
+            else f"htsp_method_{name}"
             if name in {"getEvent", "getEvents", "stopDvrEntry", "getDvrCutpoints"}
             else f"htsp_method_{index}",
             "ACCESS_HTSP_RECORDER"
             if name in {"stopDvrEntry", "getDvrCutpoints"}
+            else "ACCESS_HTSP_STREAMING"
+            if name == "subscriptionChangeWeight"
             else "ACCESS_ANONYMOUS",
         )
         for index, name in enumerate(EXPECTED_CLIENT_METHODS)
@@ -1520,7 +1626,8 @@ def _derive_fresh_self_test_spec() -> dict[str, Any]:
         )
 
     # Report validation owns schema/policy, not fixture-byte pin verification.
-    # Evaluate freshly derived getEvents/event/stopDvrEntry/getDvrCutpoints evidence inside the complete
+    # Evaluate freshly derived getEvents/event/stopDvrEntry/getDvrCutpoints/
+    # subscriptionChangeWeight evidence inside the complete
     # committed-schema baseline; unrelated minimal fixture handlers deliberately
     # do not pretend to model every pinned method.
     upstream = load_json(UPSTREAM_PATH)
@@ -1529,7 +1636,10 @@ def _derive_fresh_self_test_spec() -> dict[str, Any]:
     fresh_methods = {item["name"]: item for item in fresh["clientMethods"]}
     candidate["clientMethods"] = [
         fresh_methods[item["name"]]
-        if item["name"] in {"getEvents", "stopDvrEntry", "getDvrCutpoints"}
+        if item["name"] in {
+            "getEvents", "stopDvrEntry", "getDvrCutpoints",
+            "subscriptionChangeWeight",
+        }
         else item
         for item in candidate["clientMethods"]
     ]
@@ -1693,8 +1803,8 @@ def self_test() -> None:
     )
     check(
         "getChannel-fresh-coverage",
-        good_spec["coverage"]["clientMethods"]["referencedCount"] == 26
-        and good_spec["coverage"]["clientMethods"]["outgoingRequestCount"] == 25
+        good_spec["coverage"]["clientMethods"]["referencedCount"] == 27
+        and good_spec["coverage"]["clientMethods"]["outgoingRequestCount"] == 26
         and "getChannel" in good_spec["coverage"]["clientMethods"]["outgoingRequests"],
     )
 
@@ -1728,8 +1838,8 @@ def self_test() -> None:
     )
     check(
         "getEvents-fresh-unchanged-coverage",
-        good_spec["coverage"]["clientMethods"]["referencedCount"] == 26
-        and good_spec["coverage"]["clientMethods"]["outgoingRequestCount"] == 25
+        good_spec["coverage"]["clientMethods"]["referencedCount"] == 27
+        and good_spec["coverage"]["clientMethods"]["outgoingRequestCount"] == 26
         and good_spec["coverage"]["serverMessages"]["handledCount"] == 23
         and "getEvents" in good_spec["coverage"]["clientMethods"]["outgoingRequests"],
     )
@@ -1829,6 +1939,104 @@ def self_test() -> None:
         check(
             f"reject-stopDvrEntry-limitation-{label}",
             any("stopDvrEntry limitation" in error for error in err),
+            str(err),
+        )
+
+    weight_method = next(
+        method for method in good_spec["clientMethods"]
+        if method["name"] == "subscriptionChangeWeight"
+    )
+    check(
+        "subscriptionChangeWeight-fresh-complete-contract",
+        weight_method.get("handler") == "htsp_method_change_weight"
+        and weight_method.get("accessMask") == "ACCESS_HTSP_STREAMING"
+        and weight_method.get("minVersion") == 5
+        and weight_method.get("minVersionConfidence") == "annotated"
+        and [
+            (
+                field.get("name"), field.get("type"), field.get("presence"),
+                field.get("condition"), field.get("evidence"),
+            )
+            for field in weight_method["requestFields"]
+        ] == list(SUBSCRIPTION_CHANGE_WEIGHT_REQUEST_CONTRACT)
+        and weight_method.get("requestShape") == SUBSCRIPTION_CHANGE_WEIGHT_REQUEST_SHAPE
+        and weight_method.get("replyFields") == []
+        and weight_method.get("replyShape") == SUBSCRIPTION_CHANGE_WEIGHT_REPLY_SHAPE
+        and weight_method.get("notes") == SUBSCRIPTION_CHANGE_WEIGHT_NOTES,
+    )
+    check(
+        "subscriptionChangeWeight-fresh-coverage",
+        "subscriptionChangeWeight"
+        in good_spec["coverage"]["clientMethods"]["referenced"]
+        and "subscriptionChangeWeight"
+        in good_spec["coverage"]["clientMethods"]["outgoingRequests"],
+    )
+
+    for label, mutate in (
+        ("false-min-version", lambda method: method.update({"minVersion": 4})),
+        ("wrong-handler", lambda method: method.update({"handler": "decoy"})),
+        ("wrong-access", lambda method: method.update({"accessMask": "ACCESS_ANONYMOUS"})),
+        ("optional-subscription-id", lambda method: method["requestFields"][0].update({"presence": "optional"})),
+        ("renamed-subscription-id", lambda method: method["requestFields"][0].update({"name": "sid"})),
+        ("wrong-subscription-id-type", lambda method: method["requestFields"][0].update({"type": "s64"})),
+        ("wrong-subscription-id-evidence", lambda method: method["requestFields"][0].update({"evidence": "generic getter"})),
+        ("required-weight", lambda method: method["requestFields"][1].update({"presence": "required"})),
+        ("wrong-weight-type", lambda method: method["requestFields"][1].update({"type": "s64"})),
+        ("wrong-weight-default-condition", lambda method: method["requestFields"][1].update({"condition": "defaults to one"})),
+        ("wrong-weight-evidence", lambda method: method["requestFields"][1].update({"evidence": "optional getter"})),
+        ("partial-request", lambda method: method["requestShape"].update({"completeness": "partial"})),
+        ("wrong-request-shape-evidence", lambda method: method["requestShape"].update({"evidence": "generic extraction"})),
+        ("invented-reply-field", lambda method: method["replyFields"].append({"name": "success"})),
+        ("partial-reply", lambda method: method["replyShape"].update({"completeness": "partial"})),
+        ("false-reply-order", lambda method: method["replyShape"].update({"evidence": "reply after change"})),
+        ("false-settlement-note", lambda method: method["notes"].__setitem__(2, "Acknowledgement proves applied weight.")),
+    ):
+        bad = json.loads(json.dumps(good_spec))
+        method = next(
+            item for item in bad["clientMethods"]
+            if item["name"] == "subscriptionChangeWeight"
+        )
+        mutate(method)
+        err = validate_spec(bad)
+        check(
+            f"reject-subscriptionChangeWeight-{label}",
+            any("subscriptionChangeWeight" in error for error in err),
+            str(err),
+        )
+
+    bad = json.loads(json.dumps(good_spec))
+    bad["coverage"]["clientMethods"]["referenced"].remove("subscriptionChangeWeight")
+    bad["coverage"]["clientMethods"]["referencedCount"] -= 1
+    bad["coverage"]["clientMethods"]["outgoingRequests"].remove("subscriptionChangeWeight")
+    bad["coverage"]["clientMethods"]["outgoingRequestCount"] -= 1
+    bad["coverage"]["metrics"]["referencedClientMethods"] -= 1
+    bad["coverage"]["metrics"]["outgoingClientMethods"] -= 1
+    next(
+        method for method in bad["clientMethods"]
+        if method["name"] == "subscriptionChangeWeight"
+    )["sdk"] = {"referenced": False, "outgoingRequest": False}
+    err = validate_spec(bad)
+    check(
+        "reject-subscriptionChangeWeight-stale-live-coverage",
+        any("subscriptionChangeWeight must be fresh" in error for error in err),
+        str(err),
+    )
+
+    for label, key, replacement in (
+        ("summary", "summary", "weight default and ordering are documented"),
+        ("authority", "authority", "src/htsp_server.c decoy"),
+        ("docs-url", "docsUrl", "https://example.invalid/weight"),
+    ):
+        bad = json.loads(json.dumps(good_spec))
+        limitation = next(
+            item for item in bad["docLimitations"]
+            if item["id"] == SUBSCRIPTION_CHANGE_WEIGHT_LIMITATION_ID
+        )
+        limitation[key] = replacement
+        err = validate_spec(bad)
+        check(
+            f"reject-subscriptionChangeWeight-limitation-{label}",
+            any("subscriptionChangeWeight limitation" in error for error in err),
             str(err),
         )
 
@@ -2524,7 +2732,7 @@ def self_test() -> None:
     err = validate_spec(bad)
     check(
         "reject-false-all-called",
-        any("outgoing client methods == 25" in e for e in err),
+        any("outgoing client methods == 26" in e for e in err),
         str(err),
     )
 

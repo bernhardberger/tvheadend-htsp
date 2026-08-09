@@ -16,8 +16,8 @@ Primary authority is the pinned TVHeadend server source. Official HTSP documenta
 
 ## SDK coverage (exact-literal metric)
 
-- Client→server methods referenced in production sources: **26 / 39**
-- Distinct outgoing request names: **25 / 39**
+- Client→server methods referenced in production sources: **27 / 39**
+- Distinct outgoing request names: **26 / 39**
 - Server→client messages handled (exact literal): **23 / 30**
 - Distinguish **referenced** from **outgoing**: a name can appear because an inbound handler mentions it (for example `subscriptionSkip`) while the client sends a synonym (`subscriptionSeek`).
 - Never claim methods are implemented/called merely because they are referenced.
@@ -72,7 +72,7 @@ These fields are protocol-wide and are **not** method-specific success fields.
 | 25 | `getTicket` | `ACCESS_HTSP_STREAMING` | 5 (annotated) |  |  | `channelId`:u32 [unknown], `dvrId`:u32 [unknown] — fields/partial | `path`:str [unknown], `ticket`:str [unknown] — fields/partial |
 | 26 | `subscribe` | `ACCESS_HTSP_STREAMING` | — | yes | yes | `subscriptionId`:u32 [required], `channelId`:u32 [alternative], `channelName`:str [alternative], `profile`:str [unknown], `weight`:u32 [unknown], `90khz`:u32 [unknown], `timeshiftPeriod`:u32 [unknown], `queueDepth`:u32 [unknown] — fields/partial | `90khz`:u32 [unknown], `normts`:u32 [unknown], `weight`:u32 [unknown], `timeshiftPeriod`:u32 [unknown] — fields/partial |
 | 27 | `unsubscribe` | `ACCESS_HTSP_STREAMING` | — | yes | yes | `subscriptionId`:u32 [unknown] — fields/partial | _knownEmpty/complete_ |
-| 28 | `subscriptionChangeWeight` | `ACCESS_HTSP_STREAMING` | 5 (annotated) |  |  | `subscriptionId`:u32 [unknown], `weight`:u32 [unknown] — fields/partial | _knownEmpty/complete_ |
+| 28 | `subscriptionChangeWeight` | `ACCESS_HTSP_STREAMING` | 5 (annotated) | yes | yes | `subscriptionId`:u32 [required], `weight`:u32 [optional] — fields/complete | _knownEmpty/complete_ |
 | 29 | `subscriptionSeek` | `ACCESS_HTSP_STREAMING` | 9 (annotated) | yes | yes | `subscriptionId`:u32 [required], `time`:s64 [alternative], `size`:s64 [alternative], `absolute`:u32 [unknown] — fields/partial | _knownEmpty/complete_ |
 | 30 | `subscriptionSkip` | `ACCESS_HTSP_STREAMING` | 9 (annotated) | yes |  | `subscriptionId`:u32 [required], `time`:s64 [alternative], `size`:s64 [alternative], `absolute`:u32 [unknown] — fields/partial | _knownEmpty/complete_ |
 | 31 | `subscriptionSpeed` | `ACCESS_HTSP_STREAMING` | 9 (annotated) | yes | yes | `subscriptionId`:u32 [unknown], `speed`:s32 [unknown] — fields/partial | _knownEmpty/complete_ |
@@ -155,6 +155,13 @@ Pinned htsp_method_getEvents source gives eventId selection precedence when both
 The official Client-to-Server RPC methods page does not define the millisecond coordinate origin or chronological ordering, overlap, or uniqueness semantics for getDvrCutpoints. Pinned source serializes dc_start_ms and dc_end_ms and traverses the TAILQ in its observed order; the SDK preserves those values and order without interpreting them.
 
 - Authority: src/htsp_server.c htsp_method_getDvrCutpoints
+- Docs URL: https://docs.tvheadend.org/documentation/development/htsp/client-to-server-rpc-methods
+
+### `subscriptionChangeWeight-default-ack-order-underdocumented`
+
+The official Client-to-Server RPC methods page leaves the optional subscriptionChangeWeight weight field's omitted default and the acknowledgement/application ordering unspecified. Pinned current source defaults omitted weight to zero and queues an empty reply before invoking subscription_change_weight.
+
+- Authority: src/htsp_server.c htsp_method_change_weight
 - Docs URL: https://docs.tvheadend.org/documentation/development/htsp/client-to-server-rpc-methods
 
 ### `channel-service-fields-underdocumented`

@@ -347,6 +347,21 @@ DOC_LIMITATIONS = [
         ),
     },
     {
+        "id": "subscriptionChangeWeight-default-ack-order-underdocumented",
+        "summary": (
+            "The official Client-to-Server RPC methods page leaves the optional "
+            "subscriptionChangeWeight weight field's omitted default and the "
+            "acknowledgement/application ordering unspecified. Pinned current "
+            "source defaults omitted weight to zero and queues an empty reply "
+            "before invoking subscription_change_weight."
+        ),
+        "authority": "src/htsp_server.c htsp_method_change_weight",
+        "docsUrl": (
+            "https://docs.tvheadend.org/documentation/development/htsp/"
+            "client-to-server-rpc-methods"
+        ),
+    },
+    {
         "id": "channel-service-fields-underdocumented",
         "summary": (
             "The pinned htsp_build_channel source always emits service name, "
@@ -1603,6 +1618,128 @@ def require_stop_dvr_entry_source_facts(server_c: str) -> None:
         raise ValueError("htsp_success must emit exactly add-u32 success=1 and return its map")
 
 
+def require_subscription_change_weight_source_facts(server_c: str) -> None:
+    """Validate the exact bounded subscriptionChangeWeight handler topology."""
+    source = strip_c_comments(server_c)
+    dispatch = [
+        entry for entry in parse_methods_table(source)
+        if entry["name"] == "subscriptionChangeWeight"
+    ]
+    if dispatch != [{
+        "name": "subscriptionChangeWeight",
+        "handler": "htsp_method_change_weight",
+        "accessMask": "ACCESS_HTSP_STREAMING",
+    }]:
+        raise ValueError(
+            "subscriptionChangeWeight dispatch must use htsp_method_change_weight "
+            "with streaming access"
+        )
+
+    body = find_function_body(source, "htsp_method_change_weight")
+    if body is None:
+        raise ValueError("htsp_method_change_weight body not found")
+    compact = re.sub(r"\s+", " ", body).strip()
+
+    getters = [(field["name"], field["type"]) for field in extract_get_fields(body, "in")]
+    if getters != [("subscriptionId", "u32"), ("weight", "u32")]:
+        raise ValueError(
+            "htsp_method_change_weight must read exactly u32 subscriptionId and weight"
+        )
+
+    invalid_error = (
+        r'htsp_error\s*\(\s*htsp\s*,\s*N_\(\s*"Invalid arguments"\s*\)\s*\)'
+    )
+    subscription_id_guards = re.findall(
+        r'if\s*\(\s*htsmsg_get_u32\(\s*in\s*,\s*"subscriptionId"\s*,\s*&\s*'
+        r'(?P<subscription_id>[A-Za-z_][A-Za-z0-9_]*)\s*\)\s*\)\s*'
+        rf'return\s+{invalid_error}\s*;',
+        compact,
+    )
+    if len(subscription_id_guards) != 1:
+        raise ValueError(
+            "htsp_method_change_weight must require decoded u32 subscriptionId "
+            "with exact Invalid arguments error"
+        )
+    subscription_id_var = subscription_id_guards[0]
+
+    weight_reads = re.findall(
+        r'(?P<weight>[A-Za-z_][A-Za-z0-9_]*)\s*=\s*htsmsg_get_u32_or_default\('
+        r'\s*in\s*,\s*"weight"\s*,\s*0\s*\)\s*;',
+        compact,
+    )
+    if len(weight_reads) != 1:
+        raise ValueError(
+            "htsp_method_change_weight weight must remain optional u32 default zero"
+        )
+    weight_var = weight_reads[0]
+
+    traversals = re.findall(
+        r'LIST_FOREACH\(\s*(?P<subscription>[A-Za-z_][A-Za-z0-9_]*)\s*,\s*'
+        r'&\s*htsp->htsp_subscriptions\s*,\s*hs_link\s*\)\s*'
+        rf'if\s*\(\s*(?P=subscription)->hs_sid\s*==\s*{re.escape(subscription_id_var)}\s*\)\s*'
+        r'break\s*;',
+        compact,
+    )
+    if len(traversals) != 1:
+        raise ValueError(
+            "htsp_method_change_weight must search htsp_subscriptions by exact hs_sid"
+        )
+    subscription_var = traversals[0]
+
+    missing_error = (
+        r'htsp_error\s*\(\s*htsp\s*,\s*N_\(\s*"Subscription does not exist"\s*\)\s*\)'
+    )
+    missing_guards = re.findall(
+        rf'if\s*\(\s*{re.escape(subscription_var)}\s*==\s*NULL\s*\)\s*'
+        rf'return\s+{missing_error}\s*;',
+        compact,
+    )
+    if len(missing_guards) != 1:
+        raise ValueError(
+            "htsp_method_change_weight must preserve exact missing-subscription guard and error"
+        )
+
+    reply = (
+        r'htsp_reply\s*\(\s*htsp\s*,\s*in\s*,\s*htsmsg_create_map\(\s*\)\s*\)\s*;'
+    )
+    change = (
+        rf'subscription_change_weight\s*\(\s*{re.escape(subscription_var)}->hs_s\s*,\s*'
+        rf'{re.escape(weight_var)}\s*\)\s*;'
+    )
+    if len(re.findall(reply, compact)) != 1:
+        raise ValueError(
+            "htsp_method_change_weight must queue exactly one empty reply map"
+        )
+    if len(re.findall(change, compact)) != 1:
+        raise ValueError(
+            "htsp_method_change_weight must call subscription_change_weight exactly once "
+            "with the matched subscription and decoded weight"
+        )
+    reply_match = re.search(reply, compact)
+    change_match = re.search(change, compact)
+    if reply_match is None or change_match is None or reply_match.end() > change_match.start():
+        raise ValueError(
+            "htsp_method_change_weight must queue acknowledgement before changing weight"
+        )
+
+    expected = (
+        rf'htsp_subscription_t\s*\*\s*{re.escape(subscription_var)}\s*;\s*'
+        rf'uint32_t\s+{re.escape(subscription_id_var)}\s*,\s*{re.escape(weight_var)}\s*;\s*'
+        rf'if\s*\(\s*htsmsg_get_u32\(\s*in\s*,\s*"subscriptionId"\s*,\s*&\s*{re.escape(subscription_id_var)}\s*\)\s*\)\s*'
+        rf'return\s+{invalid_error}\s*;\s*'
+        rf'{re.escape(weight_var)}\s*=\s*htsmsg_get_u32_or_default\(\s*in\s*,\s*"weight"\s*,\s*0\s*\)\s*;\s*'
+        rf'LIST_FOREACH\(\s*{re.escape(subscription_var)}\s*,\s*&\s*htsp->htsp_subscriptions\s*,\s*hs_link\s*\)\s*'
+        rf'if\s*\(\s*{re.escape(subscription_var)}->hs_sid\s*==\s*{re.escape(subscription_id_var)}\s*\)\s*break\s*;\s*'
+        rf'if\s*\(\s*{re.escape(subscription_var)}\s*==\s*NULL\s*\)\s*return\s+{missing_error}\s*;\s*'
+        rf'{reply}\s*{change}\s*return\s+NULL\s*;'
+    )
+    if re.fullmatch(expected, compact) is None:
+        raise ValueError(
+            "htsp_method_change_weight contains unmodeled input, lookup, output, "
+            "helper, alias, escape, or state topology"
+        )
+
+
 def field_shape(fields: list[dict[str, Any]], completeness: str = "partial") -> dict[str, Any]:
     if not fields:
         return {
@@ -2056,6 +2193,23 @@ def derive_client_methods(server_c: str) -> list[dict[str, Any]]:
                 "success", "u32", "reply", "required",
                 "bounded htsp_success emits exactly add-u32 success=1",
             )]
+        elif name == "subscriptionChangeWeight":
+            require_subscription_change_weight_source_facts(server_c)
+            request_fields = [
+                exact_field(
+                    "subscriptionId", "u32", "request", "required",
+                    "bounded htsp_method_change_weight requires exactly decoded u32 subscriptionId",
+                ),
+                exact_field(
+                    "weight", "u32", "request", "optional",
+                    "bounded htsp_method_change_weight reads optional u32 weight with default zero",
+                    condition=(
+                        "when omitted, pinned current source supplies wire value 0 before "
+                        "subscription_change_weight"
+                    ),
+                ),
+            ]
+            reply_fields = []
 
         request_fields = annotate_fields(
             "clientMethod", name, "request",
@@ -2157,6 +2311,23 @@ def derive_client_methods(server_c: str) -> list[dict[str, Any]]:
                 "completeness": "complete",
                 "evidence": "bounded standard-success helper emits exactly success=1",
             }
+        if name == "subscriptionChangeWeight":
+            method["requestShape"] = {
+                "kind": "fields",
+                "completeness": "complete",
+                "evidence": (
+                    "bounded htsp_method_change_weight accepts exactly required "
+                    "subscriptionId and optional default-zero weight"
+                ),
+            }
+            method["replyShape"] = {
+                "kind": "knownEmpty",
+                "completeness": "complete",
+                "evidence": (
+                    "bounded htsp_method_change_weight queues exactly one empty reply "
+                    "map before subscription_change_weight"
+                ),
+            }
         if name == "getEpgObject":
             method["replyFields"] = []
             method["replyShape"] = {
@@ -2185,6 +2356,12 @@ def derive_client_methods(server_c: str) -> list[dict[str, Any]]:
         if name == "subscriptionSkip":
             method["notes"] = [
                 "Dispatch synonym of subscriptionSeek; both call htsp_method_skip."
+            ]
+        if name == "subscriptionChangeWeight":
+            method["notes"] = [
+                "Dispatch requires ACCESS_HTSP_STREAMING and the method is annotated as available since HTSP version 5.",
+                "Pinned current source defaults an omitted weight to zero before looking up the exact subscription ID.",
+                "Pinned current source queues the empty acknowledgement before exactly one subscription_change_weight call; acknowledgement does not prove settled or applied weight state.",
             ]
         methods.append(method)
     return methods
@@ -2916,6 +3093,29 @@ static htsmsg_t *
 """
             )
             continue
+        if name == "subscriptionChangeWeight":
+            handlers.append(
+                f"""
+static htsmsg_t *
+{handler}(htsp_connection_t *htsp, htsmsg_t *in)
+{{
+  htsp_subscription_t *hs;
+  uint32_t subscriptionId, weight;
+  if (htsmsg_get_u32(in, "subscriptionId", &subscriptionId))
+    return htsp_error(htsp, N_("Invalid arguments"));
+  weight = htsmsg_get_u32_or_default(in, "weight", 0);
+  LIST_FOREACH(hs, &htsp->htsp_subscriptions, hs_link)
+    if (hs->hs_sid == subscriptionId)
+      break;
+  if (hs == NULL)
+    return htsp_error(htsp, N_("Subscription does not exist"));
+  htsp_reply(htsp, in, htsmsg_create_map());
+  subscription_change_weight(hs->hs_s, weight);
+  return NULL;
+}}
+"""
+            )
+            continue
         if name == "getDvrCutpoints":
             handlers.append(
                 f"""
@@ -3332,6 +3532,29 @@ def self_test() -> None:
         "stopDvrEntry-doc-limitation",
         "stopDvrEntry-missing-from-client-docs" in limitation_ids,
     )
+    subscription_change_weight = methods_by_name["subscriptionChangeWeight"]
+    check(
+        "subscriptionChangeWeight-committed-exact-contract",
+        subscription_change_weight.get("accessMask") == "ACCESS_HTSP_STREAMING"
+        and subscription_change_weight.get("minVersion") == 5
+        and subscription_change_weight.get("minVersionConfidence") == "annotated"
+        and [
+            (field["name"], field["type"], field["presence"])
+            for field in subscription_change_weight["requestFields"]
+        ] == [
+            ("subscriptionId", "u32", "required"),
+            ("weight", "u32", "optional"),
+        ]
+        and subscription_change_weight.get("requestShape", {}).get("completeness") == "complete"
+        and subscription_change_weight.get("replyFields") == []
+        and subscription_change_weight.get("replyShape", {}).get("kind") == "knownEmpty"
+        and subscription_change_weight.get("replyShape", {}).get("completeness") == "complete"
+        and subscription_change_weight.get("sdk") == {"referenced": True, "outgoingRequest": True},
+    )
+    check(
+        "subscriptionChangeWeight-doc-limitation",
+        "subscriptionChangeWeight-default-ack-order-underdocumented" in limitation_ids,
+    )
     live_coverage = scan_sdk_coverage(EXPECTED_CLIENT_METHODS, EXPECTED_SERVER_MESSAGES)
     check(
         "current-production-coverage",
@@ -3339,9 +3562,11 @@ def self_test() -> None:
             live_coverage["clientMethods"]["referencedCount"],
             live_coverage["clientMethods"]["outgoingRequestCount"],
             live_coverage["serverMessages"]["handledCount"],
-        ) == (26, 25, 23)
+        ) == (27, 26, 23)
         and "stopDvrEntry" in live_coverage["clientMethods"]["referenced"]
-        and "stopDvrEntry" in live_coverage["clientMethods"]["outgoingRequests"],
+        and "stopDvrEntry" in live_coverage["clientMethods"]["outgoingRequests"]
+        and "subscriptionChangeWeight" in live_coverage["clientMethods"]["referenced"]
+        and "subscriptionChangeWeight" in live_coverage["clientMethods"]["outgoingRequests"],
         str(live_coverage.get("metrics")),
     )
     check(
@@ -3379,7 +3604,7 @@ def self_test() -> None:
             live_coverage["clientMethods"]["referencedCount"],
             live_coverage["clientMethods"]["outgoingRequestCount"],
             live_coverage["serverMessages"]["handledCount"],
-        ) == (26, 25, 23)
+        ) == (27, 26, 23)
         and "getChannel" in live_coverage["clientMethods"]["referenced"]
         and "getChannel" in live_coverage["clientMethods"]["outgoingRequests"],
         str(live_coverage.get("metrics")),
@@ -3432,7 +3657,7 @@ def self_test() -> None:
             live_coverage["clientMethods"]["referencedCount"],
             live_coverage["clientMethods"]["outgoingRequestCount"],
             live_coverage["serverMessages"]["handledCount"],
-        ) == (26, 25, 23)
+        ) == (27, 26, 23)
         and "getEvents" in live_coverage["clientMethods"]["referenced"]
         and "getEvents" in live_coverage["clientMethods"]["outgoingRequests"],
     )
@@ -3569,12 +3794,16 @@ def self_test() -> None:
         (
             name,
             (
-                f"htsp_method_{name}"
+                "htsp_method_change_weight"
+                if name == "subscriptionChangeWeight"
+                else f"htsp_method_{name}"
                 if name in {"getEvent", "getEvents", "stopDvrEntry", "getDvrCutpoints"}
                 else f"htsp_method_{idx}"
             ),
             "ACCESS_HTSP_RECORDER"
             if name in {"stopDvrEntry", "getDvrCutpoints"}
+            else "ACCESS_HTSP_STREAMING"
+            if name == "subscriptionChangeWeight"
             else "ACCESS_ANONYMOUS",
         )
         for idx, name in enumerate(EXPECTED_CLIENT_METHODS)
@@ -3678,6 +3907,124 @@ def self_test() -> None:
             and stop_method.get("docStatus") == "missing-from-official-client-method-page"
             and len(stop_method.get("notes", [])) == 3,
         )
+
+        weight_method = next(
+            item for item in spec["clientMethods"]
+            if item["name"] == "subscriptionChangeWeight"
+        )
+        check(
+            "subscriptionChangeWeight-fresh-exact-contract",
+            weight_method.get("handler") == "htsp_method_change_weight"
+            and weight_method.get("accessMask") == "ACCESS_HTSP_STREAMING"
+            and weight_method.get("minVersion") == 5
+            and weight_method.get("minVersionConfidence") == "annotated"
+            and [
+                (
+                    field["name"], field["type"], field["presence"],
+                    field.get("condition"), field["evidence"],
+                )
+                for field in weight_method["requestFields"]
+            ] == [
+                (
+                    "subscriptionId", "u32", "required", None,
+                    "bounded htsp_method_change_weight requires exactly decoded u32 subscriptionId",
+                ),
+                (
+                    "weight", "u32", "optional",
+                    "when omitted, pinned current source supplies wire value 0 before subscription_change_weight",
+                    "bounded htsp_method_change_weight reads optional u32 weight with default zero",
+                ),
+            ]
+            and weight_method.get("requestShape") == {
+                "kind": "fields",
+                "completeness": "complete",
+                "evidence": (
+                    "bounded htsp_method_change_weight accepts exactly required "
+                    "subscriptionId and optional default-zero weight"
+                ),
+            }
+            and weight_method.get("replyFields") == []
+            and weight_method.get("replyShape") == {
+                "kind": "knownEmpty",
+                "completeness": "complete",
+                "evidence": (
+                    "bounded htsp_method_change_weight queues exactly one empty reply "
+                    "map before subscription_change_weight"
+                ),
+            }
+            and len(weight_method.get("notes", [])) == 3,
+        )
+
+        weight_source_mutations = (
+            ("optional-subscription-id", server_c.replace('if (htsmsg_get_u32(in, "subscriptionId", &subscriptionId))', 'if (!htsmsg_get_u32(in, "subscriptionId", &subscriptionId))', 1)),
+            ("renamed-subscription-id", server_c.replace('"subscriptionId", &subscriptionId', '"sid", &subscriptionId', 1)),
+            ("wrong-subscription-id-type", server_c.replace('htsmsg_get_u32(in, "subscriptionId"', 'htsmsg_get_s64(in, "subscriptionId"', 1)),
+            (
+                "changed-invalid-arguments-error",
+                server_c.replace(
+                    'if (htsmsg_get_u32(in, "subscriptionId", &subscriptionId))\n'
+                    '    return htsp_error(htsp, N_("Invalid arguments"));',
+                    'if (htsmsg_get_u32(in, "subscriptionId", &subscriptionId))\n'
+                    '    return htsp_error(htsp, N_("Bad arguments"));',
+                    1,
+                ),
+            ),
+            ("required-weight", server_c.replace('weight = htsmsg_get_u32_or_default(in, "weight", 0);', 'if (htsmsg_get_u32(in, "weight", &weight)) return NULL;', 1)),
+            ("wrong-weight-type", server_c.replace('htsmsg_get_u32_or_default(in, "weight", 0)', 'htsmsg_get_s64_or_default(in, "weight", 0)', 1)),
+            ("wrong-weight-default", server_c.replace('htsmsg_get_u32_or_default(in, "weight", 0)', 'htsmsg_get_u32_or_default(in, "weight", 1)', 1)),
+            ("wrong-subscription-list", server_c.replace('&htsp->htsp_subscriptions', '&htsp->other_subscriptions', 1)),
+            ("wrong-subscription-id-comparison", server_c.replace('hs->hs_sid == subscriptionId', 'hs->hs_sid != subscriptionId', 1)),
+            ("removed-missing-guard", server_c.replace('  if (hs == NULL)\n    return htsp_error(htsp, N_("Subscription does not exist"));\n', '', 1)),
+            ("changed-missing-error", server_c.replace('N_("Subscription does not exist")', 'N_("Subscription missing")', 1)),
+            ("removed-reply", server_c.replace('  htsp_reply(htsp, in, htsmsg_create_map());\n', '', 1)),
+            ("replaced-reply", server_c.replace('htsp_reply(htsp, in, htsmsg_create_map())', 'htsp_reply(htsp, in, build_reply())', 1)),
+            ("duplicated-reply", server_c.replace('  htsp_reply(htsp, in, htsmsg_create_map());', '  htsp_reply(htsp, in, htsmsg_create_map());\n  htsp_reply(htsp, in, htsmsg_create_map());', 1)),
+            ("nonempty-reply", server_c.replace('htsmsg_create_map());\n  subscription_change_weight', 'add_weight(htsmsg_create_map(), weight));\n  subscription_change_weight', 1)),
+            ("reply-after-change", server_c.replace('  htsp_reply(htsp, in, htsmsg_create_map());\n  subscription_change_weight(hs->hs_s, weight);', '  subscription_change_weight(hs->hs_s, weight);\n  htsp_reply(htsp, in, htsmsg_create_map());', 1)),
+            ("removed-change", server_c.replace('  subscription_change_weight(hs->hs_s, weight);\n', '', 1)),
+            ("replaced-change", server_c.replace('subscription_change_weight(hs->hs_s, weight)', 'subscription_set_weight(hs->hs_s, weight)', 1)),
+            ("duplicated-change", server_c.replace('  subscription_change_weight(hs->hs_s, weight);', '  subscription_change_weight(hs->hs_s, weight);\n  subscription_change_weight(hs->hs_s, weight);', 1)),
+            ("wrong-change-object", server_c.replace('subscription_change_weight(hs->hs_s, weight)', 'subscription_change_weight(hs, weight)', 1)),
+            ("wrong-change-value", server_c.replace('subscription_change_weight(hs->hs_s, weight)', 'subscription_change_weight(hs->hs_s, 0)', 1)),
+            ("extra-output-add", server_c.replace('  subscription_change_weight(hs->hs_s, weight);\n  return NULL;\n}', '  subscription_change_weight(hs->hs_s, weight);\n  htsmsg_add_u32(in, "extra", 1);\n  return NULL;\n}', 1)),
+            ("extra-output-set", server_c.replace('  subscription_change_weight(hs->hs_s, weight);\n  return NULL;\n}', '  subscription_change_weight(hs->hs_s, weight);\n  htsmsg_set_u32(in, "extra", 1);\n  return NULL;\n}', 1)),
+            ("extra-output-delete", server_c.replace('  subscription_change_weight(hs->hs_s, weight);\n  return NULL;\n}', '  subscription_change_weight(hs->hs_s, weight);\n  htsmsg_delete_field(in, "weight");\n  return NULL;\n}', 1)),
+            ("extra-helper", server_c.replace('  subscription_change_weight(hs->hs_s, weight);\n  return NULL;\n}', '  subscription_change_weight(hs->hs_s, weight);\n  inspect_or_mutate(hs);\n  return NULL;\n}', 1)),
+            ("alias-escape", server_c.replace('  subscription_change_weight(hs->hs_s, weight);\n  return NULL;\n}', '  subscription_change_weight(hs->hs_s, weight);\n  htsp_subscription_t *alias = hs;\n  publish(alias);\n  return NULL;\n}', 1)),
+            ("dispatch-handler", server_c.replace('{ "subscriptionChangeWeight", htsp_method_change_weight, ACCESS_HTSP_STREAMING}', '{ "subscriptionChangeWeight", htsp_method_27, ACCESS_HTSP_STREAMING}', 1)),
+            ("dispatch-access", server_c.replace('{ "subscriptionChangeWeight", htsp_method_change_weight, ACCESS_HTSP_STREAMING}', '{ "subscriptionChangeWeight", htsp_method_change_weight, ACCESS_ANONYMOUS}', 1)),
+            (
+                "external-handler-decoy",
+                server_c.replace('subscription_change_weight(hs->hs_s, weight)', 'subscription_set_weight(hs->hs_s, weight)', 1)
+                + '\nstatic void weight_decoy(htsp_subscription_t *hs, uint32_t weight) { subscription_change_weight(hs->hs_s, weight); }\n',
+            ),
+            (
+                "external-selector-decoy",
+                server_c.replace('hs->hs_sid == subscriptionId', 'hs->hs_sid != subscriptionId', 1)
+                + '\nstatic void selector_decoy(htsp_connection_t *htsp, uint32_t subscriptionId) { htsp_subscription_t *hs; LIST_FOREACH(hs, &htsp->htsp_subscriptions, hs_link) if (hs->hs_sid == subscriptionId) break; }\n',
+            ),
+        )
+        for label, mutated_source in weight_source_mutations:
+            try:
+                require_subscription_change_weight_source_facts(mutated_source)
+            except ValueError:
+                continue
+            check(f"reject-subscriptionChangeWeight-source-{label}", False)
+
+        weight_decoy_source = server_c.replace(
+            '  subscription_change_weight(hs->hs_s, weight);',
+            '  /* htsmsg_add_u32(in, "extra", 1); */\n'
+            '  subscription_change_weight(hs->hs_s, weight);',
+            1,
+        ) + '\nstatic const char *weight_topology_decoy = "htsmsg_set_u32(in, extra, 1)";\n'
+        try:
+            require_subscription_change_weight_source_facts(weight_decoy_source)
+        except ValueError as exc:
+            check(
+                "accept-subscriptionChangeWeight-comment-string-decoys",
+                False,
+                str(exc),
+            )
 
         stop_source_mutations = (
             ("optional-id", server_c.replace('if (htsmsg_get_u32(in, "id", &id))', 'if (!htsmsg_get_u32(in, "id", &id))', 1)),
