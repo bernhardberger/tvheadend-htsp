@@ -12,6 +12,8 @@ from __future__ import annotations
 import argparse
 import copy
 import hashlib
+import importlib.util
+import inspect
 import json
 import re
 import ssl
@@ -19,7 +21,6 @@ import sys
 import tempfile
 import traceback
 import urllib.request
-import inspect
 from collections import OrderedDict
 from pathlib import Path
 from typing import Any
@@ -32,6 +33,7 @@ SDK_PRODUCTION_ROOTS = (
     REPO_ROOT / "sdk" / "htsp" / "src" / "main",
     REPO_ROOT / "sdk" / "playback-media3" / "src" / "main",
 )
+TYPED_REQUEST_GENERATOR = SCRIPT_DIR / "generate_typed_requests.py"
 
 EXPECTED_REPOSITORY = "https://github.com/tvheadend/tvheadend"
 EXPECTED_REVISION = "27295c5a48f2c575678bb224014cb9a26a773083"
@@ -3170,6 +3172,7 @@ def scan_sdk_coverage(
             # If a constant holds a method name and appears in method= context already counted.
             pass
 
+    typed_catalog = load_typed_request_catalog()
     scan_root_labels: list[str] = []
     for path in roots:
         if not path.is_dir():
@@ -3191,6 +3194,15 @@ def scan_sdk_coverage(
                 name for name in client_method_names if name not in referenced_methods
             ],
         },
+        "typedClientRequests": {
+            "catalog": "docs/htsp-protocol/generate_typed_requests.py",
+            "count": len(typed_catalog),
+            "methods": typed_catalog,
+            "meaning": (
+                "Public typed HtspRequest models and generated HtspConnection extensions; "
+                "not a support or completeness claim"
+            ),
+        },
         "serverMessages": {
             "total": len(server_message_names),
             "handled": sorted(handled_messages),
@@ -3203,14 +3215,40 @@ def scan_sdk_coverage(
             "referencedClientMethods": len(referenced_methods),
             "outgoingClientMethods": len(outgoing_methods),
             "handledServerMessages": len(handled_messages),
+            "typedClientRequests": len(typed_catalog),
             "notes": [
                 "referenced counts exact string literals in SDK production main sources",
                 "outgoing counts method = \"...\" / method = CONST assignments only",
                 "subscriptionSkip may be referenced via inbound handling without being outgoing",
                 "handled server messages use the same exact-literal metric",
+                "typed request coverage comes only from the reviewed deterministic generator catalog",
             ],
         },
     }
+
+
+def load_typed_request_catalog() -> list[dict[str, Any]]:
+    module_name = "_htsp_typed_request_catalog"
+    module_spec = importlib.util.spec_from_file_location(module_name, TYPED_REQUEST_GENERATOR)
+    if module_spec is None or module_spec.loader is None:
+        raise ValueError("cannot load typed request generator catalog")
+    module = importlib.util.module_from_spec(module_spec)
+    sys.modules[module_name] = module
+    try:
+        module_spec.loader.exec_module(module)
+        module.validate_catalog()
+        return [
+            OrderedDict(
+                [
+                    ("name", entry.method),
+                    ("accessMask", entry.access),
+                    ("methodMinVersion", entry.minimum_version),
+                ]
+            )
+            for entry in module.CATALOG
+        ]
+    finally:
+        sys.modules.pop(module_name, None)
 
 
 def parse_python_demo(htsp_py: str) -> dict[str, Any]:
@@ -3270,12 +3308,16 @@ def build_spec(
     # Attach per-item coverage flags in source order.
     referenced = set(coverage["clientMethods"]["referenced"])
     outgoing = set(coverage["clientMethods"]["outgoingRequests"])
+    typed = {
+        item["name"] for item in coverage["typedClientRequests"]["methods"]
+    }
     handled = set(coverage["serverMessages"]["handled"])
     for method in client_methods:
         method["sdk"] = OrderedDict(
             [
                 ("referenced", method["name"] in referenced),
                 ("outgoingRequest", method["name"] in outgoing),
+                ("typedRequest", method["name"] in typed),
             ]
         )
     for message in server_messages:
@@ -4058,7 +4100,11 @@ def self_test() -> None:
             for field in stop_dvr_entry["replyFields"]
         ] == [("success", "u32", "required")]
         and stop_dvr_entry.get("replyShape", {}).get("completeness") == "complete"
-        and stop_dvr_entry.get("sdk") == {"referenced": True, "outgoingRequest": True},
+        and stop_dvr_entry.get("sdk") == {
+            "referenced": True,
+            "outgoingRequest": True,
+            "typedRequest": True,
+        },
     )
     check(
         "stopDvrEntry-doc-limitation",
@@ -4085,7 +4131,11 @@ def self_test() -> None:
         and subscription_change_weight.get("replyFields") == []
         and subscription_change_weight.get("replyShape", {}).get("kind") == "knownEmpty"
         and subscription_change_weight.get("replyShape", {}).get("completeness") == "complete"
-        and subscription_change_weight.get("sdk") == {"referenced": True, "outgoingRequest": True},
+        and subscription_change_weight.get("sdk") == {
+            "referenced": True,
+            "outgoingRequest": True,
+            "typedRequest": True,
+        },
     )
     check(
         "subscriptionChangeWeight-doc-limitation",
@@ -4106,7 +4156,11 @@ def self_test() -> None:
         and subscription_live.get("replyFields") == []
         and subscription_live.get("replyShape", {}).get("kind") == "knownEmpty"
         and subscription_live.get("replyShape", {}).get("completeness") == "complete"
-        and subscription_live.get("sdk") == {"referenced": True, "outgoingRequest": True},
+        and subscription_live.get("sdk") == {
+            "referenced": True,
+            "outgoingRequest": True,
+            "typedRequest": True,
+        },
     )
     check(
         "subscriptionLive-doc-limitation",
@@ -4131,7 +4185,11 @@ def self_test() -> None:
         and subscription_filter.get("replyFields") == []
         and subscription_filter.get("replyShape", {}).get("kind") == "knownEmpty"
         and subscription_filter.get("replyShape", {}).get("completeness") == "complete"
-        and subscription_filter.get("sdk") == {"referenced": True, "outgoingRequest": True},
+        and subscription_filter.get("sdk") == {
+            "referenced": True,
+            "outgoingRequest": True,
+            "typedRequest": True,
+        },
     )
     check(
         "subscriptionFilterStream-doc-limitation",
@@ -4144,7 +4202,8 @@ def self_test() -> None:
             live_coverage["clientMethods"]["referencedCount"],
             live_coverage["clientMethods"]["outgoingRequestCount"],
             live_coverage["serverMessages"]["handledCount"],
-        ) == (29, 28, 27)
+            live_coverage["typedClientRequests"]["count"],
+        ) == (29, 28, 27, 20)
         and "stopDvrEntry" in live_coverage["clientMethods"]["referenced"]
         and "stopDvrEntry" in live_coverage["clientMethods"]["outgoingRequests"]
         and "subscriptionChangeWeight" in live_coverage["clientMethods"]["referenced"]

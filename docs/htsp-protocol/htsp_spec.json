@@ -447,7 +447,8 @@
       },
       "sdk": {
         "referenced": true,
-        "outgoingRequest": true
+        "outgoingRequest": true,
+        "typedRequest": false
       }
     },
     {
@@ -611,7 +612,8 @@
       },
       "sdk": {
         "referenced": true,
-        "outgoingRequest": true
+        "outgoingRequest": true,
+        "typedRequest": false
       }
     },
     {
@@ -676,7 +678,8 @@
       },
       "sdk": {
         "referenced": false,
-        "outgoingRequest": false
+        "outgoingRequest": false,
+        "typedRequest": false
       }
     },
     {
@@ -730,7 +733,8 @@
       },
       "sdk": {
         "referenced": true,
-        "outgoingRequest": true
+        "outgoingRequest": true,
+        "typedRequest": true
       }
     },
     {
@@ -784,7 +788,8 @@
       },
       "sdk": {
         "referenced": true,
-        "outgoingRequest": true
+        "outgoingRequest": true,
+        "typedRequest": true
       }
     },
     {
@@ -848,7 +853,8 @@
       },
       "sdk": {
         "referenced": true,
-        "outgoingRequest": true
+        "outgoingRequest": true,
+        "typedRequest": false
       }
     },
     {
@@ -991,7 +997,8 @@
       },
       "sdk": {
         "referenced": true,
-        "outgoingRequest": true
+        "outgoingRequest": true,
+        "typedRequest": true
       }
     },
     {
@@ -1399,7 +1406,8 @@
       },
       "sdk": {
         "referenced": true,
-        "outgoingRequest": true
+        "outgoingRequest": true,
+        "typedRequest": true
       }
     },
     {
@@ -1500,7 +1508,8 @@
       },
       "sdk": {
         "referenced": true,
-        "outgoingRequest": true
+        "outgoingRequest": true,
+        "typedRequest": true
       }
     },
     {
@@ -1653,7 +1662,8 @@
       },
       "sdk": {
         "referenced": false,
-        "outgoingRequest": false
+        "outgoingRequest": false,
+        "typedRequest": false
       }
     },
     {
@@ -1697,7 +1707,8 @@
       },
       "sdk": {
         "referenced": false,
-        "outgoingRequest": false
+        "outgoingRequest": false,
+        "typedRequest": false
       }
     },
     {
@@ -1732,7 +1743,8 @@
       },
       "sdk": {
         "referenced": true,
-        "outgoingRequest": true
+        "outgoingRequest": true,
+        "typedRequest": true
       }
     },
     {
@@ -1897,7 +1909,8 @@
       },
       "sdk": {
         "referenced": true,
-        "outgoingRequest": true
+        "outgoingRequest": true,
+        "typedRequest": true
       }
     },
     {
@@ -2132,7 +2145,8 @@
       },
       "sdk": {
         "referenced": true,
-        "outgoingRequest": true
+        "outgoingRequest": true,
+        "typedRequest": true
       }
     },
     {
@@ -2183,7 +2197,8 @@
       ],
       "sdk": {
         "referenced": true,
-        "outgoingRequest": true
+        "outgoingRequest": true,
+        "typedRequest": true
       }
     },
     {
@@ -2228,7 +2243,8 @@
       },
       "sdk": {
         "referenced": true,
-        "outgoingRequest": true
+        "outgoingRequest": true,
+        "typedRequest": true
       }
     },
     {
@@ -2273,7 +2289,8 @@
       },
       "sdk": {
         "referenced": true,
-        "outgoingRequest": true
+        "outgoingRequest": true,
+        "typedRequest": true
       }
     },
     {
@@ -2578,7 +2595,8 @@
       },
       "sdk": {
         "referenced": false,
-        "outgoingRequest": false
+        "outgoingRequest": false,
+        "typedRequest": false
       }
     },
     {
@@ -2873,7 +2891,8 @@
       },
       "sdk": {
         "referenced": false,
-        "outgoingRequest": false
+        "outgoingRequest": false,
+        "typedRequest": false
       }
     },
     {
@@ -2918,7 +2937,8 @@
       },
       "sdk": {
         "referenced": false,
-        "outgoingRequest": false
+        "outgoingRequest": false,
+        "typedRequest": false
       }
     },
     {
@@ -3223,7 +3243,8 @@
       },
       "sdk": {
         "referenced": false,
-        "outgoingRequest": false
+        "outgoingRequest": false,
+        "typedRequest": false
       }
     },
     {
@@ -3518,7 +3539,8 @@
       },
       "sdk": {
         "referenced": false,
-        "outgoingRequest": false
+        "outgoingRequest": false,
+        "typedRequest": false
       }
     },
     {
@@ -3563,7 +3585,8 @@
       },
       "sdk": {
         "referenced": false,
-        "outgoingRequest": false
+        "outgoingRequest": false,
+        "typedRequest": false
       }
     },
     {
@@ -3609,7 +3632,8 @@
       },
       "sdk": {
         "referenced": true,
-        "outgoingRequest": true
+        "outgoingRequest": true,
+        "typedRequest": true
       }
     },
     {
@@ -3674,7 +3698,8 @@
       },
       "sdk": {
         "referenced": false,
-        "outgoingRequest": false
+        "outgoingRequest": false,
+        "typedRequest": false
       }
     },
     {
@@ -3821,7 +3846,8 @@
       },
       "sdk": {
         "referenced": true,
-        "outgoingRequest": true
+        "outgoingRequest": true,
+        "typedRequest": true
       }
     },
     {
@@ -3855,7 +3881,8 @@
       },
       "sdk": {
         "referenced": true,
-        "outgoingRequest": true
+        "outgoingRequest": true,
+        "typedRequest": true
       }
     },
     {
@@ -3905,7 +3932,8 @@
       ],
       "sdk": {
         "referenced": true,
-        "outgoingRequest": true
+        "outgoingRequest": true,
+        "typedRequest": true
       }
     },
     {
@@ -3974,7 +4002,8 @@
       ],
       "sdk": {
         "referenced": true,
-        "outgoingRequest": true
+        "outgoingRequest": true,
+        "typedRequest": true
       }
     },
     {
@@ -4043,7 +4072,8 @@
       ],
       "sdk": {
         "referenced": true,
-        "outgoingRequest": false
+        "outgoingRequest": false,
+        "typedRequest": false
       }
     },
     {
@@ -4087,7 +4117,8 @@
       },
       "sdk": {
         "referenced": true,
-        "outgoingRequest": true
+        "outgoingRequest": true,
+        "typedRequest": true
       }
     },
     {
@@ -4126,7 +4157,8 @@
       ],
       "sdk": {
         "referenced": true,
-        "outgoingRequest": true
+        "outgoingRequest": true,
+        "typedRequest": true
       }
     },
     {
@@ -4189,7 +4221,8 @@
       ],
       "sdk": {
         "referenced": true,
-        "outgoingRequest": true
+        "outgoingRequest": true,
+        "typedRequest": true
       }
     },
     {
@@ -4224,7 +4257,8 @@
       },
       "sdk": {
         "referenced": true,
-        "outgoingRequest": true
+        "outgoingRequest": true,
+        "typedRequest": true
       }
     },
     {
@@ -4289,7 +4323,8 @@
       },
       "sdk": {
         "referenced": true,
-        "outgoingRequest": true
+        "outgoingRequest": true,
+        "typedRequest": false
       }
     },
     {
@@ -4354,7 +4389,8 @@
       },
       "sdk": {
         "referenced": true,
-        "outgoingRequest": true
+        "outgoingRequest": true,
+        "typedRequest": false
       }
     },
     {
@@ -4408,7 +4444,8 @@
       },
       "sdk": {
         "referenced": true,
-        "outgoingRequest": true
+        "outgoingRequest": true,
+        "typedRequest": false
       }
     },
     {
@@ -4463,7 +4500,8 @@
       },
       "sdk": {
         "referenced": true,
-        "outgoingRequest": true
+        "outgoingRequest": true,
+        "typedRequest": false
       }
     },
     {
@@ -4528,7 +4566,8 @@
       },
       "sdk": {
         "referenced": true,
-        "outgoingRequest": true
+        "outgoingRequest": true,
+        "typedRequest": false
       }
     }
   ],
@@ -8530,6 +8569,113 @@
         "getTicket"
       ]
     },
+    "typedClientRequests": {
+      "catalog": "docs/htsp-protocol/generate_typed_requests.py",
+      "count": 20,
+      "methods": [
+        {
+          "name": "getProfiles",
+          "accessMask": "ACCESS_HTSP_STREAMING",
+          "methodMinVersion": 16
+        },
+        {
+          "name": "getDiskSpace",
+          "accessMask": "ACCESS_HTSP_STREAMING",
+          "methodMinVersion": 3
+        },
+        {
+          "name": "getSysTime",
+          "accessMask": "ACCESS_HTSP_STREAMING",
+          "methodMinVersion": 3
+        },
+        {
+          "name": "getChannel",
+          "accessMask": "ACCESS_HTSP_STREAMING",
+          "methodMinVersion": 14
+        },
+        {
+          "name": "getEvent",
+          "accessMask": "ACCESS_HTSP_STREAMING",
+          "methodMinVersion": null
+        },
+        {
+          "name": "getEvents",
+          "accessMask": "ACCESS_HTSP_STREAMING",
+          "methodMinVersion": 4
+        },
+        {
+          "name": "getDvrConfigs",
+          "accessMask": "ACCESS_HTSP_RECORDER",
+          "methodMinVersion": 16
+        },
+        {
+          "name": "addDvrEntry",
+          "accessMask": "ACCESS_HTSP_RECORDER",
+          "methodMinVersion": 4
+        },
+        {
+          "name": "updateDvrEntry",
+          "accessMask": "ACCESS_HTSP_RECORDER",
+          "methodMinVersion": 5
+        },
+        {
+          "name": "stopDvrEntry",
+          "accessMask": "ACCESS_HTSP_RECORDER",
+          "methodMinVersion": null
+        },
+        {
+          "name": "cancelDvrEntry",
+          "accessMask": "ACCESS_HTSP_RECORDER",
+          "methodMinVersion": 5
+        },
+        {
+          "name": "deleteDvrEntry",
+          "accessMask": "ACCESS_HTSP_RECORDER",
+          "methodMinVersion": 4
+        },
+        {
+          "name": "getDvrCutpoints",
+          "accessMask": "ACCESS_HTSP_RECORDER",
+          "methodMinVersion": 12
+        },
+        {
+          "name": "subscribe",
+          "accessMask": "ACCESS_HTSP_STREAMING",
+          "methodMinVersion": null
+        },
+        {
+          "name": "unsubscribe",
+          "accessMask": "ACCESS_HTSP_STREAMING",
+          "methodMinVersion": null
+        },
+        {
+          "name": "subscriptionChangeWeight",
+          "accessMask": "ACCESS_HTSP_STREAMING",
+          "methodMinVersion": 5
+        },
+        {
+          "name": "subscriptionSeek",
+          "accessMask": "ACCESS_HTSP_STREAMING",
+          "methodMinVersion": 9
+        },
+        {
+          "name": "subscriptionSpeed",
+          "accessMask": "ACCESS_HTSP_STREAMING",
+          "methodMinVersion": 9
+        },
+        {
+          "name": "subscriptionLive",
+          "accessMask": "ACCESS_HTSP_STREAMING",
+          "methodMinVersion": 9
+        },
+        {
+          "name": "subscriptionFilterStream",
+          "accessMask": "ACCESS_HTSP_STREAMING",
+          "methodMinVersion": 12
+        }
+      ],
+      "meaning": "Public typed HtspRequest models and generated HtspConnection extensions; not a support or completeness claim"
+    },
     "serverMessages": {
       "total": 30,
       "handled": [
@@ -8572,11 +8718,13 @@
       "referencedClientMethods": 29,
       "outgoingClientMethods": 28,
       "handledServerMessages": 27,
+      "typedClientRequests": 20,
       "notes": [
         "referenced counts exact string literals in SDK production main sources",
         "outgoing counts method = \"...\" / method = CONST assignments only",
         "subscriptionSkip may be referenced via inbound handling without being outgoing",
-        "handled server messages use the same exact-literal metric"
+        "handled server messages use the same exact-literal metric",
+        "typed request coverage comes only from the reviewed deterministic generator catalog"
       ]
     }
   },

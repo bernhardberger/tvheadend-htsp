@@ -60,6 +60,29 @@ EXPECTED_CLIENT_METHODS: tuple[str, ...] = (
     "fileSeek",
 )
 
+EXPECTED_TYPED_CLIENT_REQUESTS: tuple[tuple[str, str, int | None], ...] = (
+    ("getProfiles", "ACCESS_HTSP_STREAMING", 16),
+    ("getDiskSpace", "ACCESS_HTSP_STREAMING", 3),
+    ("getSysTime", "ACCESS_HTSP_STREAMING", 3),
+    ("getChannel", "ACCESS_HTSP_STREAMING", 14),
+    ("getEvent", "ACCESS_HTSP_STREAMING", None),
+    ("getEvents", "ACCESS_HTSP_STREAMING", 4),
+    ("getDvrConfigs", "ACCESS_HTSP_RECORDER", 16),
+    ("addDvrEntry", "ACCESS_HTSP_RECORDER", 4),
+    ("updateDvrEntry", "ACCESS_HTSP_RECORDER", 5),
+    ("stopDvrEntry", "ACCESS_HTSP_RECORDER", None),
+    ("cancelDvrEntry", "ACCESS_HTSP_RECORDER", 5),
+    ("deleteDvrEntry", "ACCESS_HTSP_RECORDER", 4),
+    ("getDvrCutpoints", "ACCESS_HTSP_RECORDER", 12),
+    ("subscribe", "ACCESS_HTSP_STREAMING", None),
+    ("unsubscribe", "ACCESS_HTSP_STREAMING", None),
+    ("subscriptionChangeWeight", "ACCESS_HTSP_STREAMING", 5),
+    ("subscriptionSeek", "ACCESS_HTSP_STREAMING", 9),
+    ("subscriptionSpeed", "ACCESS_HTSP_STREAMING", 9),
+    ("subscriptionLive", "ACCESS_HTSP_STREAMING", 9),
+    ("subscriptionFilterStream", "ACCESS_HTSP_STREAMING", 12),
+)
+
 EXPECTED_SERVER_MESSAGES: tuple[str, ...] = (
     "channelAdd",
     "channelUpdate",
@@ -1007,12 +1030,14 @@ def validate_spec(spec: dict[str, Any], upstream: dict[str, Any] | None = None) 
 
     coverage = spec.get("coverage") or {}
     client_cov = coverage.get("clientMethods") or {}
+    typed_cov = coverage.get("typedClientRequests") or {}
     server_cov = coverage.get("serverMessages") or {}
     metrics = coverage.get("metrics") or {}
 
     ref_count = client_cov.get("referencedCount")
     out_count = client_cov.get("outgoingRequestCount")
     handled_count = server_cov.get("handledCount")
+    typed_count = typed_cov.get("count")
 
     if coverage.get("scanRoots") != EXPECTED_SCAN_ROOTS:
         errors.append(f"coverage.scanRoots must equal {EXPECTED_SCAN_ROOTS!r}")
@@ -1020,6 +1045,29 @@ def validate_spec(spec: dict[str, Any], upstream: dict[str, Any] | None = None) 
         errors.append("coverage clientMethods.total must be 39")
     if server_cov.get("total") != 30:
         errors.append("coverage serverMessages.total must be 30")
+    typed_methods = typed_cov.get("methods") or []
+    typed_contract = [
+        (item.get("name"), item.get("accessMask"), item.get("methodMinVersion"))
+        for item in typed_methods
+        if isinstance(item, dict)
+    ]
+    if typed_contract != list(EXPECTED_TYPED_CLIENT_REQUESTS):
+        errors.append("coverage typedClientRequests must match the exact reviewed catalog")
+    for name, access, method_min_version in EXPECTED_TYPED_CLIENT_REQUESTS:
+        method = method_map.get(name) or {}
+        if method.get("accessMask") != access:
+            errors.append(f"{name}: typed catalog access mask disagrees with pinned method")
+        if method.get("minVersion") != method_min_version:
+            errors.append(f"{name}: typed catalog method minimum disagrees with pinned method")
+    if typed_count != len(typed_methods) or typed_count != 20:
+        errors.append("coverage typedClientRequests.count must match exactly 20 methods")
+    if typed_cov.get("catalog") != "docs/htsp-protocol/generate_typed_requests.py":
+        errors.append("coverage typedClientRequests.catalog must name the reviewed generator")
+    if typed_cov.get("meaning") != (
+        "Public typed HtspRequest models and generated HtspConnection extensions; "
+        "not a support or completeness claim"
+    ):
+        errors.append("coverage typedClientRequests.meaning must retain its disclaimer")
 
     referenced_list = client_cov.get("referenced") or []
     outgoing_list = client_cov.get("outgoingRequests") or []
@@ -1059,6 +1107,8 @@ def validate_spec(spec: dict[str, Any], upstream: dict[str, Any] | None = None) 
         errors.append("metrics.outgoingClientMethods mismatch")
     if metrics.get("handledServerMessages") != handled_count:
         errors.append("metrics.handledServerMessages mismatch")
+    if metrics.get("typedClientRequests") != typed_count:
+        errors.append("metrics.typedClientRequests mismatch")
 
     if out_count is not None and ref_count is not None and out_count > ref_count:
         errors.append("outgoingRequestCount cannot exceed referencedCount")
@@ -1120,18 +1170,21 @@ def validate_spec(spec: dict[str, Any], upstream: dict[str, Any] | None = None) 
     # sdk flags must match coverage lists
     ref_set = set(client_cov.get("referenced") or [])
     out_set = set(client_cov.get("outgoingRequests") or [])
+    typed_set = {item[0] for item in EXPECTED_TYPED_CLIENT_REQUESTS}
     handled_set = set(server_cov.get("handled") or [])
     for method in methods:
         if not isinstance(method, dict):
             continue
         sdk = method.get("sdk") or {}
         name = method.get("name")
-        if set(sdk) != {"referenced", "outgoingRequest"} or not all(isinstance(v, bool) for v in sdk.values()):
+        if set(sdk) != {"referenced", "outgoingRequest", "typedRequest"} or not all(isinstance(v, bool) for v in sdk.values()):
             errors.append(f"{name}: sdk method flags must be exact booleans")
         if bool(sdk.get("referenced")) != (name in ref_set):
             errors.append(f"{name}: sdk.referenced flag disagrees with coverage")
         if bool(sdk.get("outgoingRequest")) != (name in out_set):
             errors.append(f"{name}: sdk.outgoingRequest flag disagrees with coverage")
+        if bool(sdk.get("typedRequest")) != (name in typed_set):
+            errors.append(f"{name}: sdk.typedRequest flag disagrees with reviewed catalog")
     for message in messages:
         if not isinstance(message, dict):
             continue
@@ -1561,6 +1614,7 @@ def render_matrix(spec: dict[str, Any]) -> str:
     upstream = spec["upstream"]
     coverage = spec["coverage"]
     client_cov = coverage["clientMethods"]
+    typed_cov = coverage["typedClientRequests"]
     server_cov = coverage["serverMessages"]
     lines: list[str] = []
     lines.append("# HTSP method matrix (generated)")
@@ -1604,12 +1658,20 @@ def render_matrix(spec: dict[str, Any]) -> str:
         f"**{server_cov['handledCount']} / {server_cov['total']}**"
     )
     lines.append(
+        f"- Public typed client requests from the reviewed catalog: "
+        f"**{typed_cov['count']} / {client_cov['total']}**"
+    )
+    lines.append(
         "- Distinguish **referenced** from **outgoing**: a name can appear "
         "because an inbound handler mentions it (for example `subscriptionSkip`) "
         "while the client sends a synonym (`subscriptionSeek`)."
     )
     lines.append(
         "- Never claim methods are implemented/called merely because they are referenced."
+    )
+    lines.append(
+        "- Typed request coverage means a public `HtspRequest` model plus a generated "
+        "`HtspConnection` extension. It is not a support, stability, or completeness claim."
     )
     lines.append("")
     lines.append("Unhandled server messages:")
@@ -1636,9 +1698,9 @@ def render_matrix(spec: dict[str, Any]) -> str:
     lines.append("## Client → server methods")
     lines.append("")
     lines.append(
-        "| # | Method | Access mask | Min ver | SDK ref | SDK out | Request fields | Reply fields |"
+        "| # | Method | Access mask | Min ver | SDK ref | SDK out | SDK typed | Request fields | Reply fields |"
     )
-    lines.append("|---:|---|---|---:|:---:|:---:|---|---|")
+    lines.append("|---:|---|---|---:|:---:|:---:|:---:|---|---|")
     for idx, method in enumerate(spec["clientMethods"], start=1):
         sdk = method.get("sdk") or {}
         min_ver = method.get("minVersion")
@@ -1647,13 +1709,14 @@ def render_matrix(spec: dict[str, Any]) -> str:
         if conf and conf not in {"mechanical", "mechanical+annotated"} and min_ver is not None:
             min_s = f"{min_s} ({conf})"
         lines.append(
-            "| {idx} | `{name}` | `{access}` | {minv} | {ref} | {out} | {req} | {rep} |".format(
+            "| {idx} | `{name}` | `{access}` | {minv} | {ref} | {out} | {typed} | {req} | {rep} |".format(
                 idx=idx,
                 name=method["name"],
                 access=method.get("accessMask", ""),
                 minv=min_s,
                 ref="yes" if sdk.get("referenced") else "",
                 out="yes" if sdk.get("outgoingRequest") else "",
+                typed="yes" if sdk.get("typedRequest") else "",
                 req=_fmt_shape_fields(method.get("requestFields") or [], method.get("requestShape") or {}),
                 rep=_fmt_shape_fields(method.get("replyFields") or [], method.get("replyShape") or {}),
             )
@@ -1796,7 +1859,7 @@ def _derive_fresh_self_test_spec() -> dict[str, Any]:
             if name in {"stopDvrEntry", "getDvrCutpoints"}
             else "ACCESS_HTSP_STREAMING"
             if name in {
-                "subscriptionChangeWeight", "subscriptionLive",
+                "getEvents", "subscriptionChangeWeight", "subscriptionLive",
                 "subscriptionFilterStream",
             }
             else "ACCESS_ANONYMOUS",
