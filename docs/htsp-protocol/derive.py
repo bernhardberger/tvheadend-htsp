@@ -379,6 +379,23 @@ DOC_LIMITATIONS = [
         ),
     },
     {
+        "id": "subscriptionFilterStream-range-overlap-underdocumented",
+        "summary": (
+            "The official Client-to-Server RPC methods page omits the pinned "
+            "subscriptionFilterStream 512-index effective range, disable-wins "
+            "precedence for indexes present in both lists, and the no-change "
+            "behavior of omitted or empty enable/disable lists."
+        ),
+        "authority": (
+            "src/htsp_server.c htsp_method_filter_stream / "
+            "htsp_enable_stream / htsp_disable_stream"
+        ),
+        "docsUrl": (
+            "https://docs.tvheadend.org/documentation/development/htsp/"
+            "client-to-server-rpc-methods"
+        ),
+    },
+    {
         "id": "channel-service-fields-underdocumented",
         "summary": (
             "The pinned htsp_build_channel source always emits service name, "
@@ -1876,6 +1893,218 @@ def require_subscription_live_source_facts(server_c: str) -> None:
         )
 
 
+def require_subscription_filter_stream_source_facts(server_c: str) -> None:
+    """Validate the exact bounded subscriptionFilterStream handler and helpers."""
+    source = strip_c_comments(server_c)
+    syntax = mask_c_literals(source)
+    dispatch = [
+        entry for entry in parse_methods_table(source)
+        if entry["name"] == "subscriptionFilterStream"
+    ]
+    if dispatch != [{
+        "name": "subscriptionFilterStream",
+        "handler": "htsp_method_filter_stream",
+        "accessMask": "ACCESS_HTSP_STREAMING",
+    }]:
+        raise ValueError(
+            "subscriptionFilterStream dispatch must use htsp_method_filter_stream "
+            "with streaming access"
+        )
+
+    bounds = re.findall(
+        r'(?m)^\s*#\s*define\s+NUM_FILTERED_STREAMS\s+\(\s*64\s*\*\s*8\s*\)\s*$',
+        syntax,
+    )
+    if len(bounds) != 1:
+        raise ValueError("NUM_FILTERED_STREAMS must remain exactly (64*8)")
+
+    def bounded_body(function_name: str) -> str:
+        matches = list(re.finditer(
+            rf"\b{re.escape(function_name)}\s*\([^;]*?\)\s*\{{",
+            syntax,
+            re.S,
+        ))
+        if len(matches) != 1:
+            raise ValueError(f"{function_name} must have exactly one bounded body")
+        return extract_balanced_block(source, matches[0].end() - 1)
+
+    body = bounded_body("htsp_method_filter_stream")
+    compact = re.sub(r"\s+", " ", body).strip()
+    getters = [(field["name"], field["type"]) for field in extract_get_fields(body, "in")]
+    if getters != [
+        ("subscriptionId", "u32"),
+        ("enable", "list"),
+        ("disable", "list"),
+    ]:
+        raise ValueError(
+            "htsp_method_filter_stream must read exactly required u32 subscriptionId "
+            "then enable and disable lists"
+        )
+
+    invalid_error = (
+        r'htsp_error\s*\(\s*htsp\s*,\s*N_\(\s*"Invalid arguments"\s*\)\s*\)'
+    )
+    subscription_id_guards = re.findall(
+        r'if\s*\(\s*htsmsg_get_u32\(\s*in\s*,\s*"subscriptionId"\s*,\s*&\s*'
+        r'(?P<subscription_id>[A-Za-z_][A-Za-z0-9_]*)\s*\)\s*\)\s*'
+        rf'return\s+{invalid_error}\s*;',
+        compact,
+    )
+    if len(subscription_id_guards) != 1:
+        raise ValueError(
+            "htsp_method_filter_stream must require decoded u32 subscriptionId "
+            "with exact Invalid arguments error"
+        )
+    subscription_id_var = subscription_id_guards[0]
+
+    traversals = re.findall(
+        r'LIST_FOREACH\(\s*(?P<subscription>[A-Za-z_][A-Za-z0-9_]*)\s*,\s*'
+        r'&\s*htsp->htsp_subscriptions\s*,\s*hs_link\s*\)\s*'
+        rf'if\s*\(\s*(?P=subscription)->hs_sid\s*==\s*{re.escape(subscription_id_var)}\s*\)\s*'
+        r'break\s*;',
+        compact,
+    )
+    if len(traversals) != 1:
+        raise ValueError(
+            "htsp_method_filter_stream must search htsp_subscriptions by exact hs_sid"
+        )
+    subscription_var = traversals[0]
+    missing_error = (
+        r'htsp_error\s*\(\s*htsp\s*,\s*N_\(\s*"Subscription does not exist"\s*\)\s*\)'
+    )
+    if len(re.findall(
+        rf'if\s*\(\s*{re.escape(subscription_var)}\s*==\s*NULL\s*\)\s*'
+        rf'return\s+{missing_error}\s*;',
+        compact,
+    )) != 1:
+        raise ValueError(
+            "htsp_method_filter_stream must preserve exact missing-subscription guard and error"
+        )
+
+    list_headers = list(re.finditer(
+        r'if\s*\(\s*\(\s*(?P<list>[A-Za-z_][A-Za-z0-9_]*)\s*=\s*'
+        r'htsmsg_get_list\(\s*in\s*,\s*"(?P<name>enable|disable)"\s*\)\s*\)\s*'
+        r'!=\s*NULL\s*\)\s*\{',
+        body,
+    ))
+    if len(list_headers) != 2 or [match.group("name") for match in list_headers] != [
+        "enable", "disable",
+    ]:
+        raise ValueError(
+            "htsp_method_filter_stream must use exact optional enable then disable list blocks"
+        )
+    list_vars = [match.group("list") for match in list_headers]
+    if list_vars[0] != list_vars[1]:
+        raise ValueError("htsp_method_filter_stream must reuse one bounded list variable")
+    list_var = list_vars[0]
+    list_declarations = re.findall(
+        r'htsmsg_t\s*\*\s*([A-Za-z_][A-Za-z0-9_]*)\s*;',
+        compact,
+    )
+    if list_declarations != [list_var]:
+        raise ValueError("htsp_method_filter_stream must declare exactly one list container")
+
+    branch_facts: list[tuple[str, str, str]] = []
+    for header, helper in zip(
+        list_headers,
+        ("htsp_enable_stream", "htsp_disable_stream"),
+        strict=True,
+    ):
+        branch_body = extract_balanced_block(body, header.end() - 1)
+        branch_compact = re.sub(r"\s+", " ", branch_body).strip()
+        cursor_declarations = re.findall(
+            r'htsmsg_field_t\s*\*\s*([A-Za-z_][A-Za-z0-9_]*)\s*;',
+            branch_compact,
+        )
+        if len(cursor_declarations) != 1:
+            raise ValueError(
+                f'htsp_method_filter_stream {header.group("name")} block must declare '
+                "exactly one scoped field cursor"
+            )
+        cursor = cursor_declarations[0]
+        expected_branch_body = (
+            rf'htsmsg_field_t\s*\*\s*{re.escape(cursor)}\s*;\s*'
+            rf'HTSMSG_FOREACH\(\s*{re.escape(cursor)}\s*,\s*{re.escape(list_var)}\s*\)\s*\{{\s*'
+            rf'if\s*\(\s*{re.escape(cursor)}->hmf_type\s*==\s*HMF_S64\s*\)\s*'
+            rf'{helper}\s*\(\s*{re.escape(subscription_var)}\s*,\s*'
+            rf'{re.escape(cursor)}->hmf_s64\s*\)\s*;\s*\}}'
+        )
+        if re.fullmatch(expected_branch_body, branch_compact) is None:
+            raise ValueError(
+                f'htsp_method_filter_stream {header.group("name")} block must contain only '
+                f"its scoped HMF_S64 cursor and exact {helper} call"
+            )
+        branch_facts.append((header.group("name"), cursor, helper))
+
+    def list_branch(name: str, cursor: str, helper: str) -> str:
+        return (
+            rf'if\s*\(\s*\(\s*{re.escape(list_var)}\s*=\s*htsmsg_get_list\('
+            rf'\s*in\s*,\s*"{name}"\s*\)\s*\)\s*!=\s*NULL\s*\)\s*\{{\s*'
+            rf'htsmsg_field_t\s*\*\s*{re.escape(cursor)}\s*;\s*'
+            rf'HTSMSG_FOREACH\(\s*{re.escape(cursor)}\s*,\s*{re.escape(list_var)}\s*\)\s*\{{\s*'
+            rf'if\s*\(\s*{re.escape(cursor)}->hmf_type\s*==\s*HMF_S64\s*\)\s*'
+            rf'{helper}\s*\(\s*{re.escape(subscription_var)}\s*,\s*'
+            rf'{re.escape(cursor)}->hmf_s64\s*\)\s*;\s*\}}\s*\}}'
+        )
+
+    enable_branch = list_branch(*branch_facts[0])
+    disable_branch = list_branch(*branch_facts[1])
+
+    expected = (
+        rf'htsp_subscription_t\s*\*\s*{re.escape(subscription_var)}\s*;\s*'
+        rf'uint32_t\s+{re.escape(subscription_id_var)}\s*;\s*'
+        rf'htsmsg_t\s*\*\s*{re.escape(list_var)}\s*;\s*'
+        rf'if\s*\(\s*htsmsg_get_u32\(\s*in\s*,\s*"subscriptionId"\s*,\s*&\s*{re.escape(subscription_id_var)}\s*\)\s*\)\s*'
+        rf'return\s+{invalid_error}\s*;\s*'
+        rf'LIST_FOREACH\(\s*{re.escape(subscription_var)}\s*,\s*&\s*htsp->htsp_subscriptions\s*,\s*hs_link\s*\)\s*'
+        rf'if\s*\(\s*{re.escape(subscription_var)}->hs_sid\s*==\s*{re.escape(subscription_id_var)}\s*\)\s*break\s*;\s*'
+        rf'if\s*\(\s*{re.escape(subscription_var)}\s*==\s*NULL\s*\)\s*return\s+{missing_error}\s*;\s*'
+        rf'{enable_branch}\s*{disable_branch}\s*return\s+htsmsg_create_map\(\s*\)\s*;'
+    )
+    if re.fullmatch(expected, compact) is None:
+        raise ValueError(
+            "htsp_method_filter_stream contains unmodeled input, lookup, list, output, "
+            "helper, alias, escape, or state topology"
+        )
+
+    helper_facts: dict[str, str] = {}
+    for helper_name, operation in (
+        ("htsp_enable_stream", r'&=\s*~\s*\(\s*1\s*<<\s*\({id}\s*&\s*63\s*\)\s*\)'),
+        ("htsp_disable_stream", r'\|=\s*1\s*<<\s*\({id}\s*&\s*63\s*\)'),
+    ):
+        signatures = re.findall(
+            rf'\bstatic\s+void\s+{helper_name}\s*\(\s*htsp_subscription_t\s*\*\s*'
+            r'(?P<subscription>[A-Za-z_][A-Za-z0-9_]*)\s*,\s*unsigned\s+int\s+'
+            r'(?P<id>[A-Za-z_][A-Za-z0-9_]*)\s*\)',
+            syntax,
+        )
+        if len(signatures) != 1:
+            raise ValueError(
+                f"{helper_name} must have exactly one static void subscription/unsigned int signature"
+            )
+        helper_subscription, helper_id = signatures[0]
+        helper_body = bounded_body(helper_name)
+        helper_compact = re.sub(r"\s+", " ", helper_body).strip()
+        bitmap_match = re.fullmatch(
+            rf'if\s*\(\s*{re.escape(helper_id)}\s*<\s*NUM_FILTERED_STREAMS\s*\)\s*'
+            rf'{re.escape(helper_subscription)}->(?P<bitmap>[A-Za-z_][A-Za-z0-9_]*)'
+            rf'\s*\[\s*{re.escape(helper_id)}\s*/\s*64\s*\]\s*'
+            + operation.format(id=re.escape(helper_id))
+            + r'\s*;',
+            helper_compact,
+        )
+        if bitmap_match is None:
+            raise ValueError(
+                f"{helper_name} must contain only the exact bounded filtered-stream bitmap mutation"
+            )
+        helper_facts[helper_name] = bitmap_match.group("bitmap")
+
+    if helper_facts["htsp_enable_stream"] != helper_facts["htsp_disable_stream"]:
+        raise ValueError("stream filter helpers must mutate the same filtered-stream bitmap")
+    if helper_facts["htsp_enable_stream"] != "hs_filtered_streams":
+        raise ValueError("stream filter helpers must target exactly hs_filtered_streams")
+
+
 def field_shape(fields: list[dict[str, Any]], completeness: str = "partial") -> dict[str, Any]:
     if not fields:
         return {
@@ -2353,6 +2582,27 @@ def derive_client_methods(server_c: str) -> list[dict[str, Any]]:
                 "bounded htsp_method_live requires exactly decoded u32 subscriptionId",
             )]
             reply_fields = []
+        elif name == "subscriptionFilterStream":
+            require_subscription_filter_stream_source_facts(server_c)
+            request_fields = [
+                exact_field(
+                    "subscriptionId", "u32", "request", "required",
+                    "bounded htsp_method_filter_stream requires exactly decoded u32 subscriptionId",
+                ),
+                exact_field(
+                    "enable", "list", "request", "optional",
+                    "bounded handler iterates only HMF_S64 members through htsp_enable_stream",
+                    condition="omitted or empty changes no enabled-stream bitmap entries",
+                    shape_ref="u32",
+                ),
+                exact_field(
+                    "disable", "list", "request", "optional",
+                    "bounded handler iterates only HMF_S64 members through htsp_disable_stream after enable",
+                    condition="omitted or empty changes no disabled-stream bitmap entries",
+                    shape_ref="u32",
+                ),
+            ]
+            reply_fields = []
 
         request_fields = annotate_fields(
             "clientMethod", name, "request",
@@ -2485,6 +2735,23 @@ def derive_client_methods(server_c: str) -> list[dict[str, Any]]:
                     "subscription_set_skip"
                 ),
             }
+        if name == "subscriptionFilterStream":
+            method["requestShape"] = {
+                "kind": "fields",
+                "completeness": "complete",
+                "evidence": (
+                    "bounded htsp_method_filter_stream accepts exactly required "
+                    "subscriptionId and optional enable/disable u32 lists"
+                ),
+            }
+            method["replyShape"] = {
+                "kind": "knownEmpty",
+                "completeness": "complete",
+                "evidence": (
+                    "bounded htsp_method_filter_stream returns exactly one empty map "
+                    "after optional enable then disable processing"
+                ),
+            }
         if name == "getEpgObject":
             method["replyFields"] = []
             method["replyShape"] = {
@@ -2525,6 +2792,12 @@ def derive_client_methods(server_c: str) -> list[dict[str, Any]]:
                 "Dispatch requires ACCESS_HTSP_STREAMING and the method is annotated as available since HTSP version 9.",
                 "Pinned current source zero-initializes one streaming_skip_t, sets only SMT_SKIP_LIVE, and calls subscription_set_skip on the exact matched subscription.",
                 "Pinned current source calls subscription_set_skip before queuing the empty RPC reply; the separate asynchronous subscriptionSkip message remains authoritative, with no on-wire ordering or settled-live guarantee.",
+            ]
+        if name == "subscriptionFilterStream":
+            method["notes"] = [
+                "Dispatch requires ACCESS_HTSP_STREAMING and the method is annotated as available since HTSP version 12.",
+                "Pinned current source accepts only HMF_S64 list members, processes enable before disable, and mutates the filtered-stream bitmap only for unsigned indexes below NUM_FILTERED_STREAMS=(64*8).",
+                "For this pin, indexes 0..511 can affect the bitmap, 512 and larger are ignored, overlap ends disabled, and omitted or empty lists make no change for that side; these are current-source facts, not a support or settlement promise.",
             ]
         methods.append(method)
     return methods
@@ -3305,6 +3578,45 @@ static htsmsg_t *
 """
             )
             continue
+        if name == "subscriptionFilterStream":
+            handlers.append(
+                f"""
+static htsmsg_t *
+{handler}(htsp_connection_t *htsp, htsmsg_t *in)
+{{
+  htsp_subscription_t *hs;
+  uint32_t sid;
+  htsmsg_t *l;
+  if (htsmsg_get_u32(in, "subscriptionId", &sid))
+    return htsp_error(htsp, N_("Invalid arguments"));
+
+  LIST_FOREACH(hs, &htsp->htsp_subscriptions, hs_link)
+    if (hs->hs_sid == sid)
+      break;
+
+  if (hs == NULL)
+    return htsp_error(htsp, N_("Subscription does not exist"));
+
+  if ((l = htsmsg_get_list(in, "enable")) != NULL) {{
+    htsmsg_field_t *f;
+    HTSMSG_FOREACH(f, l) {{
+      if (f->hmf_type == HMF_S64)
+        htsp_enable_stream(hs, f->hmf_s64);
+    }}
+  }}
+
+  if ((l = htsmsg_get_list(in, "disable")) != NULL) {{
+    htsmsg_field_t *f;
+    HTSMSG_FOREACH(f, l) {{
+      if (f->hmf_type == HMF_S64)
+        htsp_disable_stream(hs, f->hmf_s64);
+    }}
+  }}
+  return htsmsg_create_map();
+}}
+"""
+            )
+            continue
         if name == "getDvrCutpoints":
             handlers.append(
                 f"""
@@ -3412,6 +3724,19 @@ static htsmsg_t *
         )
     # Server message emitters for expected inventory subset used in unit tests.
     dvr_helpers = """
+#define NUM_FILTERED_STREAMS (64*8)
+static void
+htsp_disable_stream(htsp_subscription_t *hs, unsigned int id)
+{
+  if (id < NUM_FILTERED_STREAMS)
+    hs->hs_filtered_streams[id / 64] |= 1 << (id & 63);
+}
+static void
+htsp_enable_stream(htsp_subscription_t *hs, unsigned int id)
+{
+  if (id < NUM_FILTERED_STREAMS)
+    hs->hs_filtered_streams[id / 64] &= ~(1 << (id & 63));
+}
 static htsmsg_t *
 htsp_findDvrEntry(htsp_connection_t *htsp, htsmsg_t *in,
                   htsmsg_t **out, int readonly)
@@ -3765,6 +4090,31 @@ def self_test() -> None:
         "subscriptionLive-doc-limitation",
         "subscriptionLive-rpc-async-order-underdocumented" in limitation_ids,
     )
+    subscription_filter = methods_by_name["subscriptionFilterStream"]
+    check(
+        "subscriptionFilterStream-committed-exact-contract",
+        subscription_filter.get("handler") == "htsp_method_filter_stream"
+        and subscription_filter.get("accessMask") == "ACCESS_HTSP_STREAMING"
+        and subscription_filter.get("minVersion") == 12
+        and subscription_filter.get("minVersionConfidence") == "annotated"
+        and [
+            (field["name"], field["type"], field["presence"], field.get("shapeRef"))
+            for field in subscription_filter["requestFields"]
+        ] == [
+            ("subscriptionId", "u32", "required", None),
+            ("enable", "list", "optional", "u32"),
+            ("disable", "list", "optional", "u32"),
+        ]
+        and subscription_filter.get("requestShape", {}).get("completeness") == "complete"
+        and subscription_filter.get("replyFields") == []
+        and subscription_filter.get("replyShape", {}).get("kind") == "knownEmpty"
+        and subscription_filter.get("replyShape", {}).get("completeness") == "complete"
+        and subscription_filter.get("sdk") == {"referenced": True, "outgoingRequest": True},
+    )
+    check(
+        "subscriptionFilterStream-doc-limitation",
+        "subscriptionFilterStream-range-overlap-underdocumented" in limitation_ids,
+    )
     live_coverage = scan_sdk_coverage(EXPECTED_CLIENT_METHODS, EXPECTED_SERVER_MESSAGES)
     check(
         "current-production-coverage",
@@ -3772,13 +4122,15 @@ def self_test() -> None:
             live_coverage["clientMethods"]["referencedCount"],
             live_coverage["clientMethods"]["outgoingRequestCount"],
             live_coverage["serverMessages"]["handledCount"],
-        ) == (28, 27, 23)
+        ) == (29, 28, 23)
         and "stopDvrEntry" in live_coverage["clientMethods"]["referenced"]
         and "stopDvrEntry" in live_coverage["clientMethods"]["outgoingRequests"]
         and "subscriptionChangeWeight" in live_coverage["clientMethods"]["referenced"]
         and "subscriptionChangeWeight" in live_coverage["clientMethods"]["outgoingRequests"]
         and "subscriptionLive" in live_coverage["clientMethods"]["referenced"]
-        and "subscriptionLive" in live_coverage["clientMethods"]["outgoingRequests"],
+        and "subscriptionLive" in live_coverage["clientMethods"]["outgoingRequests"]
+        and "subscriptionFilterStream" in live_coverage["clientMethods"]["referenced"]
+        and "subscriptionFilterStream" in live_coverage["clientMethods"]["outgoingRequests"],
         str(live_coverage.get("metrics")),
     )
     check(
@@ -3816,7 +4168,7 @@ def self_test() -> None:
             live_coverage["clientMethods"]["referencedCount"],
             live_coverage["clientMethods"]["outgoingRequestCount"],
             live_coverage["serverMessages"]["handledCount"],
-        ) == (28, 27, 23)
+        ) == (29, 28, 23)
         and "getChannel" in live_coverage["clientMethods"]["referenced"]
         and "getChannel" in live_coverage["clientMethods"]["outgoingRequests"],
         str(live_coverage.get("metrics")),
@@ -3869,7 +4221,7 @@ def self_test() -> None:
             live_coverage["clientMethods"]["referencedCount"],
             live_coverage["clientMethods"]["outgoingRequestCount"],
             live_coverage["serverMessages"]["handledCount"],
-        ) == (28, 27, 23)
+        ) == (29, 28, 23)
         and "getEvents" in live_coverage["clientMethods"]["referenced"]
         and "getEvents" in live_coverage["clientMethods"]["outgoingRequests"],
     )
@@ -4010,6 +4362,8 @@ def self_test() -> None:
                 if name == "subscriptionChangeWeight"
                 else "htsp_method_live"
                 if name == "subscriptionLive"
+                else "htsp_method_filter_stream"
+                if name == "subscriptionFilterStream"
                 else f"htsp_method_{name}"
                 if name in {"getEvent", "getEvents", "stopDvrEntry", "getDvrCutpoints"}
                 else f"htsp_method_{idx}"
@@ -4017,7 +4371,9 @@ def self_test() -> None:
             "ACCESS_HTSP_RECORDER"
             if name in {"stopDvrEntry", "getDvrCutpoints"}
             else "ACCESS_HTSP_STREAMING"
-            if name in {"subscriptionChangeWeight", "subscriptionLive"}
+            if name in {
+                "subscriptionChangeWeight", "subscriptionLive", "subscriptionFilterStream",
+            }
             else "ACCESS_ANONYMOUS",
         )
         for idx, name in enumerate(EXPECTED_CLIENT_METHODS)
@@ -4207,6 +4563,209 @@ def self_test() -> None:
             and len(live_method.get("notes", [])) == 3,
             str(live_method),
         )
+
+        filter_method = next(
+            item for item in spec["clientMethods"]
+            if item["name"] == "subscriptionFilterStream"
+        )
+        check(
+            "subscriptionFilterStream-fresh-exact-contract",
+            filter_method.get("handler") == "htsp_method_filter_stream"
+            and filter_method.get("accessMask") == "ACCESS_HTSP_STREAMING"
+            and filter_method.get("minVersion") == 12
+            and filter_method.get("minVersionConfidence") == "annotated"
+            and [
+                (
+                    field["name"], field["type"], field["presence"],
+                    field.get("condition"), field.get("shapeRef"), field["evidence"],
+                )
+                for field in filter_method["requestFields"]
+            ] == [
+                (
+                    "subscriptionId", "u32", "required", None, None,
+                    "bounded htsp_method_filter_stream requires exactly decoded u32 subscriptionId",
+                ),
+                (
+                    "enable", "list", "optional",
+                    "omitted or empty changes no enabled-stream bitmap entries", "u32",
+                    "bounded handler iterates only HMF_S64 members through htsp_enable_stream + exact-pin container annotation",
+                ),
+                (
+                    "disable", "list", "optional",
+                    "omitted or empty changes no disabled-stream bitmap entries", "u32",
+                    "bounded handler iterates only HMF_S64 members through htsp_disable_stream after enable + exact-pin container annotation",
+                ),
+            ]
+            and filter_method.get("requestShape") == {
+                "kind": "fields",
+                "completeness": "complete",
+                "evidence": (
+                    "bounded htsp_method_filter_stream accepts exactly required "
+                    "subscriptionId and optional enable/disable u32 lists"
+                ),
+            }
+            and filter_method.get("replyFields") == []
+            and filter_method.get("replyShape") == {
+                "kind": "knownEmpty",
+                "completeness": "complete",
+                "evidence": (
+                    "bounded htsp_method_filter_stream returns exactly one empty map "
+                    "after optional enable then disable processing"
+                ),
+            }
+            and len(filter_method.get("notes", [])) == 3,
+            str(filter_method),
+        )
+
+        def mutate_filter_handler(label: str, old: str, new: str, occurrence: int = 1) -> str:
+            marker = "htsp_method_filter_stream(htsp_connection_t *htsp, htsmsg_t *in)"
+            start = server_c.index(marker)
+            open_brace = server_c.index("{", start)
+            end = server_c.index("\n}\n", open_brace) + len("\n}\n")
+            handler_source = server_c[start:end]
+            check(
+                f"subscriptionFilterStream-mutation-target-{label}",
+                handler_source.count(old) >= occurrence,
+                str(handler_source.count(old)),
+            )
+            if handler_source.count(old) < occurrence:
+                return server_c
+            replace_at = -1
+            search_from = 0
+            for _ in range(occurrence):
+                replace_at = handler_source.index(old, search_from)
+                search_from = replace_at + len(old)
+            changed_handler = (
+                handler_source[:replace_at] + new + handler_source[replace_at + len(old):]
+            )
+            check(
+                f"subscriptionFilterStream-mutation-changed-{label}",
+                changed_handler != handler_source,
+            )
+            return server_c[:start] + changed_handler + server_c[end:]
+
+        def mutate_filter_source(label: str, old: str, new: str, occurrence: int = 1) -> str:
+            check(
+                f"subscriptionFilterStream-mutation-target-{label}",
+                server_c.count(old) >= occurrence,
+                str(server_c.count(old)),
+            )
+            if server_c.count(old) < occurrence:
+                return server_c
+            mutated = server_c.replace(old, new, occurrence)
+            check(f"subscriptionFilterStream-mutation-changed-{label}", mutated != server_c)
+            return mutated
+
+        enable_block = (
+            '  if ((l = htsmsg_get_list(in, "enable")) != NULL) {\n'
+            '    htsmsg_field_t *f;\n'
+            '    HTSMSG_FOREACH(f, l) {\n'
+            '      if (f->hmf_type == HMF_S64)\n'
+            '        htsp_enable_stream(hs, f->hmf_s64);\n'
+            '    }\n'
+            '  }'
+        )
+        disable_block = (
+            '  if ((l = htsmsg_get_list(in, "disable")) != NULL) {\n'
+            '    htsmsg_field_t *f;\n'
+            '    HTSMSG_FOREACH(f, l) {\n'
+            '      if (f->hmf_type == HMF_S64)\n'
+            '        htsp_disable_stream(hs, f->hmf_s64);\n'
+            '    }\n'
+            '  }'
+        )
+        filter_source_mutations = (
+            ("optional-subscription-id", mutate_filter_handler("optional-subscription-id", 'if (htsmsg_get_u32(in, "subscriptionId", &sid))', 'if (!htsmsg_get_u32(in, "subscriptionId", &sid))')),
+            ("renamed-subscription-id", mutate_filter_handler("renamed-subscription-id", '"subscriptionId", &sid', '"wrongId", &sid')),
+            ("wrong-subscription-id-type", mutate_filter_handler("wrong-subscription-id-type", 'htsmsg_get_u32(in, "subscriptionId"', 'htsmsg_get_s64(in, "subscriptionId"')),
+            ("changed-invalid-arguments-error", mutate_filter_handler("changed-invalid-arguments-error", 'N_("Invalid arguments")', 'N_("Bad arguments")')),
+            ("wrong-subscription-list", mutate_filter_handler("wrong-subscription-list", '&htsp->htsp_subscriptions', '&htsp->other_subscriptions')),
+            ("wrong-subscription-id-comparison", mutate_filter_handler("wrong-subscription-id-comparison", 'hs->hs_sid == sid', 'hs->hs_sid != sid')),
+            ("removed-missing-guard", mutate_filter_handler("removed-missing-guard", '  if (hs == NULL)\n    return htsp_error(htsp, N_("Subscription does not exist"));\n', '')),
+            ("changed-missing-error", mutate_filter_handler("changed-missing-error", 'N_("Subscription does not exist")', 'N_("Subscription missing")')),
+            ("inline-enable-list-drift", mutate_filter_handler("inline-enable-list-drift", '  if ((l = htsmsg_get_list(in, "enable")) != NULL) {', '  l = htsmsg_get_list(in, "enable");\n  if (l != NULL) {')),
+            ("renamed-disable-list", mutate_filter_handler("renamed-disable-list", 'htsmsg_get_list(in, "disable")', 'htsmsg_get_list(in, "disabled")')),
+            ("missing-enable-scoped-cursor", mutate_filter_handler("missing-enable-scoped-cursor", '    htsmsg_field_t *f;\n', '', 1)),
+            ("wrong-disable-scoped-cursor", mutate_filter_handler("wrong-disable-scoped-cursor", '    HTSMSG_FOREACH(f, l) {', '    HTSMSG_FOREACH(other, l) {', 2)),
+            (
+                "disable-before-enable",
+                mutate_filter_handler(
+                    "disable-before-enable",
+                    enable_block + "\n\n" + disable_block,
+                    disable_block + "\n\n" + enable_block,
+                ),
+            ),
+            ("swapped-enable-helper", mutate_filter_handler("swapped-enable-helper", 'htsp_enable_stream(hs, f->hmf_s64)', 'htsp_disable_stream(hs, f->hmf_s64)')),
+            ("wrong-enable-gate", mutate_filter_handler("wrong-enable-gate", 'if (f->hmf_type == HMF_S64)', 'if (f->hmf_type == HMF_STR)', 1)),
+            ("wrong-disable-value", mutate_filter_handler("wrong-disable-value", 'htsp_disable_stream(hs, f->hmf_s64)', 'htsp_disable_stream(hs, f->hmf_u32)')),
+            ("wrong-enable-target", mutate_filter_handler("wrong-enable-target", 'htsp_enable_stream(hs, f->hmf_s64)', 'htsp_enable_stream(alias, f->hmf_s64)')),
+            ("duplicate-enable-call", mutate_filter_handler("duplicate-enable-call", '        htsp_enable_stream(hs, f->hmf_s64);', '        htsp_enable_stream(hs, f->hmf_s64);\n        htsp_enable_stream(hs, f->hmf_s64);')),
+            ("duplicate-disable-call", mutate_filter_handler("duplicate-disable-call", '        htsp_disable_stream(hs, f->hmf_s64);', '        htsp_disable_stream(hs, f->hmf_s64);\n        htsp_disable_stream(hs, f->hmf_s64);')),
+            ("nonempty-return", mutate_filter_handler("nonempty-return", 'return htsmsg_create_map();', 'return build_filter_reply();')),
+            ("extra-output", mutate_filter_handler("extra-output", '  return htsmsg_create_map();\n', '  htsmsg_add_u32(in, "extra", 1);\n  return htsmsg_create_map();\n')),
+            ("extra-handler-work", mutate_filter_handler("extra-handler-work", '  return htsmsg_create_map();\n', '  inspect_or_mutate(hs);\n  return htsmsg_create_map();\n')),
+            ("dispatch-handler", mutate_filter_source("dispatch-handler", '{ "subscriptionFilterStream", htsp_method_filter_stream, ACCESS_HTSP_STREAMING}', '{ "subscriptionFilterStream", htsp_method_32, ACCESS_HTSP_STREAMING}')),
+            ("dispatch-access", mutate_filter_source("dispatch-access", '{ "subscriptionFilterStream", htsp_method_filter_stream, ACCESS_HTSP_STREAMING}', '{ "subscriptionFilterStream", htsp_method_filter_stream, ACCESS_ANONYMOUS}')),
+            ("duplicate-dispatch", mutate_filter_source("duplicate-dispatch", '{ "subscriptionFilterStream", htsp_method_filter_stream, ACCESS_HTSP_STREAMING}', '{ "subscriptionFilterStream", htsp_method_filter_stream, ACCESS_HTSP_STREAMING},\n  { "subscriptionFilterStream", htsp_method_filter_stream, ACCESS_HTSP_STREAMING}')),
+            ("wrong-range-bound", mutate_filter_source("wrong-range-bound", '#define NUM_FILTERED_STREAMS (64*8)', '#define NUM_FILTERED_STREAMS (64*9)')),
+            ("duplicate-range-bound", mutate_filter_source("duplicate-range-bound", '#define NUM_FILTERED_STREAMS (64*8)', '#define NUM_FILTERED_STREAMS (64*8)\n#define NUM_FILTERED_STREAMS (64*8)')),
+            ("signed-enable-signature", mutate_filter_source("signed-enable-signature", 'htsp_enable_stream(htsp_subscription_t *hs, unsigned int id)', 'htsp_enable_stream(htsp_subscription_t *hs, int id)')),
+            ("wrong-disable-signature", mutate_filter_source("wrong-disable-signature", 'htsp_disable_stream(htsp_subscription_t *hs, unsigned int id)', 'htsp_disable_stream(htsp_subscription_t *hs, unsigned long id)')),
+            ("missing-enable-bound", mutate_filter_source("missing-enable-bound", '  if (id < NUM_FILTERED_STREAMS)\n    hs->hs_filtered_streams[id / 64] &= ~(1 << (id & 63));', '  hs->hs_filtered_streams[id / 64] &= ~(1 << (id & 63));')),
+            ("wrong-disable-bound", mutate_filter_source("wrong-disable-bound", 'if (id < NUM_FILTERED_STREAMS)\n    hs->hs_filtered_streams[id / 64] |= 1 << (id & 63);', 'if (id <= NUM_FILTERED_STREAMS)\n    hs->hs_filtered_streams[id / 64] |= 1 << (id & 63);')),
+            ("enable-wrong-bitmap", mutate_filter_source("enable-wrong-bitmap", 'hs->hs_filtered_streams[id / 64] &=', 'hs->other_bitmap[id / 64] &=')),
+            ("disable-wrong-index-divisor", mutate_filter_source("disable-wrong-index-divisor", 'hs->hs_filtered_streams[id / 64] |=', 'hs->hs_filtered_streams[id / 32] |=')),
+            ("enable-wrong-mask", mutate_filter_source("enable-wrong-mask", 'id & 63));', 'id & 31));')),
+            ("disable-wrong-mask", mutate_filter_source("disable-wrong-mask", 'id & 63);', 'id & 31);')),
+            ("enable-wrong-direction", mutate_filter_source("enable-wrong-direction", '&= ~(1 << (id & 63));', '|= 1 << (id & 63);')),
+            ("disable-wrong-direction", mutate_filter_source("disable-wrong-direction", '|= 1 << (id & 63);', '&= ~(1 << (id & 63));')),
+            ("enable-extra-helper-work", mutate_filter_source("enable-extra-helper-work", '    hs->hs_filtered_streams[id / 64] &= ~(1 << (id & 63));', '    inspect_or_mutate(hs);\n    hs->hs_filtered_streams[id / 64] &= ~(1 << (id & 63));')),
+            (
+                "external-comment-decoy",
+                mutate_filter_handler("external-comment-decoy", 'htsp_enable_stream(hs, f->hmf_s64)', 'htsp_enable_stream(alias, f->hmf_s64)')
+                + '\n/* htsp_enable_stream(hs, f->hmf_s64); */\n',
+            ),
+            (
+                "external-string-decoy",
+                mutate_filter_handler("external-string-decoy", 'htsp_disable_stream(hs, f->hmf_s64)', 'htsp_disable_stream(alias, f->hmf_s64)')
+                + '\nstatic const char *filter_decoy = "htsp_disable_stream(hs, f->hmf_s64);";\n',
+            ),
+            (
+                "external-function-decoy",
+                mutate_filter_source("external-function-decoy", 'hs->hs_filtered_streams[id / 64] &=', 'hs->other_bitmap[id / 64] &=')
+                + '\nstatic void filter_decoy(htsp_subscription_t *hs, unsigned int id) {\n'
+                '  if (id < NUM_FILTERED_STREAMS)\n'
+                '    hs->hs_filtered_streams[id / 64] &= ~(1 << (id & 63));\n}\n',
+            ),
+        )
+        for label, mutated_source in filter_source_mutations:
+            check(
+                f"subscriptionFilterStream-source-mutation-changed-{label}",
+                mutated_source != server_c,
+            )
+            try:
+                require_subscription_filter_stream_source_facts(mutated_source)
+            except ValueError:
+                continue
+            check(f"reject-subscriptionFilterStream-source-{label}", False)
+
+        filter_decoy_source = mutate_filter_handler(
+            "harmless-comment-string-decoys",
+            '  return htsmsg_create_map();',
+            '  /* htsmsg_add_u32(in, "extra", 1); inspect_or_mutate(hs); */\n'
+            '  return htsmsg_create_map();',
+        ) + (
+            '\nstatic const char *filter_topology_decoy = '
+            '"htsp_disable_stream(alias, f->hmf_s64); other_bitmap[id / 64] |= 1;";\n'
+        )
+        try:
+            require_subscription_filter_stream_source_facts(filter_decoy_source)
+        except ValueError as exc:
+            check(
+                "accept-subscriptionFilterStream-comment-string-decoys",
+                False,
+                str(exc),
+            )
 
         weight_source_mutations = (
             ("optional-subscription-id", server_c.replace('if (htsmsg_get_u32(in, "subscriptionId", &subscriptionId))', 'if (!htsmsg_get_u32(in, "subscriptionId", &subscriptionId))', 1)),

@@ -382,6 +382,57 @@ SUBSCRIPTION_LIVE_NOTES = [
     "Pinned current source zero-initializes one streaming_skip_t, sets only SMT_SKIP_LIVE, and calls subscription_set_skip on the exact matched subscription.",
     "Pinned current source calls subscription_set_skip before queuing the empty RPC reply; the separate asynchronous subscriptionSkip message remains authoritative, with no on-wire ordering or settled-live guarantee.",
 ]
+SUBSCRIPTION_FILTER_STREAM_LIMITATION_ID = (
+    "subscriptionFilterStream-range-overlap-underdocumented"
+)
+SUBSCRIPTION_FILTER_STREAM_DOCS_URL = GET_DVR_CUTPOINTS_DOCS_URL
+SUBSCRIPTION_FILTER_STREAM_LIMITATION_SUMMARY = (
+    "The official Client-to-Server RPC methods page omits the pinned "
+    "subscriptionFilterStream 512-index effective range, disable-wins "
+    "precedence for indexes present in both lists, and the no-change "
+    "behavior of omitted or empty enable/disable lists."
+)
+SUBSCRIPTION_FILTER_STREAM_AUTHORITY = (
+    "src/htsp_server.c htsp_method_filter_stream / "
+    "htsp_enable_stream / htsp_disable_stream"
+)
+SUBSCRIPTION_FILTER_STREAM_REQUEST_CONTRACT = (
+    (
+        "subscriptionId", "u32", "required", None, None,
+        "bounded htsp_method_filter_stream requires exactly decoded u32 subscriptionId",
+    ),
+    (
+        "enable", "list", "optional",
+        "omitted or empty changes no enabled-stream bitmap entries", "u32",
+        "bounded handler iterates only HMF_S64 members through htsp_enable_stream + exact-pin container annotation",
+    ),
+    (
+        "disable", "list", "optional",
+        "omitted or empty changes no disabled-stream bitmap entries", "u32",
+        "bounded handler iterates only HMF_S64 members through htsp_disable_stream after enable + exact-pin container annotation",
+    ),
+)
+SUBSCRIPTION_FILTER_STREAM_REQUEST_SHAPE = {
+    "kind": "fields",
+    "completeness": "complete",
+    "evidence": (
+        "bounded htsp_method_filter_stream accepts exactly required "
+        "subscriptionId and optional enable/disable u32 lists"
+    ),
+}
+SUBSCRIPTION_FILTER_STREAM_REPLY_SHAPE = {
+    "kind": "knownEmpty",
+    "completeness": "complete",
+    "evidence": (
+        "bounded htsp_method_filter_stream returns exactly one empty map "
+        "after optional enable then disable processing"
+    ),
+}
+SUBSCRIPTION_FILTER_STREAM_NOTES = [
+    "Dispatch requires ACCESS_HTSP_STREAMING and the method is annotated as available since HTSP version 12.",
+    "Pinned current source accepts only HMF_S64 list members, processes enable before disable, and mutates the filtered-stream bitmap only for unsigned indexes below NUM_FILTERED_STREAMS=(64*8).",
+    "For this pin, indexes 0..511 can affect the bitmap, 512 and larger are ignored, overlap ends disabled, and omitted or empty lists make no change for that side; these are current-source facts, not a support or settlement promise.",
+]
 WIRE_TYPES = {"u32", "s32", "s64", "str", "bin", "msg", "list", "bool", "dbl", "uuid", "unknown"}
 PRESENCE_VALUES = {"required", "optional", "conditional", "alternative", "unknown"}
 COMPLETENESS_VALUES = {"complete", "partial", "opaque"}
@@ -744,6 +795,39 @@ def validate_spec(spec: dict[str, Any], upstream: dict[str, Any] | None = None) 
         errors.append(
             "subscriptionLive notes must preserve exact async-authority and non-settlement semantics"
         )
+    subscription_filter = method_map.get("subscriptionFilterStream", {})
+    if subscription_filter.get("handler") != "htsp_method_filter_stream":
+        errors.append("subscriptionFilterStream must preserve exact dispatch handler")
+    if subscription_filter.get("accessMask") != "ACCESS_HTSP_STREAMING":
+        errors.append("subscriptionFilterStream must preserve streaming dispatch access")
+    if (
+        subscription_filter.get("minVersion") != 12
+        or subscription_filter.get("minVersionConfidence") != "annotated"
+    ):
+        errors.append("subscriptionFilterStream must preserve annotated minimum version 12")
+    filter_request = [
+        (
+            field.get("name"), field.get("type"), field.get("presence"),
+            field.get("condition"), field.get("shapeRef"), field.get("evidence"),
+        )
+        for field in subscription_filter.get("requestFields", [])
+    ]
+    if filter_request != list(SUBSCRIPTION_FILTER_STREAM_REQUEST_CONTRACT):
+        errors.append(
+            "subscriptionFilterStream request must preserve exact ID and ordered optional u32 lists"
+        )
+    if subscription_filter.get("requestShape") != SUBSCRIPTION_FILTER_STREAM_REQUEST_SHAPE:
+        errors.append("subscriptionFilterStream request shape must preserve exact complete evidence")
+    if subscription_filter.get("replyFields") != []:
+        errors.append("subscriptionFilterStream method-specific reply must remain exactly empty")
+    if subscription_filter.get("replyShape") != SUBSCRIPTION_FILTER_STREAM_REPLY_SHAPE:
+        errors.append(
+            "subscriptionFilterStream reply shape must preserve exact action-before-empty-return evidence"
+        )
+    if subscription_filter.get("notes") != SUBSCRIPTION_FILTER_STREAM_NOTES:
+        errors.append(
+            "subscriptionFilterStream notes must preserve exact bounded and non-settlement semantics"
+        )
     cut_shape = shapes.get("cutpoint") or {}
     if (
         cut_shape.get("kind") != "object"
@@ -974,13 +1058,13 @@ def validate_spec(spec: dict[str, Any], upstream: dict[str, Any] | None = None) 
         errors.append("outgoingRequestCount cannot exceed referencedCount")
 
     # Current repository acceptance targets (exact-literal metric).
-    if ref_count not in (None, 28):
+    if ref_count not in (None, 29):
         errors.append(
-            f"expected referenced client methods == 28 under current metric, got {ref_count}"
+            f"expected referenced client methods == 29 under current metric, got {ref_count}"
         )
-    if out_count not in (None, 27):
+    if out_count not in (None, 28):
         errors.append(
-            f"expected outgoing client methods == 27 under current metric, got {out_count}"
+            f"expected outgoing client methods == 28 under current metric, got {out_count}"
         )
     if handled_count not in (None, 23):
         errors.append(
@@ -1019,6 +1103,13 @@ def validate_spec(spec: dict[str, Any], upstream: dict[str, Any] | None = None) 
         )
     if "subscriptionLive" not in referenced_list or "subscriptionLive" not in outgoing_list:
         errors.append("subscriptionLive must be fresh referenced and outgoing production coverage")
+    if (
+        "subscriptionFilterStream" not in referenced_list
+        or "subscriptionFilterStream" not in outgoing_list
+    ):
+        errors.append(
+            "subscriptionFilterStream must be fresh referenced and outgoing production coverage"
+        )
 
     # sdk flags must match coverage lists
     ref_set = set(client_cov.get("referenced") or [])
@@ -1185,6 +1276,25 @@ def validate_spec(spec: dict[str, Any], upstream: dict[str, Any] | None = None) 
         ):
             errors.append(
                 "subscriptionLive limitation must preserve exact RPC/async uncertainty and pinned source facts"
+            )
+        filter_limitation = next(
+            (
+                item for item in limitations
+                if isinstance(item, dict)
+                and item.get("id") == SUBSCRIPTION_FILTER_STREAM_LIMITATION_ID
+            ),
+            None,
+        )
+        if not filter_limitation or (
+            filter_limitation.get("summary")
+            != SUBSCRIPTION_FILTER_STREAM_LIMITATION_SUMMARY
+            or filter_limitation.get("authority")
+            != SUBSCRIPTION_FILTER_STREAM_AUTHORITY
+            or filter_limitation.get("docsUrl")
+            != SUBSCRIPTION_FILTER_STREAM_DOCS_URL
+        ):
+            errors.append(
+                "subscriptionFilterStream limitation must preserve exact range, overlap, and empty-list uncertainty"
             )
 
     global_rpc = spec.get("globalRpc") or {}
@@ -1659,13 +1769,18 @@ def _derive_fresh_self_test_spec() -> dict[str, Any]:
             if name == "subscriptionChangeWeight"
             else "htsp_method_live"
             if name == "subscriptionLive"
+            else "htsp_method_filter_stream"
+            if name == "subscriptionFilterStream"
             else f"htsp_method_{name}"
             if name in {"getEvent", "getEvents", "stopDvrEntry", "getDvrCutpoints"}
             else f"htsp_method_{index}",
             "ACCESS_HTSP_RECORDER"
             if name in {"stopDvrEntry", "getDvrCutpoints"}
             else "ACCESS_HTSP_STREAMING"
-            if name in {"subscriptionChangeWeight", "subscriptionLive"}
+            if name in {
+                "subscriptionChangeWeight", "subscriptionLive",
+                "subscriptionFilterStream",
+            }
             else "ACCESS_ANONYMOUS",
         )
         for index, name in enumerate(EXPECTED_CLIENT_METHODS)
@@ -1711,9 +1826,9 @@ def _derive_fresh_self_test_spec() -> dict[str, Any]:
 
     # Report validation owns schema/policy, not fixture-byte pin verification.
     # Evaluate freshly derived getEvents/event/stopDvrEntry/getDvrCutpoints/
-    # subscriptionChangeWeight/subscriptionLive evidence inside the complete
-    # committed-schema baseline; unrelated minimal fixture handlers deliberately
-    # do not pretend to model every pinned method.
+    # subscriptionChangeWeight/subscriptionLive/subscriptionFilterStream evidence
+    # inside the complete committed-schema baseline; unrelated minimal fixture
+    # handlers deliberately do not pretend to model every pinned method.
     upstream = load_json(UPSTREAM_PATH)
     fresh["upstream"] = {key: value for key, value in upstream.items() if key != "schemaVersion"}
     candidate = load_json(SPEC_PATH)
@@ -1723,6 +1838,7 @@ def _derive_fresh_self_test_spec() -> dict[str, Any]:
         if item["name"] in {
             "getEvents", "stopDvrEntry", "getDvrCutpoints",
             "subscriptionChangeWeight", "subscriptionLive",
+            "subscriptionFilterStream",
         }
         else item
         for item in candidate["clientMethods"]
@@ -1887,8 +2003,8 @@ def self_test() -> None:
     )
     check(
         "getChannel-fresh-coverage",
-        good_spec["coverage"]["clientMethods"]["referencedCount"] == 28
-        and good_spec["coverage"]["clientMethods"]["outgoingRequestCount"] == 27
+        good_spec["coverage"]["clientMethods"]["referencedCount"] == 29
+        and good_spec["coverage"]["clientMethods"]["outgoingRequestCount"] == 28
         and "getChannel" in good_spec["coverage"]["clientMethods"]["outgoingRequests"],
     )
 
@@ -1922,8 +2038,8 @@ def self_test() -> None:
     )
     check(
         "getEvents-fresh-unchanged-coverage",
-        good_spec["coverage"]["clientMethods"]["referencedCount"] == 28
-        and good_spec["coverage"]["clientMethods"]["outgoingRequestCount"] == 27
+        good_spec["coverage"]["clientMethods"]["referencedCount"] == 29
+        and good_spec["coverage"]["clientMethods"]["outgoingRequestCount"] == 28
         and good_spec["coverage"]["serverMessages"]["handledCount"] == 23
         and "getEvents" in good_spec["coverage"]["clientMethods"]["outgoingRequests"],
     )
@@ -2212,6 +2328,113 @@ def self_test() -> None:
         check(
             f"reject-subscriptionLive-limitation-{label}",
             any("subscriptionLive limitation" in error for error in err),
+            str(err),
+        )
+
+    filter_method = next(
+        method for method in good_spec["clientMethods"]
+        if method["name"] == "subscriptionFilterStream"
+    )
+    check(
+        "subscriptionFilterStream-fresh-complete-contract",
+        filter_method.get("handler") == "htsp_method_filter_stream"
+        and filter_method.get("accessMask") == "ACCESS_HTSP_STREAMING"
+        and filter_method.get("minVersion") == 12
+        and filter_method.get("minVersionConfidence") == "annotated"
+        and [
+            (
+                field.get("name"), field.get("type"), field.get("presence"),
+                field.get("condition"), field.get("shapeRef"), field.get("evidence"),
+            )
+            for field in filter_method["requestFields"]
+        ] == list(SUBSCRIPTION_FILTER_STREAM_REQUEST_CONTRACT)
+        and filter_method.get("requestShape") == SUBSCRIPTION_FILTER_STREAM_REQUEST_SHAPE
+        and filter_method.get("replyFields") == []
+        and filter_method.get("replyShape") == SUBSCRIPTION_FILTER_STREAM_REPLY_SHAPE
+        and filter_method.get("notes") == SUBSCRIPTION_FILTER_STREAM_NOTES,
+        str(filter_method),
+    )
+    check(
+        "subscriptionFilterStream-fresh-coverage",
+        "subscriptionFilterStream"
+        in good_spec["coverage"]["clientMethods"]["referenced"]
+        and "subscriptionFilterStream"
+        in good_spec["coverage"]["clientMethods"]["outgoingRequests"],
+    )
+
+    for label, mutate in (
+        ("false-min-version", lambda method: method.update({"minVersion": 11})),
+        ("wrong-handler", lambda method: method.update({"handler": "decoy"})),
+        ("wrong-access", lambda method: method.update({"accessMask": "ACCESS_ANONYMOUS"})),
+        ("optional-subscription-id", lambda method: method["requestFields"][0].update({"presence": "optional"})),
+        ("renamed-subscription-id", lambda method: method["requestFields"][0].update({"name": "sid"})),
+        ("wrong-subscription-id-type", lambda method: method["requestFields"][0].update({"type": "s64"})),
+        ("wrong-subscription-id-evidence", lambda method: method["requestFields"][0].update({"evidence": "generic getter"})),
+        ("required-enable", lambda method: method["requestFields"][1].update({"presence": "required"})),
+        ("wrong-enable-type", lambda method: method["requestFields"][1].update({"type": "msg"})),
+        ("wrong-enable-shape", lambda method: method["requestFields"][1].update({"shapeRef": "s64"})),
+        ("wrong-enable-condition", lambda method: method["requestFields"][1].update({"condition": "empty clears all"})),
+        ("wrong-enable-evidence", lambda method: method["requestFields"][1].update({"evidence": "generic list"})),
+        ("required-disable", lambda method: method["requestFields"][2].update({"presence": "required"})),
+        ("wrong-disable-type", lambda method: method["requestFields"][2].update({"type": "msg"})),
+        ("wrong-disable-shape", lambda method: method["requestFields"][2].update({"shapeRef": "s64"})),
+        ("wrong-disable-condition", lambda method: method["requestFields"][2].update({"condition": "empty clears all"})),
+        ("wrong-disable-evidence", lambda method: method["requestFields"][2].update({"evidence": "generic list"})),
+        ("reordered-lists", lambda method: method["requestFields"].reverse()),
+        ("partial-request", lambda method: method["requestShape"].update({"completeness": "partial"})),
+        ("wrong-request-evidence", lambda method: method["requestShape"].update({"evidence": "generic extraction"})),
+        ("invented-reply-field", lambda method: method["replyFields"].append({"name": "success"})),
+        ("partial-reply", lambda method: method["replyShape"].update({"completeness": "partial"})),
+        ("wrong-reply-evidence", lambda method: method["replyShape"].update({"evidence": "generic empty"})),
+        ("false-range-note", lambda method: method["notes"].__setitem__(1, "All nonnegative indexes are effective.")),
+        ("false-settlement-note", lambda method: method["notes"].__setitem__(2, "Reply proves settled stream selection.")),
+    ):
+        bad = json.loads(json.dumps(good_spec))
+        method = next(
+            item for item in bad["clientMethods"]
+            if item["name"] == "subscriptionFilterStream"
+        )
+        mutate(method)
+        err = validate_spec(bad)
+        check(
+            f"reject-subscriptionFilterStream-{label}",
+            any("subscriptionFilterStream" in error for error in err),
+            str(err),
+        )
+
+    bad = json.loads(json.dumps(good_spec))
+    bad["coverage"]["clientMethods"]["referenced"].remove("subscriptionFilterStream")
+    bad["coverage"]["clientMethods"]["referencedCount"] -= 1
+    bad["coverage"]["clientMethods"]["outgoingRequests"].remove("subscriptionFilterStream")
+    bad["coverage"]["clientMethods"]["outgoingRequestCount"] -= 1
+    bad["coverage"]["metrics"]["referencedClientMethods"] -= 1
+    bad["coverage"]["metrics"]["outgoingClientMethods"] -= 1
+    next(
+        method for method in bad["clientMethods"]
+        if method["name"] == "subscriptionFilterStream"
+    )["sdk"] = {"referenced": False, "outgoingRequest": False}
+    err = validate_spec(bad)
+    check(
+        "reject-subscriptionFilterStream-stale-live-coverage",
+        any("subscriptionFilterStream must be fresh" in error for error in err),
+        str(err),
+    )
+
+    for label, key, replacement in (
+        ("summary", "summary", "all stream-filter semantics are documented"),
+        ("authority", "authority", "src/htsp_server.c decoy"),
+        ("docs-url", "docsUrl", "https://example.invalid/filter"),
+    ):
+        bad = json.loads(json.dumps(good_spec))
+        limitation = next(
+            item for item in bad["docLimitations"]
+            if item["id"] == SUBSCRIPTION_FILTER_STREAM_LIMITATION_ID
+        )
+        limitation[key] = replacement
+        err = validate_spec(bad)
+        check(
+            f"reject-subscriptionFilterStream-limitation-{label}",
+            any("subscriptionFilterStream limitation" in error for error in err),
             str(err),
         )
 
@@ -2907,7 +3130,7 @@ def self_test() -> None:
     err = validate_spec(bad)
     check(
         "reject-false-all-called",
-        any("outgoing client methods == 27" in e for e in err),
+        any("outgoing client methods == 28" in e for e in err),
         str(err),
     )
 

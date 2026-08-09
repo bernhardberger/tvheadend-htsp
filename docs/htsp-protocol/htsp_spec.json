@@ -4140,9 +4140,9 @@
           "name": "subscriptionId",
           "type": "u32",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_u32",
-          "confidence": "mechanical",
+          "presence": "required",
+          "evidence": "bounded htsp_method_filter_stream requires exactly decoded u32 subscriptionId",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 1
         },
@@ -4150,10 +4150,11 @@
           "name": "enable",
           "type": "list",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_list + exact-pin container annotation",
+          "presence": "optional",
+          "evidence": "bounded handler iterates only HMF_S64 members through htsp_enable_stream + exact-pin container annotation",
           "confidence": "mechanical+annotated",
           "minVersion": null,
+          "condition": "omitted or empty changes no enabled-stream bitmap entries",
           "shapeRef": "u32",
           "order": 2
         },
@@ -4161,10 +4162,11 @@
           "name": "disable",
           "type": "list",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_list + exact-pin container annotation",
+          "presence": "optional",
+          "evidence": "bounded handler iterates only HMF_S64 members through htsp_disable_stream after enable + exact-pin container annotation",
           "confidence": "mechanical+annotated",
           "minVersion": null,
+          "condition": "omitted or empty changes no disabled-stream bitmap entries",
           "shapeRef": "u32",
           "order": 3
         }
@@ -4172,17 +4174,22 @@
       "replyFields": [],
       "requestShape": {
         "kind": "fields",
-        "completeness": "partial",
-        "evidence": "bounded handler/helper extraction plus exact-pin annotations"
+        "completeness": "complete",
+        "evidence": "bounded htsp_method_filter_stream accepts exactly required subscriptionId and optional enable/disable u32 lists"
       },
       "replyShape": {
         "kind": "knownEmpty",
         "completeness": "complete",
-        "evidence": "bounded handler and official method page define no method-specific reply fields"
+        "evidence": "bounded htsp_method_filter_stream returns exactly one empty map after optional enable then disable processing"
       },
+      "notes": [
+        "Dispatch requires ACCESS_HTSP_STREAMING and the method is annotated as available since HTSP version 12.",
+        "Pinned current source accepts only HMF_S64 list members, processes enable before disable, and mutates the filtered-stream bitmap only for unsigned indexes below NUM_FILTERED_STREAMS=(64*8).",
+        "For this pin, indexes 0..511 can affect the bitmap, 512 and larger are ignored, overlap ends disabled, and omitted or empty lists make no change for that side; these are current-source facts, not a support or settlement promise."
+      ],
       "sdk": {
-        "referenced": false,
-        "outgoingRequest": false
+        "referenced": true,
+        "outgoingRequest": true
       }
     },
     {
@@ -8470,6 +8477,7 @@
         "stopDvrEntry",
         "subscribe",
         "subscriptionChangeWeight",
+        "subscriptionFilterStream",
         "subscriptionLive",
         "subscriptionSeek",
         "subscriptionSkip",
@@ -8477,7 +8485,7 @@
         "unsubscribe",
         "updateDvrEntry"
       ],
-      "referencedCount": 28,
+      "referencedCount": 29,
       "outgoingRequests": [
         "addDvrEntry",
         "authenticate",
@@ -8501,13 +8509,14 @@
         "stopDvrEntry",
         "subscribe",
         "subscriptionChangeWeight",
+        "subscriptionFilterStream",
         "subscriptionLive",
         "subscriptionSeek",
         "subscriptionSpeed",
         "unsubscribe",
         "updateDvrEntry"
       ],
-      "outgoingRequestCount": 27,
+      "outgoingRequestCount": 28,
       "unreferenced": [
         "api",
         "epgQuery",
@@ -8518,8 +8527,7 @@
         "addTimerecEntry",
         "updateTimerecEntry",
         "deleteTimerecEntry",
-        "getTicket",
-        "subscriptionFilterStream"
+        "getTicket"
       ]
     },
     "serverMessages": {
@@ -8561,8 +8569,8 @@
       ]
     },
     "metrics": {
-      "referencedClientMethods": 28,
-      "outgoingClientMethods": 27,
+      "referencedClientMethods": 29,
+      "outgoingClientMethods": 28,
       "handledServerMessages": 23,
       "notes": [
         "referenced counts exact string literals in SDK production main sources",
@@ -8613,6 +8621,12 @@
       "id": "subscriptionLive-rpc-async-order-underdocumented",
       "summary": "The official Client-to-Server RPC methods page does not clearly distinguish the empty subscriptionLive RPC acknowledgement from the separate asynchronous subscriptionSkip outcome or define their delivery ordering or settled-live semantics. Pinned current source calls subscription_set_skip before queuing the empty RPC reply; that source topology is not promoted to an on-wire ordering or settled-state guarantee.",
       "authority": "src/htsp_server.c htsp_method_live",
+      "docsUrl": "https://docs.tvheadend.org/documentation/development/htsp/client-to-server-rpc-methods"
+    },
+    {
+      "id": "subscriptionFilterStream-range-overlap-underdocumented",
+      "summary": "The official Client-to-Server RPC methods page omits the pinned subscriptionFilterStream 512-index effective range, disable-wins precedence for indexes present in both lists, and the no-change behavior of omitted or empty enable/disable lists.",
+      "authority": "src/htsp_server.c htsp_method_filter_stream / htsp_enable_stream / htsp_disable_stream",
       "docsUrl": "https://docs.tvheadend.org/documentation/development/htsp/client-to-server-rpc-methods"
     },
     {
