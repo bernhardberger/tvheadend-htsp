@@ -332,6 +332,21 @@ DOC_LIMITATIONS = [
         ),
     },
     {
+        "id": "getDvrCutpoints-coordinate-order-semantics-underdocumented",
+        "summary": (
+            "The official Client-to-Server RPC methods page does not define the "
+            "millisecond coordinate origin or chronological ordering, overlap, "
+            "or uniqueness semantics for getDvrCutpoints. Pinned source serializes "
+            "dc_start_ms and dc_end_ms and traverses the TAILQ in its observed order; "
+            "the SDK preserves those values and order without interpreting them."
+        ),
+        "authority": "src/htsp_server.c htsp_method_getDvrCutpoints",
+        "docsUrl": (
+            "https://docs.tvheadend.org/documentation/development/htsp/"
+            "client-to-server-rpc-methods"
+        ),
+    },
+    {
         "id": "channel-service-fields-underdocumented",
         "summary": (
             "The pinned htsp_build_channel source always emits service name, "
@@ -651,6 +666,35 @@ def strip_c_comments(text: str) -> str:
             else:
                 output.append(" ")
         index += 1
+    return "".join(output)
+
+
+def mask_c_literals(text: str) -> str:
+    """Mask C string and character literals while preserving source offsets."""
+    output = list(text)
+    state = "code"
+    escaped = False
+    for index, char in enumerate(text):
+        if state == "code":
+            if char == '"':
+                state = "string"
+                escaped = False
+                output[index] = " "
+            elif char == "'":
+                state = "character"
+                escaped = False
+                output[index] = " "
+        else:
+            if char != "\n":
+                output[index] = " "
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif (state == "string" and char == '"') or (
+                state == "character" and char == "'"
+            ):
+                state = "code"
     return "".join(output)
 
 
@@ -1186,6 +1230,238 @@ def require_get_events_source_facts(server_c: str) -> None:
         raise ValueError("htsp_method_getEvents reply must contain exactly required events list")
 
 
+def require_get_dvr_cutpoints_source_facts(server_c: str) -> list[dict[str, Any]]:
+    """Validate and derive the exact bounded pinned getDvrCutpoints object shape."""
+    source = strip_c_comments(server_c)
+    body = find_function_body(source, "htsp_method_getDvrCutpoints")
+    if body is None:
+        raise ValueError("htsp_method_getDvrCutpoints body not found")
+    compact = re.sub(r"\s+", " ", body).strip()
+
+    getter_inventory = [
+        (field["name"], field["type"])
+        for field in extract_get_fields(body, "in")
+    ]
+    if getter_inventory != [("id", "u32")]:
+        raise ValueError("htsp_method_getDvrCutpoints request must contain exactly u32 id")
+
+    id_guard = re.findall(
+        r'if\s*\(\s*htsmsg_get_u32\(\s*in\s*,\s*"id"\s*,\s*&'
+        r'(?P<id>[A-Za-z_][A-Za-z0-9_]*)\s*\)\s*\)\s*'
+        r'return\s+htsp_error\s*\([^;]*\)\s*;',
+        compact,
+    )
+    if len(id_guard) != 1:
+        raise ValueError("htsp_method_getDvrCutpoints must guard required id with an error return")
+    id_var = id_guard[0]
+
+    lookup = re.findall(
+        rf'if\s*\(\s*\(\s*(?P<entry>[A-Za-z_][A-Za-z0-9_]*)\s*=\s*'
+        rf'dvr_entry_find_by_id\(\s*{re.escape(id_var)}\s*\)\s*\)\s*==\s*NULL\s*\)\s*'
+        r'return\s+htsp_error\s*\([^;]*\)\s*;',
+        compact,
+    )
+    if len(lookup) != 1:
+        raise ValueError("htsp_method_getDvrCutpoints must guard exact DVR lookup with an error return")
+    entry_var = lookup[0]
+
+    access = re.findall(
+        rf'if\s*\(\s*dvr_entry_verify\(\s*{re.escape(entry_var)}\s*,\s*'
+        r'htsp->htsp_granted_access\s*,\s*1\s*\)\s*\)\s*'
+        r'return\s+htsp_error\s*\([^;]*\)\s*;',
+        compact,
+    )
+    if len(access) != 1:
+        raise ValueError("htsp_method_getDvrCutpoints must deny a positive exact dvr_entry_verify flag-1 result")
+
+    map_creations = re.findall(
+        r'htsmsg_t\s*\*\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*htsmsg_create_map\(\s*\)\s*;',
+        body,
+    )
+    list_creations = re.findall(
+        r'htsmsg_t\s*\*\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*htsmsg_create_list\(\s*\)\s*;',
+        body,
+    )
+    if len(map_creations) != 2 or len(list_creations) != 1:
+        raise ValueError("htsp_method_getDvrCutpoints must own one result map, one item map, and one list")
+    result_var = map_creations[0]
+
+    retrieved = re.findall(
+        rf'dvr_cutpoint_list_t\s*\*\s*(?P<list>[A-Za-z_][A-Za-z0-9_]*)\s*=\s*'
+        rf'dvr_get_cutpoint_list\(\s*{re.escape(entry_var)}\s*\)\s*;',
+        body,
+    )
+    if len(retrieved) != 1:
+        raise ValueError("htsp_method_getDvrCutpoints must retrieve exactly one DVR cutpoint list")
+    source_list_var = retrieved[0]
+
+    list_guard_matches = list(re.finditer(
+        rf'if\s*\(\s*{re.escape(source_list_var)}\s*!=\s*NULL\s*\)\s*\{{',
+        body,
+    ))
+    if len(list_guard_matches) != 1:
+        raise ValueError("htsp_method_getDvrCutpoints must make cutpoints optional only when list is non-null")
+    list_guard = list_guard_matches[0]
+    list_guard_open = list_guard.end() - 1
+    list_body = extract_balanced_block(body, list_guard_open)
+    list_guard_close = list_guard_open + len(list_body) + 1
+    list_compact = re.sub(r"\s+", " ", list_body).strip()
+
+    nested_lists = re.findall(
+        r'htsmsg_t\s*\*\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*htsmsg_create_list\(\s*\)\s*;',
+        list_body,
+    )
+    if nested_lists != list_creations:
+        raise ValueError("htsp_method_getDvrCutpoints cutpoint list must be owned by the non-null branch")
+    output_list_var = nested_lists[0]
+
+    traversal_matches = list(re.finditer(
+        rf'TAILQ_FOREACH\(\s*(?P<item>[A-Za-z_][A-Za-z0-9_]*)\s*,\s*'
+        rf'{re.escape(source_list_var)}\s*,\s*dc_link\s*\)\s*\{{',
+        list_body,
+    ))
+    if len(traversal_matches) != 1 or len(re.findall(r'\bTAILQ_FOREACH\s*\(', body)) != 1:
+        raise ValueError("htsp_method_getDvrCutpoints must preserve one TAILQ traversal")
+    traversal = traversal_matches[0]
+    item_source_var = traversal.group("item")
+    traversal_open = traversal.end() - 1
+    traversal_body = extract_balanced_block(list_body, traversal_open)
+    traversal_close = traversal_open + len(traversal_body) + 1
+    traversal_compact = re.sub(r"\s+", " ", traversal_body).strip()
+
+    item_maps = re.findall(
+        r'htsmsg_t\s*\*\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*htsmsg_create_map\(\s*\)\s*;',
+        traversal_body,
+    )
+    if len(item_maps) != 1 or item_maps[0] != map_creations[1]:
+        raise ValueError("htsp_method_getDvrCutpoints item map must be owned by the traversal")
+    item_var = item_maps[0]
+
+    item_adds = re.findall(
+        rf'htsmsg_add_([A-Za-z0-9_]+)\(\s*{re.escape(item_var)}\s*,\s*"([^"]+)"\s*,\s*([^;]+?)\s*\)\s*;',
+        traversal_body,
+    )
+    expected_item_adds = [
+        ("u32", "start", f"{item_source_var}->dc_start_ms"),
+        ("u32", "end", f"{item_source_var}->dc_end_ms"),
+        ("u32", "type", f"{item_source_var}->dc_type"),
+    ]
+    normalized_item_adds = [
+        (wire_type, field, re.sub(r"\s+", "", expression))
+        for wire_type, field, expression in item_adds
+    ]
+    if normalized_item_adds != expected_item_adds:
+        raise ValueError("htsp_method_getDvrCutpoints item fields must be exact required u32 start/end/type")
+    direct_item_sequence = (
+        rf'htsmsg_t\s*\*\s*{re.escape(item_var)}\s*=\s*htsmsg_create_map\(\s*\)\s*;\s*'
+        rf'htsmsg_add_u32\(\s*{re.escape(item_var)}\s*,\s*"start"\s*,\s*{re.escape(item_source_var)}->dc_start_ms\s*\)\s*;\s*'
+        rf'htsmsg_add_u32\(\s*{re.escape(item_var)}\s*,\s*"end"\s*,\s*{re.escape(item_source_var)}->dc_end_ms\s*\)\s*;\s*'
+        rf'htsmsg_add_u32\(\s*{re.escape(item_var)}\s*,\s*"type"\s*,\s*{re.escape(item_source_var)}->dc_type\s*\)\s*;'
+    )
+    if re.search(direct_item_sequence, traversal_compact) is None:
+        raise ValueError("htsp_method_getDvrCutpoints required item fields must be unconditional")
+
+    item_appends = re.findall(
+        rf'htsmsg_add_msg\(\s*{re.escape(output_list_var)}\s*,\s*NULL\s*,\s*'
+        rf'{re.escape(item_var)}\s*\)\s*;',
+        traversal_body,
+    )
+    all_null_appends = re.findall(
+        r'htsmsg_add_msg\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*,\s*NULL\s*,\s*'
+        r'([A-Za-z_][A-Za-z0-9_]*)\s*\)\s*;',
+        body,
+    )
+    if len(item_appends) != 1 or all_null_appends != [(output_list_var, item_var)]:
+        raise ValueError("htsp_method_getDvrCutpoints must append each item exactly once to its list")
+
+    after_traversal = list_body[traversal_close + 1:]
+    final_insertions = re.findall(
+        r'htsmsg_add_msg\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*,\s*"([^"]+)"\s*,\s*'
+        r'([A-Za-z_][A-Za-z0-9_]*)\s*\)\s*;',
+        body,
+    )
+    expected_final = (result_var, "cutpoints", output_list_var)
+    if final_insertions != [expected_final] or re.search(
+        rf'htsmsg_add_msg\(\s*{re.escape(result_var)}\s*,\s*"cutpoints"\s*,\s*'
+        rf'{re.escape(output_list_var)}\s*\)\s*;',
+        after_traversal,
+    ) is None:
+        raise ValueError("htsp_method_getDvrCutpoints must insert exactly one final cutpoints list into the result map")
+
+    tail = re.sub(r"\s+", " ", body[list_guard_close + 1:]).strip()
+    if re.fullmatch(
+        rf'dvr_cutpoint_list_destroy\(\s*{re.escape(source_list_var)}\s*\)\s*;\s*'
+        rf'return\s+{re.escape(result_var)}\s*;',
+        tail,
+    ) is None:
+        raise ValueError("htsp_method_getDvrCutpoints must unconditionally clean up its retrieved list and return its result map")
+
+    exact_traversal = (
+        rf'\s*htsmsg_t\s*\*\s*{re.escape(item_var)}\s*=\s*htsmsg_create_map\(\s*\)\s*;\s*'
+        rf'htsmsg_add_u32\(\s*{re.escape(item_var)}\s*,\s*"start"\s*,\s*{re.escape(item_source_var)}->dc_start_ms\s*\)\s*;\s*'
+        rf'htsmsg_add_u32\(\s*{re.escape(item_var)}\s*,\s*"end"\s*,\s*{re.escape(item_source_var)}->dc_end_ms\s*\)\s*;\s*'
+        rf'htsmsg_add_u32\(\s*{re.escape(item_var)}\s*,\s*"type"\s*,\s*{re.escape(item_source_var)}->dc_type\s*\)\s*;\s*'
+        rf'htsmsg_add_msg\(\s*{re.escape(output_list_var)}\s*,\s*NULL\s*,\s*{re.escape(item_var)}\s*\)\s*;\s*'
+    )
+    if re.fullmatch(exact_traversal, traversal_body, flags=re.S) is None:
+        raise ValueError(
+            "htsp_method_getDvrCutpoints traversal must contain only exact ordered item construction and append"
+        )
+
+    exact_list_branch = (
+        rf'\s*htsmsg_t\s*\*\s*{re.escape(output_list_var)}\s*=\s*htsmsg_create_list\(\s*\)\s*;\s*'
+        rf'dvr_cutpoint_t\s*\*\s*{re.escape(item_source_var)}\s*;\s*'
+        rf'TAILQ_FOREACH\(\s*{re.escape(item_source_var)}\s*,\s*{re.escape(source_list_var)}\s*,\s*dc_link\s*\)\s*\{{'
+        rf'{exact_traversal}\}}\s*'
+        rf'htsmsg_add_msg\(\s*{re.escape(result_var)}\s*,\s*"cutpoints"\s*,\s*{re.escape(output_list_var)}\s*\)\s*;\s*'
+    )
+    if re.fullmatch(exact_list_branch, list_body, flags=re.S) is None:
+        raise ValueError(
+            "htsp_method_getDvrCutpoints non-null branch must contain only exact list creation, traversal, and result insertion"
+        )
+
+    canonical_patterns = (
+        rf'htsmsg_t\s*\*\s*{re.escape(result_var)}\s*=\s*htsmsg_create_map\(\s*\)\s*;',
+        rf'htsmsg_t\s*\*\s*{re.escape(output_list_var)}\s*=\s*htsmsg_create_list\(\s*\)\s*;',
+        rf'htsmsg_t\s*\*\s*{re.escape(item_var)}\s*=\s*htsmsg_create_map\(\s*\)\s*;',
+        rf'htsmsg_add_u32\(\s*{re.escape(item_var)}\s*,\s*"start"\s*,\s*{re.escape(item_source_var)}->dc_start_ms\s*\)\s*;',
+        rf'htsmsg_add_u32\(\s*{re.escape(item_var)}\s*,\s*"end"\s*,\s*{re.escape(item_source_var)}->dc_end_ms\s*\)\s*;',
+        rf'htsmsg_add_u32\(\s*{re.escape(item_var)}\s*,\s*"type"\s*,\s*{re.escape(item_source_var)}->dc_type\s*\)\s*;',
+        rf'htsmsg_add_msg\(\s*{re.escape(output_list_var)}\s*,\s*NULL\s*,\s*{re.escape(item_var)}\s*\)\s*;',
+        rf'htsmsg_add_msg\(\s*{re.escape(result_var)}\s*,\s*"cutpoints"\s*,\s*{re.escape(output_list_var)}\s*\)\s*;',
+        rf'return\s+{re.escape(result_var)}\s*;',
+    )
+    residual = list(mask_c_literals(body))
+    for pattern in canonical_patterns:
+        matches = list(re.finditer(pattern, body, flags=re.S))
+        if len(matches) != 1:
+            raise ValueError(
+                "htsp_method_getDvrCutpoints canonical output topology is not unique"
+            )
+        for index in range(matches[0].start(), matches[0].end()):
+            if residual[index] != "\n":
+                residual[index] = " "
+    tracked_output = "|".join(
+        re.escape(identifier)
+        for identifier in (result_var, output_list_var, item_var)
+    )
+    if re.search(rf'\b(?:{tracked_output})\b', "".join(residual)) is not None:
+        raise ValueError(
+            "htsp_method_getDvrCutpoints contains an unmodeled result, list, or item output use"
+        )
+
+    return [
+        exact_field(
+            field,
+            wire_type,
+            "nested",
+            "required",
+            f"bounded htsp_method_getDvrCutpoints traversal emits {expression}",
+        )
+        for wire_type, field, expression in normalized_item_adds
+    ]
+
+
 def field_shape(fields: list[dict[str, Any]], completeness: str = "partial") -> dict[str, Any]:
     if not fields:
         return {
@@ -1617,9 +1893,16 @@ def derive_client_methods(server_c: str) -> list[dict[str, Any]]:
                 ),
             ]
         elif name == "getDvrCutpoints":
+            require_get_dvr_cutpoints_source_facts(server_c)
+            if entry["accessMask"] != "ACCESS_HTSP_RECORDER":
+                raise ValueError("htsp_method_getDvrCutpoints dispatch access mask drift")
+            request_fields = [exact_field(
+                "id", "u32", "request", "required",
+                "htsp_method_getDvrCutpoints guards required decoded u32 id",
+            )]
             reply_fields = [exact_field(
                 "cutpoints", "list", "reply", "optional",
-                "htsp_method_getDvrCutpoints builds cutpoint maps",
+                "htsp_method_getDvrCutpoints adds the list only when retrieved cutpoints are non-null",
                 shape_ref="cutpoint",
             )]
 
@@ -1700,6 +1983,17 @@ def derive_client_methods(server_c: str) -> list[dict[str, Any]]:
                 "kind": "fields",
                 "completeness": "complete",
                 "evidence": "bounded pinned htsp_method_getEvents required events-list construction",
+            }
+        if name == "getDvrCutpoints":
+            method["requestShape"] = {
+                "kind": "fields",
+                "completeness": "complete",
+                "evidence": "bounded htsp_method_getDvrCutpoints accepts exactly required id",
+            }
+            method["replyShape"] = {
+                "kind": "fields",
+                "completeness": "complete",
+                "evidence": "bounded htsp_method_getDvrCutpoints emits only optional cutpoints list",
             }
         if name == "getEpgObject":
             method["replyFields"] = []
@@ -2301,12 +2595,8 @@ def build_spec(
             ("cutpoint", {
                 "kind": "object",
                 "completeness": "complete",
-                "evidence": "bounded getDvrCutpoints cutpoint emitter",
-                "fields": [
-                    exact_field("start", "u32", "nested", "required", "cutpoint emitter"),
-                    exact_field("end", "u32", "nested", "required", "cutpoint emitter"),
-                    exact_field("type", "u32", "nested", "required", "cutpoint emitter"),
-                ],
+                "evidence": "bounded htsp_method_getDvrCutpoints traversal-derived item map",
+                "fields": require_get_dvr_cutpoints_source_facts(server_c),
             }),
             ("event", {
                 "kind": "reference",
@@ -2442,6 +2732,40 @@ def _minimal_server_c(
     )
     handlers = []
     for name, handler, _access in methods:
+        if name == "getDvrCutpoints":
+            handlers.append(
+                f"""
+static htsmsg_t *
+{handler}(htsp_connection_t *htsp, htsmsg_t *in)
+{{
+  uint32_t dvrEntryId;
+  dvr_entry_t *de;
+  if (htsmsg_get_u32(in, "id", &dvrEntryId))
+    return htsp_error(htsp, N_("Invalid arguments"));
+  if ((de = dvr_entry_find_by_id(dvrEntryId)) == NULL)
+    return htsp_error(htsp, N_("DVR entry does not exist"));
+  if (dvr_entry_verify(de, htsp->htsp_granted_access, 1))
+    return htsp_error(htsp, N_("Access denied"));
+  htsmsg_t *msg = htsmsg_create_map();
+  dvr_cutpoint_list_t *list = dvr_get_cutpoint_list(de);
+  if (list != NULL) {{
+    htsmsg_t *cutpoint_list = htsmsg_create_list();
+    dvr_cutpoint_t *cp;
+    TAILQ_FOREACH(cp, list, dc_link) {{
+      htsmsg_t *cutpoint = htsmsg_create_map();
+      htsmsg_add_u32(cutpoint, "start", cp->dc_start_ms);
+      htsmsg_add_u32(cutpoint, "end", cp->dc_end_ms);
+      htsmsg_add_u32(cutpoint, "type", cp->dc_type);
+      htsmsg_add_msg(cutpoint_list, NULL, cutpoint);
+    }}
+    htsmsg_add_msg(msg, "cutpoints", cutpoint_list);
+  }}
+  dvr_cutpoint_list_destroy(list);
+  return msg;
+}}
+"""
+            )
+            continue
         if name == "getChannel":
             request_lines = '  htsmsg_get_u32(in, "channelId", &v);'
             reply_lines = '  htsmsg_add_u32(r, "demoReply", v);\n  return r;'
@@ -2776,7 +3100,7 @@ def self_test() -> None:
             live_coverage["clientMethods"]["referencedCount"],
             live_coverage["clientMethods"]["outgoingRequestCount"],
             live_coverage["serverMessages"]["handledCount"],
-        ) == (24, 23, 23),
+        ) == (25, 24, 23),
         str(live_coverage.get("metrics")),
     )
     check(
@@ -2814,7 +3138,7 @@ def self_test() -> None:
             live_coverage["clientMethods"]["referencedCount"],
             live_coverage["clientMethods"]["outgoingRequestCount"],
             live_coverage["serverMessages"]["handledCount"],
-        ) == (24, 23, 23)
+        ) == (25, 24, 23)
         and "getChannel" in live_coverage["clientMethods"]["referenced"]
         and "getChannel" in live_coverage["clientMethods"]["outgoingRequests"],
         str(live_coverage.get("metrics")),
@@ -2867,7 +3191,7 @@ def self_test() -> None:
             live_coverage["clientMethods"]["referencedCount"],
             live_coverage["clientMethods"]["outgoingRequestCount"],
             live_coverage["serverMessages"]["handledCount"],
-        ) == (24, 23, 23)
+        ) == (25, 24, 23)
         and "getEvents" in live_coverage["clientMethods"]["referenced"]
         and "getEvents" in live_coverage["clientMethods"]["outgoingRequests"],
     )
@@ -2877,6 +3201,32 @@ def self_test() -> None:
             "getEvents-maxTime-type-source-doc-mismatch",
             "getEvents-filter-interaction-underdocumented",
         } <= limitation_ids,
+    )
+    get_dvr_cutpoints = methods_by_name["getDvrCutpoints"]
+    check(
+        "getDvrCutpoints-current-production-coverage",
+        "getDvrCutpoints" in live_coverage["clientMethods"]["referenced"]
+        and "getDvrCutpoints" in live_coverage["clientMethods"]["outgoingRequests"],
+    )
+    check(
+        "getDvrCutpoints-exact-method-contract",
+        get_dvr_cutpoints.get("accessMask") == "ACCESS_HTSP_RECORDER"
+        and get_dvr_cutpoints.get("minVersion") == 12
+        and get_dvr_cutpoints.get("minVersionConfidence") == "annotated"
+        and [
+            (field["name"], field["type"], field["presence"])
+            for field in get_dvr_cutpoints["requestFields"]
+        ] == [("id", "u32", "required")]
+        and get_dvr_cutpoints.get("requestShape", {}).get("completeness") == "complete"
+        and [
+            (field["name"], field["type"], field["presence"], field.get("shapeRef"))
+            for field in get_dvr_cutpoints["replyFields"]
+        ] == [("cutpoints", "list", "optional", "cutpoint")]
+        and get_dvr_cutpoints.get("replyShape", {}).get("completeness") == "complete",
+    )
+    check(
+        "getDvrCutpoints-exact-documentation-limitation",
+        "getDvrCutpoints-coordinate-order-semantics-underdocumented" in limitation_ids,
     )
     check(
         "eventAdd-complete-eventUpdate-partial",
@@ -2979,10 +3329,10 @@ def self_test() -> None:
             name,
             (
                 f"htsp_method_{name}"
-                if name in {"getEvent", "getEvents"}
+                if name in {"getEvent", "getEvents", "getDvrCutpoints"}
                 else f"htsp_method_{idx}"
             ),
-            "ACCESS_ANONYMOUS",
+            "ACCESS_HTSP_RECORDER" if name == "getDvrCutpoints" else "ACCESS_ANONYMOUS",
         )
         for idx, name in enumerate(EXPECTED_CLIENT_METHODS)
     ]
@@ -3035,6 +3385,35 @@ def self_test() -> None:
             == list(EXPECTED_SERVER_MESSAGES),
         )
         check("proto", spec["upstream"]["htspProtoVersion"] == 44)
+        cutpoint_method = next(
+            item for item in spec["clientMethods"] if item["name"] == "getDvrCutpoints"
+        )
+        check(
+            "getDvrCutpoints-fresh-exact-contract",
+            cutpoint_method.get("accessMask") == "ACCESS_HTSP_RECORDER"
+            and cutpoint_method.get("minVersion") == 12
+            and [
+                (field["name"], field["type"], field["presence"])
+                for field in cutpoint_method["requestFields"]
+            ] == [("id", "u32", "required")]
+            and cutpoint_method.get("requestShape", {}).get("completeness") == "complete"
+            and [
+                (field["name"], field["type"], field["presence"], field.get("shapeRef"))
+                for field in cutpoint_method["replyFields"]
+            ] == [("cutpoints", "list", "optional", "cutpoint")]
+            and cutpoint_method.get("replyShape", {}).get("completeness") == "complete",
+        )
+        check(
+            "getDvrCutpoints-fresh-exact-nested-shape",
+            [
+                (field["name"], field["type"], field["presence"])
+                for field in spec["shapes"]["cutpoint"]["fields"]
+            ] == [
+                ("start", "u32", "required"),
+                ("end", "u32", "required"),
+                ("type", "u32", "required"),
+            ],
+        )
 
         extra_event_field_mutations = tuple(
             (
@@ -3648,6 +4027,299 @@ def self_test() -> None:
                     1,
                 ),
                 "conditional field channelId became unconditional",
+            ),
+            (
+                "reject-getDvrCutpoints-optionalized-id",
+                server_c.replace(
+                    '  if (htsmsg_get_u32(in, "id", &dvrEntryId))\n'
+                    '    return htsp_error(htsp, N_("Invalid arguments"));',
+                    '  htsmsg_get_u32(in, "id", &dvrEntryId);',
+                    1,
+                ),
+                "getDvrCutpoints",
+            ),
+            (
+                "reject-getDvrCutpoints-wrong-id-field",
+                server_c.replace('htsmsg_get_u32(in, "id", &dvrEntryId)', 'htsmsg_get_u32(in, "entryId", &dvrEntryId)', 1),
+                "getDvrCutpoints",
+            ),
+            (
+                "reject-getDvrCutpoints-wrong-lookup",
+                server_c.replace('dvr_entry_find_by_id(dvrEntryId)', 'dvr_entry_find_by_uuid(dvrEntryId)', 1),
+                "getDvrCutpoints",
+            ),
+            (
+                "reject-getDvrCutpoints-removed-lookup-error",
+                server_c.replace(
+                    '  if ((de = dvr_entry_find_by_id(dvrEntryId)) == NULL)\n'
+                    '    return htsp_error(htsp, N_("DVR entry does not exist"));',
+                    '  de = dvr_entry_find_by_id(dvrEntryId);',
+                    1,
+                ),
+                "getDvrCutpoints",
+            ),
+            (
+                "reject-getDvrCutpoints-inverted-access",
+                server_c.replace(
+                    'if (dvr_entry_verify(de, htsp->htsp_granted_access, 1))',
+                    'if (!dvr_entry_verify(de, htsp->htsp_granted_access, 1))',
+                    1,
+                ),
+                "getDvrCutpoints",
+            ),
+            (
+                "reject-getDvrCutpoints-wrong-access-flag",
+                server_c.replace(
+                    'dvr_entry_verify(de, htsp->htsp_granted_access, 1)',
+                    'dvr_entry_verify(de, htsp->htsp_granted_access, 0)',
+                    1,
+                ),
+                "getDvrCutpoints",
+            ),
+            (
+                "reject-getDvrCutpoints-removed-access-control-flow",
+                server_c.replace(
+                    '  if (dvr_entry_verify(de, htsp->htsp_granted_access, 1))\n'
+                    '    return htsp_error(htsp, N_("Access denied"));',
+                    '  dvr_entry_verify(de, htsp->htsp_granted_access, 1);',
+                    1,
+                ),
+                "getDvrCutpoints",
+            ),
+            (
+                "reject-getDvrCutpoints-list-null-condition",
+                server_c.replace('if (list != NULL)', 'if (list == NULL)', 1),
+                "getDvrCutpoints",
+            ),
+            (
+                "reject-getDvrCutpoints-extra-top-level-result-field",
+                server_c.replace(
+                    '  htsmsg_t *msg = htsmsg_create_map();',
+                    '  htsmsg_t *msg = htsmsg_create_map();\n'
+                    '  htsmsg_add_u32(msg, "extra", 1);',
+                    1,
+                ),
+                "getDvrCutpoints",
+            ),
+            (
+                "reject-getDvrCutpoints-wrong-item-field",
+                server_c.replace('"start", cp->dc_start_ms', '"begin", cp->dc_start_ms', 1),
+                "getDvrCutpoints",
+            ),
+            (
+                "reject-getDvrCutpoints-added-item-field",
+                server_c.replace(
+                    '      htsmsg_add_u32(cutpoint, "type", cp->dc_type);',
+                    '      htsmsg_add_u32(cutpoint, "type", cp->dc_type);\n'
+                    '      htsmsg_add_u32(cutpoint, "extra", 1);',
+                    1,
+                ),
+                "getDvrCutpoints",
+            ),
+            (
+                "reject-getDvrCutpoints-extra-item-field-via-set",
+                server_c.replace(
+                    '      htsmsg_add_u32(cutpoint, "type", cp->dc_type);',
+                    '      htsmsg_add_u32(cutpoint, "type", cp->dc_type);\n'
+                    '      htsmsg_set_u32(cutpoint, "extra", 1);',
+                    1,
+                ),
+                "getDvrCutpoints",
+            ),
+            (
+                "reject-getDvrCutpoints-existing-item-field-replacement",
+                server_c.replace(
+                    '      htsmsg_add_u32(cutpoint, "type", cp->dc_type);',
+                    '      htsmsg_add_u32(cutpoint, "type", cp->dc_type);\n'
+                    '      htsmsg_set_u32(cutpoint, "start", 0);',
+                    1,
+                ),
+                "getDvrCutpoints",
+            ),
+            (
+                "reject-getDvrCutpoints-required-item-order-swap",
+                server_c.replace(
+                    '      htsmsg_add_u32(cutpoint, "start", cp->dc_start_ms);\n'
+                    '      htsmsg_add_u32(cutpoint, "end", cp->dc_end_ms);',
+                    '      htsmsg_add_u32(cutpoint, "end", cp->dc_end_ms);\n'
+                    '      htsmsg_add_u32(cutpoint, "start", cp->dc_start_ms);',
+                    1,
+                ),
+                "getDvrCutpoints",
+            ),
+            (
+                "reject-getDvrCutpoints-extra-traversal-statement",
+                server_c.replace(
+                    '      htsmsg_add_u32(cutpoint, "type", cp->dc_type);',
+                    '      htsmsg_add_u32(cutpoint, "type", cp->dc_type);\n'
+                    '      (void)cp;',
+                    1,
+                ),
+                "getDvrCutpoints",
+            ),
+            (
+                "reject-getDvrCutpoints-omitted-item-field",
+                server_c.replace('      htsmsg_add_u32(cutpoint, "end", cp->dc_end_ms);\n', '', 1),
+                "getDvrCutpoints",
+            ),
+            (
+                "reject-getDvrCutpoints-wrong-item-wire-type",
+                server_c.replace('htsmsg_add_u32(cutpoint, "type", cp->dc_type)', 'htsmsg_add_s64(cutpoint, "type", cp->dc_type)', 1),
+                "getDvrCutpoints",
+            ),
+            (
+                "reject-getDvrCutpoints-conditional-required-item-field",
+                server_c.replace(
+                    '      htsmsg_add_u32(cutpoint, "start", cp->dc_start_ms);',
+                    '      if (cp->dc_start_ms) htsmsg_add_u32(cutpoint, "start", cp->dc_start_ms);',
+                    1,
+                ),
+                "getDvrCutpoints",
+            ),
+            (
+                "reject-getDvrCutpoints-removed-item-append",
+                server_c.replace('      htsmsg_add_msg(cutpoint_list, NULL, cutpoint);\n', '', 1),
+                "getDvrCutpoints",
+            ),
+            (
+                "reject-getDvrCutpoints-replaced-item-append",
+                server_c.replace('htsmsg_add_msg(cutpoint_list, NULL, cutpoint)', 'htsmsg_add_msg(msg, NULL, cutpoint)', 1),
+                "getDvrCutpoints",
+            ),
+            (
+                "reject-getDvrCutpoints-duplicated-item-append",
+                server_c.replace(
+                    '      htsmsg_add_msg(cutpoint_list, NULL, cutpoint);',
+                    '      htsmsg_add_msg(cutpoint_list, NULL, cutpoint);\n'
+                    '      htsmsg_add_msg(cutpoint_list, NULL, cutpoint);',
+                    1,
+                ),
+                "getDvrCutpoints",
+            ),
+            (
+                "reject-getDvrCutpoints-result-helper-escape",
+                server_c.replace(
+                    '  dvr_cutpoint_list_t *list = dvr_get_cutpoint_list(de);',
+                    '  inspect_output(msg);\n'
+                    '  dvr_cutpoint_list_t *list = dvr_get_cutpoint_list(de);',
+                    1,
+                ),
+                "getDvrCutpoints",
+            ),
+            (
+                "reject-getDvrCutpoints-list-helper-escape",
+                server_c.replace(
+                    '    htsmsg_t *cutpoint_list = htsmsg_create_list();',
+                    '    htsmsg_t *cutpoint_list = htsmsg_create_list();\n'
+                    '    inspect_output(cutpoint_list);',
+                    1,
+                ),
+                "getDvrCutpoints",
+            ),
+            (
+                "reject-getDvrCutpoints-item-helper-escape",
+                server_c.replace(
+                    '      htsmsg_t *cutpoint = htsmsg_create_map();',
+                    '      htsmsg_t *cutpoint = htsmsg_create_map();\n'
+                    '      inspect_output(cutpoint);',
+                    1,
+                ),
+                "getDvrCutpoints",
+            ),
+            (
+                "reject-getDvrCutpoints-result-alias-escape",
+                server_c.replace(
+                    '  dvr_cutpoint_list_t *list = dvr_get_cutpoint_list(de);',
+                    '  htsmsg_t *result_alias = msg;\n'
+                    '  inspect_output(result_alias);\n'
+                    '  dvr_cutpoint_list_t *list = dvr_get_cutpoint_list(de);',
+                    1,
+                ),
+                "getDvrCutpoints",
+            ),
+            (
+                "reject-getDvrCutpoints-list-alias-escape",
+                server_c.replace(
+                    '    dvr_cutpoint_t *cp;',
+                    '    htsmsg_t *list_alias = cutpoint_list;\n'
+                    '    inspect_output(list_alias);\n'
+                    '    dvr_cutpoint_t *cp;',
+                    1,
+                ),
+                "getDvrCutpoints",
+            ),
+            (
+                "reject-getDvrCutpoints-item-alias-escape",
+                server_c.replace(
+                    '      htsmsg_add_u32(cutpoint, "start", cp->dc_start_ms);',
+                    '      htsmsg_t *item_alias = cutpoint;\n'
+                    '      inspect_output(item_alias);\n'
+                    '      htsmsg_add_u32(cutpoint, "start", cp->dc_start_ms);',
+                    1,
+                ),
+                "getDvrCutpoints",
+            ),
+            (
+                "reject-getDvrCutpoints-wrong-final-field",
+                server_c.replace('htsmsg_add_msg(msg, "cutpoints", cutpoint_list)', 'htsmsg_add_msg(msg, "edits", cutpoint_list)', 1),
+                "getDvrCutpoints",
+            ),
+            (
+                "reject-getDvrCutpoints-final-list-replacement-via-set",
+                server_c.replace(
+                    '    htsmsg_add_msg(msg, "cutpoints", cutpoint_list);',
+                    '    htsmsg_add_msg(msg, "cutpoints", cutpoint_list);\n'
+                    '    htsmsg_set_msg(msg, "cutpoints", cutpoint_list);',
+                    1,
+                ),
+                "getDvrCutpoints",
+            ),
+            (
+                "reject-getDvrCutpoints-result-field-removal",
+                server_c.replace(
+                    '    htsmsg_add_msg(msg, "cutpoints", cutpoint_list);',
+                    '    htsmsg_add_msg(msg, "cutpoints", cutpoint_list);\n'
+                    '    htsmsg_delete_field(msg, "cutpoints");',
+                    1,
+                ),
+                "getDvrCutpoints",
+            ),
+            (
+                "reject-getDvrCutpoints-wrong-final-list",
+                server_c.replace('htsmsg_add_msg(msg, "cutpoints", cutpoint_list)', 'htsmsg_add_msg(msg, "cutpoints", cutpoint)', 1),
+                "getDvrCutpoints",
+            ),
+            (
+                "reject-getDvrCutpoints-wrong-final-destination",
+                server_c.replace('htsmsg_add_msg(msg, "cutpoints", cutpoint_list)', 'htsmsg_add_msg(cutpoint, "cutpoints", cutpoint_list)', 1),
+                "getDvrCutpoints",
+            ),
+            (
+                "reject-getDvrCutpoints-wrong-returned-map",
+                server_c.replace('  return msg;\n}', '  return cutpoint_list;\n}', 1),
+                "getDvrCutpoints",
+            ),
+            (
+                "reject-getDvrCutpoints-removed-cleanup",
+                server_c.replace('  dvr_cutpoint_list_destroy(list);\n', '', 1),
+                "getDvrCutpoints",
+            ),
+            (
+                "reject-getDvrCutpoints-retargeted-cleanup",
+                server_c.replace('dvr_cutpoint_list_destroy(list)', 'dvr_cutpoint_list_destroy(other)', 1),
+                "getDvrCutpoints",
+            ),
+            (
+                "reject-getDvrCutpoints-external-decoy",
+                server_c.replace('"start", cp->dc_start_ms', '"broken", cp->dc_start_ms', 1)
+                + '\nstatic void cutpoint_decoy(void) {\n'
+                + '  htsmsg_add_u32(cutpoint, "start", cp->dc_start_ms);\n'
+                + '  htsmsg_add_u32(cutpoint, "end", cp->dc_end_ms);\n'
+                + '  htsmsg_add_u32(cutpoint, "type", cp->dc_type);\n'
+                + '  htsmsg_add_msg(cutpoint_list, NULL, cutpoint);\n'
+                + '  htsmsg_add_msg(msg, "cutpoints", cutpoint_list);\n'
+                + '  dvr_cutpoint_list_destroy(list);\n}\n',
+                "getDvrCutpoints",
             ),
             (
                 "reject-wrong-type-in-alternative-event-emit-site",

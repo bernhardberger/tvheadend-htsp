@@ -270,6 +270,20 @@ GET_EVENTS_REQUEST_CONTRACT = (
     ("numFollowing", "u32", "optional", 6),
     ("maxTime", "s64", "optional", 6),
 )
+GET_DVR_CUTPOINTS_LIMITATION_ID = (
+    "getDvrCutpoints-coordinate-order-semantics-underdocumented"
+)
+GET_DVR_CUTPOINTS_DOCS_URL = (
+    "https://docs.tvheadend.org/documentation/development/htsp/"
+    "client-to-server-rpc-methods"
+)
+GET_DVR_CUTPOINTS_LIMITATION_SUMMARY = (
+    "The official Client-to-Server RPC methods page does not define the "
+    "millisecond coordinate origin or chronological ordering, overlap, "
+    "or uniqueness semantics for getDvrCutpoints. Pinned source serializes "
+    "dc_start_ms and dc_end_ms and traverses the TAILQ in its observed order; "
+    "the SDK preserves those values and order without interpreting them."
+)
 WIRE_TYPES = {"u32", "s32", "s64", "str", "bin", "msg", "list", "bool", "dbl", "uuid", "unknown"}
 PRESENCE_VALUES = {"required", "optional", "conditional", "alternative", "unknown"}
 COMPLETENESS_VALUES = {"complete", "partial", "opaque"}
@@ -500,12 +514,50 @@ def validate_spec(spec: dict[str, Any], upstream: dict[str, Any] | None = None) 
     queue = {f.get("name"): f for f in message_map.get("queueStatus", {}).get("fields", [])}
     if not {"packets", "bytes", "Bdrops", "Pdrops", "Idrops"} <= set(queue) or ({"stream", "dts", "pts", "duration", "payload"} & set(queue)):
         errors.append("queueStatus must own counters/drop stats and no mux fields")
-    cutpoints = {f.get("name"): f for f in method_map.get("getDvrCutpoints", {}).get("replyFields", [])}
-    if cutpoints.get("cutpoints", {}).get("shapeRef") != "cutpoint":
-        errors.append("getDvrCutpoints.cutpoints must reference cutpoint shape")
+    get_dvr_cutpoints = method_map.get("getDvrCutpoints", {})
+    if get_dvr_cutpoints.get("accessMask") != "ACCESS_HTSP_RECORDER":
+        errors.append("getDvrCutpoints must preserve recorder dispatch access")
+    if (
+        get_dvr_cutpoints.get("minVersion") != 12
+        or get_dvr_cutpoints.get("minVersionConfidence") != "annotated"
+    ):
+        errors.append("getDvrCutpoints must preserve annotated minimum version 12")
+    cutpoint_request = [
+        (f.get("name"), f.get("type"), f.get("presence"))
+        for f in get_dvr_cutpoints.get("requestFields", [])
+    ]
+    if cutpoint_request != [("id", "u32", "required")]:
+        errors.append("getDvrCutpoints request must contain exactly required u32 id")
+    if (
+        get_dvr_cutpoints.get("requestShape", {}).get("kind") != "fields"
+        or get_dvr_cutpoints.get("requestShape", {}).get("completeness") != "complete"
+    ):
+        errors.append("getDvrCutpoints request shape must be fields/complete")
+    cutpoint_reply = [
+        (f.get("name"), f.get("type"), f.get("presence"), f.get("shapeRef"))
+        for f in get_dvr_cutpoints.get("replyFields", [])
+    ]
+    if cutpoint_reply != [("cutpoints", "list", "optional", "cutpoint")]:
+        errors.append("getDvrCutpoints reply must contain exactly optional cutpoints:list -> cutpoint")
+    if (
+        get_dvr_cutpoints.get("replyShape", {}).get("kind") != "fields"
+        or get_dvr_cutpoints.get("replyShape", {}).get("completeness") != "complete"
+    ):
+        errors.append("getDvrCutpoints reply shape must be fields/complete")
     cut_shape = shapes.get("cutpoint") or {}
-    if [(f.get("name"), f.get("type")) for f in cut_shape.get("fields", [])] != [("start", "u32"), ("end", "u32"), ("type", "u32")]:
-        errors.append("cutpoint shape must be exact {start,end,type}")
+    if (
+        cut_shape.get("kind") != "object"
+        or cut_shape.get("completeness") != "complete"
+        or [
+            (f.get("name"), f.get("type"), f.get("presence"))
+            for f in cut_shape.get("fields", [])
+        ] != [
+            ("start", "u32", "required"),
+            ("end", "u32", "required"),
+            ("type", "u32", "required"),
+        ]
+    ):
+        errors.append("getDvrCutpoints cutpoint shape must be exact complete required u32 {start,end,type}")
     if method_map.get("getEvents", {}).get("replyShape", {}).get("kind") != "fields" or [f.get("name") for f in method_map.get("getEvents", {}).get("replyFields", [])] != ["events"]:
         errors.append("getEvents reply must contain only nested events")
     if method_map.get("epgQuery", {}).get("replyShape", {}).get("kind") != "alternative" or [f.get("name") for f in method_map.get("epgQuery", {}).get("replyFields", [])] != ["eventIds", "events"]:
@@ -722,13 +774,13 @@ def validate_spec(spec: dict[str, Any], upstream: dict[str, Any] | None = None) 
         errors.append("outgoingRequestCount cannot exceed referencedCount")
 
     # Current repository acceptance targets (exact-literal metric).
-    if ref_count not in (None, 24):
+    if ref_count not in (None, 25):
         errors.append(
-            f"expected referenced client methods == 24 under current metric, got {ref_count}"
+            f"expected referenced client methods == 25 under current metric, got {ref_count}"
         )
-    if out_count not in (None, 23):
+    if out_count not in (None, 24):
         errors.append(
-            f"expected outgoing client methods == 23 under current metric, got {out_count}"
+            f"expected outgoing client methods == 24 under current metric, got {out_count}"
         )
     if handled_count not in (None, 23):
         errors.append(
@@ -754,6 +806,8 @@ def validate_spec(spec: dict[str, Any], upstream: dict[str, Any] | None = None) 
         errors.append("getEvent must be fresh referenced and outgoing production coverage")
     if "getEvents" not in referenced_list or "getEvents" not in outgoing_list:
         errors.append("getEvents must remain fresh referenced and outgoing production coverage")
+    if "getDvrCutpoints" not in referenced_list or "getDvrCutpoints" not in outgoing_list:
+        errors.append("getDvrCutpoints must be fresh referenced and outgoing production coverage")
 
     # sdk flags must match coverage lists
     ref_set = set(client_cov.get("referenced") or [])
@@ -850,6 +904,26 @@ def validate_spec(spec: dict[str, Any], upstream: dict[str, Any] | None = None) 
             or get_events_filters.get("docsUrl") != GET_EVENTS_DOCS_URL
         ):
             errors.append("getEvents filter-interaction limitation must preserve exact pinned behavior and governing Client-to-Server URL")
+        get_dvr_cutpoints_limitation = next(
+            (
+                item for item in limitations
+                if isinstance(item, dict)
+                and item.get("id") == GET_DVR_CUTPOINTS_LIMITATION_ID
+            ),
+            None,
+        )
+        if not get_dvr_cutpoints_limitation or (
+            get_dvr_cutpoints_limitation.get("summary")
+            != GET_DVR_CUTPOINTS_LIMITATION_SUMMARY
+            or get_dvr_cutpoints_limitation.get("authority")
+            != "src/htsp_server.c htsp_method_getDvrCutpoints"
+            or get_dvr_cutpoints_limitation.get("docsUrl")
+            != GET_DVR_CUTPOINTS_DOCS_URL
+        ):
+            errors.append(
+                "getDvrCutpoints limitation must preserve exact coordinate/order uncertainty, "
+                "pinned source facts, SDK preservation policy, and governing Client-to-Server URL"
+            )
 
     global_rpc = spec.get("globalRpc") or {}
     if set(global_rpc) != {"requestFields", "replyFields"}:
@@ -1319,8 +1393,10 @@ def _derive_fresh_self_test_spec() -> dict[str, Any]:
     method_rows = [
         (
             name,
-            f"htsp_method_{name}" if name in {"getEvent", "getEvents"} else f"htsp_method_{index}",
-            "ACCESS_ANONYMOUS",
+            f"htsp_method_{name}"
+            if name in {"getEvent", "getEvents", "getDvrCutpoints"}
+            else f"htsp_method_{index}",
+            "ACCESS_HTSP_RECORDER" if name == "getDvrCutpoints" else "ACCESS_ANONYMOUS",
         )
         for index, name in enumerate(EXPECTED_CLIENT_METHODS)
     ]
@@ -1364,7 +1440,7 @@ def _derive_fresh_self_test_spec() -> dict[str, Any]:
         )
 
     # Report validation owns schema/policy, not fixture-byte pin verification.
-    # Evaluate freshly derived getEvents/event evidence inside the complete
+    # Evaluate freshly derived getEvents/event/getDvrCutpoints evidence inside the complete
     # committed-schema baseline; unrelated minimal fixture handlers deliberately
     # do not pretend to model every pinned method.
     upstream = load_json(UPSTREAM_PATH)
@@ -1372,7 +1448,9 @@ def _derive_fresh_self_test_spec() -> dict[str, Any]:
     candidate = load_json(SPEC_PATH)
     fresh_methods = {item["name"]: item for item in fresh["clientMethods"]}
     candidate["clientMethods"] = [
-        fresh_methods["getEvents"] if item["name"] == "getEvents" else item
+        fresh_methods[item["name"]]
+        if item["name"] in {"getEvents", "getDvrCutpoints"}
+        else item
         for item in candidate["clientMethods"]
     ]
     fresh_messages = {item["name"]: item for item in fresh["serverMessages"]}
@@ -1382,7 +1460,7 @@ def _derive_fresh_self_test_spec() -> dict[str, Any]:
         else item
         for item in candidate["serverMessages"]
     ]
-    for shape_name in ("event", "str", "eventCreditsDynamic"):
+    for shape_name in ("cutpoint", "event", "str", "eventCreditsDynamic"):
         candidate["shapes"][shape_name] = fresh["shapes"][shape_name]
     candidate["coverage"] = fresh["coverage"]
     candidate["pythonDemo"] = fresh["pythonDemo"]
@@ -1535,8 +1613,8 @@ def self_test() -> None:
     )
     check(
         "getChannel-fresh-coverage",
-        good_spec["coverage"]["clientMethods"]["referencedCount"] == 24
-        and good_spec["coverage"]["clientMethods"]["outgoingRequestCount"] == 23
+        good_spec["coverage"]["clientMethods"]["referencedCount"] == 25
+        and good_spec["coverage"]["clientMethods"]["outgoingRequestCount"] == 24
         and "getChannel" in good_spec["coverage"]["clientMethods"]["outgoingRequests"],
     )
 
@@ -1570,10 +1648,115 @@ def self_test() -> None:
     )
     check(
         "getEvents-fresh-unchanged-coverage",
-        good_spec["coverage"]["clientMethods"]["referencedCount"] == 24
-        and good_spec["coverage"]["clientMethods"]["outgoingRequestCount"] == 23
+        good_spec["coverage"]["clientMethods"]["referencedCount"] == 25
+        and good_spec["coverage"]["clientMethods"]["outgoingRequestCount"] == 24
         and good_spec["coverage"]["serverMessages"]["handledCount"] == 23
         and "getEvents" in good_spec["coverage"]["clientMethods"]["outgoingRequests"],
+    )
+    get_dvr_cutpoints = next(
+        m for m in good_spec["clientMethods"] if m["name"] == "getDvrCutpoints"
+    )
+    check(
+        "getDvrCutpoints-fresh-complete-contract",
+        get_dvr_cutpoints.get("accessMask") == "ACCESS_HTSP_RECORDER"
+        and get_dvr_cutpoints.get("minVersion") == 12
+        and get_dvr_cutpoints.get("minVersionConfidence") == "annotated"
+        and [
+            (f["name"], f["type"], f["presence"])
+            for f in get_dvr_cutpoints["requestFields"]
+        ] == [("id", "u32", "required")]
+        and get_dvr_cutpoints.get("requestShape", {}).get("completeness") == "complete"
+        and [
+            (f["name"], f["type"], f["presence"], f.get("shapeRef"))
+            for f in get_dvr_cutpoints["replyFields"]
+        ] == [("cutpoints", "list", "optional", "cutpoint")]
+        and get_dvr_cutpoints.get("replyShape", {}).get("completeness") == "complete"
+        and [
+            (f["name"], f["type"], f["presence"])
+            for f in good_spec["shapes"]["cutpoint"]["fields"]
+        ] == [
+            ("start", "u32", "required"),
+            ("end", "u32", "required"),
+            ("type", "u32", "required"),
+        ],
+    )
+
+    for label, mutate in (
+        (
+            "optional-id",
+            lambda method, shape: method["requestFields"][0].update({"presence": "optional"}),
+        ),
+        (
+            "wrong-id-type",
+            lambda method, shape: method["requestFields"][0].update({"type": "s64"}),
+        ),
+        (
+            "partial-request-shape",
+            lambda method, shape: method["requestShape"].update({"completeness": "partial"}),
+        ),
+        (
+            "required-cutpoints",
+            lambda method, shape: method["replyFields"][0].update({"presence": "required"}),
+        ),
+        (
+            "wrong-cutpoints-type",
+            lambda method, shape: method["replyFields"][0].update({"type": "msg"}),
+        ),
+        (
+            "partial-reply-shape",
+            lambda method, shape: method["replyShape"].update({"completeness": "partial"}),
+        ),
+        (
+            "optional-nested-start",
+            lambda method, shape: shape["fields"][0].update({"presence": "optional"}),
+        ),
+        (
+            "wrong-nested-type",
+            lambda method, shape: shape["fields"][1].update({"type": "s64"}),
+        ),
+        (
+            "partial-nested-shape",
+            lambda method, shape: shape.update({"completeness": "partial"}),
+        ),
+        (
+            "wrong-access-mask",
+            lambda method, shape: method.update({"accessMask": "ACCESS_ANONYMOUS"}),
+        ),
+        (
+            "wrong-min-version",
+            lambda method, shape: method.update({"minVersion": 11}),
+        ),
+        (
+            "wrong-min-version-confidence",
+            lambda method, shape: method.update({"minVersionConfidence": "unknown"}),
+        ),
+    ):
+        bad = json.loads(json.dumps(good_spec))
+        method = next(m for m in bad["clientMethods"] if m["name"] == "getDvrCutpoints")
+        mutate(method, bad["shapes"]["cutpoint"])
+        err = validate_spec(bad)
+        check(
+            f"reject-getDvrCutpoints-{label}",
+            any("getDvrCutpoints" in error or "cutpoint shape" in error for error in err),
+            str(err),
+        )
+
+    bad = json.loads(json.dumps(good_spec))
+    bad["coverage"]["clientMethods"]["referenced"].remove("getDvrCutpoints")
+    bad["coverage"]["clientMethods"]["referencedCount"] -= 1
+    bad["coverage"]["clientMethods"]["outgoingRequests"].remove("getDvrCutpoints")
+    bad["coverage"]["clientMethods"]["outgoingRequestCount"] -= 1
+    bad["coverage"]["metrics"]["referencedClientMethods"] -= 1
+    bad["coverage"]["metrics"]["outgoingClientMethods"] -= 1
+    next(
+        method for method in bad["clientMethods"]
+        if method["name"] == "getDvrCutpoints"
+    )["sdk"] = {"referenced": False, "outgoingRequest": False}
+    err = validate_spec(bad)
+    check(
+        "reject-getDvrCutpoints-stale-live-coverage",
+        any("getDvrCutpoints must be fresh" in error for error in err),
+        str(err),
     )
     event_update = next(m for m in good_spec["serverMessages"] if m["name"] == "eventUpdate")
     check(
@@ -1898,6 +2081,68 @@ def self_test() -> None:
             str(err),
         )
 
+    get_dvr_cutpoints_limitation = next(
+        item for item in good_spec["docLimitations"]
+        if item["id"] == GET_DVR_CUTPOINTS_LIMITATION_ID
+    )
+    check(
+        "getDvrCutpoints-exact-limitation",
+        get_dvr_cutpoints_limitation.get("summary")
+        == GET_DVR_CUTPOINTS_LIMITATION_SUMMARY
+        and get_dvr_cutpoints_limitation.get("authority")
+        == "src/htsp_server.c htsp_method_getDvrCutpoints"
+        and get_dvr_cutpoints_limitation.get("docsUrl")
+        == GET_DVR_CUTPOINTS_DOCS_URL,
+    )
+    for label, key, replacement in (
+        (
+            "authority",
+            "authority",
+            "official Client-to-Server RPC methods page",
+        ),
+        (
+            "url",
+            "docsUrl",
+            EXPECTED_DOCS_URLS["serverToClient"],
+        ),
+        (
+            "invented-coordinate-origin",
+            "summary",
+            GET_DVR_CUTPOINTS_LIMITATION_SUMMARY.replace(
+                "does not define the millisecond coordinate origin",
+                "defines the millisecond coordinate origin as recording-relative",
+            ),
+        ),
+        (
+            "invented-sorting",
+            "summary",
+            GET_DVR_CUTPOINTS_LIMITATION_SUMMARY.replace(
+                "traverses the TAILQ in its observed order",
+                "sorts the TAILQ chronologically",
+            ),
+        ),
+        (
+            "lost-sdk-preservation-policy",
+            "summary",
+            GET_DVR_CUTPOINTS_LIMITATION_SUMMARY.replace(
+                "the SDK preserves those values and order without interpreting them",
+                "the SDK normalizes those values and order",
+            ),
+        ),
+    ):
+        bad = json.loads(json.dumps(good_spec))
+        limitation = next(
+            item for item in bad["docLimitations"]
+            if item["id"] == GET_DVR_CUTPOINTS_LIMITATION_ID
+        )
+        limitation[key] = replacement
+        err = validate_spec(bad)
+        check(
+            f"reject-getDvrCutpoints-limitation-{label}",
+            any("getDvrCutpoints limitation" in error for error in err),
+            str(err),
+        )
+
     for mutation_name, mutate in (
         (
             "client-page-attribution",
@@ -2100,7 +2345,7 @@ def self_test() -> None:
     err = validate_spec(bad)
     check(
         "reject-false-all-called",
-        any("outgoing client methods == 23" in e for e in err),
+        any("outgoing client methods == 24" in e for e in err),
         str(err),
     )
 

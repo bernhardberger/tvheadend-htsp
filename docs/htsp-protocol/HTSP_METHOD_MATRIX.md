@@ -16,8 +16,8 @@ Primary authority is the pinned TVHeadend server source. Official HTSP documenta
 
 ## SDK coverage (exact-literal metric)
 
-- Client→server methods referenced in production sources: **24 / 39**
-- Distinct outgoing request names: **23 / 39**
+- Client→server methods referenced in production sources: **25 / 39**
+- Distinct outgoing request names: **24 / 39**
 - Server→client messages handled (exact literal): **23 / 30**
 - Distinguish **referenced** from **outgoing**: a name can appear because an inbound handler mentions it (for example `subscriptionSkip`) while the client sends a synonym (`subscriptionSeek`).
 - Never claim methods are implemented/called merely because they are referenced.
@@ -68,7 +68,7 @@ These fields are protocol-wide and are **not** method-specific success fields.
 | 21 | `addTimerecEntry` | `ACCESS_HTSP_RECORDER` | 18 (annotated) |  |  | `title`:str [unknown], `channelId`:s64 [unknown], `minduration`:u32 [unknown], `maxduration`:u32 [unknown], `fulltext`:u32 [unknown], `mergetext`:u32 [unknown], `dupDetect`:u32 [unknown], `maxCount`:u32 [unknown], `broadcastType`:u32 [unknown], `startExtra`:s64 [unknown], `stopExtra`:s64 [unknown], `serieslinkUri`:str [unknown], `approxTime`:s32 [unknown], `start`:s32 [unknown], `startWindow`:s32 [unknown], `stop`:u32 [unknown], `enabled`:u32 [unknown], `retention`:u32 [unknown], `removal`:u32 [unknown], `priority`:u32 [unknown], `name`:str [unknown], `comment`:str [unknown], `directory`:str [unknown], `configName`:str [unknown], `daysOfWeek`:u32 [unknown] — fields/partial | `id`:str [unknown], `success`:u32 [unknown], `error`:str [unknown] — fields/partial |
 | 22 | `updateTimerecEntry` | `ACCESS_HTSP_RECORDER` | 25 (annotated) |  |  | `id`:str [unknown], `channelId`:s64 [unknown], `minduration`:u32 [unknown], `maxduration`:u32 [unknown], `fulltext`:u32 [unknown], `mergetext`:u32 [unknown], `dupDetect`:u32 [unknown], `maxCount`:u32 [unknown], `broadcastType`:u32 [unknown], `startExtra`:s64 [unknown], `stopExtra`:s64 [unknown], `serieslinkUri`:str [unknown], `approxTime`:s32 [unknown], `start`:s32 [unknown], `startWindow`:s32 [unknown], `stop`:u32 [unknown], `enabled`:u32 [unknown], `retention`:u32 [unknown], `removal`:u32 [unknown], `priority`:u32 [unknown], `name`:str [unknown], `comment`:str [unknown], `directory`:str [unknown], `title`:str [unknown], `configName`:str [unknown], `daysOfWeek`:u32 [unknown] — fields/partial | `success`:u32 [unknown] — fields/partial |
 | 23 | `deleteTimerecEntry` | `ACCESS_HTSP_RECORDER` | 18 (annotated) |  |  | `id`:str [unknown] — fields/partial | `success`:u32 [unknown] — fields/partial |
-| 24 | `getDvrCutpoints` | `ACCESS_HTSP_RECORDER` | 12 (annotated) |  |  | `id`:u32 [unknown] — fields/partial | `cutpoints`:list [optional] → `cutpoint` — fields/partial |
+| 24 | `getDvrCutpoints` | `ACCESS_HTSP_RECORDER` | 12 (annotated) | yes | yes | `id`:u32 [required] — fields/complete | `cutpoints`:list [optional] → `cutpoint` — fields/complete |
 | 25 | `getTicket` | `ACCESS_HTSP_STREAMING` | 5 (annotated) |  |  | `channelId`:u32 [unknown], `dvrId`:u32 [unknown] — fields/partial | `path`:str [unknown], `ticket`:str [unknown] — fields/partial |
 | 26 | `subscribe` | `ACCESS_HTSP_STREAMING` | — | yes | yes | `subscriptionId`:u32 [required], `channelId`:u32 [alternative], `channelName`:str [alternative], `profile`:str [unknown], `weight`:u32 [unknown], `90khz`:u32 [unknown], `timeshiftPeriod`:u32 [unknown], `queueDepth`:u32 [unknown] — fields/partial | `90khz`:u32 [unknown], `normts`:u32 [unknown], `weight`:u32 [unknown], `timeshiftPeriod`:u32 [unknown] — fields/partial |
 | 27 | `unsubscribe` | `ACCESS_HTSP_STREAMING` | — | yes | yes | `subscriptionId`:u32 [unknown] — fields/partial | _knownEmpty/complete_ |
@@ -148,6 +148,13 @@ The pinned htsp_method_getEvents source reads maxTime through htsmsg_get_s64_or_
 Pinned htsp_method_getEvents source gives eventId selection precedence when both eventId and channelId are present, applies a nonzero maxTime start cutoff, treats positive numFollowing as an inclusive maximum count, resets that count per channel in all-channel mode, and filters inaccessible channels. The official Client-to-Server RPC methods page lists the optional version-6 filters but does not specify those interactions.
 
 - Authority: src/htsp_server.c htsp_method_getEvents
+- Docs URL: https://docs.tvheadend.org/documentation/development/htsp/client-to-server-rpc-methods
+
+### `getDvrCutpoints-coordinate-order-semantics-underdocumented`
+
+The official Client-to-Server RPC methods page does not define the millisecond coordinate origin or chronological ordering, overlap, or uniqueness semantics for getDvrCutpoints. Pinned source serializes dc_start_ms and dc_end_ms and traverses the TAILQ in its observed order; the SDK preserves those values and order without interpreting them.
+
+- Authority: src/htsp_server.c htsp_method_getDvrCutpoints
 - Docs URL: https://docs.tvheadend.org/documentation/development/htsp/client-to-server-rpc-methods
 
 ### `channel-service-fields-underdocumented`

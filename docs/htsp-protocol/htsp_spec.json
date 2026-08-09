@@ -142,14 +142,14 @@
     "cutpoint": {
       "kind": "object",
       "completeness": "complete",
-      "evidence": "bounded getDvrCutpoints cutpoint emitter",
+      "evidence": "bounded htsp_method_getDvrCutpoints traversal-derived item map",
       "fields": [
         {
           "name": "start",
           "type": "u32",
           "direction": "nested",
           "presence": "required",
-          "evidence": "cutpoint emitter",
+          "evidence": "bounded htsp_method_getDvrCutpoints traversal emits cp->dc_start_ms",
           "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 1
@@ -159,7 +159,7 @@
           "type": "u32",
           "direction": "nested",
           "presence": "required",
-          "evidence": "cutpoint emitter",
+          "evidence": "bounded htsp_method_getDvrCutpoints traversal emits cp->dc_end_ms",
           "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 2
@@ -169,7 +169,7 @@
           "type": "u32",
           "direction": "nested",
           "presence": "required",
-          "evidence": "cutpoint emitter",
+          "evidence": "bounded htsp_method_getDvrCutpoints traversal emits cp->dc_type",
           "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 3
@@ -3572,9 +3572,9 @@
           "name": "id",
           "type": "u32",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_u32",
-          "confidence": "mechanical",
+          "presence": "required",
+          "evidence": "htsp_method_getDvrCutpoints guards required decoded u32 id",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 1
         }
@@ -3585,7 +3585,7 @@
           "type": "list",
           "direction": "reply",
           "presence": "optional",
-          "evidence": "htsp_method_getDvrCutpoints builds cutpoint maps",
+          "evidence": "htsp_method_getDvrCutpoints adds the list only when retrieved cutpoints are non-null",
           "confidence": "mechanical+annotated",
           "minVersion": null,
           "shapeRef": "cutpoint",
@@ -3594,17 +3594,17 @@
       ],
       "requestShape": {
         "kind": "fields",
-        "completeness": "partial",
-        "evidence": "bounded handler/helper extraction plus exact-pin annotations"
+        "completeness": "complete",
+        "evidence": "bounded htsp_method_getDvrCutpoints accepts exactly required id"
       },
       "replyShape": {
         "kind": "fields",
-        "completeness": "partial",
-        "evidence": "bounded handler/helper extraction plus exact-pin annotations"
+        "completeness": "complete",
+        "evidence": "bounded htsp_method_getDvrCutpoints emits only optional cutpoints list"
       },
       "sdk": {
-        "referenced": false,
-        "outgoingRequest": false
+        "referenced": true,
+        "outgoingRequest": true
       }
     },
     {
@@ -8445,6 +8445,7 @@
         "getChannel",
         "getDiskSpace",
         "getDvrConfigs",
+        "getDvrCutpoints",
         "getEvent",
         "getEvents",
         "getProfiles",
@@ -8457,7 +8458,7 @@
         "unsubscribe",
         "updateDvrEntry"
       ],
-      "referencedCount": 24,
+      "referencedCount": 25,
       "outgoingRequests": [
         "addDvrEntry",
         "authenticate",
@@ -8472,6 +8473,7 @@
         "getChannel",
         "getDiskSpace",
         "getDvrConfigs",
+        "getDvrCutpoints",
         "getEvent",
         "getEvents",
         "getProfiles",
@@ -8483,7 +8485,7 @@
         "unsubscribe",
         "updateDvrEntry"
       ],
-      "outgoingRequestCount": 23,
+      "outgoingRequestCount": 24,
       "unreferenced": [
         "api",
         "epgQuery",
@@ -8495,7 +8497,6 @@
         "addTimerecEntry",
         "updateTimerecEntry",
         "deleteTimerecEntry",
-        "getDvrCutpoints",
         "getTicket",
         "subscriptionChangeWeight",
         "subscriptionLive",
@@ -8541,8 +8542,8 @@
       ]
     },
     "metrics": {
-      "referencedClientMethods": 24,
-      "outgoingClientMethods": 23,
+      "referencedClientMethods": 25,
+      "outgoingClientMethods": 24,
       "handledServerMessages": 23,
       "notes": [
         "referenced counts exact string literals in SDK production main sources",
@@ -8575,6 +8576,12 @@
       "id": "getEvents-filter-interaction-underdocumented",
       "summary": "Pinned htsp_method_getEvents source gives eventId selection precedence when both eventId and channelId are present, applies a nonzero maxTime start cutoff, treats positive numFollowing as an inclusive maximum count, resets that count per channel in all-channel mode, and filters inaccessible channels. The official Client-to-Server RPC methods page lists the optional version-6 filters but does not specify those interactions.",
       "authority": "src/htsp_server.c htsp_method_getEvents",
+      "docsUrl": "https://docs.tvheadend.org/documentation/development/htsp/client-to-server-rpc-methods"
+    },
+    {
+      "id": "getDvrCutpoints-coordinate-order-semantics-underdocumented",
+      "summary": "The official Client-to-Server RPC methods page does not define the millisecond coordinate origin or chronological ordering, overlap, or uniqueness semantics for getDvrCutpoints. Pinned source serializes dc_start_ms and dc_end_ms and traverses the TAILQ in its observed order; the SDK preserves those values and order without interpreting them.",
+      "authority": "src/htsp_server.c htsp_method_getDvrCutpoints",
       "docsUrl": "https://docs.tvheadend.org/documentation/development/htsp/client-to-server-rpc-methods"
     },
     {
