@@ -106,6 +106,9 @@ EXPECTED_FIELD_SHAPE_REFS: tuple[tuple[str, str, str, str, str], ...] = (
     ("shape", "service", "fields", "hbbtv", "hbbtvDynamic"),
     ("clientMethod", "getChannel", "replyFields", "services", "service"),
     ("clientMethod", "getChannel", "replyFields", "tags", "u32"),
+    ("clientMethod", "getEvent", "replyFields", "credits", "eventCreditsDynamic"),
+    ("clientMethod", "getEvent", "replyFields", "category", "str"),
+    ("clientMethod", "getEvent", "replyFields", "keyword", "str"),
     ("clientMethod", "getEvents", "replyFields", "events", "event"),
     ("clientMethod", "epgQuery", "replyFields", "eventIds", "u32"),
     ("clientMethod", "epgQuery", "replyFields", "events", "event"),
@@ -122,6 +125,12 @@ EXPECTED_FIELD_SHAPE_REFS: tuple[tuple[str, str, str, str, str], ...] = (
     ("serverMessage", "tagUpdate", "fields", "members", "u32"),
     ("serverMessage", "dvrEntryAdd", "fields", "files", "recordingFile"),
     ("serverMessage", "dvrEntryUpdate", "fields", "files", "recordingFile"),
+    ("serverMessage", "eventAdd", "fields", "credits", "eventCreditsDynamic"),
+    ("serverMessage", "eventAdd", "fields", "category", "str"),
+    ("serverMessage", "eventAdd", "fields", "keyword", "str"),
+    ("serverMessage", "eventUpdate", "fields", "credits", "eventCreditsDynamic"),
+    ("serverMessage", "eventUpdate", "fields", "category", "str"),
+    ("serverMessage", "eventUpdate", "fields", "keyword", "str"),
     ("serverMessage", "subscriptionStart", "fields", "streams", "stream"),
     ("serverMessage", "subscriptionStart", "fields", "sourceinfo", "sourceInfo"),
 )
@@ -168,6 +177,68 @@ CHANNEL_SERVICE_SUMMARY = (
     "providername. The official Server-to-Client methods channelAdd section is "
     "the governing field list and omits current-source content and hbbtv; hbbtv "
     "therefore remains explicitly opaque."
+)
+EVENT_LIMITATION_ID = "event-fields-source-docs-mismatch"
+EVENT_DOCS_URL = (
+    "https://docs.tvheadend.org/documentation/development/htsp/"
+    "server-to-client-methods"
+)
+EVENT_LIMITATION_SUMMARY = (
+    "The pinned current htsp_build_event source emits start and stop through "
+    "htsmsg_add_s64 and isNew through htsmsg_add_u32, while the official "
+    "Server-to-Client eventAdd documentation describes start and stop as u64 "
+    "and isNew as str, omits several current-source fields, and lists historical "
+    "ID fields not emitted by the current builder. This records incomplete/stale "
+    "official documentation and does not reconcile it into the pinned "
+    "current-source contract."
+)
+EVENT_FIELD_CONTRACT: tuple[tuple[str, str, str, str | None], ...] = (
+    ("eventId", "u32", "required", None),
+    ("channelId", "u32", "conditional", None),
+    ("start", "s64", "required", None),
+    ("stop", "s64", "required", None),
+    ("title", "str", "conditional", None),
+    ("subtitle", "str", "conditional", None),
+    ("summary", "str", "conditional", None),
+    ("description", "str", "conditional", None),
+    ("credits", "msg", "conditional", "eventCreditsDynamic"),
+    ("category", "list", "conditional", "str"),
+    ("keyword", "list", "conditional", "str"),
+    ("serieslinkUri", "str", "conditional", None),
+    ("episodeUri", "str", "conditional", None),
+    ("contentType", "u32", "conditional", None),
+    ("ageRating", "u32", "conditional", None),
+    ("ratingLabel", "str", "conditional", None),
+    ("ratingIcon", "str", "conditional", None),
+    ("ratingAuthority", "str", "conditional", None),
+    ("ratingCountry", "str", "conditional", None),
+    ("starRating", "u32", "conditional", None),
+    ("copyrightYear", "u32", "conditional", None),
+    ("firstAired", "s64", "conditional", None),
+    ("isNew", "u32", "conditional", None),
+    ("seasonNumber", "u32", "conditional", None),
+    ("seasonCount", "u32", "conditional", None),
+    ("episodeNumber", "u32", "conditional", None),
+    ("episodeCount", "u32", "conditional", None),
+    ("partNumber", "u32", "conditional", None),
+    ("partCount", "u32", "conditional", None),
+    ("episodeOnscreen", "str", "conditional", None),
+    ("image", "str", "conditional", None),
+    ("dvrId", "u32", "conditional", None),
+    ("nextEventId", "u32", "conditional", None),
+)
+EVENT_UPDATE_FIELD_CONTRACT: tuple[tuple[str, str, str, str | None], ...] = tuple(
+    (name, wire_type, "required" if name == "eventId" else "optional", shape_ref)
+    for name, wire_type, _presence, shape_ref in EVENT_FIELD_CONTRACT
+)
+EVENT_UPDATE_NOTE = (
+    "Pinned current eventUpdate call sites send the shared htsp_build_event "
+    "snapshot; partial-update compatibility permits omission of every non-key "
+    "field and consumers merge by eventId."
+)
+EVENT_UPDATE_SHAPE_EVIDENCE = (
+    "pinned current eventUpdate call sites use the shared full htsp_build_event "
+    "snapshot; compatibility remains partial by eventId"
 )
 WIRE_TYPES = {"u32", "s32", "s64", "str", "bin", "msg", "list", "bool", "dbl", "uuid", "unknown"}
 PRESENCE_VALUES = {"required", "optional", "conditional", "alternative", "unknown"}
@@ -492,6 +563,56 @@ def validate_spec(spec: dict[str, Any], upstream: dict[str, Any] | None = None) 
     if hbbtv_shape.get("kind") != "object" or hbbtv_shape.get("completeness") != "opaque" or "fields" in hbbtv_shape:
         errors.append("hbbtvDynamic must remain an explicit opaque object shape")
 
+    get_event = method_map.get("getEvent", {})
+    event_request_fields = [
+        (field.get("name"), field.get("type"), field.get("presence"))
+        for field in get_event.get("requestFields", [])
+    ]
+    if event_request_fields != [
+        ("eventId", "u32", "required"),
+        ("language", "str", "optional"),
+    ]:
+        errors.append("getEvent request must contain required u32 eventId and optional str language")
+    if get_event.get("requestShape", {}).get("kind") != "fields" or get_event.get("requestShape", {}).get("completeness") != "complete":
+        errors.append("getEvent request shape must be fields/complete")
+    event_reply_fields = [
+        (field.get("name"), field.get("type"), field.get("presence"), field.get("shapeRef"))
+        for field in get_event.get("replyFields", [])
+    ]
+    if event_reply_fields != list(EVENT_FIELD_CONTRACT):
+        errors.append("getEvent reply must preserve the complete bounded current event field contract")
+    if get_event.get("replyShape", {}).get("kind") != "fields" or get_event.get("replyShape", {}).get("completeness") != "complete":
+        errors.append("getEvent reply shape must be fields/complete")
+
+    event_add = message_map.get("eventAdd", {})
+    event_add_fields = [
+        (field.get("name"), field.get("type"), field.get("presence"), field.get("shapeRef"))
+        for field in event_add.get("fields", [])
+    ]
+    if event_add_fields != list(EVENT_FIELD_CONTRACT):
+        errors.append("eventAdd must preserve the complete bounded current event field contract")
+    if event_add.get("messageShape", {}).get("kind") != "fields" or event_add.get("messageShape", {}).get("completeness") != "complete":
+        errors.append("eventAdd message shape must be fields/complete")
+    event_update = message_map.get("eventUpdate", {})
+    event_update_fields = [
+        (field.get("name"), field.get("type"), field.get("presence"), field.get("shapeRef"))
+        for field in event_update.get("fields", [])
+    ]
+    if event_update_fields != list(EVENT_UPDATE_FIELD_CONTRACT):
+        errors.append("eventUpdate partial-update field contract must require only eventId and make every non-key field optional")
+    if event_update.get("messageShape", {}).get("kind") != "fields" or event_update.get("messageShape", {}).get("completeness") != "partial":
+        errors.append("eventUpdate message shape must remain fields/partial")
+    if event_update.get("messageShape", {}).get("evidence") != EVENT_UPDATE_SHAPE_EVIDENCE:
+        errors.append("eventUpdate shape evidence must distinguish pinned shared-builder emission from partial compatibility")
+    if event_update.get("notes") != [EVENT_UPDATE_NOTE]:
+        errors.append("eventUpdate current-source and compatibility note must remain exact")
+    credits_shape = shapes.get("eventCreditsDynamic") or {}
+    if credits_shape.get("kind") != "object" or credits_shape.get("completeness") != "opaque" or "fields" in credits_shape:
+        errors.append("eventCreditsDynamic must remain an explicit opaque object shape")
+    string_shape = shapes.get("str") or {}
+    if string_shape.get("kind") != "scalar" or string_shape.get("wireType") != "str" or string_shape.get("completeness") != "complete":
+        errors.append("str must remain the exact event list-element scalar shape")
+
     coverage = spec.get("coverage") or {}
     client_cov = coverage.get("clientMethods") or {}
     server_cov = coverage.get("serverMessages") or {}
@@ -551,13 +672,13 @@ def validate_spec(spec: dict[str, Any], upstream: dict[str, Any] | None = None) 
         errors.append("outgoingRequestCount cannot exceed referencedCount")
 
     # Current repository acceptance targets (exact-literal metric).
-    if ref_count not in (None, 23):
+    if ref_count not in (None, 24):
         errors.append(
-            f"expected referenced client methods == 23 under current metric, got {ref_count}"
+            f"expected referenced client methods == 24 under current metric, got {ref_count}"
         )
-    if out_count not in (None, 22):
+    if out_count not in (None, 23):
         errors.append(
-            f"expected outgoing client methods == 22 under current metric, got {out_count}"
+            f"expected outgoing client methods == 23 under current metric, got {out_count}"
         )
     if handled_count not in (None, 23):
         errors.append(
@@ -579,6 +700,8 @@ def validate_spec(spec: dict[str, Any], upstream: dict[str, Any] | None = None) 
         errors.append("getSysTime must be fresh referenced and outgoing production coverage")
     if "getChannel" not in referenced_list or "getChannel" not in outgoing_list:
         errors.append("getChannel must be fresh referenced and outgoing production coverage")
+    if "getEvent" not in referenced_list or "getEvent" not in outgoing_list:
+        errors.append("getEvent must be fresh referenced and outgoing production coverage")
 
     # sdk flags must match coverage lists
     ref_set = set(client_cov.get("referenced") or [])
@@ -645,6 +768,16 @@ def validate_spec(spec: dict[str, Any], upstream: dict[str, Any] | None = None) 
             or channel_service_limitation.get("docsUrl") != CHANNEL_SERVICE_DOCS_URL
         ):
             errors.append("channel service limitation must identify the governing Server-to-Client channelAdd documentation")
+        event_limitation = next(
+            (item for item in limitations if isinstance(item, dict) and item.get("id") == EVENT_LIMITATION_ID),
+            None,
+        )
+        if not event_limitation or (
+            event_limitation.get("summary") != EVENT_LIMITATION_SUMMARY
+            or event_limitation.get("authority") != "src/htsp_server.c htsp_build_event"
+            or event_limitation.get("docsUrl") != EVENT_DOCS_URL
+        ):
+            errors.append("event limitation must preserve pinned s64/u32 source facts and governing Server-to-Client URL")
 
     global_rpc = spec.get("globalRpc") or {}
     if set(global_rpc) != {"requestFields", "replyFields"}:
@@ -1236,9 +1369,34 @@ def self_test() -> None:
     )
     check(
         "getChannel-fresh-coverage",
-        good_spec["coverage"]["clientMethods"]["referencedCount"] == 23
-        and good_spec["coverage"]["clientMethods"]["outgoingRequestCount"] == 22
+        good_spec["coverage"]["clientMethods"]["referencedCount"] == 24
+        and good_spec["coverage"]["clientMethods"]["outgoingRequestCount"] == 23
         and "getChannel" in good_spec["coverage"]["clientMethods"]["outgoingRequests"],
+    )
+
+    get_event = next(m for m in good_spec["clientMethods"] if m["name"] == "getEvent")
+    check(
+        "getEvent-fresh-shape",
+        get_event.get("requestShape", {}).get("completeness") == "complete"
+        and get_event.get("replyShape", {}).get("completeness") == "complete"
+        and [(f["name"], f["type"], f["presence"], f.get("shapeRef")) for f in get_event["replyFields"]]
+        == list(EVENT_FIELD_CONTRACT),
+    )
+    check(
+        "getEvent-fresh-coverage",
+        "getEvent" in good_spec["coverage"]["clientMethods"]["referenced"]
+        and "getEvent" in good_spec["coverage"]["clientMethods"]["outgoingRequests"],
+    )
+    event_update = next(m for m in good_spec["serverMessages"] if m["name"] == "eventUpdate")
+    check(
+        "eventUpdate-partial-merge-contract",
+        event_update.get("messageShape", {}).get("completeness") == "partial"
+        and event_update.get("notes") == [
+            "Pinned current eventUpdate call sites send the shared htsp_build_event snapshot; partial-update compatibility permits omission of every non-key field and consumers merge by eventId."
+        ]
+        and event_update["fields"][0].get("name") == "eventId"
+        and event_update["fields"][0].get("presence") == "required"
+        and all(field.get("presence") == "optional" for field in event_update["fields"][1:]),
     )
 
     channel_id_str = next(f for f in get_channel["replyFields"] if f["name"] == "channelIdStr")
@@ -1361,6 +1519,140 @@ def self_test() -> None:
     check("reject-getChannel-stale-live-coverage", any("getChannel must be fresh" in e for e in err), str(err))
 
     bad = json.loads(json.dumps(good_spec))
+    next(m for m in bad["clientMethods"] if m["name"] == "getEvent")["requestFields"][0]["presence"] = "optional"
+    err = validate_spec(bad)
+    check("reject-getEvent-optional-eventId", any("required u32 eventId" in e for e in err), str(err))
+
+    for field_name, replacement in (
+        ("eventId", "s64"),
+        ("start", "u32"),
+        ("stop", "u32"),
+    ):
+        bad = json.loads(json.dumps(good_spec))
+        get_event_bad = next(m for m in bad["clientMethods"] if m["name"] == "getEvent")
+        next(f for f in get_event_bad["replyFields"] if f["name"] == field_name)["type"] = replacement
+        err = validate_spec(bad)
+        check(
+            f"reject-getEvent-wrong-required-{field_name}",
+            any("complete bounded current event field contract" in e for e in err),
+            str(err),
+        )
+
+    for field_name in ("category", "keyword"):
+        bad = json.loads(json.dumps(good_spec))
+        get_event_bad = next(m for m in bad["clientMethods"] if m["name"] == "getEvent")
+        next(f for f in get_event_bad["replyFields"] if f["name"] == field_name)["shapeRef"] = "u32"
+        err = validate_spec(bad)
+        check(
+            f"reject-getEvent-wrong-{field_name}-element-shape",
+            any("event field contract" in e or "shapeRef relationship" in e for e in err),
+            str(err),
+        )
+
+    bad = json.loads(json.dumps(good_spec))
+    bad["shapes"]["eventCreditsDynamic"]["completeness"] = "complete"
+    err = validate_spec(bad)
+    check(
+        "reject-event-credits-losing-opaque-shape",
+        any("eventCreditsDynamic" in e for e in err),
+        str(err),
+    )
+
+    bad = json.loads(json.dumps(good_spec))
+    get_event_bad = next(m for m in bad["clientMethods"] if m["name"] == "getEvent")
+    get_event_bad["replyFields"] = [
+        f for f in get_event_bad["replyFields"] if f["name"] != "seasonNumber"
+    ]
+    for order, field in enumerate(get_event_bad["replyFields"], start=1):
+        field["order"] = order
+    err = validate_spec(bad)
+    check(
+        "reject-omitted-event-episode-helper-field",
+        any("event field contract" in e for e in err),
+        str(err),
+    )
+
+    bad = json.loads(json.dumps(good_spec))
+    next(m for m in bad["serverMessages"] if m["name"] == "eventUpdate")["messageShape"]["completeness"] = "complete"
+    err = validate_spec(bad)
+    check(
+        "reject-eventUpdate-false-completeness",
+        any("eventUpdate message shape" in e for e in err),
+        str(err),
+    )
+
+    bad = json.loads(json.dumps(good_spec))
+    event_update_bad = next(m for m in bad["serverMessages"] if m["name"] == "eventUpdate")
+    next(f for f in event_update_bad["fields"] if f["name"] == "start")["presence"] = "required"
+    err = validate_spec(bad)
+    check(
+        "reject-eventUpdate-required-non-key-field",
+        any("eventUpdate partial-update field contract" in e for e in err),
+        str(err),
+    )
+
+    bad = json.loads(json.dumps(good_spec))
+    event_update_bad = next(m for m in bad["serverMessages"] if m["name"] == "eventUpdate")
+    next(f for f in event_update_bad["fields"] if f["name"] == "eventId")["presence"] = "optional"
+    err = validate_spec(bad)
+    check(
+        "reject-eventUpdate-optional-eventId",
+        any("eventUpdate partial-update field contract" in e for e in err),
+        str(err),
+    )
+
+    bad = json.loads(json.dumps(good_spec))
+    event_update_bad = next(m for m in bad["serverMessages"] if m["name"] == "eventUpdate")
+    event_update_bad["notes"] = [
+        "Update messages omit non-key fields and consumers merge by eventId."
+    ]
+    err = validate_spec(bad)
+    check(
+        "reject-eventUpdate-categorical-current-omission-note",
+        any("eventUpdate current-source and compatibility note" in e for e in err),
+        str(err),
+    )
+
+    bad = json.loads(json.dumps(good_spec))
+    bad["coverage"]["clientMethods"]["referenced"].remove("getEvent")
+    bad["coverage"]["clientMethods"]["referencedCount"] -= 1
+    bad["coverage"]["clientMethods"]["outgoingRequests"].remove("getEvent")
+    bad["coverage"]["clientMethods"]["outgoingRequestCount"] -= 1
+    bad["coverage"]["metrics"]["referencedClientMethods"] -= 1
+    bad["coverage"]["metrics"]["outgoingClientMethods"] -= 1
+    next(m for m in bad["clientMethods"] if m["name"] == "getEvent")["sdk"] = {
+        "referenced": False,
+        "outgoingRequest": False,
+    }
+    err = validate_spec(bad)
+    check("reject-getEvent-stale-live-coverage", any("getEvent must be fresh" in e for e in err), str(err))
+
+    for mutation_name, mutate in (
+        (
+            "client-page-attribution",
+            lambda item: item.update({"docsUrl": EXPECTED_DOCS_URLS["clientToServer"]}),
+        ),
+        (
+            "swapped-source-types",
+            lambda item: item.update({
+                "summary": EVENT_LIMITATION_SUMMARY.replace(
+                    "start and stop through htsmsg_add_s64 and isNew through htsmsg_add_u32",
+                    "start and stop through htsmsg_add_u32 and isNew through htsmsg_add_s64",
+                )
+            }),
+        ),
+    ):
+        bad = json.loads(json.dumps(good_spec))
+        limitation = next(item for item in bad["docLimitations"] if item["id"] == EVENT_LIMITATION_ID)
+        mutate(limitation)
+        err = validate_spec(bad)
+        check(
+            f"reject-event-limitation-{mutation_name}",
+            any("event limitation" in e for e in err),
+            str(err),
+        )
+
+    bad = json.loads(json.dumps(good_spec))
     get_system_time = next(m for m in bad["clientMethods"] if m["name"] == "getSysTime")
     get_system_time["replyFields"][0]["presence"] = "optional"
     err = validate_spec(bad)
@@ -1455,7 +1747,7 @@ def self_test() -> None:
     )
 
     bad = json.loads(json.dumps(good_spec))
-    bad["shapes"]["event"]["completeness"] = "complete"
+    bad["shapes"]["event"]["completeness"] = "opaque"
     err = validate_spec(bad)
     check(
         "reject-false-reference-completeness",
@@ -1537,7 +1829,7 @@ def self_test() -> None:
     err = validate_spec(bad)
     check(
         "reject-false-all-called",
-        any("outgoing client methods == 22" in e for e in err),
+        any("outgoing client methods == 23" in e for e in err),
         str(err),
     )
 

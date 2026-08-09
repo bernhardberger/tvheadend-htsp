@@ -310,6 +310,23 @@ DOC_LIMITATIONS = [
         ),
     },
     {
+        "id": "event-fields-source-docs-mismatch",
+        "summary": (
+            "The pinned current htsp_build_event source emits start and stop "
+            "through htsmsg_add_s64 and isNew through htsmsg_add_u32, while the "
+            "official Server-to-Client eventAdd documentation describes start "
+            "and stop as u64 and isNew as str, omits several current-source "
+            "fields, and lists historical ID fields not emitted by the current "
+            "builder. This records incomplete/stale official documentation and "
+            "does not reconcile it into the pinned current-source contract."
+        ),
+        "authority": "src/htsp_server.c htsp_build_event",
+        "docsUrl": (
+            "https://docs.tvheadend.org/documentation/development/htsp/"
+            "server-to-client-methods"
+        ),
+    },
+    {
         "id": "stopDvrEntry-missing-from-client-docs",
         "summary": (
             "stopDvrEntry is present in the pinned htsp_methods[] dispatch table "
@@ -543,9 +560,60 @@ def fetch_pinned_sources(
 
 
 def strip_c_comments(text: str) -> str:
-    text = re.sub(r"/\*.*?\*/", "", text, flags=re.S)
-    text = re.sub(r"//.*?$", "", text, flags=re.M)
-    return text
+    """Remove C comments without treating comment markers in literals as syntax."""
+    output: list[str] = []
+    state = "code"
+    escaped = False
+    index = 0
+    while index < len(text):
+        char = text[index]
+        following = text[index + 1] if index + 1 < len(text) else ""
+        if state == "code":
+            if char == '"':
+                state = "string"
+                escaped = False
+                output.append(char)
+            elif char == "'":
+                state = "character"
+                escaped = False
+                output.append(char)
+            elif char == "/" and following == "/":
+                state = "line_comment"
+                output.extend((" ", " "))
+                index += 1
+            elif char == "/" and following == "*":
+                state = "block_comment"
+                output.extend((" ", " "))
+                index += 1
+            else:
+                output.append(char)
+        elif state in {"string", "character"}:
+            output.append(char)
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif (state == "string" and char == '"') or (
+                state == "character" and char == "'"
+            ):
+                state = "code"
+        elif state == "line_comment":
+            if char == "\n":
+                output.append(char)
+                state = "code"
+            else:
+                output.append(" ")
+        else:
+            if char == "*" and following == "/":
+                output.extend((" ", " "))
+                index += 1
+                state = "code"
+            elif char == "\n":
+                output.append(char)
+            else:
+                output.append(" ")
+        index += 1
+    return "".join(output)
 
 
 def extract_balanced_block(text: str, open_index: int) -> str:
@@ -831,6 +899,71 @@ def exact_field(
     )
 
 
+EVENT_FIELD_CATALOG: tuple[
+    tuple[str, str, str, str | None, str], ...
+] = (
+    ("eventId", "u32", "required", None, "htsp_build_event unconditional field"),
+    ("channelId", "u32", "conditional", None, "htsp_build_event channel branch"),
+    ("start", "s64", "required", None, "htsp_build_event unconditional field"),
+    ("stop", "s64", "required", None, "htsp_build_event unconditional field"),
+    ("title", "str", "conditional", None, "htsp_build_event localized title branch"),
+    ("subtitle", "str", "conditional", None, "htsp_build_event localized subtitle branch"),
+    ("summary", "str", "conditional", None, "htsp_build_event localized summary branch"),
+    ("description", "str", "conditional", None, "htsp_build_event localized description branch"),
+    ("credits", "msg", "conditional", "eventCreditsDynamic", "htsp_build_event credits branch"),
+    ("category", "list", "conditional", "str", "htsp_build_event string_list_serialize category branch"),
+    ("keyword", "list", "conditional", "str", "htsp_build_event string_list_serialize keyword branch"),
+    ("serieslinkUri", "str", "conditional", None, "htsp_build_event series-link branch"),
+    ("episodeUri", "str", "conditional", None, "htsp_build_event episode-URI branch"),
+    ("contentType", "u32", "conditional", None, "htsp_build_event content-type branch"),
+    ("ageRating", "u32", "conditional", None, "htsp_build_event age-rating branch"),
+    ("ratingLabel", "str", "conditional", None, "htsp_build_event rating-label branch"),
+    ("ratingIcon", "str", "conditional", None, "htsp_build_event rating-icon branch"),
+    ("ratingAuthority", "str", "conditional", None, "htsp_build_event rating-authority branch"),
+    ("ratingCountry", "str", "conditional", None, "htsp_build_event rating-country branch"),
+    ("starRating", "u32", "conditional", None, "htsp_build_event star-rating branch"),
+    ("copyrightYear", "u32", "conditional", None, "htsp_build_event copyright-year branch"),
+    ("firstAired", "s64", "conditional", None, "htsp_build_event first-aired branch"),
+    ("isNew", "u32", "conditional", None, "htsp_build_event new-programme branch"),
+    ("seasonNumber", "u32", "conditional", None, "htsp_build_event episode-number helper"),
+    ("seasonCount", "u32", "conditional", None, "htsp_build_event episode-number helper"),
+    ("episodeNumber", "u32", "conditional", None, "htsp_build_event episode-number helper"),
+    ("episodeCount", "u32", "conditional", None, "htsp_build_event episode-number helper"),
+    ("partNumber", "u32", "conditional", None, "htsp_build_event episode-number helper"),
+    ("partCount", "u32", "conditional", None, "htsp_build_event episode-number helper"),
+    ("episodeOnscreen", "str", "conditional", None, "htsp_build_event episode-number helper"),
+    ("image", "str", "conditional", None, "htsp_build_event image branch"),
+    ("dvrId", "u32", "conditional", None, "htsp_build_event DVR branch"),
+    ("nextEventId", "u32", "conditional", None, "htsp_build_event next-event branch"),
+)
+
+EVENT_UPDATE_NOTE = (
+    "Pinned current eventUpdate call sites send the shared htsp_build_event "
+    "snapshot; partial-update compatibility permits omission of every non-key "
+    "field and consumers merge by eventId."
+)
+
+
+def event_fields(direction: str, *, partial_update: bool = False) -> list[dict[str, Any]]:
+    fields = []
+    for name, wire_type, presence, shape_ref, evidence in EVENT_FIELD_CATALOG:
+        update_non_key = partial_update and name != "eventId"
+        fields.append(exact_field(
+            name,
+            wire_type,
+            direction,
+            "optional" if update_non_key else presence,
+            evidence,
+            condition=(
+                "emitted when the corresponding current event value is available"
+                if presence == "conditional"
+                else None
+            ),
+            shape_ref=shape_ref,
+        ))
+    return fields
+
+
 def field_shape(fields: list[dict[str, Any]], completeness: str = "partial") -> dict[str, Any]:
     if not fields:
         return {
@@ -878,6 +1011,211 @@ def require_channel_builder_source_facts(server_c: str) -> None:
             raise ValueError(
                 f"htsp_build_channel missing bounded source field {field_name}"
             )
+
+
+def require_event_builder_source_facts(server_c: str) -> None:
+    """Reject drift in the bounded current getEvent/event-builder shape."""
+    source = strip_c_comments(server_c)
+    handler = find_function_body(source, "htsp_method_getEvent")
+    if handler is None:
+        raise ValueError("htsp_method_getEvent body not found")
+    compact_handler = re.sub(r"\s+", " ", handler).strip()
+    if re.search(
+        r'if\s*\(\s*htsmsg_get_u32\(\s*in\s*,\s*"eventId"\s*,\s*&eventId\s*\)\s*\)\s*'
+        r'return\s+htsp_error\s*\(',
+        compact_handler,
+    ) is None:
+        raise ValueError("htsp_method_getEvent missing guarded required u32 eventId extraction")
+    language_lookup = r'htsmsg_get_str\(\s*in\s*,\s*"language"\s*\)'
+    language_fallbacks = (
+        rf'lang\s*=\s*{language_lookup}\s*\?\:\s*htsp->htsp_language\s*;',
+        rf'lang\s*=\s*{language_lookup}\s*;\s*'
+        r'if\s*\(\s*(?:!\s*lang|lang\s*==\s*NULL)\s*\)\s*'
+        r'lang\s*=\s*htsp->(?:htsp_)?language\s*;',
+    )
+    if not any(re.search(pattern, compact_handler) for pattern in language_fallbacks):
+        raise ValueError("htsp_method_getEvent missing optional language fallback to connection language")
+    if re.search(
+        r'if\s*\([^;]{0,240}epg_broadcast_find_by_id\(\s*eventId\s*\)[^;]{0,120}\)\s*'
+        r'return\s+htsp_error\s*\(',
+        compact_handler,
+    ) is None:
+        raise ValueError("htsp_method_getEvent missing missing-event guard")
+    returned_builder = (
+        "return htsp_build_event(e, NULL, lang, 0, htsp);"
+    )
+    if compact_handler.count("htsp_build_event(") != 1 or returned_builder not in compact_handler:
+        raise ValueError("htsp_method_getEvent must return exactly one returned htsp_build_event result")
+
+    body = find_function_body(source, "htsp_build_event")
+    if body is None:
+        raise ValueError("htsp_build_event body not found")
+    return_values = re.findall(r"\breturn\s+([^;]+?)\s*;", body)
+    result_returns = [
+        value.strip()
+        for value in return_values
+        if value.strip() != "NULL"
+        and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", value.strip())
+    ]
+    if len(result_returns) != 1:
+        raise ValueError("htsp_build_event must return one bounded result variable")
+    result_var = result_returns[0]
+    if any(value.strip() not in {"NULL", result_var} for value in return_values):
+        raise ValueError("htsp_build_event must return one bounded result variable")
+    if re.search(rf"\breturn\s+{re.escape(result_var)}\s*;\s*$", body.strip()) is None:
+        raise ValueError("htsp_build_event must end with its bounded result variable")
+
+    def brace_depth_at(text: str, end: int) -> int:
+        depth = 0
+        in_string = False
+        escaped = False
+        for char in text[:end]:
+            if in_string:
+                if escaped:
+                    escaped = False
+                elif char == "\\":
+                    escaped = True
+                elif char == '"':
+                    in_string = False
+            elif char == '"':
+                in_string = True
+            elif char == "{":
+                depth += 1
+            elif char == "}":
+                depth -= 1
+        return depth
+
+    def is_conditional_at(text: str, start: int) -> bool:
+        if brace_depth_at(text, start) > 0:
+            return True
+        prefix = text[max(0, start - 240):start]
+        boundary = max(prefix.rfind(";"), prefix.rfind("}"), prefix.rfind("{"))
+        return re.search(r"\bif\s*\([^;{}]*\)\s*$", prefix[boundary + 1:]) is not None
+
+    def output_facts(text: str, target_var: str) -> list[tuple[str, str, bool]]:
+        facts: list[tuple[str, str, bool]] = []
+        mutator_patterns = (
+            re.compile(
+                rf'\bhtsmsg_add_([a-z0-9]+)(?:_(?:alloc|ptr))?\(\s*{re.escape(target_var)}\s*,\s*'
+                r'(?:(?:"([^"]+)")|(?:textname\s*\?\:\s*"(episodeOnscreen)"))'
+            ),
+            re.compile(
+                rf'\bhtsmsg_set_([a-z0-9]+)\(\s*{re.escape(target_var)}\s*,\s*'
+                r'(?:(?:"([^"]+)")|(?:textname\s*\?\:\s*"(episodeOnscreen)"))'
+            ),
+        )
+        for mutator_pattern in mutator_patterns:
+            for match in mutator_pattern.finditer(text):
+                wire_type = ADD_TYPE_MAP.get(match.group(1))
+                field_name = match.group(2) or match.group(3)
+                if wire_type is not None and field_name != "method":
+                    facts.append((field_name, wire_type, is_conditional_at(text, match.start())))
+        list_pattern = re.compile(
+            rf'\bstring_list_serialize\([^;]*\b{re.escape(target_var)}\s*,\s*"([^"]+)"'
+        )
+        for match in list_pattern.finditer(text):
+            facts.append((match.group(1), "list", is_conditional_at(text, match.start())))
+        return facts
+
+    helper_names = {
+        name for name in re.findall(r"\b([A-Za-z_][A-Za-z0-9_]*)\s*\(", body)
+        if name not in {"if", "for", "while", "switch", "sizeof"}
+    }
+    episode_names = {name for name, _wire, _presence, _shape, evidence in EVENT_FIELD_CATALOG if "episode-number helper" in evidence}
+    helper_candidates: list[tuple[str, list[tuple[str, str, bool]]]] = []
+    for helper_name in sorted(helper_names):
+        helper_body = find_function_body(source, helper_name)
+        if helper_body is None:
+            continue
+        helper_facts = output_facts(helper_body, result_var)
+        if not helper_facts:
+            # The helper may name its output parameter differently from the builder.
+            parameters_match = re.search(
+                rf'\b{re.escape(helper_name)}\s*\(([^;]*?)\)\s*\{{', source, re.S
+            )
+            parameters = parameters_match.group(1) if parameters_match else ""
+            parameter_names = re.findall(r"\b([A-Za-z_][A-Za-z0-9_]*)\s*(?:,|$)", parameters)
+            for parameter_name in parameter_names:
+                candidate_facts = output_facts(helper_body, parameter_name)
+                if {fact[0] for fact in candidate_facts} & episode_names:
+                    helper_facts = candidate_facts
+                    break
+        if {fact[0] for fact in helper_facts} & episode_names:
+            helper_candidates.append((helper_name, helper_facts))
+    if len(helper_candidates) != 1:
+        raise ValueError("htsp_build_event must use exactly one bounded episode-number helper")
+
+    direct_facts = output_facts(body, result_var)
+    helper_name, helper_facts = helper_candidates[0]
+    helper_body = find_function_body(source, helper_name)
+    if helper_body is None or len(
+        re.findall(
+            r'\bhtsmsg_(?:add_[a-z0-9]+(?:_(?:alloc|ptr))?|set_[a-z0-9]+)'
+            r'\(\s*[A-Za-z_][A-Za-z0-9_]*\s*,\s*'
+            r'textname\s*\?\:\s*"episodeOnscreen"',
+            helper_body,
+        )
+    ) != 1:
+        raise ValueError(f"{helper_name} missing exact episodeOnscreen fallback")
+    helper_calls = re.findall(
+        rf'\b{re.escape(helper_name)}\s*\(([^;]*)\)\s*;',
+        body,
+        re.S,
+    )
+    if len(helper_calls) != 1 or re.fullmatch(
+        rf'\s*{re.escape(result_var)}\s*,\s*&[A-Za-z_][A-Za-z0-9_]*\s*,\s*NULL\s*',
+        helper_calls[0],
+    ) is None:
+        raise ValueError(
+            "htsp_build_event episode-number helper call must select the NULL fallback"
+        )
+    actual_facts = direct_facts + helper_facts
+    expected_types = {name: wire for name, wire, _presence, _shape, _evidence in EVENT_FIELD_CATALOG}
+    actual_by_name: dict[str, list[tuple[str, bool]]] = {}
+    for field_name, wire_type, conditional in actual_facts:
+        actual_by_name.setdefault(field_name, []).append((wire_type, conditional))
+    for field_name in actual_by_name.keys() - expected_types.keys():
+        raise ValueError(f"htsp_build_event has unexpected bounded source field {field_name}")
+    for field_name, expected_type in expected_types.items():
+        facts = actual_by_name.get(field_name, [])
+        if not facts:
+            raise ValueError(f"htsp_build_event/helper missing bounded source field {field_name}")
+        if any(wire_type != expected_type for wire_type, _conditional in facts):
+            raise ValueError(f"htsp_build_event/helper has wrong bounded source type for {field_name}")
+        expected_required = field_name in {"eventId", "start", "stop"}
+        if expected_required and (len(facts) != 1 or facts[0][1]):
+            raise ValueError(f"htsp_build_event required field {field_name} became conditional or multiplied")
+        if not expected_required and any(not conditional for _wire_type, conditional in facts):
+            raise ValueError(f"htsp_build_event conditional field {field_name} became unconditional")
+        if field_name in episode_names and len(facts) != 1:
+            raise ValueError(f"htsp_build_event/helper duplicates bounded source field {field_name}")
+    if {fact[0] for fact in helper_facts} != episode_names:
+        raise ValueError(f"{helper_name} episode-number helper field inventory drift")
+
+    update_helper = find_function_body(source, "_htsp_event_update")
+    if (
+        update_helper is None
+        or update_helper.count("htsp_build_event(") != 1
+        or re.search(
+            r'htsp_build_event\(\s*[A-Za-z_][A-Za-z0-9_]*\s*,\s*method\s*,',
+            update_helper,
+        ) is None
+    ):
+        raise ValueError("event update helper must propagate method to shared htsp_build_event")
+    for message_name, wrapper_name in (
+        ("eventAdd", "htsp_event_add"),
+        ("eventUpdate", "htsp_event_update"),
+    ):
+        wrapper = find_function_body(source, wrapper_name)
+        if (
+            wrapper is None
+            or wrapper.count("_htsp_event_update(") != 1
+            or re.search(
+                rf'_htsp_event_update\(\s*[A-Za-z_][A-Za-z0-9_]*\s*,\s*"{message_name}"\s*,',
+                wrapper,
+            ) is None
+        ):
+            raise ValueError(f"{message_name} wrapper must propagate method through event update helper")
 
 
 def helper_bodies(server_c: str, names: tuple[str, ...]) -> list[str]:
@@ -988,12 +1326,24 @@ def derive_client_methods(server_c: str) -> list[dict[str, Any]]:
                     shape_ref="u32",
                 ),
             ]
-        if name in {"getEvent"}:
-            build_body = find_function_body(server_c, "htsp_build_event") or ""
-            reply_fields = merge_field_lists(
-                reply_fields,
-                extract_add_fields(build_body, ("out",)),
-            )
+        if name == "getEvent":
+            require_event_builder_source_facts(server_c)
+            if [(field["name"], field["type"]) for field in request_fields] != [
+                ("eventId", "u32"),
+                ("language", "str"),
+            ]:
+                raise ValueError("htsp_method_getEvent request shape drift")
+            request_fields = [
+                exact_field(
+                    "eventId", "u32", "request", "required",
+                    "htsp_method_getEvent requires decoded u32 eventId",
+                ),
+                exact_field(
+                    "language", "str", "request", "optional",
+                    "htsp_method_getEvent uses supplied language or connection language",
+                ),
+            ]
+            reply_fields = event_fields("reply")
 
         if name == "fileRead":
             reply_fields = [exact_field(
@@ -1083,6 +1433,17 @@ def derive_client_methods(server_c: str) -> list[dict[str, Any]]:
                 "kind": "fields",
                 "completeness": "complete",
                 "evidence": "bounded htsp_method_getChannel delegates its complete reply to htsp_build_channel",
+            }
+        if name == "getEvent":
+            method["requestShape"] = {
+                "kind": "fields",
+                "completeness": "complete",
+                "evidence": "bounded htsp_method_getEvent accepts required eventId and optional language",
+            }
+            method["replyShape"] = {
+                "kind": "fields",
+                "completeness": "complete",
+                "evidence": "bounded htsp_method_getEvent delegates its complete successful reply to htsp_build_event",
             }
         if name == "getEpgObject":
             method["replyFields"] = []
@@ -1333,6 +1694,9 @@ def derive_server_messages(server_c: str) -> list[dict[str, Any]]:
                 exact_field("Pdrops", "u32", "message", "required", "bounded queueStatus emitter"),
                 exact_field("Idrops", "u32", "message", "required", "bounded queueStatus emitter"),
             ]
+        elif name in {"eventAdd", "eventUpdate"}:
+            require_event_builder_source_facts(server_c)
+            fields = event_fields("message", partial_update=name == "eventUpdate")
 
         fields = annotate_fields(
             "serverMessage", name, "message",
@@ -1356,12 +1720,29 @@ def derive_server_messages(server_c: str) -> list[dict[str, Any]]:
                 "kind": "knownEmpty", "completeness": "complete",
                 "evidence": "bounded async emitter adds only the global method discriminator",
             }
+        if name == "eventAdd":
+            item["messageShape"] = {
+                "kind": "fields",
+                "completeness": "complete",
+                "evidence": "bounded current htsp_build_event field catalog",
+            }
+        if name == "eventUpdate":
+            item["messageShape"] = {
+                "kind": "fields",
+                "completeness": "partial",
+                "evidence": (
+                    "pinned current eventUpdate call sites use the shared full "
+                    "htsp_build_event snapshot; compatibility remains partial by eventId"
+                ),
+            }
         if name == "descrambleInfo":
             item["docStatus"] = "missing-from-official-server-message-page"
             item["notes"] = [
                 "Source returns early when htsp_version < 24 or anonymize is set."
             ]
-        if name.endswith("Update"):
+        if name == "eventUpdate":
+            item["notes"] = [EVENT_UPDATE_NOTE]
+        elif name.endswith("Update"):
             item["notes"] = list(item.get("notes") or []) + [
                 "Update messages reuse Add builders; non-key fields are effectively optional."
             ]
@@ -1401,7 +1782,7 @@ def scan_sdk_coverage(
     """Exact-literal coverage over SDK production main sources.
 
     Scans htsp plus playback production main trees so the accepted
-    23-referenced / 22-outgoing / 23-handled metrics remain checkable.
+    24-referenced / 23-outgoing / 23-handled metrics remain checkable.
     Tests and non-production fixtures are excluded.
     """
     method_set = set(client_method_names)
@@ -1674,8 +2055,14 @@ def build_spec(
             ("event", {
                 "kind": "reference",
                 "target": "serverMessage:eventAdd",
-                "completeness": "partial",
+                "completeness": "complete",
                 "evidence": "htsp_build_event is shared with eventAdd/getEvent/getEvents",
+            }),
+            ("str", {
+                "kind": "scalar",
+                "wireType": "str",
+                "completeness": "complete",
+                "evidence": "string_list_serialize list element type",
             }),
             ("u32", {
                 "kind": "scalar",
@@ -1694,6 +2081,10 @@ def build_spec(
             ("hbbtvDynamic", {
                 "kind": "object", "completeness": "opaque",
                 "evidence": "current channel service hbbtv data is dynamic and deliberately bounded opaque",
+            }),
+            ("eventCreditsDynamic", {
+                "kind": "object", "completeness": "opaque",
+                "evidence": "current event credits payload is dynamically shaped and deliberately opaque",
             }),
             ("service", {
                 "kind": "object", "completeness": "complete",
@@ -1795,7 +2186,24 @@ def _minimal_server_c(
     )
     handlers = []
     for name, handler, _access in methods:
-        request_field = "channelId" if name == "getChannel" else "demoField"
+        if name == "getChannel":
+            request_lines = '  htsmsg_get_u32(in, "channelId", &v);'
+            reply_lines = '  htsmsg_add_u32(r, "demoReply", v);\n  return r;'
+        elif name == "getEvent":
+            request_lines = (
+                '  uint32_t eventId;\n'
+                '  const char *lang;\n'
+                '  void *e;\n'
+                '  if (htsmsg_get_u32(in, "eventId", &eventId))\n'
+                '    return htsp_error("Invalid arguments");\n'
+                '  lang = htsmsg_get_str(in, "language") ?: htsp->htsp_language;\n'
+                '  if (!(e = epg_broadcast_find_by_id(eventId)))\n'
+                '    return htsp_error("Event does not exist");'
+            )
+            reply_lines = '  return htsp_build_event(e, NULL, lang, 0, htsp);'
+        else:
+            request_lines = '  htsmsg_get_u32(in, "demoField", &v);'
+            reply_lines = '  htsmsg_add_u32(r, "demoReply", v);\n  return r;'
         handlers.append(
             f"""
 static htsmsg_t *
@@ -1803,10 +2211,9 @@ static htsmsg_t *
 {{
   uint32_t v;
   htsmsg_t *r = htsmsg_create_map();
-  if(!htsmsg_get_u32(in, "{request_field}", &v))
-    htsmsg_add_u32(r, "demoReply", v);
+{request_lines}
+{reply_lines}
   (void)htsp; (void)name_{name};
-  return r;
 }}
 """.replace(f"(void)name_{name};", "")
         )
@@ -1838,7 +2245,17 @@ static void emit_all(void) {
   (void)"dvrEntryAdd"; (void)"dvrEntryUpdate";
   (void)"autorecEntryAdd"; (void)"autorecEntryUpdate";
   (void)"timerecEntryAdd"; (void)"timerecEntryUpdate";
-  (void)"eventAdd"; (void)"eventUpdate";
+}
+static void _htsp_event_update(void *e, const char *method, htsmsg_t *msg) {
+  htsmsg_t *m = msg ? htsmsg_copy(msg)
+                    : htsp_build_event(e, method, "eng", 0, 0);
+  (void)m;
+}
+static void htsp_event_add(void *e) {
+  _htsp_event_update(e, "eventAdd", 0);
+}
+static void htsp_event_update(void *e) {
+  _htsp_event_update(e, "eventUpdate", 0);
 }
 static htsmsg_t *htsp_build_channel(void *ch, const char *method, void *htsp) {
   htsmsg_t *out = htsmsg_create_map();
@@ -1887,9 +2304,69 @@ static htsmsg_t *htsp_build_timerecentry(void *htsp, void *dte, const char *meth
   htsmsg_add_str(out, "method", method);
   return out;
 }
+static void htsp_serialize_epnum(htsmsg_t *out, void *epnum, const char *textname) {
+  if (has_episode_num(epnum)) {
+    htsmsg_add_u32(out, "seasonNumber", 1);
+    htsmsg_add_u32(out, "seasonCount", 1);
+    htsmsg_add_u32(out, "episodeNumber", 1);
+    htsmsg_add_u32(out, "episodeCount", 1);
+    htsmsg_add_u32(out, "partNumber", 1);
+    htsmsg_add_u32(out, "partCount", 1);
+    htsmsg_add_str(out, textname ?: "episodeOnscreen", "S1E1");
+  }
+}
 static htsmsg_t *htsp_build_event(void *e, const char *method, const char *lang, long update, void *htsp) {
-  htsmsg_t *out = htsmsg_create_map();
+  htsmsg_t *out;
+  void *epnum = e;
+  if (update && is_stale(e)) return NULL;
+  out = htsmsg_create_map();
   htsmsg_add_u32(out, "eventId", 1);
+  if (has_channel(e)) htsmsg_add_u32(out, "channelId", 1);
+  htsmsg_add_s64(out, "start", 1);
+  htsmsg_add_s64(out, "stop", 2);
+  if (has_title(e)) htsmsg_add_str(out, "title", "title");
+  if (has_long_text(e)) {
+    if (is_legacy(htsp)) {
+      if (has_description(e)) {
+        htsmsg_add_str(out, "description", "description");
+        if (has_summary(e)) htsmsg_add_str(out, "summary", "summary");
+        if (has_subtitle(e)) htsmsg_add_str(out, "subtitle", "subtitle");
+      } else if (has_summary(e)) {
+        htsmsg_add_str(out, "description", "summary");
+        if (has_subtitle(e)) htsmsg_add_str(out, "subtitle", "subtitle");
+      } else if (has_subtitle(e)) {
+        htsmsg_add_str(out, "description", "subtitle");
+      }
+    } else {
+      if (has_subtitle(e)) htsmsg_add_str(out, "subtitle", "subtitle");
+      if (has_summary(e)) htsmsg_add_str(out, "summary", "summary");
+      if (has_description(e)) htsmsg_add_str(out, "description", "description");
+    }
+  }
+  if (has_credits(e)) htsmsg_add_msg(out, "credits", htsmsg_create_map());
+  if (has_category(e)) string_list_serialize(0, out, "category");
+  if (has_keyword(e)) string_list_serialize(0, out, "keyword");
+  if (has_series(e)) htsmsg_add_str(out, "serieslinkUri", "series");
+  if (e->episodelink && strncasecmp(e->episodelink->uri, "tvh://", 6))
+    htsmsg_add_str(out, "episodeUri", "episode");
+  // htsmsg_add_u32(out, "commentedLineField", 1);
+  /* htsmsg_add_str(out, "commentedBlockField", "misleading"); */
+  (void)"escaped \\\" // literal";
+  (void)'\\'';
+  if (has_content(e)) htsmsg_add_u32(out, "contentType", 1);
+  if (has_age(e)) htsmsg_add_u32(out, "ageRating", 1);
+  if (has_label(e)) htsmsg_add_str(out, "ratingLabel", "label");
+  if (has_icon(e)) htsmsg_add_str(out, "ratingIcon", "icon");
+  if (has_authority(e)) htsmsg_add_str(out, "ratingAuthority", "authority");
+  if (has_country(e)) htsmsg_add_str(out, "ratingCountry", "country");
+  if (has_stars(e)) htsmsg_add_u32(out, "starRating", 1);
+  if (has_year(e)) htsmsg_add_u32(out, "copyrightYear", 2026);
+  if (has_first_aired(e)) htsmsg_add_s64(out, "firstAired", 1);
+  if (is_new(e)) htsmsg_add_u32(out, "isNew", 1);
+  htsp_serialize_epnum(out, &epnum, NULL);
+  if (has_image(e)) htsmsg_add_str(out, "image", "image");
+  if (has_dvr(e)) htsmsg_add_u32(out, "dvrId", 1);
+  if (has_next(e)) htsmsg_add_u32(out, "nextEventId", 2);
   htsmsg_add_str(out, "method", method);
   return out;
 }
@@ -1920,6 +2397,28 @@ def self_test() -> None:
     def check(name: str, cond: bool, detail: str = "") -> None:
         if not cond:
             failures.append(f"{name}: {detail}" if detail else name)
+
+    comment_fixture = (
+        'const char *uri = "tvh://episode"; // remove line comment\n'
+        'const char *escaped = "quote: \\\" and slash: //"; /* remove block\n'
+        'comment while preserving lines */ char quote = \'\\\'\';\n'
+    )
+    stripped_fixture = strip_c_comments(comment_fixture)
+    check("c-comments-preserve-uri-literal", '"tvh://episode"' in stripped_fixture)
+    check(
+        "c-comments-preserve-escaped-literals",
+        '"quote: \\\" and slash: //"' in stripped_fixture and "'\\''" in stripped_fixture,
+    )
+    check(
+        "c-comments-remove-real-comments",
+        "remove line comment" not in stripped_fixture
+        and "remove block" not in stripped_fixture
+        and "comment while preserving lines" not in stripped_fixture,
+    )
+    check(
+        "c-comments-preserve-line-structure",
+        stripped_fixture.count("\n") == comment_fixture.count("\n"),
+    )
 
     # Regression contract for the predecessor artifacts and unsafe helper API.
     # These checks intentionally exercise facts, not inventory counts.
@@ -1981,7 +2480,7 @@ def self_test() -> None:
             live_coverage["clientMethods"]["referencedCount"],
             live_coverage["clientMethods"]["outgoingRequestCount"],
             live_coverage["serverMessages"]["handledCount"],
-        ) == (23, 22, 23),
+        ) == (24, 23, 23),
         str(live_coverage.get("metrics")),
     )
     check(
@@ -2019,10 +2518,55 @@ def self_test() -> None:
             live_coverage["clientMethods"]["referencedCount"],
             live_coverage["clientMethods"]["outgoingRequestCount"],
             live_coverage["serverMessages"]["handledCount"],
-        ) == (23, 22, 23)
+        ) == (24, 23, 23)
         and "getChannel" in live_coverage["clientMethods"]["referenced"]
         and "getChannel" in live_coverage["clientMethods"]["outgoingRequests"],
         str(live_coverage.get("metrics")),
+    )
+    get_event = methods_by_name["getEvent"]
+    check(
+        "getEvent-exact-request-shape",
+        [(field["name"], field["type"], field["presence"]) for field in get_event["requestFields"]]
+        == [("eventId", "u32", "required"), ("language", "str", "optional")]
+        and get_event.get("requestShape", {}).get("completeness") == "complete",
+    )
+    check(
+        "getEvent-complete-reply-shape",
+        get_event.get("replyShape", {}).get("completeness") == "complete"
+        and [(field["name"], field["type"], field["presence"], field.get("shapeRef")) for field in get_event["replyFields"]]
+        == [(name, wire_type, presence, shape_ref) for name, wire_type, presence, shape_ref, _evidence in EVENT_FIELD_CATALOG],
+    )
+    check(
+        "getEvent-current-production-coverage",
+        "getEvent" in live_coverage["clientMethods"]["referenced"]
+        and "getEvent" in live_coverage["clientMethods"]["outgoingRequests"],
+    )
+    check(
+        "eventAdd-complete-eventUpdate-partial",
+        messages_by_name["eventAdd"].get("messageShape", {}).get("completeness") == "complete"
+        and messages_by_name["eventUpdate"].get("messageShape", {}).get("completeness") == "partial",
+    )
+    event_update = messages_by_name["eventUpdate"]
+    check(
+        "eventUpdate-only-eventId-required",
+        [
+            field["name"]
+            for field in event_update["fields"]
+            if field["presence"] == "required"
+        ] == ["eventId"]
+        and all(
+            field["presence"] == "optional"
+            for field in event_update["fields"]
+            if field["name"] != "eventId"
+        ),
+    )
+    check(
+        "eventUpdate-exact-shared-builder-note",
+        event_update.get("notes") == [EVENT_UPDATE_NOTE],
+    )
+    check(
+        "event-source-doc-mismatch-limitation",
+        "event-fields-source-docs-mismatch" in limitation_ids,
     )
 
     with tempfile.TemporaryDirectory(prefix="htsp-pin-regression-") as pin_tmp:
@@ -2094,7 +2638,11 @@ def self_test() -> None:
     ]
     # unique handler names
     method_rows = [
-        (name, f"htsp_method_{idx}", "ACCESS_ANONYMOUS")
+        (
+            name,
+            "htsp_method_getEvent" if name == "getEvent" else f"htsp_method_{idx}",
+            "ACCESS_ANONYMOUS",
+        )
         for idx, name in enumerate(EXPECTED_CLIENT_METHODS)
     ]
     server_c = _minimal_server_c(method_rows, proto=44)
@@ -2147,6 +2695,56 @@ def self_test() -> None:
         )
         check("proto", spec["upstream"]["htspProtoVersion"] == 44)
 
+        extra_event_field_mutations = tuple(
+            (
+                f"reject-added-event-builder-output-field-{type_token}",
+                server_c.replace(
+                    '  if (has_next(e)) htsmsg_add_u32(out, "nextEventId", 2);',
+                    '  if (has_next(e)) htsmsg_add_u32(out, "nextEventId", 2);\n'
+                    f'  htsmsg_add_{type_token}(out, "extraEventFact_{type_token}", 1);',
+                    1,
+                ),
+                f"unexpected bounded source field extraEventFact_{type_token}",
+            )
+            for type_token in ADD_TYPE_MAP
+        ) + (
+            (
+                "reject-added-event-builder-output-field-list",
+                server_c.replace(
+                    '  if (has_next(e)) htsmsg_add_u32(out, "nextEventId", 2);',
+                    '  if (has_next(e)) htsmsg_add_u32(out, "nextEventId", 2);\n'
+                    '  string_list_serialize(0, out, "extraEventFact_list");',
+                    1,
+                ),
+                "unexpected bounded source field extraEventFact_list",
+            ),
+        )
+        set_event_field_mutations = tuple(
+            (
+                f"reject-set-event-builder-output-field-{type_token}",
+                server_c.replace(
+                    '  if (has_next(e)) htsmsg_add_u32(out, "nextEventId", 2);',
+                    '  if (has_next(e)) htsmsg_add_u32(out, "nextEventId", 2);\n'
+                    f'  htsmsg_set_{type_token}(out, "extraEventSetFact_{type_token}", 1);',
+                    1,
+                ),
+                f"unexpected bounded source field extraEventSetFact_{type_token}",
+            )
+            for type_token in ADD_TYPE_MAP
+        ) + (
+            (
+                "reject-wrong-type-set-event-builder-field",
+                server_c.replace(
+                    '  if (has_title(e)) htsmsg_add_str(out, "title", "title");',
+                    '  if (has_title(e)) {\n'
+                    '    htsmsg_add_str(out, "title", "title");\n'
+                    '    htsmsg_set_u32(out, "title", 1);\n'
+                    '  }',
+                    1,
+                ),
+                "wrong bounded source type for title",
+            ),
+        )
         for label, mutated_c, expected_error in (
             (
                 "reject-getChannel-request-source-drift",
@@ -2162,7 +2760,196 @@ def self_test() -> None:
                 server_c.replace('  htsmsg_add_u32(svc, "content", 0);\n', "", 1),
                 "bounded source field content",
             ),
-        ):
+            (
+                "reject-getEvent-request-source-drift",
+                server_c.replace(
+                    'htsmsg_get_u32(in, "eventId"',
+                    'htsmsg_get_u32(in, "staleEventId"',
+                    1,
+                ),
+                "guarded required u32 eventId",
+            ),
+            (
+                "reject-omitted-event-episode-helper-field",
+                server_c.replace('  htsmsg_add_u32(out, "seasonNumber", 1);\n', "", 1),
+                "bounded source field seasonNumber",
+            ),
+            (
+                "reject-broken-episodeOnscreen-helper-fallback",
+                server_c.replace(
+                    'textname ?: "episodeOnscreen"',
+                    'textname ?: "wrongEpisodeOnscreen"',
+                    1,
+                ),
+                "episodeOnscreen fallback",
+            ),
+            (
+                "reject-non-null-episode-helper-builder-argument",
+                server_c.replace(
+                    'htsp_serialize_epnum(out, &epnum, NULL);',
+                    'htsp_serialize_epnum(out, &epnum, "dynamicOnscreen");',
+                    1,
+                ),
+                "episode-number helper call",
+            ),
+            (
+                "reject-dynamic-episode-helper-builder-argument",
+                server_c.replace(
+                    'htsp_serialize_epnum(out, &epnum, NULL);',
+                    'htsp_serialize_epnum(out, &epnum, method);',
+                    1,
+                ),
+                "episode-number helper call",
+            ),
+            (
+                "reject-wrong-episodeOnscreen-wire-type",
+                server_c.replace(
+                    'htsmsg_add_str(out, textname ?: "episodeOnscreen", "S1E1");',
+                    'htsmsg_add_u32(out, textname ?: "episodeOnscreen", 1);',
+                    1,
+                ),
+                "wrong bounded source type for episodeOnscreen",
+            ),
+            (
+                "reject-misleading-commented-out-output-field",
+                server_c.replace(
+                    '  if (has_next(e)) htsmsg_add_u32(out, "nextEventId", 2);',
+                    '  /* htsmsg_add_u32(out, "nextEventId", 2); */',
+                    1,
+                ),
+                "missing bounded source field nextEventId",
+            ),
+            (
+                "reject-getEvent-optionalized-eventId-source",
+                server_c.replace(
+                    '  if (htsmsg_get_u32(in, "eventId", &eventId))\n'
+                    '    return htsp_error("Invalid arguments");',
+                    '  htsmsg_get_u32(in, "eventId", &eventId);',
+                    1,
+                ),
+                "guarded required u32 eventId",
+            ),
+            (
+                "reject-getEvent-required-language-source",
+                server_c.replace(
+                    '  lang = htsmsg_get_str(in, "language") ?: htsp->htsp_language;',
+                    '  lang = htsmsg_get_str(in, "language");\n'
+                    '  if (!lang) return htsp_error("Invalid arguments");',
+                    1,
+                ),
+                "optional language fallback",
+            ),
+            (
+                "reject-getEvent-removed-returned-builder-result",
+                server_c.replace(
+                    '  return htsp_build_event(e, NULL, lang, 0, htsp);',
+                    '  return r;',
+                    1,
+                ),
+                "exactly one returned htsp_build_event result",
+            ),
+            (
+                "reject-getEvent-replaced-returned-builder-result",
+                server_c.replace(
+                    '  return htsp_build_event(e, NULL, lang, 0, htsp);',
+                    '  return htsp_build_channel(e, NULL, htsp);',
+                    1,
+                ),
+                "exactly one returned htsp_build_event result",
+            ),
+            (
+                "reject-getEvent-multiplied-builder-invocation",
+                server_c.replace(
+                    '  return htsp_build_event(e, NULL, lang, 0, htsp);',
+                    '  (void)htsp_build_event(e, NULL, lang, 0, htsp);\n'
+                    '  return htsp_build_event(e, NULL, lang, 0, htsp);',
+                    1,
+                ),
+                "exactly one returned htsp_build_event result",
+            ),
+            (
+                "reject-required-event-field-made-conditional",
+                server_c.replace(
+                    '  htsmsg_add_s64(out, "start", 1);',
+                    '  if (has_start(e)) htsmsg_add_s64(out, "start", 1);',
+                    1,
+                ),
+                "required field start became conditional",
+            ),
+            (
+                "reject-conditional-event-field-made-unconditional",
+                server_c.replace(
+                    '  if (has_channel(e)) htsmsg_add_u32(out, "channelId", 1);',
+                    '  htsmsg_add_u32(out, "channelId", 1);',
+                    1,
+                ),
+                "conditional field channelId became unconditional",
+            ),
+            (
+                "reject-wrong-type-in-alternative-event-emit-site",
+                server_c.replace(
+                    '        htsmsg_add_str(out, "description", "summary");',
+                    '        htsmsg_add_u32(out, "description", 1);',
+                    1,
+                ),
+                "wrong bounded source type for description",
+            ),
+            (
+                "reject-event-helper-final-result-removal",
+                server_c.replace(
+                    '  if (has_next(e)) htsmsg_add_u32(out, "nextEventId", 2);\n'
+                    '  htsmsg_add_str(out, "method", method);\n'
+                    '  return out;',
+                    '  if (has_next(e)) htsmsg_add_u32(out, "nextEventId", 2);\n'
+                    '  htsmsg_add_str(out, "method", method);\n'
+                    '  return NULL;',
+                    1,
+                ),
+                "return one bounded result variable",
+            ),
+            (
+                "reject-event-helper-method-propagation",
+                server_c.replace(
+                    ': htsp_build_event(e, method, "eng", 0, 0);',
+                    ': htsp_build_event(e, NULL, "eng", 0, 0);',
+                    1,
+                ),
+                "event update helper must propagate method",
+            ),
+            (
+                "reject-eventAdd-wrapper-method-propagation",
+                server_c.replace(
+                    '_htsp_event_update(e, "eventAdd", 0);',
+                    '_htsp_event_update(e, "wrongEventAdd", 0);',
+                    1,
+                ),
+                "eventAdd wrapper must propagate method",
+            ),
+            (
+                "reject-eventUpdate-wrapper-method-propagation",
+                server_c.replace(
+                    '_htsp_event_update(e, "eventUpdate", 0);',
+                    '_htsp_event_update(e, "wrongEventUpdate", 0);',
+                    1,
+                ),
+                "eventUpdate wrapper must propagate method",
+            ),
+            (
+                "reject-unrelated-helper-satisfying-episode-field-omission",
+                server_c.replace(
+                    '    htsmsg_add_u32(out, "seasonNumber", 1);\n',
+                    "",
+                    1,
+                ) + (
+                    '\nstatic int has_next(void *e) {\n'
+                    '  htsmsg_t *out = htsmsg_create_map();\n'
+                    '  htsmsg_add_u32(out, "seasonNumber", 1);\n'
+                    '  return e != 0;\n'
+                    '}\n'
+                ),
+                "exactly one bounded episode-number helper",
+            ),
+        ) + extra_event_field_mutations + set_event_field_mutations:
             mutated_data, mutated_sha, mutated_len = _pin_bytes_and_sha(mutated_c)
             (root / "src" / "htsp_server.c").write_bytes(mutated_data)
             mutated_manifest = json.loads(json.dumps(manifest))

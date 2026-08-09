@@ -179,8 +179,14 @@
     "event": {
       "kind": "reference",
       "target": "serverMessage:eventAdd",
-      "completeness": "partial",
+      "completeness": "complete",
       "evidence": "htsp_build_event is shared with eventAdd/getEvent/getEvents"
+    },
+    "str": {
+      "kind": "scalar",
+      "wireType": "str",
+      "completeness": "complete",
+      "evidence": "string_list_serialize list element type"
     },
     "u32": {
       "kind": "scalar",
@@ -202,6 +208,11 @@
       "kind": "object",
       "completeness": "opaque",
       "evidence": "current channel service hbbtv data is dynamic and deliberately bounded opaque"
+    },
+    "eventCreditsDynamic": {
+      "kind": "object",
+      "completeness": "opaque",
+      "evidence": "current event credits payload is dynamically shaped and deliberately opaque"
     },
     "service": {
       "kind": "object",
@@ -994,9 +1005,9 @@
           "name": "eventId",
           "type": "u32",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_u32",
-          "confidence": "mechanical",
+          "presence": "required",
+          "evidence": "htsp_method_getEvent requires decoded u32 eventId",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 1
         },
@@ -1004,9 +1015,9 @@
           "name": "language",
           "type": "str",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_str",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "htsp_method_getEvent uses supplied language or connection language",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 2
         }
@@ -1016,9 +1027,9 @@
           "name": "eventId",
           "type": "u32",
           "direction": "reply",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_u32",
-          "confidence": "mechanical",
+          "presence": "required",
+          "evidence": "htsp_build_event unconditional field",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 1
         },
@@ -1026,19 +1037,20 @@
           "name": "channelId",
           "type": "u32",
           "direction": "reply",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_u32",
-          "confidence": "mechanical",
+          "presence": "conditional",
+          "evidence": "htsp_build_event channel branch",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
+          "condition": "emitted when the corresponding current event value is available",
           "order": 2
         },
         {
           "name": "start",
           "type": "s64",
           "direction": "reply",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_s64",
-          "confidence": "mechanical",
+          "presence": "required",
+          "evidence": "htsp_build_event unconditional field",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 3
         },
@@ -1046,9 +1058,9 @@
           "name": "stop",
           "type": "s64",
           "direction": "reply",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_s64",
-          "confidence": "mechanical",
+          "presence": "required",
+          "evidence": "htsp_build_event unconditional field",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 4
         },
@@ -1056,216 +1068,338 @@
           "name": "title",
           "type": "str",
           "direction": "reply",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_str",
-          "confidence": "mechanical",
+          "presence": "conditional",
+          "evidence": "htsp_build_event localized title branch",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
+          "condition": "emitted when the corresponding current event value is available",
           "order": 5
         },
         {
-          "name": "description",
+          "name": "subtitle",
           "type": "str",
           "direction": "reply",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_str",
-          "confidence": "mechanical",
+          "presence": "conditional",
+          "evidence": "htsp_build_event localized subtitle branch",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
+          "condition": "emitted when the corresponding current event value is available",
           "order": 6
         },
         {
           "name": "summary",
           "type": "str",
           "direction": "reply",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_str",
-          "confidence": "mechanical",
+          "presence": "conditional",
+          "evidence": "htsp_build_event localized summary branch",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
+          "condition": "emitted when the corresponding current event value is available",
           "order": 7
         },
         {
-          "name": "subtitle",
+          "name": "description",
           "type": "str",
           "direction": "reply",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_str",
-          "confidence": "mechanical",
+          "presence": "conditional",
+          "evidence": "htsp_build_event localized description branch",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
+          "condition": "emitted when the corresponding current event value is available",
           "order": 8
         },
         {
           "name": "credits",
           "type": "msg",
           "direction": "reply",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_msg",
-          "confidence": "mechanical",
+          "presence": "conditional",
+          "evidence": "htsp_build_event credits branch",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
+          "condition": "emitted when the corresponding current event value is available",
+          "shapeRef": "eventCreditsDynamic",
           "order": 9
+        },
+        {
+          "name": "category",
+          "type": "list",
+          "direction": "reply",
+          "presence": "conditional",
+          "evidence": "htsp_build_event string_list_serialize category branch",
+          "confidence": "mechanical+annotated",
+          "minVersion": null,
+          "condition": "emitted when the corresponding current event value is available",
+          "shapeRef": "str",
+          "order": 10
+        },
+        {
+          "name": "keyword",
+          "type": "list",
+          "direction": "reply",
+          "presence": "conditional",
+          "evidence": "htsp_build_event string_list_serialize keyword branch",
+          "confidence": "mechanical+annotated",
+          "minVersion": null,
+          "condition": "emitted when the corresponding current event value is available",
+          "shapeRef": "str",
+          "order": 11
         },
         {
           "name": "serieslinkUri",
           "type": "str",
           "direction": "reply",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_str",
-          "confidence": "mechanical",
+          "presence": "conditional",
+          "evidence": "htsp_build_event series-link branch",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
-          "order": 10
+          "condition": "emitted when the corresponding current event value is available",
+          "order": 12
         },
         {
           "name": "episodeUri",
           "type": "str",
           "direction": "reply",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_str",
-          "confidence": "mechanical",
+          "presence": "conditional",
+          "evidence": "htsp_build_event episode-URI branch",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
-          "order": 11
+          "condition": "emitted when the corresponding current event value is available",
+          "order": 13
         },
         {
           "name": "contentType",
           "type": "u32",
           "direction": "reply",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_u32",
-          "confidence": "mechanical",
+          "presence": "conditional",
+          "evidence": "htsp_build_event content-type branch",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
-          "order": 12
+          "condition": "emitted when the corresponding current event value is available",
+          "order": 14
         },
         {
           "name": "ageRating",
           "type": "u32",
           "direction": "reply",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_u32",
-          "confidence": "mechanical",
+          "presence": "conditional",
+          "evidence": "htsp_build_event age-rating branch",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
-          "order": 13
+          "condition": "emitted when the corresponding current event value is available",
+          "order": 15
         },
         {
           "name": "ratingLabel",
           "type": "str",
           "direction": "reply",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_str",
-          "confidence": "mechanical",
+          "presence": "conditional",
+          "evidence": "htsp_build_event rating-label branch",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
-          "order": 14
+          "condition": "emitted when the corresponding current event value is available",
+          "order": 16
         },
         {
           "name": "ratingIcon",
           "type": "str",
           "direction": "reply",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_str",
-          "confidence": "mechanical",
+          "presence": "conditional",
+          "evidence": "htsp_build_event rating-icon branch",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
-          "order": 15
+          "condition": "emitted when the corresponding current event value is available",
+          "order": 17
         },
         {
           "name": "ratingAuthority",
           "type": "str",
           "direction": "reply",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_str",
-          "confidence": "mechanical",
+          "presence": "conditional",
+          "evidence": "htsp_build_event rating-authority branch",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
-          "order": 16
+          "condition": "emitted when the corresponding current event value is available",
+          "order": 18
         },
         {
           "name": "ratingCountry",
           "type": "str",
           "direction": "reply",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_str",
-          "confidence": "mechanical",
+          "presence": "conditional",
+          "evidence": "htsp_build_event rating-country branch",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
-          "order": 17
+          "condition": "emitted when the corresponding current event value is available",
+          "order": 19
         },
         {
           "name": "starRating",
           "type": "u32",
           "direction": "reply",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_u32",
-          "confidence": "mechanical",
+          "presence": "conditional",
+          "evidence": "htsp_build_event star-rating branch",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
-          "order": 18
+          "condition": "emitted when the corresponding current event value is available",
+          "order": 20
         },
         {
           "name": "copyrightYear",
           "type": "u32",
           "direction": "reply",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_u32",
-          "confidence": "mechanical",
+          "presence": "conditional",
+          "evidence": "htsp_build_event copyright-year branch",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
-          "order": 19
+          "condition": "emitted when the corresponding current event value is available",
+          "order": 21
         },
         {
           "name": "firstAired",
           "type": "s64",
           "direction": "reply",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_s64",
-          "confidence": "mechanical",
+          "presence": "conditional",
+          "evidence": "htsp_build_event first-aired branch",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
-          "order": 20
+          "condition": "emitted when the corresponding current event value is available",
+          "order": 22
         },
         {
           "name": "isNew",
           "type": "u32",
           "direction": "reply",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_u32",
-          "confidence": "mechanical",
+          "presence": "conditional",
+          "evidence": "htsp_build_event new-programme branch",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
-          "order": 21
+          "condition": "emitted when the corresponding current event value is available",
+          "order": 23
+        },
+        {
+          "name": "seasonNumber",
+          "type": "u32",
+          "direction": "reply",
+          "presence": "conditional",
+          "evidence": "htsp_build_event episode-number helper",
+          "confidence": "mechanical+annotated",
+          "minVersion": null,
+          "condition": "emitted when the corresponding current event value is available",
+          "order": 24
+        },
+        {
+          "name": "seasonCount",
+          "type": "u32",
+          "direction": "reply",
+          "presence": "conditional",
+          "evidence": "htsp_build_event episode-number helper",
+          "confidence": "mechanical+annotated",
+          "minVersion": null,
+          "condition": "emitted when the corresponding current event value is available",
+          "order": 25
+        },
+        {
+          "name": "episodeNumber",
+          "type": "u32",
+          "direction": "reply",
+          "presence": "conditional",
+          "evidence": "htsp_build_event episode-number helper",
+          "confidence": "mechanical+annotated",
+          "minVersion": null,
+          "condition": "emitted when the corresponding current event value is available",
+          "order": 26
+        },
+        {
+          "name": "episodeCount",
+          "type": "u32",
+          "direction": "reply",
+          "presence": "conditional",
+          "evidence": "htsp_build_event episode-number helper",
+          "confidence": "mechanical+annotated",
+          "minVersion": null,
+          "condition": "emitted when the corresponding current event value is available",
+          "order": 27
+        },
+        {
+          "name": "partNumber",
+          "type": "u32",
+          "direction": "reply",
+          "presence": "conditional",
+          "evidence": "htsp_build_event episode-number helper",
+          "confidence": "mechanical+annotated",
+          "minVersion": null,
+          "condition": "emitted when the corresponding current event value is available",
+          "order": 28
+        },
+        {
+          "name": "partCount",
+          "type": "u32",
+          "direction": "reply",
+          "presence": "conditional",
+          "evidence": "htsp_build_event episode-number helper",
+          "confidence": "mechanical+annotated",
+          "minVersion": null,
+          "condition": "emitted when the corresponding current event value is available",
+          "order": 29
+        },
+        {
+          "name": "episodeOnscreen",
+          "type": "str",
+          "direction": "reply",
+          "presence": "conditional",
+          "evidence": "htsp_build_event episode-number helper",
+          "confidence": "mechanical+annotated",
+          "minVersion": null,
+          "condition": "emitted when the corresponding current event value is available",
+          "order": 30
         },
         {
           "name": "image",
           "type": "str",
           "direction": "reply",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_str",
-          "confidence": "mechanical",
+          "presence": "conditional",
+          "evidence": "htsp_build_event image branch",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
-          "order": 22
+          "condition": "emitted when the corresponding current event value is available",
+          "order": 31
         },
         {
           "name": "dvrId",
           "type": "u32",
           "direction": "reply",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_u32",
-          "confidence": "mechanical",
+          "presence": "conditional",
+          "evidence": "htsp_build_event DVR branch",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
-          "order": 23
+          "condition": "emitted when the corresponding current event value is available",
+          "order": 32
         },
         {
           "name": "nextEventId",
           "type": "u32",
           "direction": "reply",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_u32",
-          "confidence": "mechanical",
+          "presence": "conditional",
+          "evidence": "htsp_build_event next-event branch",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
-          "order": 24
+          "condition": "emitted when the corresponding current event value is available",
+          "order": 33
         }
       ],
       "requestShape": {
         "kind": "fields",
-        "completeness": "partial",
-        "evidence": "bounded handler/helper extraction plus exact-pin annotations"
+        "completeness": "complete",
+        "evidence": "bounded htsp_method_getEvent accepts required eventId and optional language"
       },
       "replyShape": {
         "kind": "fields",
-        "completeness": "partial",
-        "evidence": "bounded handler/helper extraction plus exact-pin annotations"
+        "completeness": "complete",
+        "evidence": "bounded htsp_method_getEvent delegates its complete successful reply to htsp_build_event"
       },
       "sdk": {
-        "referenced": false,
-        "outgoingRequest": false
+        "referenced": true,
+        "outgoingRequest": true
       }
     },
     {
@@ -6734,9 +6868,9 @@
           "name": "eventId",
           "type": "u32",
           "direction": "message",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_u32",
-          "confidence": "mechanical",
+          "presence": "required",
+          "evidence": "htsp_build_event unconditional field",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 1
         },
@@ -6744,19 +6878,20 @@
           "name": "channelId",
           "type": "u32",
           "direction": "message",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_u32",
-          "confidence": "mechanical",
+          "presence": "conditional",
+          "evidence": "htsp_build_event channel branch",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
+          "condition": "emitted when the corresponding current event value is available",
           "order": 2
         },
         {
           "name": "start",
           "type": "s64",
           "direction": "message",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_s64",
-          "confidence": "mechanical",
+          "presence": "required",
+          "evidence": "htsp_build_event unconditional field",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 3
         },
@@ -6764,9 +6899,9 @@
           "name": "stop",
           "type": "s64",
           "direction": "message",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_s64",
-          "confidence": "mechanical",
+          "presence": "required",
+          "evidence": "htsp_build_event unconditional field",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 4
         },
@@ -6774,207 +6909,329 @@
           "name": "title",
           "type": "str",
           "direction": "message",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_str",
-          "confidence": "mechanical",
+          "presence": "conditional",
+          "evidence": "htsp_build_event localized title branch",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
+          "condition": "emitted when the corresponding current event value is available",
           "order": 5
         },
         {
-          "name": "description",
+          "name": "subtitle",
           "type": "str",
           "direction": "message",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_str",
-          "confidence": "mechanical",
+          "presence": "conditional",
+          "evidence": "htsp_build_event localized subtitle branch",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
+          "condition": "emitted when the corresponding current event value is available",
           "order": 6
         },
         {
           "name": "summary",
           "type": "str",
           "direction": "message",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_str",
-          "confidence": "mechanical",
+          "presence": "conditional",
+          "evidence": "htsp_build_event localized summary branch",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
+          "condition": "emitted when the corresponding current event value is available",
           "order": 7
         },
         {
-          "name": "subtitle",
+          "name": "description",
           "type": "str",
           "direction": "message",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_str",
-          "confidence": "mechanical",
+          "presence": "conditional",
+          "evidence": "htsp_build_event localized description branch",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
+          "condition": "emitted when the corresponding current event value is available",
           "order": 8
         },
         {
           "name": "credits",
           "type": "msg",
           "direction": "message",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_msg",
-          "confidence": "mechanical",
+          "presence": "conditional",
+          "evidence": "htsp_build_event credits branch",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
+          "condition": "emitted when the corresponding current event value is available",
+          "shapeRef": "eventCreditsDynamic",
           "order": 9
+        },
+        {
+          "name": "category",
+          "type": "list",
+          "direction": "message",
+          "presence": "conditional",
+          "evidence": "htsp_build_event string_list_serialize category branch",
+          "confidence": "mechanical+annotated",
+          "minVersion": null,
+          "condition": "emitted when the corresponding current event value is available",
+          "shapeRef": "str",
+          "order": 10
+        },
+        {
+          "name": "keyword",
+          "type": "list",
+          "direction": "message",
+          "presence": "conditional",
+          "evidence": "htsp_build_event string_list_serialize keyword branch",
+          "confidence": "mechanical+annotated",
+          "minVersion": null,
+          "condition": "emitted when the corresponding current event value is available",
+          "shapeRef": "str",
+          "order": 11
         },
         {
           "name": "serieslinkUri",
           "type": "str",
           "direction": "message",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_str",
-          "confidence": "mechanical",
+          "presence": "conditional",
+          "evidence": "htsp_build_event series-link branch",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
-          "order": 10
+          "condition": "emitted when the corresponding current event value is available",
+          "order": 12
         },
         {
           "name": "episodeUri",
           "type": "str",
           "direction": "message",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_str",
-          "confidence": "mechanical",
+          "presence": "conditional",
+          "evidence": "htsp_build_event episode-URI branch",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
-          "order": 11
+          "condition": "emitted when the corresponding current event value is available",
+          "order": 13
         },
         {
           "name": "contentType",
           "type": "u32",
           "direction": "message",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_u32",
-          "confidence": "mechanical",
+          "presence": "conditional",
+          "evidence": "htsp_build_event content-type branch",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
-          "order": 12
+          "condition": "emitted when the corresponding current event value is available",
+          "order": 14
         },
         {
           "name": "ageRating",
           "type": "u32",
           "direction": "message",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_u32",
-          "confidence": "mechanical",
+          "presence": "conditional",
+          "evidence": "htsp_build_event age-rating branch",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
-          "order": 13
+          "condition": "emitted when the corresponding current event value is available",
+          "order": 15
         },
         {
           "name": "ratingLabel",
           "type": "str",
           "direction": "message",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_str",
-          "confidence": "mechanical",
+          "presence": "conditional",
+          "evidence": "htsp_build_event rating-label branch",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
-          "order": 14
+          "condition": "emitted when the corresponding current event value is available",
+          "order": 16
         },
         {
           "name": "ratingIcon",
           "type": "str",
           "direction": "message",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_str",
-          "confidence": "mechanical",
+          "presence": "conditional",
+          "evidence": "htsp_build_event rating-icon branch",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
-          "order": 15
+          "condition": "emitted when the corresponding current event value is available",
+          "order": 17
         },
         {
           "name": "ratingAuthority",
           "type": "str",
           "direction": "message",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_str",
-          "confidence": "mechanical",
+          "presence": "conditional",
+          "evidence": "htsp_build_event rating-authority branch",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
-          "order": 16
+          "condition": "emitted when the corresponding current event value is available",
+          "order": 18
         },
         {
           "name": "ratingCountry",
           "type": "str",
           "direction": "message",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_str",
-          "confidence": "mechanical",
+          "presence": "conditional",
+          "evidence": "htsp_build_event rating-country branch",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
-          "order": 17
+          "condition": "emitted when the corresponding current event value is available",
+          "order": 19
         },
         {
           "name": "starRating",
           "type": "u32",
           "direction": "message",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_u32",
-          "confidence": "mechanical",
+          "presence": "conditional",
+          "evidence": "htsp_build_event star-rating branch",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
-          "order": 18
+          "condition": "emitted when the corresponding current event value is available",
+          "order": 20
         },
         {
           "name": "copyrightYear",
           "type": "u32",
           "direction": "message",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_u32",
-          "confidence": "mechanical",
+          "presence": "conditional",
+          "evidence": "htsp_build_event copyright-year branch",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
-          "order": 19
+          "condition": "emitted when the corresponding current event value is available",
+          "order": 21
         },
         {
           "name": "firstAired",
           "type": "s64",
           "direction": "message",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_s64",
-          "confidence": "mechanical",
+          "presence": "conditional",
+          "evidence": "htsp_build_event first-aired branch",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
-          "order": 20
+          "condition": "emitted when the corresponding current event value is available",
+          "order": 22
         },
         {
           "name": "isNew",
           "type": "u32",
           "direction": "message",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_u32",
-          "confidence": "mechanical",
+          "presence": "conditional",
+          "evidence": "htsp_build_event new-programme branch",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
-          "order": 21
+          "condition": "emitted when the corresponding current event value is available",
+          "order": 23
+        },
+        {
+          "name": "seasonNumber",
+          "type": "u32",
+          "direction": "message",
+          "presence": "conditional",
+          "evidence": "htsp_build_event episode-number helper",
+          "confidence": "mechanical+annotated",
+          "minVersion": null,
+          "condition": "emitted when the corresponding current event value is available",
+          "order": 24
+        },
+        {
+          "name": "seasonCount",
+          "type": "u32",
+          "direction": "message",
+          "presence": "conditional",
+          "evidence": "htsp_build_event episode-number helper",
+          "confidence": "mechanical+annotated",
+          "minVersion": null,
+          "condition": "emitted when the corresponding current event value is available",
+          "order": 25
+        },
+        {
+          "name": "episodeNumber",
+          "type": "u32",
+          "direction": "message",
+          "presence": "conditional",
+          "evidence": "htsp_build_event episode-number helper",
+          "confidence": "mechanical+annotated",
+          "minVersion": null,
+          "condition": "emitted when the corresponding current event value is available",
+          "order": 26
+        },
+        {
+          "name": "episodeCount",
+          "type": "u32",
+          "direction": "message",
+          "presence": "conditional",
+          "evidence": "htsp_build_event episode-number helper",
+          "confidence": "mechanical+annotated",
+          "minVersion": null,
+          "condition": "emitted when the corresponding current event value is available",
+          "order": 27
+        },
+        {
+          "name": "partNumber",
+          "type": "u32",
+          "direction": "message",
+          "presence": "conditional",
+          "evidence": "htsp_build_event episode-number helper",
+          "confidence": "mechanical+annotated",
+          "minVersion": null,
+          "condition": "emitted when the corresponding current event value is available",
+          "order": 28
+        },
+        {
+          "name": "partCount",
+          "type": "u32",
+          "direction": "message",
+          "presence": "conditional",
+          "evidence": "htsp_build_event episode-number helper",
+          "confidence": "mechanical+annotated",
+          "minVersion": null,
+          "condition": "emitted when the corresponding current event value is available",
+          "order": 29
+        },
+        {
+          "name": "episodeOnscreen",
+          "type": "str",
+          "direction": "message",
+          "presence": "conditional",
+          "evidence": "htsp_build_event episode-number helper",
+          "confidence": "mechanical+annotated",
+          "minVersion": null,
+          "condition": "emitted when the corresponding current event value is available",
+          "order": 30
         },
         {
           "name": "image",
           "type": "str",
           "direction": "message",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_str",
-          "confidence": "mechanical",
+          "presence": "conditional",
+          "evidence": "htsp_build_event image branch",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
-          "order": 22
+          "condition": "emitted when the corresponding current event value is available",
+          "order": 31
         },
         {
           "name": "dvrId",
           "type": "u32",
           "direction": "message",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_u32",
-          "confidence": "mechanical",
+          "presence": "conditional",
+          "evidence": "htsp_build_event DVR branch",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
-          "order": 23
+          "condition": "emitted when the corresponding current event value is available",
+          "order": 32
         },
         {
           "name": "nextEventId",
           "type": "u32",
           "direction": "message",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_u32",
-          "confidence": "mechanical",
+          "presence": "conditional",
+          "evidence": "htsp_build_event next-event branch",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
-          "order": 24
+          "condition": "emitted when the corresponding current event value is available",
+          "order": 33
         }
       ],
       "messageShape": {
         "kind": "fields",
-        "completeness": "partial",
-        "evidence": "bounded handler/helper extraction plus exact-pin annotations"
+        "completeness": "complete",
+        "evidence": "bounded current htsp_build_event field catalog"
       },
       "sdk": {
         "handled": true
@@ -6989,9 +7246,9 @@
           "name": "eventId",
           "type": "u32",
           "direction": "message",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_u32",
-          "confidence": "mechanical",
+          "presence": "required",
+          "evidence": "htsp_build_event unconditional field",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 1
         },
@@ -6999,19 +7256,20 @@
           "name": "channelId",
           "type": "u32",
           "direction": "message",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_u32",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "htsp_build_event channel branch",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
+          "condition": "emitted when the corresponding current event value is available",
           "order": 2
         },
         {
           "name": "start",
           "type": "s64",
           "direction": "message",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_s64",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "htsp_build_event unconditional field",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 3
         },
@@ -7019,9 +7277,9 @@
           "name": "stop",
           "type": "s64",
           "direction": "message",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_s64",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "htsp_build_event unconditional field",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 4
         },
@@ -7029,210 +7287,332 @@
           "name": "title",
           "type": "str",
           "direction": "message",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_str",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "htsp_build_event localized title branch",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
+          "condition": "emitted when the corresponding current event value is available",
           "order": 5
         },
         {
-          "name": "description",
+          "name": "subtitle",
           "type": "str",
           "direction": "message",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_str",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "htsp_build_event localized subtitle branch",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
+          "condition": "emitted when the corresponding current event value is available",
           "order": 6
         },
         {
           "name": "summary",
           "type": "str",
           "direction": "message",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_str",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "htsp_build_event localized summary branch",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
+          "condition": "emitted when the corresponding current event value is available",
           "order": 7
         },
         {
-          "name": "subtitle",
+          "name": "description",
           "type": "str",
           "direction": "message",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_str",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "htsp_build_event localized description branch",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
+          "condition": "emitted when the corresponding current event value is available",
           "order": 8
         },
         {
           "name": "credits",
           "type": "msg",
           "direction": "message",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_msg",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "htsp_build_event credits branch",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
+          "condition": "emitted when the corresponding current event value is available",
+          "shapeRef": "eventCreditsDynamic",
           "order": 9
+        },
+        {
+          "name": "category",
+          "type": "list",
+          "direction": "message",
+          "presence": "optional",
+          "evidence": "htsp_build_event string_list_serialize category branch",
+          "confidence": "mechanical+annotated",
+          "minVersion": null,
+          "condition": "emitted when the corresponding current event value is available",
+          "shapeRef": "str",
+          "order": 10
+        },
+        {
+          "name": "keyword",
+          "type": "list",
+          "direction": "message",
+          "presence": "optional",
+          "evidence": "htsp_build_event string_list_serialize keyword branch",
+          "confidence": "mechanical+annotated",
+          "minVersion": null,
+          "condition": "emitted when the corresponding current event value is available",
+          "shapeRef": "str",
+          "order": 11
         },
         {
           "name": "serieslinkUri",
           "type": "str",
           "direction": "message",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_str",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "htsp_build_event series-link branch",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
-          "order": 10
+          "condition": "emitted when the corresponding current event value is available",
+          "order": 12
         },
         {
           "name": "episodeUri",
           "type": "str",
           "direction": "message",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_str",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "htsp_build_event episode-URI branch",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
-          "order": 11
+          "condition": "emitted when the corresponding current event value is available",
+          "order": 13
         },
         {
           "name": "contentType",
           "type": "u32",
           "direction": "message",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_u32",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "htsp_build_event content-type branch",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
-          "order": 12
+          "condition": "emitted when the corresponding current event value is available",
+          "order": 14
         },
         {
           "name": "ageRating",
           "type": "u32",
           "direction": "message",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_u32",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "htsp_build_event age-rating branch",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
-          "order": 13
+          "condition": "emitted when the corresponding current event value is available",
+          "order": 15
         },
         {
           "name": "ratingLabel",
           "type": "str",
           "direction": "message",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_str",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "htsp_build_event rating-label branch",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
-          "order": 14
+          "condition": "emitted when the corresponding current event value is available",
+          "order": 16
         },
         {
           "name": "ratingIcon",
           "type": "str",
           "direction": "message",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_str",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "htsp_build_event rating-icon branch",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
-          "order": 15
+          "condition": "emitted when the corresponding current event value is available",
+          "order": 17
         },
         {
           "name": "ratingAuthority",
           "type": "str",
           "direction": "message",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_str",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "htsp_build_event rating-authority branch",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
-          "order": 16
+          "condition": "emitted when the corresponding current event value is available",
+          "order": 18
         },
         {
           "name": "ratingCountry",
           "type": "str",
           "direction": "message",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_str",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "htsp_build_event rating-country branch",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
-          "order": 17
+          "condition": "emitted when the corresponding current event value is available",
+          "order": 19
         },
         {
           "name": "starRating",
           "type": "u32",
           "direction": "message",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_u32",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "htsp_build_event star-rating branch",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
-          "order": 18
+          "condition": "emitted when the corresponding current event value is available",
+          "order": 20
         },
         {
           "name": "copyrightYear",
           "type": "u32",
           "direction": "message",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_u32",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "htsp_build_event copyright-year branch",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
-          "order": 19
+          "condition": "emitted when the corresponding current event value is available",
+          "order": 21
         },
         {
           "name": "firstAired",
           "type": "s64",
           "direction": "message",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_s64",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "htsp_build_event first-aired branch",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
-          "order": 20
+          "condition": "emitted when the corresponding current event value is available",
+          "order": 22
         },
         {
           "name": "isNew",
           "type": "u32",
           "direction": "message",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_u32",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "htsp_build_event new-programme branch",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
-          "order": 21
+          "condition": "emitted when the corresponding current event value is available",
+          "order": 23
+        },
+        {
+          "name": "seasonNumber",
+          "type": "u32",
+          "direction": "message",
+          "presence": "optional",
+          "evidence": "htsp_build_event episode-number helper",
+          "confidence": "mechanical+annotated",
+          "minVersion": null,
+          "condition": "emitted when the corresponding current event value is available",
+          "order": 24
+        },
+        {
+          "name": "seasonCount",
+          "type": "u32",
+          "direction": "message",
+          "presence": "optional",
+          "evidence": "htsp_build_event episode-number helper",
+          "confidence": "mechanical+annotated",
+          "minVersion": null,
+          "condition": "emitted when the corresponding current event value is available",
+          "order": 25
+        },
+        {
+          "name": "episodeNumber",
+          "type": "u32",
+          "direction": "message",
+          "presence": "optional",
+          "evidence": "htsp_build_event episode-number helper",
+          "confidence": "mechanical+annotated",
+          "minVersion": null,
+          "condition": "emitted when the corresponding current event value is available",
+          "order": 26
+        },
+        {
+          "name": "episodeCount",
+          "type": "u32",
+          "direction": "message",
+          "presence": "optional",
+          "evidence": "htsp_build_event episode-number helper",
+          "confidence": "mechanical+annotated",
+          "minVersion": null,
+          "condition": "emitted when the corresponding current event value is available",
+          "order": 27
+        },
+        {
+          "name": "partNumber",
+          "type": "u32",
+          "direction": "message",
+          "presence": "optional",
+          "evidence": "htsp_build_event episode-number helper",
+          "confidence": "mechanical+annotated",
+          "minVersion": null,
+          "condition": "emitted when the corresponding current event value is available",
+          "order": 28
+        },
+        {
+          "name": "partCount",
+          "type": "u32",
+          "direction": "message",
+          "presence": "optional",
+          "evidence": "htsp_build_event episode-number helper",
+          "confidence": "mechanical+annotated",
+          "minVersion": null,
+          "condition": "emitted when the corresponding current event value is available",
+          "order": 29
+        },
+        {
+          "name": "episodeOnscreen",
+          "type": "str",
+          "direction": "message",
+          "presence": "optional",
+          "evidence": "htsp_build_event episode-number helper",
+          "confidence": "mechanical+annotated",
+          "minVersion": null,
+          "condition": "emitted when the corresponding current event value is available",
+          "order": 30
         },
         {
           "name": "image",
           "type": "str",
           "direction": "message",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_str",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "htsp_build_event image branch",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
-          "order": 22
+          "condition": "emitted when the corresponding current event value is available",
+          "order": 31
         },
         {
           "name": "dvrId",
           "type": "u32",
           "direction": "message",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_u32",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "htsp_build_event DVR branch",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
-          "order": 23
+          "condition": "emitted when the corresponding current event value is available",
+          "order": 32
         },
         {
           "name": "nextEventId",
           "type": "u32",
           "direction": "message",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_u32",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "htsp_build_event next-event branch",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
-          "order": 24
+          "condition": "emitted when the corresponding current event value is available",
+          "order": 33
         }
       ],
       "messageShape": {
         "kind": "fields",
         "completeness": "partial",
-        "evidence": "bounded handler/helper extraction plus exact-pin annotations"
+        "evidence": "pinned current eventUpdate call sites use the shared full htsp_build_event snapshot; compatibility remains partial by eventId"
       },
       "notes": [
-        "Update messages reuse Add builders; non-key fields are effectively optional."
+        "Pinned current eventUpdate call sites send the shared htsp_build_event snapshot; partial-update compatibility permits omission of every non-key field and consumers merge by eventId."
       ],
       "sdk": {
         "handled": true
@@ -8050,6 +8430,7 @@
         "getChannel",
         "getDiskSpace",
         "getDvrConfigs",
+        "getEvent",
         "getEvents",
         "getProfiles",
         "getSysTime",
@@ -8061,7 +8442,7 @@
         "unsubscribe",
         "updateDvrEntry"
       ],
-      "referencedCount": 23,
+      "referencedCount": 24,
       "outgoingRequests": [
         "addDvrEntry",
         "authenticate",
@@ -8076,6 +8457,7 @@
         "getChannel",
         "getDiskSpace",
         "getDvrConfigs",
+        "getEvent",
         "getEvents",
         "getProfiles",
         "getSysTime",
@@ -8086,10 +8468,9 @@
         "unsubscribe",
         "updateDvrEntry"
       ],
-      "outgoingRequestCount": 22,
+      "outgoingRequestCount": 23,
       "unreferenced": [
         "api",
-        "getEvent",
         "epgQuery",
         "getEpgObject",
         "stopDvrEntry",
@@ -8145,8 +8526,8 @@
       ]
     },
     "metrics": {
-      "referencedClientMethods": 23,
-      "outgoingClientMethods": 22,
+      "referencedClientMethods": 24,
+      "outgoingClientMethods": 23,
       "handledServerMessages": 23,
       "notes": [
         "referenced counts exact string literals in SDK production main sources",
@@ -8173,6 +8554,12 @@
       "id": "channel-service-fields-underdocumented",
       "summary": "The pinned htsp_build_channel source always emits service name, type, and u32 content; conditionally emits caid, caname, dynamic hbbtv, and providername. The official Server-to-Client methods channelAdd section is the governing field list and omits current-source content and hbbtv; hbbtv therefore remains explicitly opaque.",
       "authority": "src/htsp_server.c htsp_build_channel",
+      "docsUrl": "https://docs.tvheadend.org/documentation/development/htsp/server-to-client-methods"
+    },
+    {
+      "id": "event-fields-source-docs-mismatch",
+      "summary": "The pinned current htsp_build_event source emits start and stop through htsmsg_add_s64 and isNew through htsmsg_add_u32, while the official Server-to-Client eventAdd documentation describes start and stop as u64 and isNew as str, omits several current-source fields, and lists historical ID fields not emitted by the current builder. This records incomplete/stale official documentation and does not reconcile it into the pinned current-source contract.",
+      "authority": "src/htsp_server.c htsp_build_event",
       "docsUrl": "https://docs.tvheadend.org/documentation/development/htsp/server-to-client-methods"
     },
     {
