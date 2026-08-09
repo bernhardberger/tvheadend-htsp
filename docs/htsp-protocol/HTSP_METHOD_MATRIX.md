@@ -16,8 +16,8 @@ Primary authority is the pinned TVHeadend server source. Official HTSP documenta
 
 ## SDK coverage (exact-literal metric)
 
-- Client→server methods referenced in production sources: **27 / 39**
-- Distinct outgoing request names: **26 / 39**
+- Client→server methods referenced in production sources: **28 / 39**
+- Distinct outgoing request names: **27 / 39**
 - Server→client messages handled (exact literal): **23 / 30**
 - Distinguish **referenced** from **outgoing**: a name can appear because an inbound handler mentions it (for example `subscriptionSkip`) while the client sends a synonym (`subscriptionSeek`).
 - Never claim methods are implemented/called merely because they are referenced.
@@ -76,7 +76,7 @@ These fields are protocol-wide and are **not** method-specific success fields.
 | 29 | `subscriptionSeek` | `ACCESS_HTSP_STREAMING` | 9 (annotated) | yes | yes | `subscriptionId`:u32 [required], `time`:s64 [alternative], `size`:s64 [alternative], `absolute`:u32 [unknown] — fields/partial | _knownEmpty/complete_ |
 | 30 | `subscriptionSkip` | `ACCESS_HTSP_STREAMING` | 9 (annotated) | yes |  | `subscriptionId`:u32 [required], `time`:s64 [alternative], `size`:s64 [alternative], `absolute`:u32 [unknown] — fields/partial | _knownEmpty/complete_ |
 | 31 | `subscriptionSpeed` | `ACCESS_HTSP_STREAMING` | 9 (annotated) | yes | yes | `subscriptionId`:u32 [unknown], `speed`:s32 [unknown] — fields/partial | _knownEmpty/complete_ |
-| 32 | `subscriptionLive` | `ACCESS_HTSP_STREAMING` | 9 (annotated) |  |  | `subscriptionId`:u32 [unknown] — fields/partial | _knownEmpty/complete_ |
+| 32 | `subscriptionLive` | `ACCESS_HTSP_STREAMING` | 9 (annotated) | yes | yes | `subscriptionId`:u32 [required] — fields/complete | _knownEmpty/complete_ |
 | 33 | `subscriptionFilterStream` | `ACCESS_HTSP_STREAMING` | 12 (annotated) |  |  | `subscriptionId`:u32 [unknown], `enable`:list [unknown] → `u32`, `disable`:list [unknown] → `u32` — fields/partial | _knownEmpty/complete_ |
 | 34 | `getProfiles` | `ACCESS_HTSP_STREAMING` | 16 (annotated) | yes | yes | _knownEmpty/complete_ | `profiles`:list [unknown] → `profile` — fields/partial |
 | 35 | `fileOpen` | `ACCESS_HTSP_RECORDER` | 8 (annotated) | yes | yes | `file`:str [unknown] — fields/partial | `id`:u32 [unknown], `size`:s64 [unknown], `mtime`:s64 [unknown] — fields/partial |
@@ -162,6 +162,13 @@ The official Client-to-Server RPC methods page does not define the millisecond c
 The official Client-to-Server RPC methods page leaves the optional subscriptionChangeWeight weight field's omitted default and the acknowledgement/application ordering unspecified. Pinned current source defaults omitted weight to zero and queues an empty reply before invoking subscription_change_weight.
 
 - Authority: src/htsp_server.c htsp_method_change_weight
+- Docs URL: https://docs.tvheadend.org/documentation/development/htsp/client-to-server-rpc-methods
+
+### `subscriptionLive-rpc-async-order-underdocumented`
+
+The official Client-to-Server RPC methods page does not clearly distinguish the empty subscriptionLive RPC acknowledgement from the separate asynchronous subscriptionSkip outcome or define their delivery ordering or settled-live semantics. Pinned current source calls subscription_set_skip before queuing the empty RPC reply; that source topology is not promoted to an on-wire ordering or settled-state guarantee.
+
+- Authority: src/htsp_server.c htsp_method_live
 - Docs URL: https://docs.tvheadend.org/documentation/development/htsp/client-to-server-rpc-methods
 
 ### `channel-service-fields-underdocumented`

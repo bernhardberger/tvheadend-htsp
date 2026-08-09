@@ -348,6 +348,40 @@ SUBSCRIPTION_CHANGE_WEIGHT_NOTES = [
     "Pinned current source defaults an omitted weight to zero before looking up the exact subscription ID.",
     "Pinned current source queues the empty acknowledgement before exactly one subscription_change_weight call; acknowledgement does not prove settled or applied weight state.",
 ]
+SUBSCRIPTION_LIVE_LIMITATION_ID = "subscriptionLive-rpc-async-order-underdocumented"
+SUBSCRIPTION_LIVE_DOCS_URL = GET_DVR_CUTPOINTS_DOCS_URL
+SUBSCRIPTION_LIVE_LIMITATION_SUMMARY = (
+    "The official Client-to-Server RPC methods page does not clearly "
+    "distinguish the empty subscriptionLive RPC acknowledgement from the "
+    "separate asynchronous subscriptionSkip outcome or define their delivery "
+    "ordering or settled-live semantics. Pinned current source calls "
+    "subscription_set_skip before queuing the empty RPC reply; that source "
+    "topology is not promoted to an on-wire ordering or settled-state guarantee."
+)
+SUBSCRIPTION_LIVE_REQUEST_CONTRACT = (
+    (
+        "subscriptionId", "u32", "required", None,
+        "bounded htsp_method_live requires exactly decoded u32 subscriptionId",
+    ),
+)
+SUBSCRIPTION_LIVE_REQUEST_SHAPE = {
+    "kind": "fields",
+    "completeness": "complete",
+    "evidence": "bounded htsp_method_live accepts exactly required subscriptionId",
+}
+SUBSCRIPTION_LIVE_REPLY_SHAPE = {
+    "kind": "knownEmpty",
+    "completeness": "complete",
+    "evidence": (
+        "bounded htsp_method_live queues exactly one empty reply map after "
+        "subscription_set_skip"
+    ),
+}
+SUBSCRIPTION_LIVE_NOTES = [
+    "Dispatch requires ACCESS_HTSP_STREAMING and the method is annotated as available since HTSP version 9.",
+    "Pinned current source zero-initializes one streaming_skip_t, sets only SMT_SKIP_LIVE, and calls subscription_set_skip on the exact matched subscription.",
+    "Pinned current source calls subscription_set_skip before queuing the empty RPC reply; the separate asynchronous subscriptionSkip message remains authoritative, with no on-wire ordering or settled-live guarantee.",
+]
 WIRE_TYPES = {"u32", "s32", "s64", "str", "bin", "msg", "list", "bool", "dbl", "uuid", "unknown"}
 PRESENCE_VALUES = {"required", "optional", "conditional", "alternative", "unknown"}
 COMPLETENESS_VALUES = {"complete", "partial", "opaque"}
@@ -679,6 +713,37 @@ def validate_spec(spec: dict[str, Any], upstream: dict[str, Any] | None = None) 
         errors.append(
             "subscriptionChangeWeight notes must preserve exact default, acknowledgement, and non-settlement semantics"
         )
+    subscription_live = method_map.get("subscriptionLive", {})
+    if subscription_live.get("handler") != "htsp_method_live":
+        errors.append("subscriptionLive must preserve exact dispatch handler")
+    if subscription_live.get("accessMask") != "ACCESS_HTSP_STREAMING":
+        errors.append("subscriptionLive must preserve streaming dispatch access")
+    if (
+        subscription_live.get("minVersion") != 9
+        or subscription_live.get("minVersionConfidence") != "annotated"
+    ):
+        errors.append("subscriptionLive must preserve annotated minimum version 9")
+    live_request = [
+        (
+            field.get("name"), field.get("type"), field.get("presence"),
+            field.get("condition"), field.get("evidence"),
+        )
+        for field in subscription_live.get("requestFields", [])
+    ]
+    if live_request != list(SUBSCRIPTION_LIVE_REQUEST_CONTRACT):
+        errors.append("subscriptionLive request must preserve exact required u32 subscriptionId")
+    if subscription_live.get("requestShape") != SUBSCRIPTION_LIVE_REQUEST_SHAPE:
+        errors.append("subscriptionLive request shape must preserve exact complete evidence")
+    if subscription_live.get("replyFields") != []:
+        errors.append("subscriptionLive method-specific reply must remain exactly empty")
+    if subscription_live.get("replyShape") != SUBSCRIPTION_LIVE_REPLY_SHAPE:
+        errors.append(
+            "subscriptionLive reply shape must preserve exact action-before-empty-reply evidence"
+        )
+    if subscription_live.get("notes") != SUBSCRIPTION_LIVE_NOTES:
+        errors.append(
+            "subscriptionLive notes must preserve exact async-authority and non-settlement semantics"
+        )
     cut_shape = shapes.get("cutpoint") or {}
     if (
         cut_shape.get("kind") != "object"
@@ -909,13 +974,13 @@ def validate_spec(spec: dict[str, Any], upstream: dict[str, Any] | None = None) 
         errors.append("outgoingRequestCount cannot exceed referencedCount")
 
     # Current repository acceptance targets (exact-literal metric).
-    if ref_count not in (None, 27):
+    if ref_count not in (None, 28):
         errors.append(
-            f"expected referenced client methods == 27 under current metric, got {ref_count}"
+            f"expected referenced client methods == 28 under current metric, got {ref_count}"
         )
-    if out_count not in (None, 26):
+    if out_count not in (None, 27):
         errors.append(
-            f"expected outgoing client methods == 26 under current metric, got {out_count}"
+            f"expected outgoing client methods == 27 under current metric, got {out_count}"
         )
     if handled_count not in (None, 23):
         errors.append(
@@ -952,6 +1017,8 @@ def validate_spec(spec: dict[str, Any], upstream: dict[str, Any] | None = None) 
         errors.append(
             "subscriptionChangeWeight must be fresh referenced and outgoing production coverage"
         )
+    if "subscriptionLive" not in referenced_list or "subscriptionLive" not in outgoing_list:
+        errors.append("subscriptionLive must be fresh referenced and outgoing production coverage")
 
     # sdk flags must match coverage lists
     ref_set = set(client_cov.get("referenced") or [])
@@ -1103,6 +1170,21 @@ def validate_spec(spec: dict[str, Any], upstream: dict[str, Any] | None = None) 
         ):
             errors.append(
                 "subscriptionChangeWeight limitation must preserve exact docs uncertainty and pinned source facts"
+            )
+        live_limitation = next(
+            (
+                item for item in limitations
+                if isinstance(item, dict) and item.get("id") == SUBSCRIPTION_LIVE_LIMITATION_ID
+            ),
+            None,
+        )
+        if not live_limitation or (
+            live_limitation.get("summary") != SUBSCRIPTION_LIVE_LIMITATION_SUMMARY
+            or live_limitation.get("authority") != "src/htsp_server.c htsp_method_live"
+            or live_limitation.get("docsUrl") != SUBSCRIPTION_LIVE_DOCS_URL
+        ):
+            errors.append(
+                "subscriptionLive limitation must preserve exact RPC/async uncertainty and pinned source facts"
             )
 
     global_rpc = spec.get("globalRpc") or {}
@@ -1575,13 +1657,15 @@ def _derive_fresh_self_test_spec() -> dict[str, Any]:
             name,
             "htsp_method_change_weight"
             if name == "subscriptionChangeWeight"
+            else "htsp_method_live"
+            if name == "subscriptionLive"
             else f"htsp_method_{name}"
             if name in {"getEvent", "getEvents", "stopDvrEntry", "getDvrCutpoints"}
             else f"htsp_method_{index}",
             "ACCESS_HTSP_RECORDER"
             if name in {"stopDvrEntry", "getDvrCutpoints"}
             else "ACCESS_HTSP_STREAMING"
-            if name == "subscriptionChangeWeight"
+            if name in {"subscriptionChangeWeight", "subscriptionLive"}
             else "ACCESS_ANONYMOUS",
         )
         for index, name in enumerate(EXPECTED_CLIENT_METHODS)
@@ -1627,7 +1711,7 @@ def _derive_fresh_self_test_spec() -> dict[str, Any]:
 
     # Report validation owns schema/policy, not fixture-byte pin verification.
     # Evaluate freshly derived getEvents/event/stopDvrEntry/getDvrCutpoints/
-    # subscriptionChangeWeight evidence inside the complete
+    # subscriptionChangeWeight/subscriptionLive evidence inside the complete
     # committed-schema baseline; unrelated minimal fixture handlers deliberately
     # do not pretend to model every pinned method.
     upstream = load_json(UPSTREAM_PATH)
@@ -1638,7 +1722,7 @@ def _derive_fresh_self_test_spec() -> dict[str, Any]:
         fresh_methods[item["name"]]
         if item["name"] in {
             "getEvents", "stopDvrEntry", "getDvrCutpoints",
-            "subscriptionChangeWeight",
+            "subscriptionChangeWeight", "subscriptionLive",
         }
         else item
         for item in candidate["clientMethods"]
@@ -1803,8 +1887,8 @@ def self_test() -> None:
     )
     check(
         "getChannel-fresh-coverage",
-        good_spec["coverage"]["clientMethods"]["referencedCount"] == 27
-        and good_spec["coverage"]["clientMethods"]["outgoingRequestCount"] == 26
+        good_spec["coverage"]["clientMethods"]["referencedCount"] == 28
+        and good_spec["coverage"]["clientMethods"]["outgoingRequestCount"] == 27
         and "getChannel" in good_spec["coverage"]["clientMethods"]["outgoingRequests"],
     )
 
@@ -1838,8 +1922,8 @@ def self_test() -> None:
     )
     check(
         "getEvents-fresh-unchanged-coverage",
-        good_spec["coverage"]["clientMethods"]["referencedCount"] == 27
-        and good_spec["coverage"]["clientMethods"]["outgoingRequestCount"] == 26
+        good_spec["coverage"]["clientMethods"]["referencedCount"] == 28
+        and good_spec["coverage"]["clientMethods"]["outgoingRequestCount"] == 27
         and good_spec["coverage"]["serverMessages"]["handledCount"] == 23
         and "getEvents" in good_spec["coverage"]["clientMethods"]["outgoingRequests"],
     )
@@ -2037,6 +2121,97 @@ def self_test() -> None:
         check(
             f"reject-subscriptionChangeWeight-limitation-{label}",
             any("subscriptionChangeWeight limitation" in error for error in err),
+            str(err),
+        )
+
+    live_method = next(
+        method for method in good_spec["clientMethods"]
+        if method["name"] == "subscriptionLive"
+    )
+    check(
+        "subscriptionLive-fresh-complete-contract",
+        live_method.get("handler") == "htsp_method_live"
+        and live_method.get("accessMask") == "ACCESS_HTSP_STREAMING"
+        and live_method.get("minVersion") == 9
+        and live_method.get("minVersionConfidence") == "annotated"
+        and [
+            (
+                field.get("name"), field.get("type"), field.get("presence"),
+                field.get("condition"), field.get("evidence"),
+            )
+            for field in live_method["requestFields"]
+        ] == list(SUBSCRIPTION_LIVE_REQUEST_CONTRACT)
+        and live_method.get("requestShape") == SUBSCRIPTION_LIVE_REQUEST_SHAPE
+        and live_method.get("replyFields") == []
+        and live_method.get("replyShape") == SUBSCRIPTION_LIVE_REPLY_SHAPE
+        and live_method.get("notes") == SUBSCRIPTION_LIVE_NOTES,
+    )
+    check(
+        "subscriptionLive-fresh-coverage",
+        "subscriptionLive" in good_spec["coverage"]["clientMethods"]["referenced"]
+        and "subscriptionLive"
+        in good_spec["coverage"]["clientMethods"]["outgoingRequests"],
+    )
+
+    for label, mutate in (
+        ("false-min-version", lambda method: method.update({"minVersion": 8})),
+        ("wrong-handler", lambda method: method.update({"handler": "decoy"})),
+        ("wrong-access", lambda method: method.update({"accessMask": "ACCESS_ANONYMOUS"})),
+        ("optional-subscription-id", lambda method: method["requestFields"][0].update({"presence": "optional"})),
+        ("renamed-subscription-id", lambda method: method["requestFields"][0].update({"name": "sid"})),
+        ("wrong-subscription-id-type", lambda method: method["requestFields"][0].update({"type": "s64"})),
+        ("wrong-subscription-id-evidence", lambda method: method["requestFields"][0].update({"evidence": "generic getter"})),
+        ("partial-request", lambda method: method["requestShape"].update({"completeness": "partial"})),
+        ("wrong-request-shape-evidence", lambda method: method["requestShape"].update({"evidence": "generic extraction"})),
+        ("invented-reply-field", lambda method: method["replyFields"].append({"name": "success"})),
+        ("partial-reply", lambda method: method["replyShape"].update({"completeness": "partial"})),
+        ("false-reply-order", lambda method: method["replyShape"].update({"evidence": "reply before action"})),
+        ("false-async-note", lambda method: method["notes"].__setitem__(2, "Reply proves settled live state.")),
+    ):
+        bad = json.loads(json.dumps(good_spec))
+        method = next(
+            item for item in bad["clientMethods"] if item["name"] == "subscriptionLive"
+        )
+        mutate(method)
+        err = validate_spec(bad)
+        check(
+            f"reject-subscriptionLive-{label}",
+            any("subscriptionLive" in error for error in err),
+            str(err),
+        )
+
+    bad = json.loads(json.dumps(good_spec))
+    bad["coverage"]["clientMethods"]["referenced"].remove("subscriptionLive")
+    bad["coverage"]["clientMethods"]["referencedCount"] -= 1
+    bad["coverage"]["clientMethods"]["outgoingRequests"].remove("subscriptionLive")
+    bad["coverage"]["clientMethods"]["outgoingRequestCount"] -= 1
+    bad["coverage"]["metrics"]["referencedClientMethods"] -= 1
+    bad["coverage"]["metrics"]["outgoingClientMethods"] -= 1
+    next(
+        method for method in bad["clientMethods"] if method["name"] == "subscriptionLive"
+    )["sdk"] = {"referenced": False, "outgoingRequest": False}
+    err = validate_spec(bad)
+    check(
+        "reject-subscriptionLive-stale-live-coverage",
+        any("subscriptionLive must be fresh" in error for error in err),
+        str(err),
+    )
+
+    for label, key, replacement in (
+        ("summary", "summary", "RPC reply proves settled live state"),
+        ("authority", "authority", "src/htsp_server.c decoy"),
+        ("docs-url", "docsUrl", "https://example.invalid/live"),
+    ):
+        bad = json.loads(json.dumps(good_spec))
+        limitation = next(
+            item for item in bad["docLimitations"]
+            if item["id"] == SUBSCRIPTION_LIVE_LIMITATION_ID
+        )
+        limitation[key] = replacement
+        err = validate_spec(bad)
+        check(
+            f"reject-subscriptionLive-limitation-{label}",
+            any("subscriptionLive limitation" in error for error in err),
             str(err),
         )
 
@@ -2732,7 +2907,7 @@ def self_test() -> None:
     err = validate_spec(bad)
     check(
         "reject-false-all-called",
-        any("outgoing client methods == 26" in e for e in err),
+        any("outgoing client methods == 27" in e for e in err),
         str(err),
     )
 
