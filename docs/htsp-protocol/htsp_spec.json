@@ -2146,9 +2146,9 @@
           "name": "id",
           "type": "u32",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_u32",
-          "confidence": "mechanical",
+          "presence": "required",
+          "evidence": "bounded htsp_findDvrEntry requires exactly u32 id before write-mode access and lookup",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 1
         }
@@ -2158,27 +2158,32 @@
           "name": "success",
           "type": "u32",
           "direction": "reply",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_u32",
-          "confidence": "mechanical",
+          "presence": "required",
+          "evidence": "bounded htsp_success emits exactly add-u32 success=1",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 1
         }
       ],
       "requestShape": {
         "kind": "fields",
-        "completeness": "partial",
-        "evidence": "bounded handler/helper extraction plus exact-pin annotations"
+        "completeness": "complete",
+        "evidence": "bounded shared helper and stop handler accept exactly required id"
       },
       "replyShape": {
         "kind": "fields",
-        "completeness": "partial",
-        "evidence": "bounded handler/helper extraction plus exact-pin annotations"
+        "completeness": "complete",
+        "evidence": "bounded standard-success helper emits exactly success=1"
       },
       "docStatus": "missing-from-official-client-method-page",
+      "notes": [
+        "The handler calls the shared DVR-entry helper in write mode and returns its bounded error result.",
+        "On helper success it calls exactly dvr_entry_stop; cancel and delete remain distinct operations.",
+        "The standard success reply carries success=1 only; later asynchronous DVR metadata is authoritative for lifecycle state."
+      ],
       "sdk": {
-        "referenced": false,
-        "outgoingRequest": false
+        "referenced": true,
+        "outgoingRequest": true
       }
     },
     {
@@ -8451,6 +8456,7 @@
         "getProfiles",
         "getSysTime",
         "hello",
+        "stopDvrEntry",
         "subscribe",
         "subscriptionSeek",
         "subscriptionSkip",
@@ -8458,7 +8464,7 @@
         "unsubscribe",
         "updateDvrEntry"
       ],
-      "referencedCount": 25,
+      "referencedCount": 26,
       "outgoingRequests": [
         "addDvrEntry",
         "authenticate",
@@ -8479,18 +8485,18 @@
         "getProfiles",
         "getSysTime",
         "hello",
+        "stopDvrEntry",
         "subscribe",
         "subscriptionSeek",
         "subscriptionSpeed",
         "unsubscribe",
         "updateDvrEntry"
       ],
-      "outgoingRequestCount": 24,
+      "outgoingRequestCount": 25,
       "unreferenced": [
         "api",
         "epgQuery",
         "getEpgObject",
-        "stopDvrEntry",
         "addAutorecEntry",
         "updateAutorecEntry",
         "deleteAutorecEntry",
@@ -8542,8 +8548,8 @@
       ]
     },
     "metrics": {
-      "referencedClientMethods": 25,
-      "outgoingClientMethods": 24,
+      "referencedClientMethods": 26,
+      "outgoingClientMethods": 25,
       "handledServerMessages": 23,
       "notes": [
         "referenced counts exact string literals in SDK production main sources",

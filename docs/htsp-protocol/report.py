@@ -284,6 +284,27 @@ GET_DVR_CUTPOINTS_LIMITATION_SUMMARY = (
     "dc_start_ms and dc_end_ms and traverses the TAILQ in its observed order; "
     "the SDK preserves those values and order without interpreting them."
 )
+STOP_DVR_ENTRY_LIMITATION_ID = "stopDvrEntry-missing-from-client-docs"
+STOP_DVR_ENTRY_DOCS_URL = GET_DVR_CUTPOINTS_DOCS_URL
+STOP_DVR_ENTRY_LIMITATION_SUMMARY = (
+    "stopDvrEntry is present in the pinned htsp_methods[] dispatch table "
+    "but absent from the Client-to-Server RPC methods documentation page."
+)
+STOP_DVR_ENTRY_REQUEST_EVIDENCE = (
+    "bounded htsp_findDvrEntry requires exactly u32 id before write-mode access and lookup"
+)
+STOP_DVR_ENTRY_REPLY_EVIDENCE = "bounded htsp_success emits exactly add-u32 success=1"
+STOP_DVR_ENTRY_REQUEST_SHAPE_EVIDENCE = (
+    "bounded shared helper and stop handler accept exactly required id"
+)
+STOP_DVR_ENTRY_REPLY_SHAPE_EVIDENCE = (
+    "bounded standard-success helper emits exactly success=1"
+)
+STOP_DVR_ENTRY_NOTES = [
+    "The handler calls the shared DVR-entry helper in write mode and returns its bounded error result.",
+    "On helper success it calls exactly dvr_entry_stop; cancel and delete remain distinct operations.",
+    "The standard success reply carries success=1 only; later asynchronous DVR metadata is authoritative for lifecycle state.",
+]
 WIRE_TYPES = {"u32", "s32", "s64", "str", "bin", "msg", "list", "bool", "dbl", "uuid", "unknown"}
 PRESENCE_VALUES = {"required", "optional", "conditional", "alternative", "unknown"}
 COMPLETENESS_VALUES = {"complete", "partial", "opaque"}
@@ -544,6 +565,44 @@ def validate_spec(spec: dict[str, Any], upstream: dict[str, Any] | None = None) 
         or get_dvr_cutpoints.get("replyShape", {}).get("completeness") != "complete"
     ):
         errors.append("getDvrCutpoints reply shape must be fields/complete")
+    stop_dvr_entry = method_map.get("stopDvrEntry", {})
+    if stop_dvr_entry.get("accessMask") != "ACCESS_HTSP_RECORDER":
+        errors.append("stopDvrEntry must preserve recorder dispatch access")
+    if (
+        stop_dvr_entry.get("minVersion") is not None
+        or stop_dvr_entry.get("minVersionConfidence") != "unknown"
+    ):
+        errors.append("stopDvrEntry must preserve unknown minimum-version evidence")
+    stop_request = [
+        (field.get("name"), field.get("type"), field.get("presence"), field.get("evidence"))
+        for field in stop_dvr_entry.get("requestFields", [])
+    ]
+    if stop_request != [("id", "u32", "required", STOP_DVR_ENTRY_REQUEST_EVIDENCE)]:
+        errors.append("stopDvrEntry request must contain exactly required u32 id with bounded evidence")
+    stop_request_shape = stop_dvr_entry.get("requestShape", {})
+    if (
+        stop_request_shape.get("kind") != "fields"
+        or stop_request_shape.get("completeness") != "complete"
+        or stop_request_shape.get("evidence") != STOP_DVR_ENTRY_REQUEST_SHAPE_EVIDENCE
+    ):
+        errors.append("stopDvrEntry request shape must preserve exact complete helper evidence")
+    stop_reply = [
+        (field.get("name"), field.get("type"), field.get("presence"), field.get("evidence"))
+        for field in stop_dvr_entry.get("replyFields", [])
+    ]
+    if stop_reply != [("success", "u32", "required", STOP_DVR_ENTRY_REPLY_EVIDENCE)]:
+        errors.append("stopDvrEntry reply must contain exactly required u32 success with bounded evidence")
+    stop_reply_shape = stop_dvr_entry.get("replyShape", {})
+    if (
+        stop_reply_shape.get("kind") != "fields"
+        or stop_reply_shape.get("completeness") != "complete"
+        or stop_reply_shape.get("evidence") != STOP_DVR_ENTRY_REPLY_SHAPE_EVIDENCE
+    ):
+        errors.append("stopDvrEntry reply shape must preserve exact complete standard-success evidence")
+    if stop_dvr_entry.get("docStatus") != "missing-from-official-client-method-page":
+        errors.append("stopDvrEntry must preserve the official-client-doc omission status")
+    if stop_dvr_entry.get("notes") != STOP_DVR_ENTRY_NOTES:
+        errors.append("stopDvrEntry notes must preserve exact stop/helper/async-state semantics")
     cut_shape = shapes.get("cutpoint") or {}
     if (
         cut_shape.get("kind") != "object"
@@ -774,13 +833,13 @@ def validate_spec(spec: dict[str, Any], upstream: dict[str, Any] | None = None) 
         errors.append("outgoingRequestCount cannot exceed referencedCount")
 
     # Current repository acceptance targets (exact-literal metric).
-    if ref_count not in (None, 25):
+    if ref_count not in (None, 26):
         errors.append(
-            f"expected referenced client methods == 25 under current metric, got {ref_count}"
+            f"expected referenced client methods == 26 under current metric, got {ref_count}"
         )
-    if out_count not in (None, 24):
+    if out_count not in (None, 25):
         errors.append(
-            f"expected outgoing client methods == 24 under current metric, got {out_count}"
+            f"expected outgoing client methods == 25 under current metric, got {out_count}"
         )
     if handled_count not in (None, 23):
         errors.append(
@@ -808,6 +867,8 @@ def validate_spec(spec: dict[str, Any], upstream: dict[str, Any] | None = None) 
         errors.append("getEvents must remain fresh referenced and outgoing production coverage")
     if "getDvrCutpoints" not in referenced_list or "getDvrCutpoints" not in outgoing_list:
         errors.append("getDvrCutpoints must be fresh referenced and outgoing production coverage")
+    if "stopDvrEntry" not in referenced_list or "stopDvrEntry" not in outgoing_list:
+        errors.append("stopDvrEntry must be fresh referenced and outgoing production coverage")
 
     # sdk flags must match coverage lists
     ref_set = set(client_cov.get("referenced") or [])
@@ -923,6 +984,23 @@ def validate_spec(spec: dict[str, Any], upstream: dict[str, Any] | None = None) 
             errors.append(
                 "getDvrCutpoints limitation must preserve exact coordinate/order uncertainty, "
                 "pinned source facts, SDK preservation policy, and governing Client-to-Server URL"
+            )
+        stop_dvr_entry_limitation = next(
+            (
+                item for item in limitations
+                if isinstance(item, dict)
+                and item.get("id") == STOP_DVR_ENTRY_LIMITATION_ID
+            ),
+            None,
+        )
+        if not stop_dvr_entry_limitation or (
+            stop_dvr_entry_limitation.get("summary") != STOP_DVR_ENTRY_LIMITATION_SUMMARY
+            or stop_dvr_entry_limitation.get("authority")
+            != "src/htsp_server.c htsp_methods[] / htsp_method_stopDvrEntry"
+            or stop_dvr_entry_limitation.get("docsUrl") != STOP_DVR_ENTRY_DOCS_URL
+        ):
+            errors.append(
+                "stopDvrEntry limitation must preserve exact official-doc omission and pinned authority"
             )
 
     global_rpc = spec.get("globalRpc") or {}
@@ -1394,9 +1472,11 @@ def _derive_fresh_self_test_spec() -> dict[str, Any]:
         (
             name,
             f"htsp_method_{name}"
-            if name in {"getEvent", "getEvents", "getDvrCutpoints"}
+            if name in {"getEvent", "getEvents", "stopDvrEntry", "getDvrCutpoints"}
             else f"htsp_method_{index}",
-            "ACCESS_HTSP_RECORDER" if name == "getDvrCutpoints" else "ACCESS_ANONYMOUS",
+            "ACCESS_HTSP_RECORDER"
+            if name in {"stopDvrEntry", "getDvrCutpoints"}
+            else "ACCESS_ANONYMOUS",
         )
         for index, name in enumerate(EXPECTED_CLIENT_METHODS)
     ]
@@ -1440,7 +1520,7 @@ def _derive_fresh_self_test_spec() -> dict[str, Any]:
         )
 
     # Report validation owns schema/policy, not fixture-byte pin verification.
-    # Evaluate freshly derived getEvents/event/getDvrCutpoints evidence inside the complete
+    # Evaluate freshly derived getEvents/event/stopDvrEntry/getDvrCutpoints evidence inside the complete
     # committed-schema baseline; unrelated minimal fixture handlers deliberately
     # do not pretend to model every pinned method.
     upstream = load_json(UPSTREAM_PATH)
@@ -1449,7 +1529,7 @@ def _derive_fresh_self_test_spec() -> dict[str, Any]:
     fresh_methods = {item["name"]: item for item in fresh["clientMethods"]}
     candidate["clientMethods"] = [
         fresh_methods[item["name"]]
-        if item["name"] in {"getEvents", "getDvrCutpoints"}
+        if item["name"] in {"getEvents", "stopDvrEntry", "getDvrCutpoints"}
         else item
         for item in candidate["clientMethods"]
     ]
@@ -1613,8 +1693,8 @@ def self_test() -> None:
     )
     check(
         "getChannel-fresh-coverage",
-        good_spec["coverage"]["clientMethods"]["referencedCount"] == 25
-        and good_spec["coverage"]["clientMethods"]["outgoingRequestCount"] == 24
+        good_spec["coverage"]["clientMethods"]["referencedCount"] == 26
+        and good_spec["coverage"]["clientMethods"]["outgoingRequestCount"] == 25
         and "getChannel" in good_spec["coverage"]["clientMethods"]["outgoingRequests"],
     )
 
@@ -1648,11 +1728,110 @@ def self_test() -> None:
     )
     check(
         "getEvents-fresh-unchanged-coverage",
-        good_spec["coverage"]["clientMethods"]["referencedCount"] == 25
-        and good_spec["coverage"]["clientMethods"]["outgoingRequestCount"] == 24
+        good_spec["coverage"]["clientMethods"]["referencedCount"] == 26
+        and good_spec["coverage"]["clientMethods"]["outgoingRequestCount"] == 25
         and good_spec["coverage"]["serverMessages"]["handledCount"] == 23
         and "getEvents" in good_spec["coverage"]["clientMethods"]["outgoingRequests"],
     )
+    stop_dvr_entry = next(
+        method for method in good_spec["clientMethods"] if method["name"] == "stopDvrEntry"
+    )
+    check(
+        "stopDvrEntry-fresh-complete-contract",
+        stop_dvr_entry.get("accessMask") == "ACCESS_HTSP_RECORDER"
+        and stop_dvr_entry.get("minVersion") is None
+        and stop_dvr_entry.get("minVersionConfidence") == "unknown"
+        and [
+            (field["name"], field["type"], field["presence"], field["evidence"])
+            for field in stop_dvr_entry["requestFields"]
+        ] == [("id", "u32", "required", STOP_DVR_ENTRY_REQUEST_EVIDENCE)]
+        and stop_dvr_entry.get("requestShape") == {
+            "kind": "fields",
+            "completeness": "complete",
+            "evidence": STOP_DVR_ENTRY_REQUEST_SHAPE_EVIDENCE,
+        }
+        and [
+            (field["name"], field["type"], field["presence"], field["evidence"])
+            for field in stop_dvr_entry["replyFields"]
+        ] == [("success", "u32", "required", STOP_DVR_ENTRY_REPLY_EVIDENCE)]
+        and stop_dvr_entry.get("replyShape") == {
+            "kind": "fields",
+            "completeness": "complete",
+            "evidence": STOP_DVR_ENTRY_REPLY_SHAPE_EVIDENCE,
+        }
+        and stop_dvr_entry.get("docStatus") == "missing-from-official-client-method-page"
+        and stop_dvr_entry.get("notes") == STOP_DVR_ENTRY_NOTES,
+    )
+
+    for label, mutate in (
+        ("false-minimum-version", lambda method: method.update({"minVersion": 5, "minVersionConfidence": "annotated"})),
+        ("wrong-access", lambda method: method.update({"accessMask": "ACCESS_ANONYMOUS"})),
+        ("optional-id", lambda method: method["requestFields"][0].update({"presence": "optional"})),
+        ("renamed-id", lambda method: method["requestFields"][0].update({"name": "entryId"})),
+        ("wrong-id-type", lambda method: method["requestFields"][0].update({"type": "s64"})),
+        ("wrong-id-evidence", lambda method: method["requestFields"][0].update({"evidence": "generic getter"})),
+        ("partial-request", lambda method: method["requestShape"].update({"completeness": "partial"})),
+        ("wrong-request-evidence", lambda method: method["requestShape"].update({"evidence": "handler only"})),
+        ("optional-success", lambda method: method["replyFields"][0].update({"presence": "optional"})),
+        ("renamed-success", lambda method: method["replyFields"][0].update({"name": "stopped"})),
+        ("wrong-success-type", lambda method: method["replyFields"][0].update({"type": "s64"})),
+        ("wrong-success-evidence", lambda method: method["replyFields"][0].update({"evidence": "handler reply"})),
+        ("partial-reply", lambda method: method["replyShape"].update({"completeness": "partial"})),
+        ("wrong-reply-evidence", lambda method: method["replyShape"].update({"evidence": "generic success"})),
+        ("malformed-doc-status", lambda method: method.update({"docStatus": "documented"})),
+        (
+            "wrong-stop-semantics",
+            lambda method: method["notes"].__setitem__(
+                1,
+                "On helper success it calls dvr_entry_cancel and removes the entry.",
+            ),
+        ),
+    ):
+        bad = json.loads(json.dumps(good_spec))
+        method = next(item for item in bad["clientMethods"] if item["name"] == "stopDvrEntry")
+        mutate(method)
+        err = validate_spec(bad)
+        check(
+            f"reject-stopDvrEntry-{label}",
+            any("stopDvrEntry" in error for error in err),
+            str(err),
+        )
+
+    bad = json.loads(json.dumps(good_spec))
+    bad["coverage"]["clientMethods"]["referenced"].remove("stopDvrEntry")
+    bad["coverage"]["clientMethods"]["referencedCount"] -= 1
+    bad["coverage"]["clientMethods"]["outgoingRequests"].remove("stopDvrEntry")
+    bad["coverage"]["clientMethods"]["outgoingRequestCount"] -= 1
+    bad["coverage"]["metrics"]["referencedClientMethods"] -= 1
+    bad["coverage"]["metrics"]["outgoingClientMethods"] -= 1
+    next(
+        method for method in bad["clientMethods"] if method["name"] == "stopDvrEntry"
+    )["sdk"] = {"referenced": False, "outgoingRequest": False}
+    err = validate_spec(bad)
+    check(
+        "reject-stopDvrEntry-stale-live-coverage",
+        any("stopDvrEntry must be fresh" in error for error in err),
+        str(err),
+    )
+
+    for label, key, replacement in (
+        ("summary", "summary", "stop is documented and cancels the entry"),
+        ("authority", "authority", "src/htsp_server.c decoy"),
+        ("docs-url", "docsUrl", "https://example.invalid/stop"),
+    ):
+        bad = json.loads(json.dumps(good_spec))
+        limitation = next(
+            item for item in bad["docLimitations"]
+            if item["id"] == STOP_DVR_ENTRY_LIMITATION_ID
+        )
+        limitation[key] = replacement
+        err = validate_spec(bad)
+        check(
+            f"reject-stopDvrEntry-limitation-{label}",
+            any("stopDvrEntry limitation" in error for error in err),
+            str(err),
+        )
+
     get_dvr_cutpoints = next(
         m for m in good_spec["clientMethods"] if m["name"] == "getDvrCutpoints"
     )
@@ -2345,7 +2524,7 @@ def self_test() -> None:
     err = validate_spec(bad)
     check(
         "reject-false-all-called",
-        any("outgoing client methods == 24" in e for e in err),
+        any("outgoing client methods == 25" in e for e in err),
         str(err),
     )
 

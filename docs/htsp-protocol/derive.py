@@ -1462,6 +1462,147 @@ def require_get_dvr_cutpoints_source_facts(server_c: str) -> list[dict[str, Any]
     ]
 
 
+def require_stop_dvr_entry_source_facts(server_c: str) -> None:
+    """Validate the exact bounded stopDvrEntry helper/handler/success topology."""
+    source = strip_c_comments(server_c)
+    dispatch = [
+        entry for entry in parse_methods_table(source)
+        if entry["name"] == "stopDvrEntry"
+    ]
+    if dispatch != [{
+        "name": "stopDvrEntry",
+        "handler": "htsp_method_stopDvrEntry",
+        "accessMask": "ACCESS_HTSP_RECORDER",
+    }]:
+        raise ValueError("stopDvrEntry dispatch must use its exact handler and recorder access")
+
+    helper = find_function_body(source, "htsp_findDvrEntry")
+    if helper is None:
+        raise ValueError("htsp_findDvrEntry body not found")
+    helper_compact = re.sub(r"\s+", " ", helper).strip()
+    invalid_arguments_error = (
+        r'htsp_error\s*\(\s*htsp\s*,\s*N_\(\s*"Invalid arguments"\s*\)\s*\)'
+    )
+    missing_entry_error = (
+        r'htsp_error\s*\(\s*htsp\s*,\s*N_\(\s*"DVR entry not found"\s*\)\s*\)'
+    )
+    access_denied_error = (
+        r'htsp_error\s*\(\s*htsp\s*,\s*N_\(\s*"User does not have access"\s*\)\s*\)'
+    )
+    if [(field["name"], field["type"]) for field in extract_get_fields(helper, "in")] != [
+        ("id", "u32")
+    ]:
+        raise ValueError("htsp_findDvrEntry must read exactly u32 id")
+    id_guards = re.findall(
+        r'if\s*\(\s*htsmsg_get_u32\(\s*in\s*,\s*"id"\s*,\s*&'
+        r'(?P<id>[A-Za-z_][A-Za-z0-9_]*)\s*\)\s*\)\s*\{\s*'
+        rf'\*\s*out\s*=\s*{invalid_arguments_error}\s*;\s*'
+        r'return\s+NULL\s*;\s*\}',
+        helper_compact,
+    )
+    if len(id_guards) != 1:
+        raise ValueError("htsp_findDvrEntry must reject a missing or invalid required id")
+    id_var = id_guards[0]
+    lookups = re.findall(
+        rf'if\s*\(\s*\(\s*(?P<entry>[A-Za-z_][A-Za-z0-9_]*)\s*=\s*'
+        rf'dvr_entry_find_by_id\(\s*{re.escape(id_var)}\s*\)\s*\)\s*==\s*NULL\s*\)\s*'
+        rf'\{{\s*\*\s*out\s*=\s*{missing_entry_error}\s*;\s*'
+        r'return\s+NULL\s*;\s*\}',
+        helper_compact,
+    )
+    if len(lookups) != 1:
+        raise ValueError("htsp_findDvrEntry must reject an exact missing DVR lookup")
+    entry_var = lookups[0]
+    access_checks = re.findall(
+        rf'if\s*\(\s*dvr_entry_verify\(\s*{re.escape(entry_var)}\s*,\s*'
+        r'htsp->htsp_granted_access\s*,\s*readonly\s*\)\s*\)\s*'
+        rf'\{{\s*\*\s*out\s*=\s*{access_denied_error}\s*;\s*'
+        r'return\s+NULL\s*;\s*\}',
+        helper_compact,
+    )
+    if len(access_checks) != 1 or len(re.findall(r'\bdvr_entry_verify\s*\(', helper)) != 1:
+        raise ValueError("htsp_findDvrEntry must verify access exactly once with readonly")
+    if len(re.findall(r'\*\s*out\s*=\s*htsp_error\s*\(', helper)) != 3:
+        raise ValueError("htsp_findDvrEntry must preserve all three bounded error results")
+    if len(re.findall(r'\breturn\s+NULL\s*;', helper)) != 3:
+        raise ValueError("htsp_findDvrEntry must return null from each bounded error branch")
+    if len(re.findall(rf'\breturn\s+{re.escape(entry_var)}\s*;', helper)) != 1:
+        raise ValueError("htsp_findDvrEntry must return the verified DVR entry")
+    expected_helper = (
+        rf'uint32_t\s+{re.escape(id_var)}\s*;\s*'
+        rf'dvr_entry_t\s*\*\s*{re.escape(entry_var)}\s*;\s*'
+        rf'if\s*\(\s*htsmsg_get_u32\(\s*in\s*,\s*"id"\s*,\s*&\s*{re.escape(id_var)}\s*\)\s*\)\s*'
+        rf'\{{\s*\*\s*out\s*=\s*{invalid_arguments_error}\s*;\s*return\s+NULL\s*;\s*\}}\s*'
+        rf'if\s*\(\s*\(\s*{re.escape(entry_var)}\s*=\s*dvr_entry_find_by_id\(\s*{re.escape(id_var)}\s*\)\s*\)\s*==\s*NULL\s*\)\s*'
+        rf'\{{\s*\*\s*out\s*=\s*{missing_entry_error}\s*;\s*return\s+NULL\s*;\s*\}}\s*'
+        rf'if\s*\(\s*dvr_entry_verify\(\s*{re.escape(entry_var)}\s*,\s*htsp->htsp_granted_access\s*,\s*readonly\s*\)\s*\)\s*'
+        rf'\{{\s*\*\s*out\s*=\s*{access_denied_error}\s*;\s*return\s+NULL\s*;\s*\}}\s*'
+        rf'return\s+{re.escape(entry_var)}\s*;'
+    )
+    if re.fullmatch(expected_helper, helper_compact) is None:
+        raise ValueError(
+            "htsp_findDvrEntry contains unmodeled helper, alias, output, or state topology"
+        )
+
+    handler = find_function_body(source, "htsp_method_stopDvrEntry")
+    if handler is None:
+        raise ValueError("htsp_method_stopDvrEntry body not found")
+    handler_compact = re.sub(r"\s+", " ", handler).strip()
+    helper_calls = re.findall(
+        rf'(?P<entry>[A-Za-z_][A-Za-z0-9_]*)\s*=\s*htsp_findDvrEntry\('
+        rf'\s*htsp\s*,\s*in\s*,\s*&\s*(?P<result>[A-Za-z_][A-Za-z0-9_]*)\s*,\s*0\s*\)\s*;\s*'
+        rf'if\s*\(\s*(?P=entry)\s*==\s*NULL\s*\)\s*return\s+(?P=result)\s*;',
+        handler_compact,
+    )
+    if len(helper_calls) != 1 or len(re.findall(r'\bhtsp_findDvrEntry\s*\(', handler)) != 1:
+        raise ValueError("htsp_method_stopDvrEntry must return one write-mode helper failure")
+    entry_var = helper_calls[0][0]
+    result_var = helper_calls[0][1]
+    stop_calls = re.findall(
+        rf'\bdvr_entry_stop\(\s*{re.escape(entry_var)}\s*\)\s*;',
+        handler,
+    )
+    if len(stop_calls) != 1 or len(re.findall(r'\bdvr_entry_stop\s*\(', handler)) != 1:
+        raise ValueError("htsp_method_stopDvrEntry must call dvr_entry_stop exactly once")
+    if re.search(r'\bdvr_entry_(?:cancel|cancel_remove)\s*\(', handler) is not None:
+        raise ValueError("htsp_method_stopDvrEntry must not substitute cancel or delete behavior")
+    if len(re.findall(r'\breturn\s+htsp_success\s*\(\s*\)\s*;', handler)) != 1:
+        raise ValueError("htsp_method_stopDvrEntry must return standard success exactly once")
+    if re.search(r'\bhtsmsg_(?:add|set|delete)_|\bhtsmsg_create_', handler) is not None:
+        raise ValueError("htsp_method_stopDvrEntry must not mutate a separate reply map")
+    expected_handler = (
+        rf'htsmsg_t\s*\*\s*{re.escape(result_var)}\s*=\s*NULL\s*;\s*'
+        rf'dvr_entry_t\s*\*\s*{re.escape(entry_var)}\s*;\s*'
+        rf'{re.escape(entry_var)}\s*=\s*htsp_findDvrEntry\('
+        rf'\s*htsp\s*,\s*in\s*,\s*&\s*{re.escape(result_var)}\s*,\s*0\s*\)\s*;\s*'
+        rf'if\s*\(\s*{re.escape(entry_var)}\s*==\s*NULL\s*\)\s*'
+        rf'return\s+{re.escape(result_var)}\s*;\s*'
+        rf'dvr_entry_stop\(\s*{re.escape(entry_var)}\s*\)\s*;\s*'
+        r'return\s+htsp_success\s*\(\s*\)\s*;'
+    )
+    if re.fullmatch(expected_handler, handler_compact) is None:
+        raise ValueError("htsp_method_stopDvrEntry contains unmodeled helper, alias, or state mutation")
+
+    success = find_function_body(source, "htsp_success")
+    if success is None:
+        raise ValueError("htsp_success body not found")
+    success_compact = re.sub(r"\s+", " ", success).strip()
+    maps = re.findall(
+        r'htsmsg_t\s*\*\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*htsmsg_create_map\(\s*\)\s*;',
+        success_compact,
+    )
+    if len(maps) != 1:
+        raise ValueError("htsp_success must create exactly one reply map")
+    reply_var = maps[0]
+    expected_success = (
+        rf'htsmsg_t\s*\*\s*{re.escape(reply_var)}\s*=\s*htsmsg_create_map\(\s*\)\s*;\s*'
+        rf'htsmsg_add_u32\(\s*{re.escape(reply_var)}\s*,\s*"success"\s*,\s*1\s*\)\s*;\s*'
+        rf'return\s+{re.escape(reply_var)}\s*;'
+    )
+    if re.fullmatch(expected_success, success_compact) is None:
+        raise ValueError("htsp_success must emit exactly add-u32 success=1 and return its map")
+
+
 def field_shape(fields: list[dict[str, Any]], completeness: str = "partial") -> dict[str, Any]:
     if not fields:
         return {
@@ -1905,6 +2046,16 @@ def derive_client_methods(server_c: str) -> list[dict[str, Any]]:
                 "htsp_method_getDvrCutpoints adds the list only when retrieved cutpoints are non-null",
                 shape_ref="cutpoint",
             )]
+        elif name == "stopDvrEntry":
+            require_stop_dvr_entry_source_facts(server_c)
+            request_fields = [exact_field(
+                "id", "u32", "request", "required",
+                "bounded htsp_findDvrEntry requires exactly u32 id before write-mode access and lookup",
+            )]
+            reply_fields = [exact_field(
+                "success", "u32", "reply", "required",
+                "bounded htsp_success emits exactly add-u32 success=1",
+            )]
 
         request_fields = annotate_fields(
             "clientMethod", name, "request",
@@ -1995,6 +2146,17 @@ def derive_client_methods(server_c: str) -> list[dict[str, Any]]:
                 "completeness": "complete",
                 "evidence": "bounded htsp_method_getDvrCutpoints emits only optional cutpoints list",
             }
+        if name == "stopDvrEntry":
+            method["requestShape"] = {
+                "kind": "fields",
+                "completeness": "complete",
+                "evidence": "bounded shared helper and stop handler accept exactly required id",
+            }
+            method["replyShape"] = {
+                "kind": "fields",
+                "completeness": "complete",
+                "evidence": "bounded standard-success helper emits exactly success=1",
+            }
         if name == "getEpgObject":
             method["replyFields"] = []
             method["replyShape"] = {
@@ -2011,6 +2173,11 @@ def derive_client_methods(server_c: str) -> list[dict[str, Any]]:
             }
         if name == "stopDvrEntry":
             method["docStatus"] = "missing-from-official-client-method-page"
+            method["notes"] = [
+                "The handler calls the shared DVR-entry helper in write mode and returns its bounded error result.",
+                "On helper success it calls exactly dvr_entry_stop; cancel and delete remain distinct operations.",
+                "The standard success reply carries success=1 only; later asynchronous DVR metadata is authoritative for lifecycle state.",
+            ]
         if name == "subscriptionSeek":
             method["notes"] = [
                 "Dispatch synonym of subscriptionSkip; both call htsp_method_skip."
@@ -2732,6 +2899,23 @@ def _minimal_server_c(
     )
     handlers = []
     for name, handler, _access in methods:
+        if name == "stopDvrEntry":
+            handlers.append(
+                f"""
+static htsmsg_t *
+{handler}(htsp_connection_t *htsp, htsmsg_t *in)
+{{
+  htsmsg_t *out = NULL;
+  dvr_entry_t *de;
+  de = htsp_findDvrEntry(htsp, in, &out, 0);
+  if (de == NULL)
+    return out;
+  dvr_entry_stop(de);
+  return htsp_success();
+}}
+"""
+            )
+            continue
         if name == "getDvrCutpoints":
             handlers.append(
                 f"""
@@ -2838,6 +3022,38 @@ static htsmsg_t *
 """.replace(f"(void)name_{name};", "")
         )
     # Server message emitters for expected inventory subset used in unit tests.
+    dvr_helpers = """
+static htsmsg_t *
+htsp_findDvrEntry(htsp_connection_t *htsp, htsmsg_t *in,
+                  htsmsg_t **out, int readonly)
+{
+  uint32_t id;
+  dvr_entry_t *de;
+  if (htsmsg_get_u32(in, "id", &id))
+  {
+    *out = htsp_error(htsp, N_("Invalid arguments"));
+    return NULL;
+  }
+  if ((de = dvr_entry_find_by_id(id)) == NULL)
+  {
+    *out = htsp_error(htsp, N_("DVR entry not found"));
+    return NULL;
+  }
+  if (dvr_entry_verify(de, htsp->htsp_granted_access, readonly))
+  {
+    *out = htsp_error(htsp, N_("User does not have access"));
+    return NULL;
+  }
+  return de;
+}
+static htsmsg_t *
+htsp_success(void)
+{
+  htsmsg_t *out = htsmsg_create_map();
+  htsmsg_add_u32(out, "success", 1);
+  return out;
+}
+"""
     emitters = """
 static void emit_all(void) {
   htsmsg_t *m;
@@ -2993,6 +3209,7 @@ static htsmsg_t *htsp_build_event(void *e, const char *method, const char *lang,
 """
     return f"""
 #define HTSP_PROTO_VERSION {proto}
+{dvr_helpers}
 {''.join(handlers)}
 struct {{
   const char *name;
@@ -3093,6 +3310,28 @@ def self_test() -> None:
         "getSysTime-source-doc-mismatch-limitation",
         "getSysTime-time-type-source-doc-mismatch" in limitation_ids,
     )
+    stop_dvr_entry = methods_by_name["stopDvrEntry"]
+    check(
+        "stopDvrEntry-committed-exact-contract",
+        stop_dvr_entry.get("accessMask") == "ACCESS_HTSP_RECORDER"
+        and stop_dvr_entry.get("minVersion") is None
+        and stop_dvr_entry.get("minVersionConfidence") == "unknown"
+        and [
+            (field["name"], field["type"], field["presence"])
+            for field in stop_dvr_entry["requestFields"]
+        ] == [("id", "u32", "required")]
+        and stop_dvr_entry.get("requestShape", {}).get("completeness") == "complete"
+        and [
+            (field["name"], field["type"], field["presence"])
+            for field in stop_dvr_entry["replyFields"]
+        ] == [("success", "u32", "required")]
+        and stop_dvr_entry.get("replyShape", {}).get("completeness") == "complete"
+        and stop_dvr_entry.get("sdk") == {"referenced": True, "outgoingRequest": True},
+    )
+    check(
+        "stopDvrEntry-doc-limitation",
+        "stopDvrEntry-missing-from-client-docs" in limitation_ids,
+    )
     live_coverage = scan_sdk_coverage(EXPECTED_CLIENT_METHODS, EXPECTED_SERVER_MESSAGES)
     check(
         "current-production-coverage",
@@ -3100,7 +3339,9 @@ def self_test() -> None:
             live_coverage["clientMethods"]["referencedCount"],
             live_coverage["clientMethods"]["outgoingRequestCount"],
             live_coverage["serverMessages"]["handledCount"],
-        ) == (25, 24, 23),
+        ) == (26, 25, 23)
+        and "stopDvrEntry" in live_coverage["clientMethods"]["referenced"]
+        and "stopDvrEntry" in live_coverage["clientMethods"]["outgoingRequests"],
         str(live_coverage.get("metrics")),
     )
     check(
@@ -3138,7 +3379,7 @@ def self_test() -> None:
             live_coverage["clientMethods"]["referencedCount"],
             live_coverage["clientMethods"]["outgoingRequestCount"],
             live_coverage["serverMessages"]["handledCount"],
-        ) == (25, 24, 23)
+        ) == (26, 25, 23)
         and "getChannel" in live_coverage["clientMethods"]["referenced"]
         and "getChannel" in live_coverage["clientMethods"]["outgoingRequests"],
         str(live_coverage.get("metrics")),
@@ -3191,7 +3432,7 @@ def self_test() -> None:
             live_coverage["clientMethods"]["referencedCount"],
             live_coverage["clientMethods"]["outgoingRequestCount"],
             live_coverage["serverMessages"]["handledCount"],
-        ) == (25, 24, 23)
+        ) == (26, 25, 23)
         and "getEvents" in live_coverage["clientMethods"]["referenced"]
         and "getEvents" in live_coverage["clientMethods"]["outgoingRequests"],
     )
@@ -3329,10 +3570,12 @@ def self_test() -> None:
             name,
             (
                 f"htsp_method_{name}"
-                if name in {"getEvent", "getEvents", "getDvrCutpoints"}
+                if name in {"getEvent", "getEvents", "stopDvrEntry", "getDvrCutpoints"}
                 else f"htsp_method_{idx}"
             ),
-            "ACCESS_HTSP_RECORDER" if name == "getDvrCutpoints" else "ACCESS_ANONYMOUS",
+            "ACCESS_HTSP_RECORDER"
+            if name in {"stopDvrEntry", "getDvrCutpoints"}
+            else "ACCESS_ANONYMOUS",
         )
         for idx, name in enumerate(EXPECTED_CLIENT_METHODS)
     ]
@@ -3414,6 +3657,158 @@ def self_test() -> None:
                 ("type", "u32", "required"),
             ],
         )
+        stop_method = next(
+            item for item in spec["clientMethods"] if item["name"] == "stopDvrEntry"
+        )
+        check(
+            "stopDvrEntry-fresh-exact-contract",
+            stop_method.get("accessMask") == "ACCESS_HTSP_RECORDER"
+            and stop_method.get("minVersion") is None
+            and stop_method.get("minVersionConfidence") == "unknown"
+            and [
+                (field["name"], field["type"], field["presence"])
+                for field in stop_method["requestFields"]
+            ] == [("id", "u32", "required")]
+            and stop_method.get("requestShape", {}).get("completeness") == "complete"
+            and [
+                (field["name"], field["type"], field["presence"])
+                for field in stop_method["replyFields"]
+            ] == [("success", "u32", "required")]
+            and stop_method.get("replyShape", {}).get("completeness") == "complete"
+            and stop_method.get("docStatus") == "missing-from-official-client-method-page"
+            and len(stop_method.get("notes", [])) == 3,
+        )
+
+        stop_source_mutations = (
+            ("optional-id", server_c.replace('if (htsmsg_get_u32(in, "id", &id))', 'if (!htsmsg_get_u32(in, "id", &id))', 1)),
+            ("renamed-id", server_c.replace('htsmsg_get_u32(in, "id", &id)', 'htsmsg_get_u32(in, "entryId", &id)', 1)),
+            ("wrong-id-type", server_c.replace('htsmsg_get_u32(in, "id", &id)', 'htsmsg_get_s64(in, "id", &id)', 1)),
+            (
+                "invalid-arguments-embedded-input-call",
+                server_c.replace(
+                    '*out = htsp_error(htsp, N_("Invalid arguments"));',
+                    '*out = htsp_error(htsp, (inspect_or_mutate(in), N_("Invalid arguments")));',
+                    1,
+                ),
+            ),
+            ("missing-lookup", server_c.replace('dvr_entry_find_by_id(id)', 'dvr_entry_find_by_uuid(id)', 1)),
+            (
+                "missing-entry-embedded-cancel",
+                server_c.replace(
+                    '*out = htsp_error(htsp, N_("DVR entry not found"));',
+                    '*out = htsp_error(htsp, (dvr_entry_cancel(de), N_("DVR entry not found")));',
+                    1,
+                ),
+            ),
+            ("wrong-lookup-error", server_c.replace('*out = htsp_error(htsp, N_("DVR entry not found"));', '*out = NULL;', 1)),
+            ("read-only-mode", server_c.replace('htsp_findDvrEntry(htsp, in, &out, 0)', 'htsp_findDvrEntry(htsp, in, &out, 1)', 1)),
+            ("access-drift", server_c.replace('htsp->htsp_granted_access, readonly', 'htsp->htsp_granted_access, 0', 1)),
+            (
+                "access-denied-embedded-output-mutation",
+                server_c.replace(
+                    '*out = htsp_error(htsp, N_("User does not have access"));',
+                    '*out = htsp_error(htsp, (htsmsg_add_u32(*out, "extra", 1), N_("User does not have access")));',
+                    1,
+                ),
+            ),
+            ("helper-result-drift", server_c.replace('if (de == NULL)\n    return out;', 'if (de != NULL)\n    return out;', 1)),
+            ("removed-stop", server_c.replace('  dvr_entry_stop(de);\n', '', 1)),
+            ("replaced-stop", server_c.replace('dvr_entry_stop(de)', 'dvr_entry_start(de)', 1)),
+            ("duplicated-stop", server_c.replace('  dvr_entry_stop(de);', '  dvr_entry_stop(de);\n  dvr_entry_stop(de);', 1)),
+            ("cancel-substitution", server_c.replace('dvr_entry_stop(de)', 'dvr_entry_cancel(de)', 1)),
+            ("delete-substitution", server_c.replace('dvr_entry_stop(de)', 'dvr_entry_cancel_remove(de)', 1)),
+            ("removed-success-return", server_c.replace('  return htsp_success();\n}', '}', 1)),
+            ("replaced-success-return", server_c.replace('return htsp_success();', 'return out;', 1)),
+            ("duplicated-success-return", server_c.replace('  return htsp_success();', '  return htsp_success();\n  return htsp_success();', 1)),
+            ("success-wrong-type", server_c.replace('htsmsg_add_u32(out, "success", 1)', 'htsmsg_add_s64(out, "success", 1)', 1)),
+            ("success-wrong-value", server_c.replace('htsmsg_add_u32(out, "success", 1)', 'htsmsg_add_u32(out, "success", 0)', 1)),
+            ("success-wrong-name", server_c.replace('htsmsg_add_u32(out, "success", 1)', 'htsmsg_add_u32(out, "stopped", 1)', 1)),
+            ("success-set-not-add", server_c.replace('htsmsg_add_u32(out, "success", 1)', 'htsmsg_set_u32(out, "success", 1)', 1)),
+            ("success-delete", server_c.replace('htsmsg_add_u32(out, "success", 1)', 'htsmsg_delete_field(out, "success")', 1)),
+            ("success-helper", server_c.replace('htsmsg_add_u32(out, "success", 1);', 'add_success(out);', 1)),
+            ("success-alias", server_c.replace('htsmsg_add_u32(out, "success", 1);', 'htsmsg_t *alias = out;\n  htsmsg_add_u32(alias, "success", 1);', 1)),
+            ("success-extra-field", server_c.replace('htsmsg_add_u32(out, "success", 1);', 'htsmsg_add_u32(out, "success", 1);\n  htsmsg_add_u32(out, "extra", 1);', 1)),
+            ("dispatch-access", server_c.replace('{ "stopDvrEntry", htsp_method_stopDvrEntry, ACCESS_HTSP_RECORDER}', '{ "stopDvrEntry", htsp_method_stopDvrEntry, ACCESS_ANONYMOUS}', 1)),
+            (
+                "external-stop-decoy",
+                server_c.replace('dvr_entry_stop(de)', 'dvr_entry_cancel(de)', 1)
+                + '\nstatic void stop_decoy(dvr_entry_t *de) { dvr_entry_stop(de); }\n',
+            ),
+            (
+                "external-success-decoy",
+                server_c.replace('htsmsg_add_u32(out, "success", 1)', 'htsmsg_add_u32(out, "stopped", 1)', 1)
+                + '\nstatic void success_decoy(htsmsg_t *out) { htsmsg_add_u32(out, "success", 1); }\n',
+            ),
+            (
+                "helper-injected-stop",
+                server_c.replace('  return de;\n}\nstatic htsmsg_t *\nhtsp_success', '  dvr_entry_stop(de);\n  return de;\n}\nstatic htsmsg_t *\nhtsp_success', 1),
+            ),
+            (
+                "helper-injected-cancel",
+                server_c.replace('  return de;\n}\nstatic htsmsg_t *\nhtsp_success', '  dvr_entry_cancel(de);\n  return de;\n}\nstatic htsmsg_t *\nhtsp_success', 1),
+            ),
+            (
+                "helper-injected-cancel-remove",
+                server_c.replace('  return de;\n}\nstatic htsmsg_t *\nhtsp_success', '  dvr_entry_cancel_remove(de);\n  return de;\n}\nstatic htsmsg_t *\nhtsp_success', 1),
+            ),
+            (
+                "helper-output-add",
+                server_c.replace('  return de;\n}\nstatic htsmsg_t *\nhtsp_success', '  htsmsg_add_u32(*out, "extra", 1);\n  return de;\n}\nstatic htsmsg_t *\nhtsp_success', 1),
+            ),
+            (
+                "helper-output-set",
+                server_c.replace('  return de;\n}\nstatic htsmsg_t *\nhtsp_success', '  htsmsg_set_u32(*out, "extra", 1);\n  return de;\n}\nstatic htsmsg_t *\nhtsp_success', 1),
+            ),
+            (
+                "helper-output-delete",
+                server_c.replace('  return de;\n}\nstatic htsmsg_t *\nhtsp_success', '  htsmsg_delete_field(*out, "extra");\n  return de;\n}\nstatic htsmsg_t *\nhtsp_success', 1),
+            ),
+            (
+                "helper-output-replacement",
+                server_c.replace('  return de;\n}\nstatic htsmsg_t *\nhtsp_success', '  *out = htsmsg_create_map();\n  return de;\n}\nstatic htsmsg_t *\nhtsp_success', 1),
+            ),
+            (
+                "helper-entry-alias-mutation",
+                server_c.replace('  return de;\n}\nstatic htsmsg_t *\nhtsp_success', '  dvr_entry_t *alias = de;\n  mutate_dvr_entry(alias);\n  return de;\n}\nstatic htsmsg_t *\nhtsp_success', 1),
+            ),
+            (
+                "helper-unknown-entry-call",
+                server_c.replace('  return de;\n}\nstatic htsmsg_t *\nhtsp_success', '  inspect_or_mutate(de);\n  return de;\n}\nstatic htsmsg_t *\nhtsp_success', 1),
+            ),
+            (
+                "helper-unknown-output-call",
+                server_c.replace('  return de;\n}\nstatic htsmsg_t *\nhtsp_success', '  inspect_or_mutate(out);\n  return de;\n}\nstatic htsmsg_t *\nhtsp_success', 1),
+            ),
+            (
+                "helper-unknown-input-call",
+                server_c.replace('  return de;\n}\nstatic htsmsg_t *\nhtsp_success', '  inspect_or_mutate(in);\n  return de;\n}\nstatic htsmsg_t *\nhtsp_success', 1),
+            ),
+            (
+                "helper-extra-body-topology",
+                server_c.replace('  return de;\n}\nstatic htsmsg_t *\nhtsp_success', '  int helper_extra = readonly;\n  return de;\n}\nstatic htsmsg_t *\nhtsp_success', 1),
+            ),
+        )
+        for label, mutated_source in stop_source_mutations:
+            try:
+                require_stop_dvr_entry_source_facts(mutated_source)
+            except ValueError:
+                continue
+            check(f"reject-stopDvrEntry-source-{label}", False)
+        helper_decoy_source = server_c.replace(
+            '  return de;\n}\nstatic htsmsg_t *\nhtsp_success',
+            '  /* dvr_entry_cancel(de); htsmsg_add_u32(*out, "extra", 1); */\n'
+            '  return de;\n}\nstatic htsmsg_t *\nhtsp_success',
+            1,
+        ) + (
+            '\nstatic const char *helper_topology_decoy = '
+            '"dvr_entry_cancel_remove(de); htsmsg_set_u32(*out, extra, 1);";\n'
+            'static void helper_call_decoy(dvr_entry_t *de, htsmsg_t **out) '
+            '{ inspect_or_mutate(de); inspect_or_mutate(out); }\n'
+        )
+        try:
+            require_stop_dvr_entry_source_facts(helper_decoy_source)
+        except ValueError as exc:
+            check("accept-stopDvrEntry-external-comment-string-helper-decoys", False, str(exc))
 
         extra_event_field_mutations = tuple(
             (

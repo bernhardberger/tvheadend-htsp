@@ -16,8 +16,8 @@ Primary authority is the pinned TVHeadend server source. Official HTSP documenta
 
 ## SDK coverage (exact-literal metric)
 
-- Client→server methods referenced in production sources: **25 / 39**
-- Distinct outgoing request names: **24 / 39**
+- Client→server methods referenced in production sources: **26 / 39**
+- Distinct outgoing request names: **25 / 39**
 - Server→client messages handled (exact literal): **23 / 30**
 - Distinguish **referenced** from **outgoing**: a name can appear because an inbound handler mentions it (for example `subscriptionSkip`) while the client sends a synonym (`subscriptionSeek`).
 - Never claim methods are implemented/called merely because they are referenced.
@@ -59,7 +59,7 @@ These fields are protocol-wide and are **not** method-specific success fields.
 | 12 | `getDvrConfigs` | `ACCESS_HTSP_RECORDER` | 16 (annotated) | yes | yes | _knownEmpty/complete_ | `dvrconfigs`:list [unknown] → `dvrConfig` — fields/partial |
 | 13 | `addDvrEntry` | `ACCESS_HTSP_RECORDER` | 4 (annotated) | yes | yes | `channelId`:u32 [unknown], `eventId`:u32 [unknown], `configName`:str [unknown], `language`:str [unknown], `start`:s64 [unknown], `stop`:s64 [unknown], `title`:str [unknown], `subtitle`:str [unknown], `summary`:str [unknown], `description`:str [unknown], `ageRating`:u32 [unknown] — fields/partial | `id`:u32 [unknown], `success`:u32 [unknown], `error`:str [unknown] — fields/partial |
 | 14 | `updateDvrEntry` | `ACCESS_HTSP_RECORDER` | 5 (annotated) | yes | yes | `channelId`:u32 [unknown], `configName`:str [unknown], `title`:str [unknown], `subtitle`:str [unknown], `summary`:str [unknown], `description`:str [unknown], `language`:str [unknown], `comment`:str [unknown], `playcount`:u32 [unknown], `playposition`:u32 [unknown], `enabled`:s64 [unknown], `start`:s64 [unknown], `stop`:s64 [unknown], `startExtra`:s64 [unknown], `stopExtra`:s64 [unknown], `retention`:u32 [unknown], `removal`:u32 [unknown], `priority`:u32 [unknown], `ageRating`:u32 [unknown], `id`:u32 [unknown] — fields/partial | `success`:u32 [unknown] — fields/partial |
-| 15 | `stopDvrEntry` | `ACCESS_HTSP_RECORDER` | — |  |  | `id`:u32 [unknown] — fields/partial | `success`:u32 [unknown] — fields/partial |
+| 15 | `stopDvrEntry` | `ACCESS_HTSP_RECORDER` | — | yes | yes | `id`:u32 [required] — fields/complete | `success`:u32 [required] — fields/complete |
 | 16 | `cancelDvrEntry` | `ACCESS_HTSP_RECORDER` | 5 (annotated) | yes | yes | `id`:u32 [unknown] — fields/partial | `success`:u32 [unknown] — fields/partial |
 | 17 | `deleteDvrEntry` | `ACCESS_HTSP_RECORDER` | 4 (annotated) | yes | yes | `id`:u32 [unknown] — fields/partial | `success`:u32 [unknown] — fields/partial |
 | 18 | `addAutorecEntry` | `ACCESS_HTSP_RECORDER` | 13 (annotated) |  |  | `title`:str [unknown], `channelId`:s64 [unknown], `minduration`:u32 [unknown], `maxduration`:u32 [unknown], `fulltext`:u32 [unknown], `mergetext`:u32 [unknown], `dupDetect`:u32 [unknown], `maxCount`:u32 [unknown], `broadcastType`:u32 [unknown], `startExtra`:s64 [unknown], `stopExtra`:s64 [unknown], `serieslinkUri`:str [unknown], `approxTime`:s32 [unknown], `start`:s32 [unknown], `startWindow`:s32 [unknown], `stop`:u32 [unknown], `enabled`:u32 [unknown], `retention`:u32 [unknown], `removal`:u32 [unknown], `priority`:u32 [unknown], `name`:str [unknown], `comment`:str [unknown], `directory`:str [unknown], `configName`:str [unknown], `daysOfWeek`:u32 [unknown] — fields/partial | `id`:str [unknown], `success`:u32 [unknown], `error`:str [unknown] — fields/partial |
