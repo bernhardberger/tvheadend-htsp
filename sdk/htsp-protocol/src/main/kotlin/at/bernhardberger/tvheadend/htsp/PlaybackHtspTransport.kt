@@ -91,6 +91,22 @@ public interface PlaybackHtspTransport {
         expectedConnectionAttemptId: Long? = null,
     ): Long
 
+    /** Returns the bounded file size when the server reports one. */
+    public suspend fun fileStat(
+        id: Int,
+        timeoutMs: Long = 5_000,
+        expectedConnectionAttemptId: Long? = null,
+    ): Long? = null
+
+    /** Closes a generic file handle without recording-progress mutation. */
+    public suspend fun fileClose(
+        id: Int,
+        timeoutMs: Long = 5_000,
+        expectedConnectionAttemptId: Long? = null,
+    ) {
+        fileCloseRecording(id, htspVersion = null, timeoutMs, expectedConnectionAttemptId)
+    }
+
     public suspend fun fileCloseRecording(
         id: Int,
         htspVersion: Int?,

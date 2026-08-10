@@ -7093,7 +7093,7 @@
       },
       "sdk": {
         "handled": true,
-        "typedServerMessage": false
+        "typedServerMessage": true
       }
     },
     {
@@ -7272,7 +7272,7 @@
       ],
       "sdk": {
         "handled": true,
-        "typedServerMessage": false
+        "typedServerMessage": true
       }
     },
     {
@@ -7298,7 +7298,7 @@
       },
       "sdk": {
         "handled": true,
-        "typedServerMessage": false
+        "typedServerMessage": true
       }
     },
     {
@@ -9080,7 +9080,7 @@
     },
     "typedServerMessages": {
       "catalog": "docs/htsp-protocol/generate_typed_server_messages.py",
-      "count": 23,
+      "count": 26,
       "messages": [
         {
           "name": "channelAdd",
@@ -9126,6 +9126,21 @@
           "name": "dvrEntryDelete",
           "messageType": "HtspDvrEntryDeleteMessage",
           "minVersion": 4
+        },
+        {
+          "name": "timerecEntryAdd",
+          "messageType": "HtspTimerecEntryAddMessage",
+          "minVersion": 18
+        },
+        {
+          "name": "timerecEntryUpdate",
+          "messageType": "HtspTimerecEntryUpdateMessage",
+          "minVersion": 18
+        },
+        {
+          "name": "timerecEntryDelete",
+          "messageType": "HtspTimerecEntryDeleteMessage",
+          "minVersion": 18
         },
         {
           "name": "eventAdd",
@@ -9243,7 +9258,7 @@
       "outgoingClientMethods": 28,
       "handledServerMessages": 27,
       "typedClientRequests": 20,
-      "typedServerMessages": 23,
+      "typedServerMessages": 26,
       "notes": [
         "referenced counts exact string literals in SDK production main sources",
         "outgoing counts method = \"...\" / method = CONST assignments only",

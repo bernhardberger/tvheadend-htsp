@@ -6,7 +6,7 @@ public sealed interface HtspResult<out R> {
     public data class Ok<out R>(public val value: R) : HtspResult<R>
 
     /** The server rejected the request or supplied a malformed reply. */
-    public data class ServerError(public val message: String? = null) : HtspResult<Nothing>
+    public data object ServerError : HtspResult<Nothing>
 
     /** The server explicitly denied access to the request. */
     public data object AccessDenied : HtspResult<Nothing>

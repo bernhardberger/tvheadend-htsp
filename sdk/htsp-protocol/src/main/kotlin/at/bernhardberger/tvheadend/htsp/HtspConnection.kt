@@ -53,8 +53,21 @@ public class HtspConnection private constructor() {
      * Cancellation, including generation replacement, is never converted to [HtspResult].
      */
     public suspend fun <R> call(request: HtspRequest<R>): HtspResult<R> {
+        return call(request, timeoutMs = 5_000L, expectedGeneration = null)
+    }
+
+    /** Executes one request with an explicit timeout and optional generation pin. */
+    public suspend fun <R> call(
+        request: HtspRequest<R>,
+        timeoutMs: Long,
+        expectedGeneration: HtspConnectionGeneration? = null,
+    ): HtspResult<R> {
+        require(timeoutMs > 0L) { "timeoutMs must be positive" }
         currentCoroutineContext().ensureActive()
         val generation = transport.captureGeneration() ?: return HtspResult.TransportUnavailable
+        if (expectedGeneration != null && generation.token !== expectedGeneration) {
+            throw CancellationException("Stale HTSP connection generation")
+        }
         val minimumVersion = request.minimumProtocolVersion
         val protocolVersion = generation.protocolVersion
         if (minimumVersion != null && (protocolVersion == null || protocolVersion < minimumVersion)) {
@@ -66,6 +79,7 @@ public class HtspConnection private constructor() {
                 generation = generation,
                 method = request.method,
                 fields = HtspRequestCodecs.encode(request),
+                timeoutMs = timeoutMs,
             )
             ensureActiveGeneration(generation)
             classifyReply(reply, request, protocolVersion ?: 0)
@@ -76,7 +90,7 @@ public class HtspConnection private constructor() {
             HtspResult.Timeout
         } catch (_: HtspProtocolMappingException) {
             ensureActiveGeneration(generation)
-            HtspResult.ServerError()
+            HtspResult.ServerError
         } catch (_: Exception) {
             ensureActiveGeneration(generation)
             HtspResult.TransportUnavailable
@@ -96,13 +110,13 @@ public class HtspConnection private constructor() {
         protocolVersion: Int,
     ): HtspResult<R> {
         if (reply.fields.containsKey("error")) {
-            return HtspResult.ServerError(reply.fields["error"] as? String)
+            return HtspResult.ServerError
         }
         if (reply.fields.containsKey("noaccess")) {
             return when (reply.fields["noaccess"]) {
                 0L -> decodeReply(request, reply.fields, protocolVersion)
                 1L -> HtspResult.AccessDenied
-                else -> HtspResult.ServerError()
+                else -> HtspResult.ServerError
             }
         }
         return decodeReply(request, reply.fields, protocolVersion)
@@ -115,9 +129,9 @@ public class HtspConnection private constructor() {
     ): HtspResult<R> = try {
         HtspResult.Ok(HtspRequestCodecs.decode(request, fields, protocolVersion))
     } catch (_: HtspProtocolMappingException) {
-        HtspResult.ServerError()
+        HtspResult.ServerError
     } catch (_: RuntimeException) {
-        HtspResult.ServerError()
+        HtspResult.ServerError
     }
 }
 
@@ -155,6 +169,7 @@ internal interface `HtspRequestTransport-internal` {
         generation: HtspCapturedGeneration,
         method: String,
         fields: LinkedHashMap<String, Any?>,
+        timeoutMs: Long,
     ): HtspWireReply
 
     fun isCurrent(generation: HtspCapturedGeneration): Boolean

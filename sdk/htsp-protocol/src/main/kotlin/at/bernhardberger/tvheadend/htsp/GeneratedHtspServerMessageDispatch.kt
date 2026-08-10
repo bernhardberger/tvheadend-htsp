@@ -18,6 +18,9 @@ private val typedHtspServerMessageCatalog: List<TypedHtspServerMessageCatalogEnt
     TypedHtspServerMessageCatalogEntry("dvrEntryAdd", "HtspDvrEntryAddMessage", 4),
     TypedHtspServerMessageCatalogEntry("dvrEntryUpdate", "HtspDvrEntryUpdateMessage", 4),
     TypedHtspServerMessageCatalogEntry("dvrEntryDelete", "HtspDvrEntryDeleteMessage", 4),
+    TypedHtspServerMessageCatalogEntry("timerecEntryAdd", "HtspTimerecEntryAddMessage", 18),
+    TypedHtspServerMessageCatalogEntry("timerecEntryUpdate", "HtspTimerecEntryUpdateMessage", 18),
+    TypedHtspServerMessageCatalogEntry("timerecEntryDelete", "HtspTimerecEntryDeleteMessage", 18),
     TypedHtspServerMessageCatalogEntry("eventAdd", "HtspEventAddMessage", 6),
     TypedHtspServerMessageCatalogEntry("eventUpdate", "HtspEventUpdateMessage", 6),
     TypedHtspServerMessageCatalogEntry("eventDelete", "HtspEventDeleteMessage", 6),
@@ -34,27 +37,17 @@ private val typedHtspServerMessageCatalog: List<TypedHtspServerMessageCatalogEnt
     TypedHtspServerMessageCatalogEntry("subscriptionSkip", "HtspSubscriptionSkipMessage", 9),
 )
 
-// Kotlin production names are the internal typealiases below. The backing JVM names are
-// deliberately not Java source identifiers; the decoder entry point is also synthetic.
-internal sealed interface `HtspServerMessageDecodeResult-internal`
-internal data class `HtspServerMessageDecoded-internal`(val message: HtspServerMessage) :
-    `HtspServerMessageDecodeResult-internal`
-internal data object `HtspServerMessageUnknownMethod-internal` :
-    `HtspServerMessageDecodeResult-internal`
-internal data object `HtspServerMessageMalformedKnownMessage-internal` :
-    `HtspServerMessageDecodeResult-internal`
+public sealed interface HtspServerMessageDecodeResult
+public data class HtspServerMessageDecoded(
+    public val message: HtspServerMessage,
+) : HtspServerMessageDecodeResult
+public data object HtspServerMessageUnknownMethod : HtspServerMessageDecodeResult
+public data object HtspServerMessageMalformedKnownMessage : HtspServerMessageDecodeResult
 
-internal typealias HtspServerMessageDecodeResult = `HtspServerMessageDecodeResult-internal`
-internal typealias HtspServerMessageDecoded = `HtspServerMessageDecoded-internal`
-internal typealias HtspServerMessageUnknownMethod = `HtspServerMessageUnknownMethod-internal`
-internal typealias HtspServerMessageMalformedKnownMessage =
-    `HtspServerMessageMalformedKnownMessage-internal`
-
-@JvmSynthetic
-internal fun decodeHtspServerMessage(fields: Map<String, Any?>): HtspServerMessageDecodeResult {
-    if (fields.containsKey("seq")) return `HtspServerMessageUnknownMethod-internal`
+public fun decodeHtspServerMessage(fields: Map<String, Any?>): HtspServerMessageDecodeResult {
+    if (fields.containsKey("seq")) return HtspServerMessageUnknownMethod
     val method = fields["method"] as? String
-        ?: return `HtspServerMessageUnknownMethod-internal`
+        ?: return HtspServerMessageUnknownMethod
     return when (method) {
         "channelAdd" -> decodeKnownServerMessage { decodeChannelAdd(fields) }
         "channelUpdate" -> decodeKnownServerMessage { decodeChannelUpdate(fields) }
@@ -65,6 +58,9 @@ internal fun decodeHtspServerMessage(fields: Map<String, Any?>): HtspServerMessa
         "dvrEntryAdd" -> decodeKnownServerMessage { decodeDvrEntryAdd(fields) }
         "dvrEntryUpdate" -> decodeKnownServerMessage { decodeDvrEntryUpdate(fields) }
         "dvrEntryDelete" -> decodeKnownServerMessage { decodeDvrEntryDelete(fields) }
+        "timerecEntryAdd" -> decodeKnownServerMessage { decodeTimerecEntryAdd(fields) }
+        "timerecEntryUpdate" -> decodeKnownServerMessage { decodeTimerecEntryUpdate(fields) }
+        "timerecEntryDelete" -> decodeKnownServerMessage { decodeTimerecEntryDelete(fields) }
         "eventAdd" -> decodeKnownServerMessage { decodeEventAdd(fields) }
         "eventUpdate" -> decodeKnownServerMessage { decodeEventUpdate(fields) }
         "eventDelete" -> decodeKnownServerMessage { decodeEventDelete(fields) }
@@ -79,7 +75,7 @@ internal fun decodeHtspServerMessage(fields: Map<String, Any?>): HtspServerMessa
         "subscriptionSpeed" -> decodeKnownServerMessage { decodeSubscriptionSpeed(fields) }
         "timeshiftStatus" -> decodeKnownServerMessage { decodeTimeshiftStatus(fields) }
         "subscriptionSkip" -> decodeKnownServerMessage { decodeSubscriptionSkip(fields) }
-        else -> `HtspServerMessageUnknownMethod-internal`
+        else -> HtspServerMessageUnknownMethod
     }
 }
 
@@ -87,7 +83,7 @@ private fun decodeKnownServerMessage(block: () -> HtspServerMessage): HtspServer
     try {
         HtspServerMessageDecoded(block())
     } catch (_: IllegalArgumentException) {
-        `HtspServerMessageMalformedKnownMessage-internal`
+        HtspServerMessageMalformedKnownMessage
     }
 
 @JvmSynthetic

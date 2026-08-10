@@ -110,6 +110,35 @@ public data class GetEventsResponse(public val events: List<HtspEvent>)
 
 public data class GetDvrConfigsResponse(public val configurations: List<HtspDvrConfig>?)
 
+/** Closed request family for DVR mutations with bounded failure classification. */
+public sealed interface HtspDvrMutationRequest
+
+/** Bounded DVR mutation result. Raw server diagnostics are intentionally discarded. */
+public sealed interface HtspDvrMutationOutcome {
+    public data class Accepted(public val entryId: Long? = null) : HtspDvrMutationOutcome
+    public data object PermissionDenied : HtspDvrMutationOutcome
+    public data object ConnectionLimit : HtspDvrMutationOutcome
+    public data object Conflict : HtspDvrMutationOutcome
+    public data object NotSupported : HtspDvrMutationOutcome
+    public data object Timeout : HtspDvrMutationOutcome
+    public data object TransportUnavailable : HtspDvrMutationOutcome
+    public data object Rejected : HtspDvrMutationOutcome
+}
+
+/** Bounded `getDvrConfigs` result with no raw error payload. */
+public sealed interface HtspDvrConfigurationsOutcome {
+    public data class Success(
+        public val configurations: List<HtspDvrConfig>?,
+    ) : HtspDvrConfigurationsOutcome
+
+    public data object PermissionDenied : HtspDvrConfigurationsOutcome
+    public data object ConnectionLimit : HtspDvrConfigurationsOutcome
+    public data object NotSupported : HtspDvrConfigurationsOutcome
+    public data object Timeout : HtspDvrConfigurationsOutcome
+    public data object TransportUnavailable : HtspDvrConfigurationsOutcome
+    public data object Rejected : HtspDvrConfigurationsOutcome
+}
+
 public data class AddDvrEntryResponse(
     public val success: Long,
     public val entryId: Long?,
@@ -241,7 +270,7 @@ public data class AddDvrEntryRequest(
         5.takeIf { description != null },
         36.takeIf { ageRating != null },
     ),
-) {
+), HtspDvrMutationRequest {
     init {
         ageRating?.let { requireU32("ageRating", it) }
     }
@@ -284,7 +313,7 @@ public data class UpdateDvrEntryRequest(
         13.takeIf { retention != null || priority != null },
         36.takeIf { ageRating != null },
     ),
-) {
+), HtspDvrMutationRequest {
     init {
         requireU32("id", entryId)
         channelId?.let { requireU32("channelId", it) }
@@ -302,7 +331,7 @@ public data class StopDvrEntryRequest(public val entryId: Long) : HtspRequest<St
     method = "stopDvrEntry",
     access = HtspAccess.ACCESS_HTSP_RECORDER,
     minimumProtocolVersion = null,
-) {
+), HtspDvrMutationRequest {
     init {
         requireU32("id", entryId)
     }
@@ -312,7 +341,7 @@ public data class CancelDvrEntryRequest(public val entryId: Long) : HtspRequest<
     method = "cancelDvrEntry",
     access = HtspAccess.ACCESS_HTSP_RECORDER,
     minimumProtocolVersion = 5,
-) {
+), HtspDvrMutationRequest {
     init {
         requireU32("id", entryId)
     }
@@ -322,7 +351,7 @@ public data class DeleteDvrEntryRequest(public val entryId: Long) : HtspRequest<
     method = "deleteDvrEntry",
     access = HtspAccess.ACCESS_HTSP_RECORDER,
     minimumProtocolVersion = 4,
-) {
+), HtspDvrMutationRequest {
     init {
         requireU32("id", entryId)
     }

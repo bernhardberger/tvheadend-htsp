@@ -126,6 +126,9 @@ EXPECTED_TYPED_SERVER_MESSAGES: tuple[tuple[str, str, int | None], ...] = (
     ("dvrEntryAdd", "HtspDvrEntryAddMessage", 4),
     ("dvrEntryUpdate", "HtspDvrEntryUpdateMessage", 4),
     ("dvrEntryDelete", "HtspDvrEntryDeleteMessage", 4),
+    ("timerecEntryAdd", "HtspTimerecEntryAddMessage", 18),
+    ("timerecEntryUpdate", "HtspTimerecEntryUpdateMessage", 18),
+    ("timerecEntryDelete", "HtspTimerecEntryDeleteMessage", 18),
     ("eventAdd", "HtspEventAddMessage", 6),
     ("eventUpdate", "HtspEventUpdateMessage", 6),
     ("eventDelete", "HtspEventDeleteMessage", 6),
@@ -1195,8 +1198,8 @@ def validate_spec(spec: dict[str, Any], upstream: dict[str, Any] | None = None) 
     ]
     if typed_server_contract != list(EXPECTED_TYPED_SERVER_MESSAGES):
         errors.append("coverage typedServerMessages must match the exact reviewed catalog")
-    if typed_server_count != len(typed_server_messages) or typed_server_count != 23:
-        errors.append("coverage typedServerMessages.count must match exactly 23 messages")
+    if typed_server_count != len(typed_server_messages) or typed_server_count != 26:
+        errors.append("coverage typedServerMessages.count must match exactly 26 messages")
     if typed_server_cov.get("catalog") != "docs/htsp-protocol/generate_typed_server_messages.py":
         errors.append("coverage typedServerMessages.catalog must name the reviewed generator")
     if typed_server_cov.get("meaning") != (

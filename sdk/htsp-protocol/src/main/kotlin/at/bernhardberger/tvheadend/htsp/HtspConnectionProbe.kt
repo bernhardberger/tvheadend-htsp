@@ -11,12 +11,12 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
 
-internal class `HtspConnectionProbe-internal`(
+public class HtspConnectionProbe(
     private val ioDispatcher: CoroutineDispatcher,
     private val clientIdentity: HtspClientIdentity = HtspClientIdentity.Default,
     private val logger: HtspLogger = HtspLogger.None,
 ) {
-    suspend fun test(
+    public suspend fun test(
         host: String,
         port: Int,
         username: String,
@@ -90,20 +90,16 @@ internal class `HtspConnectionProbe-internal`(
     }
 }
 
-internal typealias HtspConnectionProbe = `HtspConnectionProbe-internal`
+public sealed interface HtspProbeResult
 
-internal sealed interface `HtspProbeResult-internal` {
-    data class Success(
-        val serverVersion: Int,
-        val channelCount: Int,
-    ) : `HtspProbeResult-internal`
+public data class HtspProbeSuccess(
+    public val serverVersion: Int,
+    public val channelCount: Int,
+) : HtspProbeResult
 
-    data class Failure(val error: Throwable) : `HtspProbeResult-internal`
-}
-
-internal typealias HtspProbeResult = `HtspProbeResult-internal`
-internal typealias HtspProbeSuccess = `HtspProbeResult-internal`.Success
-internal typealias HtspProbeFailure = `HtspProbeResult-internal`.Failure
+public data class HtspProbeFailure(
+    public val failure: HtspTransportFailure,
+) : HtspProbeResult
 
 internal interface `HtspProbeSession-internal` {
     suspend fun connect(): Int
@@ -142,9 +138,16 @@ internal suspend fun runHtspConnectionProbe(session: HtspProbeSession): HtspProb
     )
 } catch (error: Throwable) {
     if (error is CancellationException) throw error
-    HtspProbeFailure(error)
+    HtspProbeFailure(error.toProbeTransportFailure())
 } finally {
     runCatching { session.close() }.onFailure { error ->
         if (error is CancellationException) throw error
     }
+}
+
+private fun Throwable.toProbeTransportFailure(): HtspTransportFailure = when (this) {
+    is HtspIncompatibleServerVersionException ->
+        HtspTransportFailure(HtspTransportFailureKind.INCOMPATIBLE_SERVER)
+    is HtspZeroChannelsException -> HtspTransportFailure(HtspTransportFailureKind.ZERO_CHANNELS)
+    else -> typedTransportFailure(this)
 }

@@ -320,6 +320,72 @@ public data class HtspDvrEntryDeleteMessage(public val entryId: Long) : HtspServ
     }
 }
 
+/** A complete time-based DVR rule announced during asynchronous metadata sync. */
+public data class HtspTimerecEntryAddMessage(
+    public val id: String,
+    public val enabled: Boolean,
+    public val name: String,
+    public val title: String,
+    public val channelId: Int,
+    public val startMinutesSinceMidnight: Int,
+    public val stopMinutesSinceMidnight: Int,
+    public val daysOfWeekMask: Long? = null,
+    public val priority: Long? = null,
+    public val retentionDays: Long? = null,
+    public val directory: String? = null,
+    public val owner: String? = null,
+    public val creator: String? = null,
+    public val configId: String? = null,
+    public val comment: String? = null,
+) : HtspServerMessage {
+    init {
+        require(channelId >= 0) { "channelId must be non-negative" }
+        require(startMinutesSinceMidnight in 0..1_440) {
+            "startMinutesSinceMidnight must be between 0 and 1440"
+        }
+        require(stopMinutesSinceMidnight in 0..1_440) {
+            "stopMinutesSinceMidnight must be between 0 and 1440"
+        }
+        daysOfWeekMask?.let { requireServerU32("daysOfWeekMask", it) }
+        priority?.let { requireServerU32("priority", it) }
+        retentionDays?.let { requireServerU32("retentionDays", it) }
+    }
+}
+
+/** A partial time-based DVR rule update. Null properties were absent on the wire. */
+public data class HtspTimerecEntryUpdateMessage(
+    public val id: String,
+    public val enabled: Boolean? = null,
+    public val name: String? = null,
+    public val title: String? = null,
+    public val channelId: Int? = null,
+    public val startMinutesSinceMidnight: Int? = null,
+    public val stopMinutesSinceMidnight: Int? = null,
+    public val daysOfWeekMask: Long? = null,
+    public val priority: Long? = null,
+    public val retentionDays: Long? = null,
+    public val directory: String? = null,
+    public val owner: String? = null,
+    public val creator: String? = null,
+    public val configId: String? = null,
+    public val comment: String? = null,
+) : HtspServerMessage {
+    init {
+        require(channelId == null || channelId >= 0) { "channelId must be non-negative" }
+        require(startMinutesSinceMidnight == null || startMinutesSinceMidnight in 0..1_440) {
+            "startMinutesSinceMidnight must be between 0 and 1440"
+        }
+        require(stopMinutesSinceMidnight == null || stopMinutesSinceMidnight in 0..1_440) {
+            "stopMinutesSinceMidnight must be between 0 and 1440"
+        }
+        daysOfWeekMask?.let { requireServerU32("daysOfWeekMask", it) }
+        priority?.let { requireServerU32("priority", it) }
+        retentionDays?.let { requireServerU32("retentionDays", it) }
+    }
+}
+
+public data class HtspTimerecEntryDeleteMessage(public val id: String) : HtspServerMessage
+
 public class HtspEventAddMessage(
     event: HtspEvent,
     public val genre: String? = null,
@@ -772,6 +838,56 @@ internal fun decodeDvrEntryDelete(fields: Map<String, Any?>): HtspServerMessage 
     HtspDvrEntryDeleteMessage(fields.requiredServerAliasU32(DVR_ID_KEYS))
 
 @JvmSynthetic
+internal fun decodeTimerecEntryAdd(fields: Map<String, Any?>): HtspServerMessage =
+    HtspTimerecEntryAddMessage(
+        id = fields.requiredServerString("id"),
+        enabled = fields.requiredServerFlag("enabled"),
+        name = fields.requiredServerString("name"),
+        title = fields.requiredServerString("title"),
+        channelId = fields.requiredServerBoundedInt("channel", 0..Int.MAX_VALUE),
+        startMinutesSinceMidnight = fields.requiredServerBoundedInt("start", 0..1_440),
+        stopMinutesSinceMidnight = fields.requiredServerBoundedInt("stop", 0..1_440),
+        daysOfWeekMask = optionalTimerecValue { fields.optionalServerU32("daysOfWeek") },
+        priority = optionalTimerecValue { fields.optionalServerU32("priority") },
+        retentionDays = optionalTimerecValue { fields.optionalServerU32("retention") },
+        directory = optionalTimerecValue { fields.optionalServerString("directory") },
+        owner = optionalTimerecValue { fields.optionalServerString("owner") },
+        creator = optionalTimerecValue { fields.optionalServerString("creator") },
+        configId = optionalTimerecValue { fields.optionalServerString("configId") },
+        comment = optionalTimerecValue { fields.optionalServerString("comment") },
+    )
+
+@JvmSynthetic
+internal fun decodeTimerecEntryUpdate(fields: Map<String, Any?>): HtspServerMessage =
+    HtspTimerecEntryUpdateMessage(
+        id = fields.requiredServerString("id"),
+        enabled = optionalTimerecValue { fields.optionalServerFlag("enabled") },
+        name = optionalTimerecValue { fields.optionalServerString("name") },
+        title = optionalTimerecValue { fields.optionalServerString("title") },
+        channelId = optionalTimerecValue {
+            fields.optionalServerBoundedInt("channel", 0..Int.MAX_VALUE)
+        },
+        startMinutesSinceMidnight = optionalTimerecValue {
+            fields.optionalServerBoundedInt("start", 0..1_440)
+        },
+        stopMinutesSinceMidnight = optionalTimerecValue {
+            fields.optionalServerBoundedInt("stop", 0..1_440)
+        },
+        daysOfWeekMask = optionalTimerecValue { fields.optionalServerU32("daysOfWeek") },
+        priority = optionalTimerecValue { fields.optionalServerU32("priority") },
+        retentionDays = optionalTimerecValue { fields.optionalServerU32("retention") },
+        directory = optionalTimerecValue { fields.optionalServerString("directory") },
+        owner = optionalTimerecValue { fields.optionalServerString("owner") },
+        creator = optionalTimerecValue { fields.optionalServerString("creator") },
+        configId = optionalTimerecValue { fields.optionalServerString("configId") },
+        comment = optionalTimerecValue { fields.optionalServerString("comment") },
+    )
+
+@JvmSynthetic
+internal fun decodeTimerecEntryDelete(fields: Map<String, Any?>): HtspServerMessage =
+    HtspTimerecEntryDeleteMessage(fields.requiredServerString("id"))
+
+@JvmSynthetic
 internal fun decodeEventAdd(fields: Map<String, Any?>): HtspServerMessage =
     HtspEventAddMessage(
         event = decodeServerEvent(fields),
@@ -1014,6 +1130,12 @@ private fun requireServerU32(name: String, value: Long) {
     require(value in 0L..SERVER_MESSAGE_U32_MAX) { "$name must be in the HTSP u32 range" }
 }
 
+private inline fun <T> optionalTimerecValue(block: () -> T?): T? = try {
+    block()
+} catch (_: HtspServerMessageMappingException) {
+    null
+}
+
 private fun <T> List<T>.immutableServerSnapshot(): List<T> =
     Collections.unmodifiableList(ArrayList(this))
 
@@ -1082,6 +1204,26 @@ private fun Map<*, *>.requiredServerS32(name: String): Int {
     }
     return value.toInt()
 }
+
+private fun Map<*, *>.requiredServerBoundedInt(name: String, range: IntRange): Int {
+    val value = requiredServerS64(name)
+    if (value !in range.first.toLong()..range.last.toLong()) {
+        throw HtspServerMessageMappingException()
+    }
+    return value.toInt()
+}
+
+private fun Map<*, *>.optionalServerBoundedInt(name: String, range: IntRange): Int? =
+    if (containsKey(name)) requiredServerBoundedInt(name, range) else null
+
+private fun Map<*, *>.requiredServerFlag(name: String): Boolean = when (requiredServerS64(name)) {
+    0L -> false
+    1L -> true
+    else -> throw HtspServerMessageMappingException()
+}
+
+private fun Map<*, *>.optionalServerFlag(name: String): Boolean? =
+    if (containsKey(name)) requiredServerFlag(name) else null
 
 private fun Map<*, *>.requiredServerU32(name: String): Long {
     val value = requiredServerS64(name)

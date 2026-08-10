@@ -4317,7 +4317,7 @@ def self_test() -> None:
             live_coverage["serverMessages"]["handledCount"],
             live_coverage["typedClientRequests"]["count"],
             live_coverage["typedServerMessages"]["count"],
-        ) == (29, 28, 27, 20, 23)
+        ) == (29, 28, 27, 20, 26)
         and "stopDvrEntry" in live_coverage["clientMethods"]["referenced"]
         and "stopDvrEntry" in live_coverage["clientMethods"]["outgoingRequests"]
         and "subscriptionChangeWeight" in live_coverage["clientMethods"]["referenced"]

@@ -65,7 +65,10 @@ class HtspConnectionProbeTest {
                 }
             }
 
-            assertTrue((result as HtspProbeFailure).error is HtspZeroChannelsException)
+            assertEquals(
+                HtspTransportFailure(HtspTransportFailureKind.ZERO_CHANNELS),
+                (result as HtspProbeFailure).failure,
+            )
             assertTrue(server.transportClosed.await(1, TimeUnit.SECONDS))
         }
     }

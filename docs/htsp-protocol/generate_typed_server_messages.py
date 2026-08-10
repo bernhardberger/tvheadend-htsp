@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate the reviewed 23-message finite HTSP server-message dispatch."""
+"""Generate the reviewed 26-message finite HTSP server-message dispatch."""
 
 from __future__ import annotations
 
@@ -34,6 +34,9 @@ CATALOG: tuple[Entry, ...] = (
     Entry("dvrEntryAdd", "HtspDvrEntryAddMessage", "decodeDvrEntryAdd", 4),
     Entry("dvrEntryUpdate", "HtspDvrEntryUpdateMessage", "decodeDvrEntryUpdate", 4),
     Entry("dvrEntryDelete", "HtspDvrEntryDeleteMessage", "decodeDvrEntryDelete", 4),
+    Entry("timerecEntryAdd", "HtspTimerecEntryAddMessage", "decodeTimerecEntryAdd", 18),
+    Entry("timerecEntryUpdate", "HtspTimerecEntryUpdateMessage", "decodeTimerecEntryUpdate", 18),
+    Entry("timerecEntryDelete", "HtspTimerecEntryDeleteMessage", "decodeTimerecEntryDelete", 18),
     Entry("eventAdd", "HtspEventAddMessage", "decodeEventAdd", 6),
     Entry("eventUpdate", "HtspEventUpdateMessage", "decodeEventUpdate", 6),
     Entry("eventDelete", "HtspEventDeleteMessage", "decodeEventDelete", 6),
@@ -55,22 +58,19 @@ EXCLUDED_METHODS = {
     "autorecEntryAdd",
     "autorecEntryUpdate",
     "autorecEntryDelete",
-    "timerecEntryAdd",
-    "timerecEntryUpdate",
-    "timerecEntryDelete",
     "descrambleInfo",
 }
 
 
 def validate_catalog(catalog: tuple[Entry, ...] = CATALOG) -> None:
     methods = tuple(entry.method for entry in catalog)
-    if methods != EXPECTED_METHODS or len(methods) != 23 or len(set(methods)) != 23:
-        raise ValueError("typed server-message catalog must contain exactly the reviewed 23 methods")
+    if methods != EXPECTED_METHODS or len(methods) != 26 or len(set(methods)) != 26:
+        raise ValueError("typed server-message catalog must contain exactly the reviewed 26 methods")
     if EXCLUDED_METHODS.intersection(methods):
         raise ValueError("typed server-message catalog contains an excluded method")
     types = tuple(entry.message_type for entry in catalog)
     decoders = tuple(entry.decoder for entry in catalog)
-    if len(set(types)) != 23 or len(set(decoders)) != 23:
+    if len(set(types)) != 26 or len(set(decoders)) != 26:
         raise ValueError("typed server-message types and decoders must be one-to-one")
 
 
@@ -99,27 +99,17 @@ def render(catalog: tuple[Entry, ...] = CATALOG) -> str:
         (
             ")",
             "",
-            "// Kotlin production names are the internal typealiases below. The backing JVM names are",
-            "// deliberately not Java source identifiers; the decoder entry point is also synthetic.",
-            "internal sealed interface `HtspServerMessageDecodeResult-internal`",
-            "internal data class `HtspServerMessageDecoded-internal`(val message: HtspServerMessage) :",
-            "    `HtspServerMessageDecodeResult-internal`",
-            "internal data object `HtspServerMessageUnknownMethod-internal` :",
-            "    `HtspServerMessageDecodeResult-internal`",
-            "internal data object `HtspServerMessageMalformedKnownMessage-internal` :",
-            "    `HtspServerMessageDecodeResult-internal`",
+            "public sealed interface HtspServerMessageDecodeResult",
+            "public data class HtspServerMessageDecoded(",
+            "    public val message: HtspServerMessage,",
+            ") : HtspServerMessageDecodeResult",
+            "public data object HtspServerMessageUnknownMethod : HtspServerMessageDecodeResult",
+            "public data object HtspServerMessageMalformedKnownMessage : HtspServerMessageDecodeResult",
             "",
-            "internal typealias HtspServerMessageDecodeResult = `HtspServerMessageDecodeResult-internal`",
-            "internal typealias HtspServerMessageDecoded = `HtspServerMessageDecoded-internal`",
-            "internal typealias HtspServerMessageUnknownMethod = `HtspServerMessageUnknownMethod-internal`",
-            "internal typealias HtspServerMessageMalformedKnownMessage =",
-            "    `HtspServerMessageMalformedKnownMessage-internal`",
-            "",
-            "@JvmSynthetic",
-            "internal fun decodeHtspServerMessage(fields: Map<String, Any?>): HtspServerMessageDecodeResult {",
-            "    if (fields.containsKey(\"seq\")) return `HtspServerMessageUnknownMethod-internal`",
+            "public fun decodeHtspServerMessage(fields: Map<String, Any?>): HtspServerMessageDecodeResult {",
+            "    if (fields.containsKey(\"seq\")) return HtspServerMessageUnknownMethod",
             "    val method = fields[\"method\"] as? String",
-            "        ?: return `HtspServerMessageUnknownMethod-internal`",
+            "        ?: return HtspServerMessageUnknownMethod",
             "    return when (method) {",
         )
     )
@@ -129,7 +119,7 @@ def render(catalog: tuple[Entry, ...] = CATALOG) -> str:
         )
     lines.extend(
         (
-            "        else -> `HtspServerMessageUnknownMethod-internal`",
+            "        else -> HtspServerMessageUnknownMethod",
             "    }",
             "}",
             "",
@@ -137,7 +127,7 @@ def render(catalog: tuple[Entry, ...] = CATALOG) -> str:
             "    try {",
             "        HtspServerMessageDecoded(block())",
             "    } catch (_: IllegalArgumentException) {",
-            "        `HtspServerMessageMalformedKnownMessage-internal`",
+            "        HtspServerMessageMalformedKnownMessage",
             "    }",
             "",
             "@JvmSynthetic",
@@ -154,16 +144,22 @@ def self_test() -> None:
     first = render()
     if first != render():
         raise AssertionError("generator output is not deterministic")
-    if first.count(" -> decodeKnownServerMessage {") != 23:
-        raise AssertionError("generated dispatch must contain exactly 23 finite branches")
-    for production_name in (
-        "HtspServerMessageDecodeResult",
-        "HtspServerMessageDecoded",
-        "HtspServerMessageUnknownMethod",
-        "HtspServerMessageMalformedKnownMessage",
-    ):
-        if f"internal typealias {production_name}" not in first:
-            raise AssertionError(f"generated dispatch lacks internal Kotlin name {production_name}")
+    if first.count(" -> decodeKnownServerMessage {") != 26:
+        raise AssertionError("generated dispatch must contain exactly 26 finite branches")
+    public_declarations = (
+        "public sealed interface HtspServerMessageDecodeResult",
+        "public data class HtspServerMessageDecoded(",
+        "public data object HtspServerMessageUnknownMethod",
+        "public data object HtspServerMessageMalformedKnownMessage",
+    )
+    for declaration in public_declarations:
+        if declaration not in first:
+            raise AssertionError(f"generated dispatch lacks declaration: {declaration}")
+    if "public fun decodeHtspServerMessage(" not in first:
+        raise AssertionError("generated dispatch lacks the public decoder entry point")
+    for forbidden in ("internal typealias", "@JvmSynthetic\ninternal fun decodeHtspServerMessage"):
+        if forbidden in first:
+            raise AssertionError(f"generated dispatch retains hidden decoder vocabulary: {forbidden}")
     mutations = (
         CATALOG[:-1],
         CATALOG + (CATALOG[0],),

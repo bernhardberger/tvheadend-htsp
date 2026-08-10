@@ -1,8 +1,5 @@
 package at.bernhardberger.tvheadend.htsp
 
-import java.io.ByteArrayOutputStream
-import java.nio.file.Files
-import javax.tools.ToolProvider
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
@@ -24,6 +21,9 @@ class HtspServerMessageTest {
                 "dvrEntryAdd",
                 "dvrEntryUpdate",
                 "dvrEntryDelete",
+                "timerecEntryAdd",
+                "timerecEntryUpdate",
+                "timerecEntryDelete",
                 "eventAdd",
                 "eventUpdate",
                 "eventDelete",
@@ -41,7 +41,123 @@ class HtspServerMessageTest {
             ),
             typedHtspServerMessageCatalogForTest().map { it.first },
         )
-        assertEquals(23, typedHtspServerMessageCatalogForTest().map { it.second }.toSet().size)
+        assertEquals(26, typedHtspServerMessageCatalogForTest().map { it.second }.toSet().size)
+    }
+
+    @Test
+    fun timerecMessagesDecodeCompleteAddPartialUpdateAndExactDelete() {
+        val add = decodeMessage(
+            mapOf(
+                "method" to "timerecEntryAdd",
+                "id" to "rule-1",
+                "enabled" to 1L,
+                "name" to "Weekdays",
+                "title" to "News",
+                "channel" to 7L,
+                "start" to 360L,
+                "stop" to 420L,
+                "daysOfWeek" to 31L,
+                "priority" to 2L,
+                "retention" to 14L,
+                "directory" to "Archive",
+                "owner" to "owner",
+                "creator" to "creator",
+                "configId" to "config",
+                "comment" to "comment",
+                "removal" to 9L,
+            ),
+        ) as HtspTimerecEntryAddMessage
+        assertEquals("rule-1", add.id)
+        assertEquals(true, add.enabled)
+        assertEquals(7, add.channelId)
+        assertEquals(360, add.startMinutesSinceMidnight)
+        assertEquals(420, add.stopMinutesSinceMidnight)
+        assertEquals(31L, add.daysOfWeekMask)
+        assertFalse(add.javaClass.declaredMethods.any { it.name.contains("removal", ignoreCase = true) })
+
+        val update = decodeMessage(
+            mapOf(
+                "method" to "timerecEntryUpdate",
+                "id" to "rule-1",
+                "enabled" to 0L,
+                "title" to "",
+                "channel" to 0L,
+                "start" to 0L,
+                "stop" to 1_440L,
+            ),
+        ) as HtspTimerecEntryUpdateMessage
+        assertEquals("rule-1", update.id)
+        assertEquals(false, update.enabled)
+        assertEquals("", update.title)
+        assertEquals(0, update.channelId)
+        assertEquals(null, update.name)
+
+        assertEquals(
+            HtspTimerecEntryDeleteMessage(""),
+            decodeMessage(mapOf("method" to "timerecEntryDelete", "id" to "")),
+        )
+    }
+
+    @Test
+    fun timerecMessagesRejectIncompleteOrOutOfRangeKnownShapes() {
+        assertMalformed(mapOf("method" to "timerecEntryAdd", "id" to "rule"))
+        assertMalformed(minimalFixture("timerecEntryAdd") + ("enabled" to 2L))
+        assertMalformed(minimalFixture("timerecEntryAdd") + ("channel" to (Int.MAX_VALUE.toLong() + 1L)))
+        assertMalformed(minimalFixture("timerecEntryAdd") + ("start" to -1L))
+        assertMalformed(minimalFixture("timerecEntryAdd") + ("stop" to 1_441L))
+        assertMalformed(mapOf("method" to "timerecEntryUpdate", "id" to 1L, "priority" to -1L))
+        assertMalformed(mapOf("method" to "timerecEntryDelete", "id" to 1L))
+    }
+
+    @Test
+    fun timerecMalformedOptionalsAreOmittedWhileValidSiblingsSurvive() {
+        val add = decodeMessage(
+            minimalFixture("timerecEntryAdd") + mapOf(
+                "daysOfWeek" to -1L,
+                "priority" to "invalid",
+                "retention" to 0x1_0000_0000L,
+                "directory" to listOf("invalid"),
+                "owner" to null,
+                "creator" to 3L,
+                "configId" to false,
+                "comment" to "kept",
+            ),
+        ) as HtspTimerecEntryAddMessage
+        assertEquals(null, add.daysOfWeekMask)
+        assertEquals(null, add.priority)
+        assertEquals(null, add.retentionDays)
+        assertEquals(null, add.directory)
+        assertEquals(null, add.owner)
+        assertEquals(null, add.creator)
+        assertEquals(null, add.configId)
+        assertEquals("kept", add.comment)
+
+        val update = decodeMessage(
+            mapOf(
+                "method" to "timerecEntryUpdate",
+                "id" to "rule",
+                "enabled" to 2L,
+                "name" to 7L,
+                "title" to "updated",
+                "channel" to -1L,
+                "start" to 1_441L,
+                "stop" to "invalid",
+                "daysOfWeek" to -1L,
+                "priority" to 0x1_0000_0000L,
+                "retention" to null,
+                "directory" to "kept",
+            ),
+        ) as HtspTimerecEntryUpdateMessage
+        assertEquals(null, update.enabled)
+        assertEquals(null, update.name)
+        assertEquals("updated", update.title)
+        assertEquals(null, update.channelId)
+        assertEquals(null, update.startMinutesSinceMidnight)
+        assertEquals(null, update.stopMinutesSinceMidnight)
+        assertEquals(null, update.daysOfWeekMask)
+        assertEquals(null, update.priority)
+        assertEquals(null, update.retentionDays)
+        assertEquals("kept", update.directory)
     }
 
     @Test
@@ -54,6 +170,10 @@ class HtspServerMessageTest {
         assertTrue(
             decodeHtspServerMessage(linkedMapOf("method" to "notAssigned")) is
                 HtspServerMessageUnknownMethod,
+        )
+        assertTrue(decodeHtspServerMessage(emptyMap()) is HtspServerMessageUnknownMethod)
+        assertTrue(
+            decodeHtspServerMessage(mapOf("method" to 1L)) is HtspServerMessageUnknownMethod,
         )
         assertTrue(
             decodeHtspServerMessage(linkedMapOf("method" to "channelDelete")) is
@@ -73,57 +193,20 @@ class HtspServerMessageTest {
             "at.bernhardberger.tvheadend.htsp.GeneratedHtspServerMessageDispatchKt",
         )
         assertTrue(
-            "P5 requires the production-named internal decoder",
+            "S2 requires the production-named public decoder",
             dispatchClass.declaredMethods.any { method ->
                 method.name == "decodeHtspServerMessage" &&
                     method.parameterTypes.contentEquals(arrayOf(Map::class.java))
             },
         )
-        Class.forName("at.bernhardberger.tvheadend.htsp.HtspServerMessageDecodeResult-internal")
+        Class.forName("at.bernhardberger.tvheadend.htsp.HtspServerMessageDecodeResult")
+        Class.forName("at.bernhardberger.tvheadend.htsp.HtspServerMessageDecoded")
+        Class.forName("at.bernhardberger.tvheadend.htsp.HtspServerMessageUnknownMethod")
+        Class.forName("at.bernhardberger.tvheadend.htsp.HtspServerMessageMalformedKnownMessage")
     }
 
     @Test
-    fun productionOutcomeIsNotJavaSourceApi() {
-        val (exitCode, diagnostics) = compileJavaSource(
-            sourceName = "ForbiddenOutcome.java",
-            sourceText = """
-                import at.bernhardberger.tvheadend.htsp.HtspServerMessageDecodeResult;
-
-                final class ForbiddenOutcome {
-                    HtspServerMessageDecodeResult outcome;
-                }
-            """.trimIndent(),
-        )
-
-        assertTrue(diagnostics, exitCode != 0)
-        assertTrue(diagnostics, diagnostics.contains("HtspServerMessageDecodeResult"))
-        assertTrue(diagnostics, diagnostics.contains("cannot find symbol", ignoreCase = true))
-    }
-
-    @Test
-    fun productionDecoderIsNotJavaSourceApiWithoutNamingItsOutcome() {
-        val (exitCode, diagnostics) = compileJavaSource(
-            sourceName = "ForbiddenDecoder.java",
-            sourceText = """
-                import at.bernhardberger.tvheadend.htsp.GeneratedHtspServerMessageDispatchKt;
-
-                final class ForbiddenDecoder {
-                    Object decode() {
-                        return GeneratedHtspServerMessageDispatchKt.decodeHtspServerMessage(
-                            java.util.Collections.emptyMap()
-                        );
-                    }
-                }
-            """.trimIndent(),
-        )
-
-        assertTrue(diagnostics, exitCode != 0)
-        assertTrue(diagnostics, diagnostics.contains("decodeHtspServerMessage"))
-        assertTrue(diagnostics, diagnostics.contains("cannot find symbol", ignoreCase = true))
-    }
-
-    @Test
-    fun internalDecodeResultSupportsAnExhaustiveProductionNamedWhen() {
+    fun publicDecodeResultSupportsAnExhaustiveProductionNamedWhen() {
         assertEquals("decoded", describeDecodeResult(decodeHtspServerMessage(minimalFixture("channelDelete"))))
         assertEquals("unknown", describeDecodeResult(decodeHtspServerMessage(mapOf("method" to "unknown"))))
         assertEquals("malformed", describeDecodeResult(decodeHtspServerMessage(mapOf("method" to "channelDelete"))))
@@ -652,27 +735,6 @@ class HtspServerMessageTest {
         is HtspServerMessageMalformedKnownMessage -> "malformed"
     }
 
-    private fun compileJavaSource(sourceName: String, sourceText: String): Pair<Int, String> {
-        val directory = Files.createTempDirectory("htsp-server-message-java-source").toFile()
-        return try {
-            val source = directory.resolve(sourceName).apply { writeText(sourceText) }
-            val diagnostics = ByteArrayOutputStream()
-            val exitCode = ToolProvider.getSystemJavaCompiler().run(
-                null,
-                null,
-                diagnostics,
-                "-classpath",
-                System.getProperty("java.class.path"),
-                "-d",
-                directory.absolutePath,
-                source.absolutePath,
-            )
-            exitCode to diagnostics.toString(Charsets.UTF_8)
-        } finally {
-            directory.deleteRecursively()
-        }
-    }
-
     private fun minimalFixture(method: String): Map<String, Any?> = when (method) {
         "channelAdd" -> mapOf(
             "method" to method,
@@ -715,6 +777,18 @@ class HtspServerMessageTest {
         )
         "dvrEntryUpdate" -> mapOf("method" to method, "id" to 1L)
         "dvrEntryDelete" -> mapOf("method" to method, "id" to 1L)
+        "timerecEntryAdd" -> mapOf(
+            "method" to method,
+            "id" to "rule",
+            "enabled" to 1L,
+            "name" to "Rule",
+            "title" to "Title",
+            "channel" to 1L,
+            "start" to 0L,
+            "stop" to 1_440L,
+        )
+        "timerecEntryUpdate" -> mapOf("method" to method, "id" to "rule")
+        "timerecEntryDelete" -> mapOf("method" to method, "id" to "rule")
         "eventAdd" -> mapOf(
             "method" to method,
             "eventId" to 1L,

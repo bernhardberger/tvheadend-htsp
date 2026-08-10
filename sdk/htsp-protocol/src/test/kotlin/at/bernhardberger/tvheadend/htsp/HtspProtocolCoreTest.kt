@@ -3,6 +3,7 @@ package at.bernhardberger.tvheadend.htsp
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotSame
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
@@ -115,18 +116,49 @@ class HtspProtocolCoreTest {
 
         transport.reply = HtspWireReply(linkedMapOf("error" to "server detail"))
         assertEquals(
-            HtspResult.ServerError("server detail"),
+            HtspResult.ServerError,
             connection.call(GetChannelRequest(channelId = 7L)),
         )
         assertEquals(2, transport.dispatches)
 
         transport.reply = HtspWireReply(linkedMapOf("noaccess" to 1))
-        assertEquals(HtspResult.ServerError(), connection.call(GetChannelRequest(channelId = 7L)))
+        assertEquals(HtspResult.ServerError, connection.call(GetChannelRequest(channelId = 7L)))
         assertEquals(3, transport.dispatches)
 
         transport.reply = HtspWireReply(linkedMapOf("noaccess" to 0L))
-        assertEquals(HtspResult.ServerError(), connection.call(GetChannelRequest(channelId = 7L)))
+        assertEquals(HtspResult.ServerError, connection.call(GetChannelRequest(channelId = 7L)))
         assertEquals(4, transport.dispatches)
+    }
+
+    @Test
+    fun serverErrorIsPayloadFreeAndDoesNotRetainReplyText() = runTest {
+        val transport = FakeProtocolTransport(version = 44)
+        val connection = HtspConnection.create(transport)
+
+        transport.reply = HtspWireReply(linkedMapOf("error" to "first server detail"))
+        val first = connection.call(GetChannelRequest(channelId = 7L))
+        assertTrue(first is HtspResult.ServerError)
+
+        val instanceFields = first.javaClass.declaredFields.filterNot { field ->
+            Modifier.isStatic(field.modifiers)
+        }
+        assertTrue(
+            "ServerError must not retain instance payload fields: $instanceFields",
+            instanceFields.isEmpty(),
+        )
+
+        val payloadAccessors = first.javaClass.declaredMethods.filter { method ->
+            method.name in setOf("getMessage", "component1", "copy", "copy\$default")
+        }
+        assertTrue(
+            "ServerError must not expose payload accessors: $payloadAccessors",
+            payloadAccessors.isEmpty(),
+        )
+
+        transport.reply = HtspWireReply(linkedMapOf("error" to "second server detail"))
+        val second = connection.call(GetChannelRequest(channelId = 7L))
+        assertTrue(second is HtspResult.ServerError)
+        assertSame(first, second)
     }
 
     @Test
@@ -212,6 +244,31 @@ class HtspProtocolCoreTest {
         transport.failure = null
         transport.replace()
         assertNotSame(firstGeneration, connection.generation)
+    }
+
+    @Test
+    fun generationConstructorIsPrivateAndProtocolFactoryRetainsOpaqueIdentity() {
+        val constructors = HtspConnectionGeneration::class.java.declaredConstructors
+        assertTrue(constructors.any { constructor ->
+            constructor.parameterCount == 0 && Modifier.isPrivate(constructor.modifiers)
+        })
+        assertTrue(constructors.none { constructor ->
+            Modifier.isPublic(constructor.modifiers) && !constructor.isSynthetic
+        })
+        assertNotSame(HtspConnectionGeneration.create(), HtspConnectionGeneration.create())
+    }
+
+    @Test
+    fun endpointHasIdentitySemanticsAndNoCredentialBearingDataClassHelpers() {
+        val first = HtspEndpoint("example.invalid", 9982, "viewer", "credential-value")
+        val second = HtspEndpoint("example.invalid", 9982, "viewer", "credential-value")
+
+        assertNotEquals(first, second)
+        assertTrue(first.javaClass.declaredMethods.none { method ->
+            method.name == "copy" || method.name.startsWith("component")
+        })
+        assertTrue(!first.toString().contains("credential-value"))
+        assertTrue(first.toString().contains("<redacted>"))
     }
 
     @Test
@@ -407,6 +464,7 @@ class HtspProtocolCoreTest {
             generation: HtspCapturedGeneration,
             method: String,
             fields: LinkedHashMap<String, Any?>,
+            timeoutMs: Long,
         ): HtspWireReply {
             dispatches += 1
             lastMethod = method

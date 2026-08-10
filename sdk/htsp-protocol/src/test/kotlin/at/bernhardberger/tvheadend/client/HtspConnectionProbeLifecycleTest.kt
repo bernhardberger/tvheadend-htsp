@@ -3,6 +3,8 @@ package at.bernhardberger.tvheadend.htsp
 import java.net.UnknownHostException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.test.runTest
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -34,7 +36,7 @@ class HtspConnectionProbeLifecycleTest {
     }
 
     @Test
-    fun ordinaryFailureIsRetainedExactlyAndTransportCloses() = runTest {
+    fun ordinaryFailureIsReducedToABoundedKindAndTransportCloses() = runTest {
         val failure = UnknownHostException("missing")
         var closed = false
         val session = FakeProbeSession(
@@ -44,8 +46,39 @@ class HtspConnectionProbeLifecycleTest {
 
         val result = runHtspConnectionProbe(session) as HtspProbeFailure
 
-        assertSame(failure, result.error)
+        assertEquals(
+            HtspTransportFailure(HtspTransportFailureKind.HOST_NOT_FOUND),
+            result.failure,
+        )
+        assertFalse(
+            HtspProbeFailure::class.java.declaredFields.any { field ->
+                Throwable::class.java.isAssignableFrom(field.type)
+            },
+        )
         assertTrue(closed)
+    }
+
+    @Test
+    fun incompatibleVersionAndZeroChannelsUseDedicatedBoundedKinds() = runTest {
+        assertEquals(
+            HtspTransportFailureKind.INCOMPATIBLE_SERVER,
+            (runHtspConnectionProbe(FakeProbeSession(connect = { 18 })) as HtspProbeFailure)
+                .failure.kind,
+        )
+        assertEquals(
+            HtspTransportFailureKind.ZERO_CHANNELS,
+            (runHtspConnectionProbe(FakeProbeSession(sync = { 0 })) as HtspProbeFailure)
+                .failure.kind,
+        )
+    }
+
+    @Test
+    fun ordinaryCloseFailureDoesNotReplaceTheComputedResult() = runTest {
+        val result = runHtspConnectionProbe(
+            FakeProbeSession(close = { error("close failed") }),
+        )
+
+        assertEquals(HtspProbeSuccess(serverVersion = 43, channelCount = 1), result)
     }
 
     private suspend fun expectFailure(block: suspend () -> Unit): Throwable {
