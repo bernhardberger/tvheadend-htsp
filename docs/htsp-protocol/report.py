@@ -116,6 +116,32 @@ EXPECTED_SERVER_MESSAGES: tuple[str, ...] = (
     "subscriptionSkip",
 )
 
+EXPECTED_TYPED_SERVER_MESSAGES: tuple[tuple[str, str, int | None], ...] = (
+    ("channelAdd", "HtspChannelAddMessage", None),
+    ("channelUpdate", "HtspChannelUpdateMessage", None),
+    ("channelDelete", "HtspChannelDeleteMessage", None),
+    ("tagAdd", "HtspTagAddMessage", None),
+    ("tagUpdate", "HtspTagUpdateMessage", None),
+    ("tagDelete", "HtspTagDeleteMessage", None),
+    ("dvrEntryAdd", "HtspDvrEntryAddMessage", 4),
+    ("dvrEntryUpdate", "HtspDvrEntryUpdateMessage", 4),
+    ("dvrEntryDelete", "HtspDvrEntryDeleteMessage", 4),
+    ("eventAdd", "HtspEventAddMessage", 6),
+    ("eventUpdate", "HtspEventUpdateMessage", 6),
+    ("eventDelete", "HtspEventDeleteMessage", 6),
+    ("initialSyncCompleted", "HtspInitialSyncCompletedMessage", 2),
+    ("muxpkt", "HtspMuxPacketMessage", None),
+    ("queueStatus", "HtspQueueStatusMessage", None),
+    ("subscriptionStart", "HtspSubscriptionStartMessage", None),
+    ("subscriptionStop", "HtspSubscriptionStopMessage", None),
+    ("subscriptionGrace", "HtspSubscriptionGraceMessage", 13),
+    ("subscriptionStatus", "HtspSubscriptionStatusMessage", None),
+    ("signalStatus", "HtspSignalStatusMessage", None),
+    ("subscriptionSpeed", "HtspSubscriptionSpeedMessage", 9),
+    ("timeshiftStatus", "HtspTimeshiftStatusMessage", 9),
+    ("subscriptionSkip", "HtspSubscriptionSkipMessage", 9),
+)
+
 EXPECTED_UNHANDLED_MESSAGES = (
     "autorecEntryAdd",
     "autorecEntryUpdate",
@@ -669,6 +695,44 @@ def validate_spec(spec: dict[str, Any], upstream: dict[str, Any] | None = None) 
 
     method_map = {m.get("name"): m for m in methods if isinstance(m, dict)}
     message_map = {m.get("name"): m for m in messages if isinstance(m, dict)}
+    expected_server_field_versions = {
+        ("channelAdd", "channelIdStr"): 41,
+        ("channelUpdate", "channelIdStr"): 41,
+        ("channelAdd", "channelNumberMinor"): 13,
+        ("channelUpdate", "channelNumberMinor"): 13,
+        ("channelAdd", "services"): 5,
+        ("channelUpdate", "services"): 5,
+        ("tagAdd", "tagIdStr"): 41,
+        ("tagUpdate", "tagIdStr"): 41,
+        ("tagAdd", "tagIndex"): 18,
+        ("tagUpdate", "tagIndex"): 18,
+        ("dvrEntryAdd", "idStr"): 41,
+        ("dvrEntryUpdate", "idStr"): 41,
+        ("dvrEntryAdd", "startExtra"): 13,
+        ("dvrEntryUpdate", "startExtra"): 13,
+        ("dvrEntryAdd", "ratingAuthority"): 41,
+        ("dvrEntryUpdate", "ratingAuthority"): 41,
+        ("eventAdd", "ratingAuthority"): 41,
+        ("eventUpdate", "ratingAuthority"): 41,
+        ("subscriptionStart", "meta"): 17,
+        ("subscriptionStop", "subscriptionError"): 20,
+        ("subscriptionStatus", "subscriptionError"): 20,
+        ("signalStatus", "feAbsoluteSNR"): 44,
+        ("signalStatus", "feAbsoluteSignal"): 44,
+    }
+    for (message_name, field_name), minimum in expected_server_field_versions.items():
+        field = next(
+            (
+                candidate
+                for candidate in message_map.get(message_name, {}).get("fields", [])
+                if candidate.get("name") == field_name
+            ),
+            None,
+        )
+        if field is None or field.get("minVersion") != minimum:
+            errors.append(
+                f"{message_name}.{field_name} must preserve minimum-version evidence {minimum}"
+            )
     errors.extend(_validate_reference_shapes(shapes, message_map))
     errors.extend(_validate_field_shape_refs(spec))
     for method_name in ("fileRead", "fileClose", "fileStat", "fileSeek"):
@@ -916,12 +980,12 @@ def validate_spec(spec: dict[str, Any], upstream: dict[str, Any] | None = None) 
         ("channelId", "u32", "required", None, None),
         ("channelIdStr", "str", "conditional", None, 41),
         ("channelNumber", "u32", "required", None, None),
-        ("channelNumberMinor", "u32", "conditional", None, None),
+        ("channelNumberMinor", "u32", "conditional", None, 13),
         ("channelName", "str", "required", None, None),
         ("channelIcon", "str", "conditional", None, None),
         ("eventId", "u32", "required", None, None),
         ("nextEventId", "u32", "required", None, None),
-        ("services", "list", "required", "service", None),
+        ("services", "list", "required", "service", 5),
         ("tags", "list", "required", "u32", None),
     ]:
         errors.append("getChannel reply fields must preserve exact bounded shape, requiredness, and shape refs")
@@ -941,22 +1005,71 @@ def validate_spec(spec: dict[str, Any], upstream: dict[str, Any] | None = None) 
 
     service_shape = shapes.get("service") or {}
     service_fields = [
-        (field.get("name"), field.get("type"), field.get("presence"), field.get("shapeRef"))
+        (
+            field.get("name"),
+            field.get("type"),
+            field.get("presence"),
+            field.get("shapeRef"),
+            field.get("minVersion"),
+        )
         for field in service_shape.get("fields", [])
     ]
     if service_shape.get("kind") != "object" or service_shape.get("completeness") != "complete" or service_fields != [
-        ("name", "str", "required", None),
-        ("type", "str", "required", None),
-        ("content", "u32", "required", None),
-        ("caid", "u32", "conditional", None),
-        ("caname", "str", "conditional", None),
-        ("hbbtv", "msg", "conditional", "hbbtvDynamic"),
-        ("providername", "str", "conditional", None),
+        ("name", "str", "required", None, None),
+        ("type", "str", "required", None, None),
+        ("content", "u32", "required", None, None),
+        ("caid", "u32", "conditional", None, None),
+        ("caname", "str", "conditional", None, None),
+        ("hbbtv", "msg", "conditional", "hbbtvDynamic", None),
+        ("providername", "str", "conditional", None, 38),
     ]:
         errors.append("service shape must preserve the complete bounded current-source object")
     hbbtv_shape = shapes.get("hbbtvDynamic") or {}
     if hbbtv_shape.get("kind") != "object" or hbbtv_shape.get("completeness") != "opaque" or "fields" in hbbtv_shape:
         errors.append("hbbtvDynamic must remain an explicit opaque object shape")
+
+    stream_shape = shapes.get("stream") or {}
+    stream_fields = [
+        (field.get("name"), field.get("type"), field.get("presence"), field.get("minVersion"))
+        for field in stream_shape.get("fields", [])
+    ]
+    if stream_shape.get("kind") != "object" or stream_shape.get("completeness") != "partial" or stream_fields != [
+        ("index", "u32", "required", None),
+        ("type", "str", "required", None),
+        ("language", "str", "optional", None),
+        ("composition_id", "u32", "optional", 5),
+        ("ancillary_id", "u32", "optional", 5),
+        ("width", "u32", "optional", None),
+        ("height", "u32", "optional", None),
+        ("duration", "u32", "optional", None),
+        ("aspect_num", "u32", "optional", 5),
+        ("aspect_den", "u32", "optional", 5),
+        ("audio_type", "u32", "optional", 11),
+        ("audio_version", "u32", "optional", None),
+        ("channels", "u32", "optional", 5),
+        ("rate", "u32", "optional", 5),
+        ("rds_uecp", "u32", "optional", None),
+    ]:
+        errors.append("stream shape must preserve bounded partial field/version evidence")
+
+    source_shape = shapes.get("sourceInfo") or {}
+    source_fields = [
+        (field.get("name"), field.get("type"), field.get("presence"), field.get("minVersion"))
+        for field in source_shape.get("fields", [])
+    ]
+    if source_shape.get("kind") != "object" or source_shape.get("completeness") != "partial" or source_fields != [
+        ("adapter_uuid", "str", "optional", None),
+        ("mux_uuid", "str", "optional", None),
+        ("network_uuid", "str", "optional", None),
+        ("adapter", "str", "optional", None),
+        ("mux", "str", "optional", None),
+        ("network", "str", "optional", None),
+        ("network_type", "str", "optional", None),
+        ("provider", "str", "optional", None),
+        ("service", "str", "optional", None),
+        ("satpos", "str", "optional", 20),
+    ]:
+        errors.append("sourceInfo shape must preserve bounded partial field/version evidence")
 
     get_event = method_map.get("getEvent", {})
     event_request_fields = [
@@ -1031,6 +1144,7 @@ def validate_spec(spec: dict[str, Any], upstream: dict[str, Any] | None = None) 
     coverage = spec.get("coverage") or {}
     client_cov = coverage.get("clientMethods") or {}
     typed_cov = coverage.get("typedClientRequests") or {}
+    typed_server_cov = coverage.get("typedServerMessages") or {}
     server_cov = coverage.get("serverMessages") or {}
     metrics = coverage.get("metrics") or {}
 
@@ -1038,6 +1152,7 @@ def validate_spec(spec: dict[str, Any], upstream: dict[str, Any] | None = None) 
     out_count = client_cov.get("outgoingRequestCount")
     handled_count = server_cov.get("handledCount")
     typed_count = typed_cov.get("count")
+    typed_server_count = typed_server_cov.get("count")
 
     if coverage.get("scanRoots") != EXPECTED_SCAN_ROOTS:
         errors.append(f"coverage.scanRoots must equal {EXPECTED_SCAN_ROOTS!r}")
@@ -1068,6 +1183,27 @@ def validate_spec(spec: dict[str, Any], upstream: dict[str, Any] | None = None) 
         "not a support or completeness claim"
     ):
         errors.append("coverage typedClientRequests.meaning must retain its disclaimer")
+    typed_server_messages = typed_server_cov.get("messages") or []
+    typed_server_contract = [
+        (item.get("name"), item.get("messageType"), item.get("minVersion"))
+        for item in typed_server_messages
+        if isinstance(item, dict)
+    ]
+    if typed_server_contract != list(EXPECTED_TYPED_SERVER_MESSAGES):
+        errors.append("coverage typedServerMessages must match the exact reviewed catalog")
+    if typed_server_count != len(typed_server_messages) or typed_server_count != 23:
+        errors.append("coverage typedServerMessages.count must match exactly 23 messages")
+    if typed_server_cov.get("catalog") != "docs/htsp-protocol/generate_typed_server_messages.py":
+        errors.append("coverage typedServerMessages.catalog must name the reviewed generator")
+    if typed_server_cov.get("meaning") != (
+        "Public typed asynchronous HtspServerMessage models with an ABI-hidden "
+        "finite decoder; not runtime wiring, support, or a completeness claim"
+    ):
+        errors.append("coverage typedServerMessages.meaning must retain its disclaimer")
+    for name, _message_type, minimum_version in EXPECTED_TYPED_SERVER_MESSAGES:
+        message = message_map.get(name) or {}
+        if message.get("minVersion") != minimum_version:
+            errors.append(f"{name}: typed server catalog minimum disagrees with pinned message")
 
     referenced_list = client_cov.get("referenced") or []
     outgoing_list = client_cov.get("outgoingRequests") or []
@@ -1109,6 +1245,8 @@ def validate_spec(spec: dict[str, Any], upstream: dict[str, Any] | None = None) 
         errors.append("metrics.handledServerMessages mismatch")
     if metrics.get("typedClientRequests") != typed_count:
         errors.append("metrics.typedClientRequests mismatch")
+    if metrics.get("typedServerMessages") != typed_server_count:
+        errors.append("metrics.typedServerMessages mismatch")
 
     if out_count is not None and ref_count is not None and out_count > ref_count:
         errors.append("outgoingRequestCount cannot exceed referencedCount")
@@ -1172,6 +1310,7 @@ def validate_spec(spec: dict[str, Any], upstream: dict[str, Any] | None = None) 
     out_set = set(client_cov.get("outgoingRequests") or [])
     typed_set = {item[0] for item in EXPECTED_TYPED_CLIENT_REQUESTS}
     handled_set = set(server_cov.get("handled") or [])
+    typed_server_set = {item[0] for item in EXPECTED_TYPED_SERVER_MESSAGES}
     for method in methods:
         if not isinstance(method, dict):
             continue
@@ -1190,10 +1329,12 @@ def validate_spec(spec: dict[str, Any], upstream: dict[str, Any] | None = None) 
             continue
         sdk = message.get("sdk") or {}
         name = message.get("name")
-        if set(sdk) != {"handled"} or not isinstance(sdk.get("handled"), bool):
+        if set(sdk) != {"handled", "typedServerMessage"} or not all(isinstance(v, bool) for v in sdk.values()):
             errors.append(f"{name}: sdk message flags must be exact booleans")
         if bool(sdk.get("handled")) != (name in handled_set):
             errors.append(f"{name}: sdk.handled flag disagrees with coverage")
+        if bool(sdk.get("typedServerMessage")) != (name in typed_server_set):
+            errors.append(f"{name}: sdk.typedServerMessage flag disagrees with reviewed catalog")
 
     limitations = spec.get("docLimitations")
     if not isinstance(limitations, list) or not limitations:
@@ -1615,6 +1756,7 @@ def render_matrix(spec: dict[str, Any]) -> str:
     coverage = spec["coverage"]
     client_cov = coverage["clientMethods"]
     typed_cov = coverage["typedClientRequests"]
+    typed_server_cov = coverage["typedServerMessages"]
     server_cov = coverage["serverMessages"]
     lines: list[str] = []
     lines.append("# HTSP method matrix (generated)")
@@ -1662,6 +1804,10 @@ def render_matrix(spec: dict[str, Any]) -> str:
         f"**{typed_cov['count']} / {client_cov['total']}**"
     )
     lines.append(
+        f"- Public typed server messages from the separate reviewed catalog: "
+        f"**{typed_server_cov['count']} / {server_cov['total']}**"
+    )
+    lines.append(
         "- Distinguish **referenced** from **outgoing**: a name can appear "
         "because an inbound handler mentions it (for example `subscriptionSkip`) "
         "while the client sends a synonym (`subscriptionSeek`)."
@@ -1672,6 +1818,10 @@ def render_matrix(spec: dict[str, Any]) -> str:
     lines.append(
         "- Typed request coverage means a public `HtspRequest` model plus a generated "
         "`HtspConnection` extension. It is not a support, stability, or completeness claim."
+    )
+    lines.append(
+        "- Typed server-message coverage means public payload models plus an ABI-hidden "
+        "finite decoder. It is not runtime wiring, support, stability, or completeness."
     )
     lines.append("")
     lines.append("Unhandled server messages:")
@@ -1725,19 +1875,20 @@ def render_matrix(spec: dict[str, Any]) -> str:
     lines.append("## Server → client messages")
     lines.append("")
     lines.append(
-        "| # | Message | Min ver | SDK handled | Fields |"
+        "| # | Message | Min ver | SDK handled | SDK typed | Fields |"
     )
-    lines.append("|---:|---|---:|:---:|---|")
+    lines.append("|---:|---|---:|:---:|:---:|---|")
     for idx, message in enumerate(spec["serverMessages"], start=1):
         sdk = message.get("sdk") or {}
         min_ver = message.get("minVersion")
         min_s = "—" if min_ver is None else str(min_ver)
         lines.append(
-            "| {idx} | `{name}` | {minv} | {handled} | {fields} |".format(
+            "| {idx} | `{name}` | {minv} | {handled} | {typed} | {fields} |".format(
                 idx=idx,
                 name=message["name"],
                 minv=min_s,
                 handled="yes" if sdk.get("handled") else "",
+                typed="yes" if sdk.get("typedServerMessage") else "",
                 fields=_fmt_shape_fields(message.get("fields") or [], message.get("messageShape") or {}),
             )
         )

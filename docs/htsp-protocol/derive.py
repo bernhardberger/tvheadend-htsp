@@ -34,6 +34,7 @@ SDK_PRODUCTION_ROOTS = (
     REPO_ROOT / "sdk" / "playback-media3" / "src" / "main",
 )
 TYPED_REQUEST_GENERATOR = SCRIPT_DIR / "generate_typed_requests.py"
+TYPED_SERVER_MESSAGE_GENERATOR = SCRIPT_DIR / "generate_typed_server_messages.py"
 
 EXPECTED_REPOSITORY = "https://github.com/tvheadend/tvheadend"
 EXPECTED_REVISION = "27295c5a48f2c575678bb224014cb9a26a773083"
@@ -259,6 +260,8 @@ FIELD_MIN_VERSION: dict[tuple[str, str, str], int] = {
     ("clientMethod", "authenticate", "uilevel"): 26,
     ("clientMethod", "authenticate", "uilanguage"): 26,
     ("clientMethod", "getChannel", "channelIdStr"): 41,
+    ("clientMethod", "getChannel", "channelNumberMinor"): 13,
+    ("clientMethod", "getChannel", "services"): 5,
     ("clientMethod", "getEvents", "channelId"): 6,
     ("clientMethod", "getEvents", "eventId"): 6,
     ("clientMethod", "getEvents", "language"): 6,
@@ -266,6 +269,43 @@ FIELD_MIN_VERSION: dict[tuple[str, str, str], int] = {
     ("clientMethod", "getEvents", "maxTime"): 6,
     ("serverMessage", "channelAdd", "channelIdStr"): 41,
     ("serverMessage", "channelUpdate", "channelIdStr"): 41,
+    ("serverMessage", "channelAdd", "channelNumberMinor"): 13,
+    ("serverMessage", "channelUpdate", "channelNumberMinor"): 13,
+    ("serverMessage", "channelAdd", "services"): 5,
+    ("serverMessage", "channelUpdate", "services"): 5,
+    ("serverMessage", "tagAdd", "tagIdStr"): 41,
+    ("serverMessage", "tagUpdate", "tagIdStr"): 41,
+    ("serverMessage", "tagAdd", "tagIndex"): 18,
+    ("serverMessage", "tagUpdate", "tagIndex"): 18,
+    ("serverMessage", "dvrEntryAdd", "idStr"): 41,
+    ("serverMessage", "dvrEntryUpdate", "idStr"): 41,
+    ("serverMessage", "dvrEntryAdd", "startExtra"): 13,
+    ("serverMessage", "dvrEntryUpdate", "startExtra"): 13,
+    ("serverMessage", "dvrEntryAdd", "stopExtra"): 13,
+    ("serverMessage", "dvrEntryUpdate", "stopExtra"): 13,
+    ("serverMessage", "dvrEntryAdd", "retention"): 13,
+    ("serverMessage", "dvrEntryUpdate", "retention"): 13,
+    ("serverMessage", "dvrEntryAdd", "priority"): 13,
+    ("serverMessage", "dvrEntryUpdate", "priority"): 13,
+    ("serverMessage", "dvrEntryAdd", "eventId"): 13,
+    ("serverMessage", "dvrEntryUpdate", "eventId"): 13,
+    ("serverMessage", "dvrEntryAdd", "autorecId"): 13,
+    ("serverMessage", "dvrEntryUpdate", "autorecId"): 13,
+    ("serverMessage", "dvrEntryAdd", "contentType"): 13,
+    ("serverMessage", "dvrEntryUpdate", "contentType"): 13,
+    ("serverMessage", "dvrEntryAdd", "ratingAuthority"): 41,
+    ("serverMessage", "dvrEntryUpdate", "ratingAuthority"): 41,
+    ("serverMessage", "dvrEntryAdd", "ratingCountry"): 41,
+    ("serverMessage", "dvrEntryUpdate", "ratingCountry"): 41,
+    ("serverMessage", "eventAdd", "ratingAuthority"): 41,
+    ("serverMessage", "eventUpdate", "ratingAuthority"): 41,
+    ("serverMessage", "eventAdd", "ratingCountry"): 41,
+    ("serverMessage", "eventUpdate", "ratingCountry"): 41,
+    ("serverMessage", "subscriptionStart", "meta"): 17,
+    ("serverMessage", "subscriptionStop", "subscriptionError"): 20,
+    ("serverMessage", "subscriptionStatus", "subscriptionError"): 20,
+    ("serverMessage", "dvrEntryAdd", "subscriptionError"): 20,
+    ("serverMessage", "dvrEntryUpdate", "subscriptionError"): 20,
     ("serverMessage", "signalStatus", "feAbsoluteSNR"): 44,
     ("serverMessage", "signalStatus", "feAbsoluteSignal"): 44,
     ("serverMessage", "descrambleInfo", "subscriptionId"): 24,
@@ -3173,6 +3213,7 @@ def scan_sdk_coverage(
             pass
 
     typed_catalog = load_typed_request_catalog()
+    typed_server_catalog = load_typed_server_message_catalog()
     scan_root_labels: list[str] = []
     for path in roots:
         if not path.is_dir():
@@ -3203,6 +3244,15 @@ def scan_sdk_coverage(
                 "not a support or completeness claim"
             ),
         },
+        "typedServerMessages": {
+            "catalog": "docs/htsp-protocol/generate_typed_server_messages.py",
+            "count": len(typed_server_catalog),
+            "messages": typed_server_catalog,
+            "meaning": (
+                "Public typed asynchronous HtspServerMessage models with an ABI-hidden "
+                "finite decoder; not runtime wiring, support, or a completeness claim"
+            ),
+        },
         "serverMessages": {
             "total": len(server_message_names),
             "handled": sorted(handled_messages),
@@ -3216,12 +3266,14 @@ def scan_sdk_coverage(
             "outgoingClientMethods": len(outgoing_methods),
             "handledServerMessages": len(handled_messages),
             "typedClientRequests": len(typed_catalog),
+            "typedServerMessages": len(typed_server_catalog),
             "notes": [
                 "referenced counts exact string literals in SDK production main sources",
                 "outgoing counts method = \"...\" / method = CONST assignments only",
                 "subscriptionSkip may be referenced via inbound handling without being outgoing",
                 "handled server messages use the same exact-literal metric",
                 "typed request coverage comes only from the reviewed deterministic generator catalog",
+                "typed server-message coverage comes only from its separate reviewed deterministic generator catalog",
             ],
         },
     }
@@ -3243,6 +3295,32 @@ def load_typed_request_catalog() -> list[dict[str, Any]]:
                     ("name", entry.method),
                     ("accessMask", entry.access),
                     ("methodMinVersion", entry.minimum_version),
+                ]
+            )
+            for entry in module.CATALOG
+        ]
+    finally:
+        sys.modules.pop(module_name, None)
+
+
+def load_typed_server_message_catalog() -> list[dict[str, Any]]:
+    module_name = "_htsp_typed_server_message_catalog"
+    module_spec = importlib.util.spec_from_file_location(
+        module_name, TYPED_SERVER_MESSAGE_GENERATOR
+    )
+    if module_spec is None or module_spec.loader is None:
+        raise ValueError("cannot load typed server-message generator catalog")
+    module = importlib.util.module_from_spec(module_spec)
+    sys.modules[module_name] = module
+    try:
+        module_spec.loader.exec_module(module)
+        module.validate_catalog()
+        return [
+            OrderedDict(
+                [
+                    ("name", entry.method),
+                    ("messageType", entry.message_type),
+                    ("minVersion", entry.minimum_version),
                 ]
             )
             for entry in module.CATALOG
@@ -3312,6 +3390,9 @@ def build_spec(
         item["name"] for item in coverage["typedClientRequests"]["methods"]
     }
     handled = set(coverage["serverMessages"]["handled"])
+    typed_server = {
+        item["name"] for item in coverage["typedServerMessages"]["messages"]
+    }
     for method in client_methods:
         method["sdk"] = OrderedDict(
             [
@@ -3324,6 +3405,7 @@ def build_spec(
         message["sdk"] = OrderedDict(
             [
                 ("handled", message["name"] in handled),
+                ("typedServerMessage", message["name"] in typed_server),
             ]
         )
 
@@ -3499,6 +3581,7 @@ def build_spec(
                         "providername", "str", "nested", "conditional",
                         "htsp_build_channel provider branch",
                         condition="emitted when the service provider name is available",
+                        min_version=38,
                     ),
                 ],
             }),
@@ -3507,12 +3590,41 @@ def build_spec(
                 "evidence": "nested recording-file maps are intentionally not expanded in this artifact",
             }),
             ("stream", {
-                "kind": "object", "completeness": "opaque",
-                "evidence": "nested subscription stream maps are intentionally not expanded in this artifact",
+                "kind": "object", "completeness": "partial",
+                "evidence": "official server-message field inventory with current decoder vocabulary; unknown minima remain null",
+                "fields": [
+                    exact_field("index", "u32", "nested", "required", "official subscriptionStart stream field"),
+                    exact_field("type", "str", "nested", "required", "official subscriptionStart stream field"),
+                    exact_field("language", "str", "nested", "optional", "official subscriptionStart stream field"),
+                    exact_field("composition_id", "u32", "nested", "optional", "official protocol v5 stream metadata", min_version=5),
+                    exact_field("ancillary_id", "u32", "nested", "optional", "official protocol v5 stream metadata", min_version=5),
+                    exact_field("width", "u32", "nested", "optional", "official subscriptionStart stream field"),
+                    exact_field("height", "u32", "nested", "optional", "official subscriptionStart stream field"),
+                    exact_field("duration", "u32", "nested", "optional", "official subscriptionStart stream field"),
+                    exact_field("aspect_num", "u32", "nested", "optional", "official protocol v5 stream metadata", min_version=5),
+                    exact_field("aspect_den", "u32", "nested", "optional", "official protocol v5 stream metadata", min_version=5),
+                    exact_field("audio_type", "u32", "nested", "optional", "official protocol v11 stream metadata", min_version=11),
+                    exact_field("audio_version", "u32", "nested", "optional", "current decoder vocabulary; introduction unknown"),
+                    exact_field("channels", "u32", "nested", "optional", "official protocol v5 stream metadata", min_version=5),
+                    exact_field("rate", "u32", "nested", "optional", "official protocol v5 stream metadata", min_version=5),
+                    exact_field("rds_uecp", "u32", "nested", "optional", "current decoder vocabulary; introduction unknown"),
+                ],
             }),
             ("sourceInfo", {
-                "kind": "object", "completeness": "opaque",
-                "evidence": "nested subscription source-info map is intentionally not expanded in this artifact",
+                "kind": "object", "completeness": "partial",
+                "evidence": "official server-message field inventory with current decoder vocabulary; unknown minima remain null",
+                "fields": [
+                    exact_field("adapter_uuid", "str", "nested", "optional", "current decoder vocabulary; introduction unknown"),
+                    exact_field("mux_uuid", "str", "nested", "optional", "current decoder vocabulary; introduction unknown"),
+                    exact_field("network_uuid", "str", "nested", "optional", "current decoder vocabulary; introduction unknown"),
+                    exact_field("adapter", "str", "nested", "optional", "official subscriptionStart sourceinfo field"),
+                    exact_field("mux", "str", "nested", "optional", "official subscriptionStart sourceinfo field"),
+                    exact_field("network", "str", "nested", "optional", "official subscriptionStart sourceinfo field"),
+                    exact_field("network_type", "str", "nested", "optional", "current decoder vocabulary; introduction unknown"),
+                    exact_field("provider", "str", "nested", "optional", "official subscriptionStart sourceinfo field"),
+                    exact_field("service", "str", "nested", "optional", "official subscriptionStart sourceinfo field"),
+                    exact_field("satpos", "str", "nested", "optional", "official protocol v20 source metadata", min_version=20),
+                ],
             }),
         ]
     )
@@ -4203,7 +4315,8 @@ def self_test() -> None:
             live_coverage["clientMethods"]["outgoingRequestCount"],
             live_coverage["serverMessages"]["handledCount"],
             live_coverage["typedClientRequests"]["count"],
-        ) == (29, 28, 27, 20)
+            live_coverage["typedServerMessages"]["count"],
+        ) == (29, 28, 27, 20, 23)
         and "stopDvrEntry" in live_coverage["clientMethods"]["referenced"]
         and "stopDvrEntry" in live_coverage["clientMethods"]["outgoingRequests"]
         and "subscriptionChangeWeight" in live_coverage["clientMethods"]["referenced"]
