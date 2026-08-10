@@ -11,7 +11,7 @@ from pathlib import Path
 SCRIPT_DIR = Path(__file__).resolve().parent
 OUTPUT = (
     SCRIPT_DIR.parents[1]
-    / "sdk/htsp/src/main/kotlin/at/bernhardberger/tvheadend/htsp/GeneratedHtspExtensions.kt"
+    / "sdk/htsp-protocol/src/main/kotlin/at/bernhardberger/tvheadend/htsp/GeneratedHtspExtensions.kt"
 )
 
 
@@ -56,7 +56,7 @@ def render() -> str:
         "// The reviewed catalog in that generator is the request/response constructor authority.",
         "package at.bernhardberger.tvheadend.htsp",
         "",
-        "internal data class TypedHtspRequestCatalogEntry(",
+        "internal data class `TypedHtspRequestCatalogEntry-internal`(",
         "    val method: String,",
         "    val requestType: String,",
         "    val responseType: String,",
@@ -64,6 +64,10 @@ def render() -> str:
         "    val minimumProtocolVersion: Int?,",
         ")",
         "",
+        "internal typealias TypedHtspRequestCatalogEntry =",
+        "    `TypedHtspRequestCatalogEntry-internal`",
+        "",
+        "@get:JvmSynthetic",
         "internal val typedHtspRequestCatalog: List<TypedHtspRequestCatalogEntry> = listOf(",
     ]
     for entry in CATALOG:

@@ -8889,6 +8889,7 @@
   },
   "coverage": {
     "scanRoots": [
+      "sdk/htsp-protocol/src/main",
       "sdk/htsp/src/main",
       "sdk/playback-media3/src/main"
     ],

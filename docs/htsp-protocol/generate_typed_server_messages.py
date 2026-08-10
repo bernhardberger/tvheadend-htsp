@@ -11,7 +11,7 @@ from pathlib import Path
 SCRIPT_DIR = Path(__file__).resolve().parent
 OUTPUT = (
     SCRIPT_DIR.parents[1]
-    / "sdk/htsp/src/main/kotlin/at/bernhardberger/tvheadend/htsp/GeneratedHtspServerMessageDispatch.kt"
+    / "sdk/htsp-protocol/src/main/kotlin/at/bernhardberger/tvheadend/htsp/GeneratedHtspServerMessageDispatch.kt"
 )
 
 

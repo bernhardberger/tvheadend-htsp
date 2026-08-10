@@ -30,6 +30,7 @@ REPO_ROOT = SCRIPT_DIR.parents[1]
 UPSTREAM_MANIFEST_PATH = SCRIPT_DIR / "upstream.json"
 SPEC_PATH = SCRIPT_DIR / "htsp_spec.json"
 SDK_PRODUCTION_ROOTS = (
+    REPO_ROOT / "sdk" / "htsp-protocol" / "src" / "main",
     REPO_ROOT / "sdk" / "htsp" / "src" / "main",
     REPO_ROOT / "sdk" / "playback-media3" / "src" / "main",
 )

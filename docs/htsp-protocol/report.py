@@ -202,7 +202,11 @@ EXPECTED_DOCS_URLS = {
     "serverToClient": "https://docs.tvheadend.org/documentation/development/htsp/server-to-client-methods",
     "protocolChanges": "https://docs.tvheadend.org/documentation/development/htsp/protocol-changes",
 }
-EXPECTED_SCAN_ROOTS = ["sdk/htsp/src/main", "sdk/playback-media3/src/main"]
+EXPECTED_SCAN_ROOTS = [
+    "sdk/htsp-protocol/src/main",
+    "sdk/htsp/src/main",
+    "sdk/playback-media3/src/main",
+]
 SYSTEM_TIME_LIMITATION_ID = "getSysTime-time-type-source-doc-mismatch"
 CHANNEL_SERVICE_LIMITATION_ID = "channel-service-fields-underdocumented"
 CHANNEL_ID_STR_EVIDENCE = (
@@ -1787,6 +1791,10 @@ def render_matrix(spec: dict[str, Any]) -> str:
     lines.append("")
     lines.append("## SDK coverage (exact-literal metric)")
     lines.append("")
+    lines.append(
+        "- Production scan roots: "
+        + ", ".join(f"`{root}`" for root in coverage["scanRoots"])
+    )
     lines.append(
         f"- Client→server methods referenced in production sources: "
         f"**{client_cov['referencedCount']} / {client_cov['total']}**"

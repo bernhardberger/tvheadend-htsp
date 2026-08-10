@@ -16,6 +16,7 @@ Primary authority is the pinned TVHeadend server source. Official HTSP documenta
 
 ## SDK coverage (exact-literal metric)
 
+- Production scan roots: `sdk/htsp-protocol/src/main`, `sdk/htsp/src/main`, `sdk/playback-media3/src/main`
 - Client→server methods referenced in production sources: **29 / 39**
 - Distinct outgoing request names: **28 / 39**
 - Server→client messages handled (exact literal): **27 / 30**
