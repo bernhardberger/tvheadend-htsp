@@ -1821,7 +1821,9 @@ def render_matrix(spec: dict[str, Any]) -> str:
     )
     lines.append(
         "- Typed server-message coverage means public payload models plus an ABI-hidden "
-        "finite decoder. It is not runtime wiring, support, stability, or completeness."
+        "finite decoder; the metric alone does not prove support, runtime consumption, "
+        "stability, or completeness. Selected client metadata/status consumers use the "
+        "decoder while raw transport and playback integration remain unchanged."
     )
     lines.append("")
     lines.append("Unhandled server messages:")

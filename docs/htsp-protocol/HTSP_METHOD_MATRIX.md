@@ -24,7 +24,7 @@ Primary authority is the pinned TVHeadend server source. Official HTSP documenta
 - Distinguish **referenced** from **outgoing**: a name can appear because an inbound handler mentions it (for example `subscriptionSkip`) while the client sends a synonym (`subscriptionSeek`).
 - Never claim methods are implemented/called merely because they are referenced.
 - Typed request coverage means a public `HtspRequest` model plus a generated `HtspConnection` extension. It is not a support, stability, or completeness claim.
-- Typed server-message coverage means public payload models plus an ABI-hidden finite decoder. It is not runtime wiring, support, stability, or completeness.
+- Typed server-message coverage means public payload models plus an ABI-hidden finite decoder; the metric alone does not prove support, runtime consumption, stability, or completeness. Selected client metadata/status consumers use the decoder while raw transport and playback integration remain unchanged.
 
 Unhandled server messages:
 
