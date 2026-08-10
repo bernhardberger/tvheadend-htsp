@@ -1,4 +1,4 @@
-package at.bernhardberger.tvheadend.client
+package at.bernhardberger.tvheadend.htsp
 
 /**
  * Cross-module implementation boundary used only by the Media3 playback SDK.

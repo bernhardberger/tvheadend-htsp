@@ -1,4 +1,4 @@
-package at.bernhardberger.tvheadend.client
+package at.bernhardberger.tvheadend.htsp
 
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.delay
@@ -17,7 +17,7 @@ class HtspEventStreamTest {
         val collector = launch(start = CoroutineStart.UNDISPATCHED) {
             stream.events.take(3).collect { event ->
                 delay(10)
-                received += (event as HtspEvent.ServerMessage).msg.int("value")!!
+                received += (event as HtspControlEvent.ServerMessage).msg.int("value")!!
             }
         }
 
@@ -29,7 +29,7 @@ class HtspEventStreamTest {
         assertEquals(listOf(0, 1, 2), received)
     }
 
-    private fun serverEvent(value: Int) = HtspEvent.ServerMessage(
+    private fun serverEvent(value: Int) = HtspControlEvent.ServerMessage(
         HtspMessage(
             method = "test",
             seq = null,

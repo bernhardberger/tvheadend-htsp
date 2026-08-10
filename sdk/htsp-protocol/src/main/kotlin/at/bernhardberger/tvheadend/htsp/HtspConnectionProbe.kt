@@ -1,4 +1,4 @@
-package at.bernhardberger.tvheadend.client
+package at.bernhardberger.tvheadend.htsp
 
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.coroutines.cancellation.CancellationException
@@ -65,7 +65,8 @@ internal class `HtspConnectionProbe-internal`(
             val completed = CompletableDeferred<Int>()
             val collector = launch(ioDispatcher, start = CoroutineStart.UNDISPATCHED) {
                 service.controlEvents.collect { event ->
-                    val message = (event as? HtspEvent.ServerMessage)?.msg ?: return@collect
+                    val message =
+                        (event as? HtspControlEvent.ServerMessage)?.msg ?: return@collect
                     when (message.method) {
                         "channelAdd", "channelUpdate" ->
                             message.int("channelId")?.let(channelIds::add)

@@ -1,4 +1,4 @@
-package at.bernhardberger.tvheadend.client
+package at.bernhardberger.tvheadend.htsp
 
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
@@ -13,7 +13,7 @@ import kotlinx.coroutines.flow.StateFlow
 @PlaybackIntegrationApi
 public interface PlaybackHtspTransport {
     public val state: StateFlow<ConnectionState>
-    public val controlEvents: Flow<HtspEvent>
+    public val controlEvents: Flow<HtspControlEvent>
     public val muxEvents: Flow<HtspMuxEvent>
 
     /** [timeshiftPeriodSec] is the requested timeshift duration in seconds. */

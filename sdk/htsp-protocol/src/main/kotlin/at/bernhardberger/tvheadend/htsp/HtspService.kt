@@ -1,4 +1,4 @@
-package at.bernhardberger.tvheadend.client
+package at.bernhardberger.tvheadend.htsp
 
 import at.bernhardberger.tvheadend.htsp.HtspAuthenticationPolicy
 import at.bernhardberger.tvheadend.htsp.HtspCallTimeoutException
@@ -98,7 +98,7 @@ internal open class `HtspService-internal`(
     private val lifecycle = TerminalLifecycleGate("HTSP service is closed")
 
     private val controlEventStream = HtspEventStream()
-    override val controlEvents: Flow<HtspEvent> = controlEventStream.events.filter { event ->
+    override val controlEvents: Flow<HtspControlEvent> = controlEventStream.events.filter { event ->
         event.connectionAttemptId == 0L ||
             isCurrentConnectionAttempt(event.connectionAttemptId)
     }
@@ -904,7 +904,7 @@ internal open class `HtspService-internal`(
                 try {
                     val msg = HtspCodec.readMessage(inp, logger)
                     val currentMessageSequence = ++messageSequence
-                    var controlEvent: HtspEvent.ServerMessage? = null
+                    var controlEvent: HtspControlEvent.ServerMessage? = null
                     val published = withCurrentConnectionAttempt(attemptId) {
                         lastReadAtMs = System.currentTimeMillis()
 
@@ -936,7 +936,7 @@ internal open class `HtspService-internal`(
                                 )
                             )
                         } else {
-                            controlEvent = HtspEvent.ServerMessage(
+                            controlEvent = HtspControlEvent.ServerMessage(
                                 msg = msg,
                                 connectionAttemptId = attemptId,
                                 messageSequence = currentMessageSequence,
@@ -1021,11 +1021,11 @@ internal open class `HtspService-internal`(
 
     private suspend fun failAll(t: Throwable, attemptId: Long) {
         if (!isCurrentConnectionAttempt(attemptId)) return
-        val event = connectMutex.withLock<HtspEvent.ConnectionError?> {
+        val event = connectMutex.withLock<HtspControlEvent.ConnectionError?> {
             if (!isCurrentConnectionAttempt(attemptId)) return@withLock null
             val event = withCurrentConnectionAttempt(attemptId) {
                 _state.value = ConnectionState.Error(t)
-                HtspEvent.ConnectionError(
+                HtspControlEvent.ConnectionError(
                     error = t,
                     connectionAttemptId = attemptId,
                 )

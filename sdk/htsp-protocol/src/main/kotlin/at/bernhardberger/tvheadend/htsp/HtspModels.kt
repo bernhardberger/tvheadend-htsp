@@ -1,4 +1,4 @@
-package at.bernhardberger.tvheadend.client
+package at.bernhardberger.tvheadend.htsp
 
 @PlaybackIntegrationApi
 public data class HtspMessage(
@@ -84,19 +84,19 @@ public data class HtspMessage(
 }
 
 @PlaybackIntegrationApi
-public sealed interface HtspEvent {
+public sealed interface HtspControlEvent {
     public val connectionAttemptId: Long
 
     public data class ServerMessage(
         val msg: HtspMessage,
         override val connectionAttemptId: Long = 0L,
         val messageSequence: Long = 0L,
-    ) : HtspEvent
+    ) : HtspControlEvent
 
     public data class ConnectionError(
         val error: Throwable,
         override val connectionAttemptId: Long = 0L,
-    ) : HtspEvent
+    ) : HtspControlEvent
 }
 
 @PlaybackIntegrationApi

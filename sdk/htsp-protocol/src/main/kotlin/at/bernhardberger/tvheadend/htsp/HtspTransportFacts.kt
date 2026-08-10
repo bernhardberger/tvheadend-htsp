@@ -1,4 +1,4 @@
-package at.bernhardberger.tvheadend.client
+package at.bernhardberger.tvheadend.htsp
 
 /**
  * Safe, read-only HTSP server identity and access observations from one successful handshake.

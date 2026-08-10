@@ -11,7 +11,7 @@ kotlin {
         enabled.set(true)
     }
     compilerOptions {
-        optIn.add("at.bernhardberger.tvheadend.client.PlaybackIntegrationApi")
+        optIn.add("at.bernhardberger.tvheadend.htsp.PlaybackIntegrationApi")
     }
 }
 

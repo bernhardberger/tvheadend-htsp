@@ -12,13 +12,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 PROTOCOL_PACKAGE = "at.bernhardberger.tvheadend.htsp"
-TRANSPORT_PACKAGE = "at.bernhardberger.tvheadend.client"
 PROTOCOL_MODULE_MAIN = Path("sdk/htsp-protocol/src/main")
 PROTOCOL_ROOT = Path(
     "sdk/htsp-protocol/src/main/kotlin/at/bernhardberger/tvheadend/htsp"
-)
-TRANSPORT_ROOT = Path(
-    "sdk/htsp-protocol/src/main/kotlin/at/bernhardberger/tvheadend/client"
 )
 SOURCE_SUFFIXES = {".java", ".kt"}
 IGNORED_DIRECTORIES = {".git", ".gradle", ".idea", "build", "out"}
@@ -362,12 +358,11 @@ def parse_directives(
 
 def dependency_allowed(name: str) -> bool:
     normalized = name.removesuffix(".*")
-    if normalized in {PROTOCOL_PACKAGE, TRANSPORT_PACKAGE}:
+    if normalized == PROTOCOL_PACKAGE:
         return True
-    for package in (PROTOCOL_PACKAGE, TRANSPORT_PACKAGE):
-        if normalized.startswith(f"{package}."):
-            first_suffix_segment = normalized[len(package) + 1 :].split(".", 1)[0]
-            return first_suffix_segment[:1].isupper()
+    if normalized.startswith(f"{PROTOCOL_PACKAGE}."):
+        first_suffix_segment = normalized[len(PROTOCOL_PACKAGE) + 1 :].split(".", 1)[0]
+        return first_suffix_segment[:1].isupper()
     return any(
         normalized == package or normalized.startswith(f"{package}.")
         for package in ALLOWED_DEPENDENCY_PACKAGES
@@ -437,14 +432,12 @@ def source_errors(path: Path, root: Path) -> list[str]:
                 f"{relative}: protocol source must declare exactly one package"
             )
         else:
-            expected_package = None
-            if path.is_relative_to(root / PROTOCOL_ROOT):
-                expected_package = PROTOCOL_PACKAGE
-            elif path.is_relative_to(root / TRANSPORT_ROOT):
-                expected_package = TRANSPORT_PACKAGE
-            if package_directives[0][0] != expected_package:
+            if (
+                not path.is_relative_to(root / PROTOCOL_ROOT)
+                or package_directives[0][0] != PROTOCOL_PACKAGE
+            ):
                 errors.append(
-                    f"{relative}: protocol source must declare its rooted module package"
+                    f"{relative}: protocol source must declare the single rooted module package"
                 )
     else:
         for declared, _, _ in package_directives:
@@ -519,26 +512,26 @@ def self_test_errors() -> list[str]:
         (
             "valid shape",
             "package at.bernhardberger.tvheadend.htsp\n"
-            "import at.bernhardberger.tvheadend.client.HtspMessage\n"
+            "import at.bernhardberger.tvheadend.htsp.HtspMessage\n"
             "import java.util.Collections\n"
             "import kotlinx.coroutines.CancellationException\n"
             "class Valid {\n"
-            "    val message: at.bernhardberger.tvheadend.client.HtspMessage? = null\n"
-            "    val nested: at.bernhardberger.tvheadend.client.HtspMessage.Field? = null\n"
+            "    val message: at.bernhardberger.tvheadend.htsp.HtspMessage? = null\n"
+            "    val nested: at.bernhardberger.tvheadend.htsp.HtspMessage.Field? = null\n"
             "}\n",
             None,
             None,
         ),
         (
-            "valid relocated transport shape",
-            "package at.bernhardberger.tvheadend.client\n"
+            "valid transport shape in single root",
+            "package at.bernhardberger.tvheadend.htsp\n"
             "import at.bernhardberger.tvheadend.htsp.HtspResult\n"
             "import kotlinx.coroutines.flow.Flow\n"
             "class ValidTransport {\n"
             "    val result: at.bernhardberger.tvheadend.htsp.HtspResult? = null\n"
             "    val nested: at.bernhardberger.tvheadend.htsp.HtspResult.Success? = null\n"
             "}\n",
-            TRANSPORT_ROOT / "Synthetic.kt",
+            PROTOCOL_ROOT / "TransportSynthetic.kt",
             None,
         ),
         (
@@ -574,7 +567,7 @@ def self_test_errors() -> list[str]:
             "wrong rooted package",
             "package at.bernhardberger.tvheadend.client\nclass Invalid\n",
             None,
-            "protocol source must declare its rooted module package",
+            "protocol source must declare the single rooted module package",
         ),
         (
             "forbidden dependency below rooted build directory",
@@ -628,7 +621,7 @@ def self_test_errors() -> list[str]:
         (
             "transport subpackage import",
             "package at.bernhardberger.tvheadend.htsp\n"
-            "import at.bernhardberger.tvheadend.client.internal.Invalid\n"
+            "import at.bernhardberger.tvheadend.htsp.internal.Invalid\n"
             "class Split\n",
             None,
             "protocol dependency is outside the allowed surface",
@@ -636,7 +629,7 @@ def self_test_errors() -> list[str]:
         (
             "transport subpackage fully qualified reference",
             "package at.bernhardberger.tvheadend.htsp\n"
-            "val invalid = at.bernhardberger.tvheadend.client.internal.Invalid()\n",
+            "val invalid = at.bernhardberger.tvheadend.htsp.internal.Invalid()\n",
             None,
             "fully qualified protocol dependency is outside the allowed surface",
         ),
@@ -644,7 +637,7 @@ def self_test_errors() -> list[str]:
             "Kotlin interpolated dependency",
             "package at.bernhardberger.tvheadend.htsp\n"
             "val normal = \"${androidx.media3.common.Player.COMMAND_PLAY_PAUSE}\"\n"
-            "val raw = \"\"\"${at.bernhardberger.tvheadend.client.Invalid()}\"\"\"\n",
+            "val raw = \"\"\"${at.bernhardberger.tvheadend.htsp.internal.Invalid()}\"\"\"\n",
             None,
             "fully qualified protocol dependency is outside the allowed surface",
         ),
@@ -671,18 +664,18 @@ def self_test_errors() -> list[str]:
             "fully qualified protocol dependency is outside the allowed surface",
         ),
         (
-            "relocated client source importing core",
-            "package at.bernhardberger.tvheadend.client\n"
+            "relocated transport source importing core",
+            "package at.bernhardberger.tvheadend.htsp\n"
             "import at.bernhardberger.tvheadend.core.Channel\n"
             "class Invalid\n",
-            TRANSPORT_ROOT / "Invalid.kt",
+            PROTOCOL_ROOT / "Invalid.kt",
             "protocol dependency is outside the allowed surface",
         ),
         (
-            "relocated client source naming client runtime",
-            "package at.bernhardberger.tvheadend.client\n"
+            "relocated transport source naming client runtime",
+            "package at.bernhardberger.tvheadend.htsp\n"
             "class Invalid(val client: TvheadendClient)\n",
-            TRANSPORT_ROOT / "Invalid.kt",
+            PROTOCOL_ROOT / "Invalid.kt",
             "protocol module references forbidden client runtime ownership",
         ),
         (

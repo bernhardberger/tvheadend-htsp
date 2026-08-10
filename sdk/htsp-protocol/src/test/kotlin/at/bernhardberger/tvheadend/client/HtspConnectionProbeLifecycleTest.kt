@@ -1,4 +1,4 @@
-package at.bernhardberger.tvheadend.client
+package at.bernhardberger.tvheadend.htsp
 
 import java.net.UnknownHostException
 import kotlinx.coroutines.CancellationException

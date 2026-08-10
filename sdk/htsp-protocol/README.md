@@ -5,7 +5,8 @@
 provisional typed request, outcome, and server-message declarations in
 `at.bernhardberger.tvheadend.htsp`, plus the existing raw HTSP codec, transport,
 probe, lifecycle machinery, transport facts, and opt-in
-`@PlaybackIntegrationApi` SPI in `at.bernhardberger.tvheadend.client`.
+`@PlaybackIntegrationApi` SPI. Every production declaration is in that one
+package; this module does not declare `at.bernhardberger.tvheadend.client`.
 
 This mutable `0.x` snapshot has exactly one declared external dependency:
 `kotlinx-coroutines-core`, in addition to the implicit Kotlin and JDK runtimes.
