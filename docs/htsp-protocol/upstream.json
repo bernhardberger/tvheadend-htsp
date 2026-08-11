@@ -20,6 +20,22 @@
         "Covers only hello, authenticate, and enableAsyncMetadata.",
         "Never treat as completeness authority."
       ]
+    },
+    "src/epg.c": {
+      "gitBlobSha1": "7d95b27466e070a6c76b37ef3a945cd9e980d683",
+      "bytes": 88770
+    },
+    "src/epg.h": {
+      "gitBlobSha1": "cce9c09d25612f1abc892c7a0071dca9481030e9",
+      "bytes": 22374
+    },
+    "src/lang_str.c": {
+      "gitBlobSha1": "c0cfbe016938472778ef6aec0e6e0b829a0abd31",
+      "bytes": 8481
+    },
+    "src/string_list.c": {
+      "gitBlobSha1": "cfe0fa03415abf649c94737d599561556b5e0a76",
+      "bytes": 4655
     }
   },
   "docsUrls": {

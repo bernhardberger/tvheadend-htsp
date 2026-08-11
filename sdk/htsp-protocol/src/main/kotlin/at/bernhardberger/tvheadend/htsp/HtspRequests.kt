@@ -114,6 +114,66 @@ public sealed interface EpgQueryResponse {
     public data class Events(public val events: List<HtspEvent>) : EpgQueryResponse
 }
 
+/** The complete finite EPG object-type vocabulary supported by the pinned serializer. */
+public enum class HtspEpgObjectType {
+    BROADCAST,
+}
+
+/** Optional episode-number object serialized inside a detailed EPG broadcast. */
+public data class HtspEpgEpisodeNumber(
+    public val episodeNumber: Long?,
+    public val episodeCount: Long?,
+    public val seasonNumber: Long?,
+    public val seasonCount: Long?,
+    public val partNumber: Long?,
+    public val partCount: Long?,
+    public val text: String?,
+)
+
+/**
+ * Complete bounded broadcast object returned by `getEpgObject`.
+ *
+ * The unconstrained wire `cred` object is deliberately omitted from this finite public model.
+ */
+public data class HtspEpgBroadcastObject(
+    public val id: Long,
+    public val updatedUnixSeconds: Long,
+    public val startUnixSeconds: Long,
+    public val stopUnixSeconds: Long,
+    public val grabber: String?,
+    public val channelUuid: String?,
+    public val eventId: Long?,
+    public val externalEventId: String?,
+    public val widescreen: Boolean,
+    public val highDefinition: Boolean,
+    public val blackAndWhite: Boolean,
+    public val deafSigned: Boolean,
+    public val subtitled: Boolean,
+    public val audioDescribed: Boolean,
+    public val isNew: Boolean,
+    public val isRepeat: Boolean,
+    public val lines: Long?,
+    public val aspectRatio: Long?,
+    public val starRating: Long?,
+    public val ageRating: Long?,
+    public val ratingLabel: String?,
+    public val image: String?,
+    public val titles: Map<String, String>?,
+    public val subtitles: Map<String, String>?,
+    public val summaries: Map<String, String>?,
+    public val descriptions: Map<String, String>?,
+    public val episodeNumber: HtspEpgEpisodeNumber?,
+    public val genres: List<Long>?,
+    public val copyrightYear: Long?,
+    public val firstAiredUnixSeconds: Long?,
+    public val categories: List<String>?,
+    public val keywords: List<String>?,
+    public val seriesLinkUri: String?,
+    public val episodeLinkUri: String?,
+)
+
+public data class GetEpgObjectResponse(public val broadcast: HtspEpgBroadcastObject)
+
 public data class GetDvrConfigsResponse(public val configurations: List<HtspDvrConfig>?)
 
 /** Closed wire request family for the five DVR mutation methods. */
@@ -270,6 +330,19 @@ public data class EpgQueryRequest(
         full?.let { requireU32("full", it) }
         minDurationSeconds?.let { requireU32("minduration", it) }
         maxDurationSeconds?.let { requireU32("maxduration", it) }
+    }
+}
+
+public data class GetEpgObjectRequest(
+    public val id: Long,
+    public val objectType: HtspEpgObjectType? = HtspEpgObjectType.BROADCAST,
+) : HtspRequest<GetEpgObjectResponse>(
+    method = "getEpgObject",
+    access = HtspAccess.ACCESS_HTSP_STREAMING,
+    minimumProtocolVersion = null,
+) {
+    init {
+        requireU32("id", id)
     }
 }
 
@@ -589,6 +662,16 @@ internal object `HtspRequestCodecs-internal` {
             .putIfNotNull("minduration", request.minDurationSeconds)
             .putIfNotNull("maxduration", request.maxDurationSeconds)
 
+        is GetEpgObjectRequest -> linkedMapOf<String, Any?>("id" to request.id)
+            .putIfNotNull(
+                "type",
+                request.objectType?.let { objectType ->
+                    when (objectType) {
+                        HtspEpgObjectType.BROADCAST -> 1L
+                    }
+                },
+            )
+
         is AddDvrEntryRequest -> linkedMapOf<String, Any?>().apply {
             if (request.selector is AddDvrEntrySelector.ExplicitChannelTime) {
                 put("channelId", request.selector.channelId)
@@ -707,6 +790,7 @@ internal object `HtspRequestCodecs-internal` {
             GetEventsResponse(fields.requiredObjectList("events", ::eventFromFields))
 
         is EpgQueryRequest -> decodeEpgQuery(request, fields)
+        is GetEpgObjectRequest -> GetEpgObjectResponse(epgBroadcastObjectFromFields(fields))
 
         is GetDvrConfigsRequest ->
             GetDvrConfigsResponse(fields.optionalObjectList("dvrconfigs", ::dvrConfigFromFields))
@@ -927,6 +1011,97 @@ private fun eventFromFields(fields: Map<*, *>): HtspEvent = HtspEvent(
     dvrId = fields.optionalU32("dvrId"),
     nextEventId = fields.optionalU32("nextEventId"),
 )
+
+private fun epgBroadcastObjectFromFields(fields: Map<*, *>): HtspEpgBroadcastObject {
+    if (fields.requiredU32("tp") != 1L) malformedReply()
+    return HtspEpgBroadcastObject(
+        id = fields.requiredU32("id"),
+        updatedUnixSeconds = fields.requiredS64("up"),
+        startUnixSeconds = fields.requiredS64("start"),
+        stopUnixSeconds = fields.requiredS64("stop"),
+        grabber = fields.optionalString("gr"),
+        channelUuid = fields.optionalString("ch"),
+        eventId = fields.optionalU32("eid"),
+        externalEventId = fields.optionalString("xeid"),
+        widescreen = fields.optionalTrueFlag("is_wd"),
+        highDefinition = fields.optionalTrueFlag("is_hd"),
+        blackAndWhite = fields.optionalTrueFlag("is_bw"),
+        deafSigned = fields.optionalTrueFlag("is_de"),
+        subtitled = fields.optionalTrueFlag("is_st"),
+        audioDescribed = fields.optionalTrueFlag("is_ad"),
+        isNew = fields.optionalTrueFlag("is_n"),
+        isRepeat = fields.optionalTrueFlag("is_r"),
+        lines = fields.optionalU32("lines"),
+        aspectRatio = fields.optionalU32("aspect"),
+        starRating = fields.optionalU32("star"),
+        ageRating = fields.optionalU32("age"),
+        ratingLabel = fields.optionalString("ratlab"),
+        image = fields.optionalString("img"),
+        titles = fields.optionalStringMap("tit"),
+        subtitles = fields.optionalStringMap("sti"),
+        summaries = fields.optionalStringMap("sum"),
+        descriptions = fields.optionalStringMap("des"),
+        episodeNumber = fields.optionalEpgEpisodeNumber("epn"),
+        genres = fields.optionalU32List("genre"),
+        copyrightYear = fields.optionalU32("cyear"),
+        firstAiredUnixSeconds = fields.optionalS64("fair"),
+        categories = fields.optionalSortedUniqueStringList("cat"),
+        keywords = fields.optionalSortedUniqueStringList("key"),
+        seriesLinkUri = fields.optionalString("slink"),
+        episodeLinkUri = fields.optionalString("elink"),
+    )
+}
+
+private fun Map<*, *>.optionalTrueFlag(name: String): Boolean {
+    if (!containsKey(name)) return false
+    if (requiredU32(name) != 1L) malformedReply()
+    return true
+}
+
+private fun Map<*, *>.optionalStringMap(name: String): Map<String, String>? {
+    if (!containsKey(name)) return null
+    val source = this[name] as? Map<*, *> ?: malformedReply()
+    val result = LinkedHashMap<String, String>(source.size)
+    source.forEach { (key, value) ->
+        result[key as? String ?: malformedReply()] = value as? String ?: malformedReply()
+    }
+    return Collections.unmodifiableMap(result)
+}
+
+private fun Map<*, *>.optionalEpgEpisodeNumber(name: String): HtspEpgEpisodeNumber? {
+    if (!containsKey(name)) return null
+    val source = this[name] as? Map<*, *> ?: malformedReply()
+    val result = HtspEpgEpisodeNumber(
+        episodeNumber = source.optionalU32("enum"),
+        episodeCount = source.optionalU32("ecnt"),
+        seasonNumber = source.optionalU32("snum"),
+        seasonCount = source.optionalU32("scnt"),
+        partNumber = source.optionalU32("pnum"),
+        partCount = source.optionalU32("pcnt"),
+        text = source.optionalString("text"),
+    )
+    if (result == HtspEpgEpisodeNumber(null, null, null, null, null, null, null)) malformedReply()
+    return result
+}
+
+private fun Map<*, *>.optionalU32List(name: String): List<Long>? =
+    if (containsKey(name)) requiredU32List(name) else null
+
+private fun Map<*, *>.optionalSortedUniqueStringList(name: String): List<String>? {
+    val values = optionalStringList(name) ?: return null
+    if (values.zipWithNext().any { (previous, next) -> compareUtf8(previous, next) >= 0 }) malformedReply()
+    return values
+}
+
+private fun compareUtf8(left: String, right: String): Int {
+    val leftBytes = left.toByteArray(Charsets.UTF_8)
+    val rightBytes = right.toByteArray(Charsets.UTF_8)
+    for (index in 0 until minOf(leftBytes.size, rightBytes.size)) {
+        val difference = (leftBytes[index].toInt() and 0xff) - (rightBytes[index].toInt() and 0xff)
+        if (difference != 0) return difference
+    }
+    return leftBytes.size - rightBytes.size
+}
 
 private fun Map<*, *>.optionalStringList(name: String): List<String>? {
     if (!containsKey(name)) return null

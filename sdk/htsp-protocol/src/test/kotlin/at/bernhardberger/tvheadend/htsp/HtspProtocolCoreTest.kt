@@ -34,6 +34,7 @@ class HtspProtocolCoreTest {
                 "getEvent",
                 "getEvents",
                 "epgQuery",
+                "getEpgObject",
                 "getDvrConfigs",
                 "addDvrEntry",
                 "updateDvrEntry",
@@ -53,6 +54,7 @@ class HtspProtocolCoreTest {
         )
         assertEquals(
             listOf(
+                HtspAccess.ACCESS_HTSP_STREAMING,
                 HtspAccess.ACCESS_HTSP_STREAMING,
                 HtspAccess.ACCESS_HTSP_STREAMING,
                 HtspAccess.ACCESS_HTSP_STREAMING,
@@ -87,6 +89,7 @@ class HtspProtocolCoreTest {
             GetEventRequest(0L),
             GetEventsRequest(),
             EpgQueryRequest(""),
+            GetEpgObjectRequest(0L),
             GetDvrConfigsRequest(),
             AddDvrEntryRequest(AddDvrEntrySelector.Event(0L)),
             UpdateDvrEntryRequest(0L),
@@ -418,6 +421,211 @@ class HtspProtocolCoreTest {
     }
 
     @Test
+    fun getEpgObjectPreservesTypedSelectorDefaultOmissionAndU32Validation() {
+        assertEquals(
+            linkedMapOf("id" to 0xffff_ffffL, "type" to 1L),
+            HtspRequestCodecs.encode(GetEpgObjectRequest(id = 0xffff_ffffL)),
+        )
+        assertEquals(
+            linkedMapOf("id" to 0L),
+            HtspRequestCodecs.encode(GetEpgObjectRequest(id = 0L, objectType = null)),
+        )
+        assertEquals(HtspEpgObjectType.BROADCAST, GetEpgObjectRequest(1L).objectType)
+        assertEquals(null, GetEpgObjectRequest(1L).minimumProtocolVersion)
+
+        assertIllegalArgument { GetEpgObjectRequest(-1L) }
+        assertIllegalArgument { GetEpgObjectRequest(0x1_0000_0000L) }
+    }
+
+    @Test
+    fun getEpgObjectDecodesTheCompleteFiniteBroadcastAndIgnoresOpaqueCredits() = runTest {
+        val transport = FakeProtocolTransport(version = 1)
+        val connection = HtspTypedRequestCaller(transport)
+        transport.reply = HtspWireReply(
+            linkedMapOf(
+                "id" to 42L,
+                "tp" to 1L,
+                "up" to Long.MIN_VALUE,
+                "start" to -1L,
+                "stop" to Long.MAX_VALUE,
+                "gr" to "",
+                "ch" to "channel-uuid",
+                "eid" to 0xffff_ffffL,
+                "xeid" to "external-id",
+                "is_wd" to 1L,
+                "is_hd" to 1L,
+                "is_bw" to 1L,
+                "is_de" to 1L,
+                "is_st" to 1L,
+                "is_ad" to 1L,
+                "is_n" to 1L,
+                "is_r" to 1L,
+                "lines" to 0L,
+                "aspect" to 0xffff_ffffL,
+                "star" to 3L,
+                "age" to 12L,
+                "ratlab" to "rating-label",
+                "img" to "image-ref",
+                "tit" to linkedMapOf("eng" to "Title", "deu" to "Titel"),
+                "sti" to linkedMapOf("eng" to "Subtitle"),
+                "sum" to linkedMapOf("eng" to "Summary"),
+                "des" to linkedMapOf("eng" to "Description"),
+                "epn" to linkedMapOf(
+                    "enum" to 1L,
+                    "ecnt" to 2L,
+                    "snum" to 3L,
+                    "scnt" to 4L,
+                    "pnum" to 5L,
+                    "pcnt" to 6L,
+                    "text" to "S03E01",
+                ),
+                "genre" to listOf(0L, 0xffff_ffffL, 0L),
+                "cyear" to 0xffff_ffffL,
+                "fair" to Long.MIN_VALUE,
+                "cat" to listOf("documentary", "news"),
+                "key" to emptyList<String>(),
+                "slink" to "series-link",
+                "elink" to "episode-link",
+                "cred" to linkedMapOf("unbounded" to listOf(1L, "opaque")),
+            ),
+        )
+
+        assertEquals(
+            HtspResult.Ok(
+                GetEpgObjectResponse(
+                    broadcast = HtspEpgBroadcastObject(
+                        id = 42L,
+                        updatedUnixSeconds = Long.MIN_VALUE,
+                        startUnixSeconds = -1L,
+                        stopUnixSeconds = Long.MAX_VALUE,
+                        grabber = "",
+                        channelUuid = "channel-uuid",
+                        eventId = 0xffff_ffffL,
+                        externalEventId = "external-id",
+                        widescreen = true,
+                        highDefinition = true,
+                        blackAndWhite = true,
+                        deafSigned = true,
+                        subtitled = true,
+                        audioDescribed = true,
+                        isNew = true,
+                        isRepeat = true,
+                        lines = 0L,
+                        aspectRatio = 0xffff_ffffL,
+                        starRating = 3L,
+                        ageRating = 12L,
+                        ratingLabel = "rating-label",
+                        image = "image-ref",
+                        titles = mapOf("eng" to "Title", "deu" to "Titel"),
+                        subtitles = mapOf("eng" to "Subtitle"),
+                        summaries = mapOf("eng" to "Summary"),
+                        descriptions = mapOf("eng" to "Description"),
+                        episodeNumber = HtspEpgEpisodeNumber(
+                            episodeNumber = 1L,
+                            episodeCount = 2L,
+                            seasonNumber = 3L,
+                            seasonCount = 4L,
+                            partNumber = 5L,
+                            partCount = 6L,
+                            text = "S03E01",
+                        ),
+                        genres = listOf(0L, 0xffff_ffffL, 0L),
+                        copyrightYear = 0xffff_ffffL,
+                        firstAiredUnixSeconds = Long.MIN_VALUE,
+                        categories = listOf("documentary", "news"),
+                        keywords = emptyList(),
+                        seriesLinkUri = "series-link",
+                        episodeLinkUri = "episode-link",
+                    ),
+                ),
+            ),
+            connection.call(GetEpgObjectRequest(id = 42L)),
+        )
+        assertEquals("getEpgObject", transport.lastMethod)
+        assertEquals(linkedMapOf("id" to 42L, "type" to 1L), transport.lastFields)
+
+        transport.reply = HtspWireReply(
+            validGetEpgObjectReply().apply { put("cred", listOf(null, 1L, "still opaque")) },
+        )
+        assertTrue(connection.call(GetEpgObjectRequest(1L)) is HtspResult.Ok)
+    }
+
+    @Test
+    fun getEpgObjectRejectsEveryMalformedBoundedReplyShapeAsPayloadFreeServerError() = runTest {
+        val transport = FakeProtocolTransport(version = 44)
+        val connection = HtspTypedRequestCaller(transport)
+        val malformed = listOf(
+            validGetEpgObjectReply().apply { remove("id") },
+            validGetEpgObjectReply().apply { put("id", 1) },
+            validGetEpgObjectReply().apply { put("id", -1L) },
+            validGetEpgObjectReply().apply { remove("tp") },
+            validGetEpgObjectReply().apply { put("tp", 0L) },
+            validGetEpgObjectReply().apply { put("tp", 0x1_0000_0000L) },
+            validGetEpgObjectReply().apply { remove("up") },
+            validGetEpgObjectReply().apply { put("up", 1) },
+            validGetEpgObjectReply().apply { remove("start") },
+            validGetEpgObjectReply().apply { remove("stop") },
+            validGetEpgObjectReply().apply { put("gr", 1L) },
+            validGetEpgObjectReply().apply { put("eid", -1L) },
+            validGetEpgObjectReply().apply { put("is_hd", 0L) },
+            validGetEpgObjectReply().apply { put("is_hd", 2L) },
+            validGetEpgObjectReply().apply { put("lines", 0x1_0000_0000L) },
+            validGetEpgObjectReply().apply { put("tit", listOf("not-a-map")) },
+            validGetEpgObjectReply().apply { put("tit", linkedMapOf(1L to "Title")) },
+            validGetEpgObjectReply().apply { put("tit", linkedMapOf("eng" to 1L)) },
+            validGetEpgObjectReply().apply { put("epn", "not-an-object") },
+            validGetEpgObjectReply().apply { put("epn", emptyMap<String, Any?>()) },
+            validGetEpgObjectReply().apply { put("epn", linkedMapOf("enum" to -1L)) },
+            validGetEpgObjectReply().apply { put("epn", linkedMapOf("text" to 1L)) },
+            validGetEpgObjectReply().apply { put("genre", "not-a-list") },
+            validGetEpgObjectReply().apply { put("genre", listOf(1)) },
+            validGetEpgObjectReply().apply { put("genre", listOf(0x1_0000_0000L)) },
+            validGetEpgObjectReply().apply { put("cat", listOf(1L)) },
+            validGetEpgObjectReply().apply { put("cat", listOf("news", "news")) },
+            validGetEpgObjectReply().apply { put("cat", listOf("news", "documentary")) },
+            validGetEpgObjectReply().apply { put("key", "not-a-list") },
+            validGetEpgObjectReply().apply { put("fair", 1) },
+        )
+
+        malformed.forEach { fields ->
+            transport.reply = HtspWireReply(fields)
+            assertSame(HtspResult.ServerError, connection.call(GetEpgObjectRequest(1L)))
+        }
+    }
+
+    @Test
+    fun getEpgObjectOrdersCategoriesAndKeywordsByUnsignedUtf8Bytes() = runTest {
+        val utf8First = "\uE000"
+        val utf8Second = "\uD800\uDC00"
+        assertTrue(utf8First.compareTo(utf8Second) > 0)
+
+        val transport = FakeProtocolTransport(version = 44)
+        val connection = HtspTypedRequestCaller(transport)
+        for (field in listOf("cat", "key")) {
+            transport.reply = HtspWireReply(
+                validGetEpgObjectReply().apply { put(field, listOf(utf8First, utf8Second)) },
+            )
+            val accepted = connection.call(GetEpgObjectRequest(1L))
+            assertTrue(accepted is HtspResult.Ok)
+            val broadcast = (accepted as HtspResult.Ok).value.broadcast
+            assertEquals(
+                listOf(utf8First, utf8Second),
+                if (field == "cat") broadcast.categories else broadcast.keywords,
+            )
+
+            transport.reply = HtspWireReply(
+                validGetEpgObjectReply().apply { put(field, listOf(utf8Second, utf8First)) },
+            )
+            assertSame(HtspResult.ServerError, connection.call(GetEpgObjectRequest(1L)))
+
+            transport.reply = HtspWireReply(
+                validGetEpgObjectReply().apply { put(field, listOf(utf8First, utf8First)) },
+            )
+            assertSame(HtspResult.ServerError, connection.call(GetEpgObjectRequest(1L)))
+        }
+    }
+
+    @Test
     fun serverErrorIsPayloadFreeAndDoesNotRetainReplyText() = runTest {
         val transport = FakeProtocolTransport(version = 44)
         val connection = HtspTypedRequestCaller(transport)
@@ -613,6 +821,7 @@ class HtspProtocolCoreTest {
             GetEventRequest::class.java,
             GetEventsRequest::class.java,
             EpgQueryRequest::class.java,
+            GetEpgObjectRequest::class.java,
             GetDvrConfigsRequest::class.java,
             AddDvrEntryRequest::class.java,
             UpdateDvrEntryRequest::class.java,
@@ -730,6 +939,14 @@ class HtspProtocolCoreTest {
         val failure = runCatching(block).exceptionOrNull()
         assertTrue(failure is IllegalArgumentException)
     }
+
+    private fun validGetEpgObjectReply(): LinkedHashMap<String, Any?> = linkedMapOf(
+        "id" to 1L,
+        "tp" to 1L,
+        "up" to 2L,
+        "start" to 3L,
+        "stop" to 4L,
+    )
 
     private class FakeProtocolTransport(
         var version: Int?,

@@ -23,6 +23,7 @@ internal val typedHtspRequestCatalog: List<TypedHtspRequestCatalogEntry> = listO
     TypedHtspRequestCatalogEntry("getEvent", "GetEventRequest", "GetEventResponse", HtspAccess.ACCESS_HTSP_STREAMING, null),
     TypedHtspRequestCatalogEntry("getEvents", "GetEventsRequest", "GetEventsResponse", HtspAccess.ACCESS_HTSP_STREAMING, 4),
     TypedHtspRequestCatalogEntry("epgQuery", "EpgQueryRequest", "EpgQueryResponse", HtspAccess.ACCESS_HTSP_STREAMING, 4),
+    TypedHtspRequestCatalogEntry("getEpgObject", "GetEpgObjectRequest", "GetEpgObjectResponse", HtspAccess.ACCESS_HTSP_STREAMING, null),
     TypedHtspRequestCatalogEntry("getDvrConfigs", "GetDvrConfigsRequest", "GetDvrConfigsResponse", HtspAccess.ACCESS_HTSP_RECORDER, 16),
     TypedHtspRequestCatalogEntry("addDvrEntry", "AddDvrEntryRequest", "AddDvrEntryResponse", HtspAccess.ACCESS_HTSP_RECORDER, 4),
     TypedHtspRequestCatalogEntry("updateDvrEntry", "UpdateDvrEntryRequest", "UpdateDvrEntryResponse", HtspAccess.ACCESS_HTSP_RECORDER, 5),
@@ -163,6 +164,21 @@ public suspend fun HtspConnection.epgQuery(
             full = full,
             minDurationSeconds = minDurationSeconds,
             maxDurationSeconds = maxDurationSeconds,
+        ),
+        timeoutMs = timeoutMs,
+        expectedGeneration = expectedGeneration,
+    )
+
+public suspend fun HtspConnection.getEpgObject(
+    id: Long,
+    objectType: HtspEpgObjectType? = HtspEpgObjectType.BROADCAST,
+    timeoutMs: Long = 5_000L,
+    expectedGeneration: HtspConnectionGeneration? = null,
+): HtspResult<GetEpgObjectResponse> =
+    call(
+        request = GetEpgObjectRequest(
+            id = id,
+            objectType = objectType,
         ),
         timeoutMs = timeoutMs,
         expectedGeneration = expectedGeneration,

@@ -2,7 +2,7 @@
 """Derive machine-readable HTSP v44 inventory from pinned TVHeadend sources.
 
 Standard-library only. Normal operation requires an explicit external source root
-and never touches the network. Optional --fetch-pinned downloads only the three
+and never touches the network. Optional --fetch-pinned downloads only the seven
 manifest-pinned raw files, verifies Git-blob SHA-1 and size, and never runs as
 part of repository checks.
 """
@@ -57,6 +57,22 @@ EXPECTED_FILES: dict[str, dict[str, Any]] = {
             "Covers only hello, authenticate, and enableAsyncMetadata.",
             "Never treat as completeness authority.",
         ],
+    },
+    "src/epg.c": {
+        "gitBlobSha1": "7d95b27466e070a6c76b37ef3a945cd9e980d683",
+        "bytes": 88770,
+    },
+    "src/epg.h": {
+        "gitBlobSha1": "cce9c09d25612f1abc892c7a0071dca9481030e9",
+        "bytes": 22374,
+    },
+    "src/lang_str.c": {
+        "gitBlobSha1": "c0cfbe016938472778ef6aec0e6e0b829a0abd31",
+        "bytes": 8481,
+    },
+    "src/string_list.c": {
+        "gitBlobSha1": "cfe0fa03415abf649c94737d599561556b5e0a76",
+        "bytes": 4655,
     },
 }
 EXPECTED_DOCS_URLS = {
@@ -581,7 +597,7 @@ def validate_exact_manifest(data: Any) -> dict[str, Any]:
         raise ValueError("upstream HTSP version does not match the immutable pin")
     files = data.get("files")
     if not isinstance(files, dict) or list(files) != list(EXPECTED_FILES):
-        raise ValueError("upstream files must be the exact ordered three-file pin")
+        raise ValueError("upstream files must be the exact ordered seven-file pin")
     for relative, expected in EXPECTED_FILES.items():
         meta = files.get(relative)
         if not isinstance(meta, dict) or set(meta) != set(expected):
@@ -707,7 +723,7 @@ def fetch_pinned_sources(
     manifest: dict[str, Any],
     downloader: Any = _network_downloader,
 ) -> Path:
-    """Explicit opt-in fetch; verify all three responses before exclusive writes."""
+    """Explicit opt-in fetch; verify all seven responses before exclusive writes."""
     plan = validate_fetch_plan(dest_root, manifest)
     base = f"https://raw.githubusercontent.com/tvheadend/tvheadend/{EXPECTED_REVISION}"
     verified: list[tuple[Path, bytes]] = []
@@ -842,6 +858,13 @@ def find_function_body(source: str, function_name: str) -> str | None:
         return None
     open_index = match.end() - 1
     return extract_balanced_block(source, open_index)
+
+
+def find_struct_body(source: str, struct_name: str) -> str | None:
+    matches = list(re.finditer(rf"\bstruct\s+{re.escape(struct_name)}\s*\{{", source))
+    if len(matches) != 1:
+        return None
+    return extract_balanced_block(source, matches[0].end() - 1)
 
 
 def parse_methods_table(server_c: str) -> list[dict[str, str]]:
@@ -1135,6 +1158,436 @@ EVENT_FIELD_CATALOG: tuple[
     ("dvrId", "u32", "conditional", None, "htsp_build_event DVR branch"),
     ("nextEventId", "u32", "conditional", None, "htsp_build_event next-event branch"),
 )
+
+EPG_EPISODE_NUMBER_FIELDS: tuple[tuple[str, str], ...] = (
+    ("enum", "u32"),
+    ("ecnt", "u32"),
+    ("snum", "u32"),
+    ("scnt", "u32"),
+    ("pnum", "u32"),
+    ("pcnt", "u32"),
+    ("text", "str"),
+)
+
+EPG_BROADCAST_FIELD_CATALOG: tuple[
+    tuple[str, str, str, str | None, str | None], ...
+] = (
+    ("id", "u32", "required", None, None),
+    ("tp", "u32", "required", None, "exactly EPG_BROADCAST (1)"),
+    ("gr", "str", "conditional", None, "emitted when a grabber is associated"),
+    ("up", "s64", "required", None, None),
+    ("start", "s64", "required", None, None),
+    ("stop", "s64", "required", None, None),
+    ("ch", "str", "conditional", None, "emitted when the broadcast has a channel UUID"),
+    ("eid", "u32", "conditional", None, "emitted when the DVB event id is nonzero"),
+    ("xeid", "str", "conditional", None, "emitted when the XMLTV event id is present"),
+    ("is_wd", "u32", "conditional", None, "true-only flag emitted with value 1"),
+    ("is_hd", "u32", "conditional", None, "true-only flag emitted with value 1"),
+    ("is_bw", "u32", "conditional", None, "true-only flag emitted with value 1"),
+    ("lines", "u32", "conditional", None, "emitted when nonzero"),
+    ("aspect", "u32", "conditional", None, "emitted when nonzero"),
+    ("is_de", "u32", "conditional", None, "true-only flag emitted with value 1"),
+    ("is_st", "u32", "conditional", None, "true-only flag emitted with value 1"),
+    ("is_ad", "u32", "conditional", None, "true-only flag emitted with value 1"),
+    ("is_n", "u32", "conditional", None, "true-only flag emitted with value 1"),
+    ("is_r", "u32", "conditional", None, "true-only flag emitted with value 1"),
+    ("star", "u32", "conditional", None, "emitted when nonzero"),
+    ("age", "u32", "conditional", None, "emitted when nonzero"),
+    ("ratlab", "str", "conditional", None, "emitted when a rating label is present"),
+    ("img", "str", "conditional", None, "emitted when an image is present"),
+    ("tit", "msg", "conditional", "epgLanguageStrings", "strict language-keyed string map"),
+    ("sti", "msg", "conditional", "epgLanguageStrings", "strict language-keyed string map"),
+    ("sum", "msg", "conditional", "epgLanguageStrings", "strict language-keyed string map"),
+    ("des", "msg", "conditional", "epgLanguageStrings", "strict language-keyed string map"),
+    ("epn", "msg", "conditional", "epgEpisodeNumber", "emitted when episode numbering is nonempty"),
+    ("genre", "list", "conditional", "u32", "genre codes in source list order"),
+    ("cyear", "u32", "conditional", None, "emitted when nonzero"),
+    ("fair", "s64", "conditional", None, "emitted when first_aired is nonzero"),
+    ("cred", "msg", "conditional", "epgCreditsDynamic", "opaque credits deliberately omitted from the public response model"),
+    ("cat", "list", "conditional", "str", "sorted unique strings from string_list serializer"),
+    ("key", "list", "conditional", "str", "sorted unique strings from string_list serializer"),
+    ("slink", "str", "conditional", None, "emitted when a series link is present"),
+    ("elink", "str", "conditional", None, "emitted when an episode link is present"),
+)
+
+
+def epg_broadcast_fields() -> list[dict[str, Any]]:
+    fields = []
+    for name, wire_type, presence, shape_ref, condition in EPG_BROADCAST_FIELD_CATALOG:
+        fields.append(exact_field(
+            name,
+            wire_type,
+            "reply",
+            presence,
+            "bounded seven-file getEpgObject serializer derivation",
+            condition=condition,
+            shape_ref=shape_ref,
+        ))
+    return fields
+
+
+def require_get_epg_object_source_facts(
+    server_c: str,
+    epg_c: str,
+    epg_h: str,
+    lang_str_c: str,
+    string_list_c: str,
+) -> None:
+    """Reject semantic drift in the finite pinned getEpgObject serializer graph."""
+    server = strip_c_comments(server_c)
+    epg = strip_c_comments(epg_c)
+    header = strip_c_comments(epg_h)
+    lang = strip_c_comments(lang_str_c)
+    strings = strip_c_comments(string_list_c)
+
+    enum_match = re.search(
+        r"typedef\s+enum\s+epg_object_type\s*\{([^}]*)\}\s*epg_object_type_t\s*;",
+        header,
+        re.S,
+    )
+    if enum_match is None:
+        raise ValueError("epg_object_type enum missing")
+    enum_entries = [entry.strip() for entry in enum_match.group(1).split(",") if entry.strip()]
+    enum_bindings: dict[str, int] = {}
+    previous_value = -1
+    for entry in enum_entries:
+        binding = re.fullmatch(r"(EPG_[A-Z0-9_]+)(?:\s*=\s*([0-9]+))?", entry)
+        if binding is None:
+            raise ValueError("epg_object_type enum binding syntax drift")
+        value = int(binding.group(2)) if binding.group(2) is not None else previous_value + 1
+        enum_bindings[binding.group(1)] = value
+        previous_value = value
+    if list(enum_bindings) != ["EPG_UNDEF", "EPG_BROADCAST"]:
+        raise ValueError("epg_object_type vocabulary drift")
+    if enum_bindings["EPG_UNDEF"] != 0:
+        raise ValueError("EPG_UNDEF must equal 0")
+    if enum_bindings["EPG_BROADCAST"] != 1:
+        raise ValueError("EPG_BROADCAST must equal 1")
+    if len(re.findall(r"#\s*define\s+EPG_TYPEMAX\s+EPG_BROADCAST\b", header)) != 1:
+        raise ValueError("EPG_TYPEMAX must be exactly EPG_BROADCAST")
+    for owner, members in (
+        ("epg_object", ("updated",)),
+        ("epg_broadcast", ("start", "stop", "first_aired")),
+    ):
+        struct_body = find_struct_body(header, owner)
+        if struct_body is None:
+            raise ValueError(f"struct {owner} owning region missing")
+        for member in members:
+            declarations = re.findall(
+                rf"\b([A-Za-z_][A-Za-z0-9_]*(?:\s*\*)?)\s+{re.escape(member)}\s*;",
+                struct_body,
+            )
+            if len(declarations) != 1 or re.sub(r"\s+", "", declarations[0]) != "time_t":
+                raise ValueError(f"struct {owner}.{member} must have exact type time_t")
+
+    def normalize_expression(expression: str) -> str:
+        return re.sub(r"\s+", "", expression)
+
+    def named_add_calls(body: str) -> dict[str, list[tuple[str, str, str]]]:
+        calls: dict[str, list[tuple[str, str, str]]] = {}
+        for match in re.finditer(
+            r'\bhtsmsg_add_([a-z0-9_]+)\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*,\s*'
+            r'"([^"]+)"\s*,\s*([^;]+)\)\s*;',
+            body,
+            re.S,
+        ):
+            calls.setdefault(match.group(3), []).append(
+                (match.group(1), match.group(2), normalize_expression(match.group(4))),
+            )
+        return calls
+
+    def require_field_expression(
+        calls: dict[str, list[tuple[str, str, str]]],
+        field: str,
+        wire_type: str,
+        output: str,
+        expression: str,
+    ) -> None:
+        expected = [(wire_type, output, normalize_expression(expression))]
+        if calls.get(field) != expected:
+            raise ValueError(f'EPG serializer field "{field}" source expression drift')
+
+    handler = find_function_body(server, "htsp_method_getEpgObject")
+    if handler is None:
+        raise ValueError("htsp_method_getEpgObject body missing")
+    if [(field["name"], field["type"]) for field in extract_get_fields(handler, "in")] != [
+        ("id", "u32"),
+        ("type", "u32"),
+    ]:
+        raise ValueError("getEpgObject request field inventory/type drift")
+    handler_contracts = (
+        r"if\s*\(\s*htsmsg_get_u32\s*\(\s*in\s*,\s*\"id\"\s*,\s*&id\s*\)\s*\)\s*return\s+htsp_error",
+        r"if\s*\(\s*!htsmsg_get_u32\s*\(\s*in\s*,\s*\"type\"\s*,\s*&u32\s*\)\s*&&\s*\(\s*u32\s*<=\s*EPG_TYPEMAX\s*\)\s*\)\s*type\s*=\s*u32\s*;\s*else\s*type\s*=\s*EPG_UNDEF\s*;",
+        r"if\s*\(\s*!\s*\(\s*eo\s*=\s*epg_object_find_by_id\s*\(\s*id\s*,\s*type\s*\)\s*\)\s*\)\s*return\s+htsp_error",
+        r"if\s*\(\s*!\s*\(\s*out\s*=\s*epg_object_serialize\s*\(\s*eo\s*\)\s*\)\s*\)\s*return\s+htsp_error",
+        r"return\s+out\s*;",
+    )
+    positions = []
+    for contract in handler_contracts:
+        matches = list(re.finditer(contract, handler, re.S))
+        if len(matches) != 1:
+            raise ValueError(f"getEpgObject handler contract drift: {contract}")
+        positions.append(matches[0].start())
+    if positions != sorted(positions):
+        raise ValueError("getEpgObject handler guard/lookup/serialize/return order drift")
+
+    lookup = find_function_body(epg, "epg_object_find_by_id")
+    if lookup is None or len(re.findall(r"eo\s*&&\s*eo->type\s*==\s*type", lookup)) != 1:
+        raise ValueError("EPG object lookup must require exact type equality")
+
+    base = find_function_body(epg, "_epg_object_serialize")
+    if base is None:
+        raise ValueError("base EPG serializer missing")
+    if re.search(r"if\s*\(\s*!eo->id\s*\|\|\s*!eo->type\s*\)\s*return\s+NULL", base) is None:
+        raise ValueError("base EPG serializer zero-id/type guard drift")
+    if [(field["name"], field["type"]) for field in extract_add_fields(base, ("m",))] != [
+        ("id", "u32"), ("tp", "u32"), ("gr", "str"), ("up", "s64")
+    ]:
+        raise ValueError("base EPG serializer field inventory/type/order drift")
+    if re.search(r"if\s*\(\s*eo->grabber\s*\)\s*htsmsg_add_str\s*\(\s*m\s*,\s*\"gr\"", base) is None:
+        raise ValueError("base EPG serializer grabber requiredness drift")
+    if re.search(
+        r"m\s*=\s*htsmsg_create_map\s*\(\s*\)\s*;\s*"
+        r"htsmsg_add_u32\s*\(\s*m\s*,\s*\"id\"[^;]*;\s*"
+        r"htsmsg_add_u32\s*\(\s*m\s*,\s*\"tp\"[^;]*;\s*"
+        r"if\s*\(\s*eo->grabber\s*\)\s*htsmsg_add_str\s*\(\s*m\s*,\s*\"gr\"[^;]*;\s*"
+        r"htsmsg_add_s64\s*\(\s*m\s*,\s*\"up\"",
+        base,
+        re.S,
+    ) is None:
+        raise ValueError("base EPG serializer required/conditional order drift")
+    base_calls = named_add_calls(base)
+    for field, wire_type, expression in (
+        ("id", "u32", "eo->id"),
+        ("tp", "u32", "eo->type"),
+        ("gr", "str", "eo->grabber->id"),
+        ("up", "s64", "eo->updated"),
+    ):
+        require_field_expression(base_calls, field, wire_type, "m", expression)
+
+    dispatch = find_function_body(epg, "epg_object_serialize")
+    if dispatch is None:
+        raise ValueError("EPG serializer dispatch missing")
+    if re.findall(r"\bcase\s+(EPG_[A-Z0-9_]+)\s*:", dispatch) != ["EPG_BROADCAST"]:
+        raise ValueError("unsupported EPG serializer branch appeared")
+    if len(re.findall(r"return\s+epg_broadcast_serialize\s*\(", dispatch)) != 1 or len(
+        re.findall(r"default\s*:\s*return\s+NULL\s*;", dispatch, re.S)
+    ) != 1:
+        raise ValueError("EPG broadcast/default serializer dispatch drift")
+
+    episode = find_function_body(epg, "epg_episode_epnum_serialize")
+    if episode is None:
+        raise ValueError("EPG episode-number serializer missing")
+    if [(field["name"], field["type"]) for field in extract_add_fields(episode, ("m",))] != list(
+        EPG_EPISODE_NUMBER_FIELDS
+    ):
+        raise ValueError("EPG episode-number serializer field inventory/type/order drift")
+    null_guard = list(re.finditer(r"if\s*\(\s*!num\s*\)\s*return\s+NULL\s*;", episode))
+    if len(null_guard) != 1:
+        raise ValueError("EPG episode-number null guard drift")
+    empty_guard_pattern = (
+        r"if\s*\(\s*!num->e_num\s*&&\s*!num->e_cnt\s*&&\s*"
+        r"!num->s_num\s*&&\s*!num->s_cnt\s*&&\s*!num->p_num\s*&&\s*"
+        r"!num->p_cnt\s*&&\s*!num->text\s*\)\s*return\s+NULL\s*;"
+    )
+    empty_guard = list(re.finditer(empty_guard_pattern, episode, re.S))
+    if len(empty_guard) != 1:
+        raise ValueError("EPG episode-number exact empty guard drift")
+    map_creation = list(re.finditer(r"\bm\s*=\s*htsmsg_create_map\s*\(\s*\)\s*;", episode))
+    if (
+        len(map_creation) != 1
+        or not (null_guard[0].end() <= empty_guard[0].start() < empty_guard[0].end() <= map_creation[0].start())
+    ):
+        raise ValueError("EPG episode-number map creation must follow both guards")
+    if len(re.findall(r"return\s+NULL\s*;", episode)) != 2 or len(
+        re.findall(r"return\s+m\s*;", episode)
+    ) != 1:
+        raise ValueError("EPG episode-number exact empty/null return behavior drift")
+    episode_calls = named_add_calls(episode)
+    for field_name, wire_type in EPG_EPISODE_NUMBER_FIELDS:
+        member = {
+            "enum": "e_num", "ecnt": "e_cnt", "snum": "s_num", "scnt": "s_cnt",
+            "pnum": "p_num", "pcnt": "p_cnt", "text": "text",
+        }[field_name]
+        if re.search(
+            rf"if\s*\(\s*num->{member}\s*\)\s*htsmsg_add_{wire_type}\s*\(\s*m\s*,\s*\"{field_name}\"",
+            episode,
+        ) is None:
+            raise ValueError(f"EPG episode-number optionality drift: {field_name}")
+        require_field_expression(
+            episode_calls,
+            field_name,
+            wire_type,
+            "m",
+            f"num->{member}",
+        )
+
+    language_map = find_function_body(lang, "lang_str_serialize_map")
+    language_wrapper = find_function_body(lang, "lang_str_serialize")
+    if (
+        language_map is None
+        or language_wrapper is None
+        or language_map.count("htsmsg_create_map()") != 1
+        or len(re.findall(r"RB_FOREACH\s*\(\s*e\s*,\s*ls\s*,\s*link\s*\)", language_map)) != 1
+        or len(re.findall(r"htsmsg_add_str\s*\(\s*a\s*,\s*e->lang\s*,\s*e->str\s*\)", language_map)) != 1
+        or len(re.findall(r"htsmsg_add_msg\s*\(\s*m\s*,\s*f\s*,\s*lang_str_serialize_map\s*\(\s*ls\s*\)\s*\)", language_wrapper)) != 1
+    ):
+        raise ValueError("language-map serializer shape drift")
+
+    comparator = find_function_body(strings, "string_list_item_cmp")
+    insert = find_function_body(strings, "string_list_insert")
+    string_serializer = find_function_body(strings, "string_list_to_htsmsg")
+    string_wrapper = find_function_body(strings, "string_list_serialize")
+    if (
+        comparator is None
+        or insert is None
+        or string_serializer is None
+        or string_wrapper is None
+        or len(re.findall(r"RB_INSERT_SORTED\s*\([^;]*string_list_item_cmp\s*\)", insert)) != 1
+        or len(re.findall(r"RB_FOREACH\s*\(\s*item\s*,\s*l\s*,\s*h_link\s*\)", string_serializer)) != 1
+        or len(re.findall(r"htsmsg_add_str\s*\(\s*ret\s*,\s*NULL\s*,\s*item->id\s*\)", string_serializer)) != 1
+        or len(re.findall(r"htsmsg_add_msg\s*\(\s*m\s*,\s*f\s*,\s*msg\s*\)", string_wrapper)) != 1
+    ):
+        raise ValueError("sorted-unique string-list serializer shape drift")
+    if re.fullmatch(
+        r"\s*return\s+strcmp\s*\(\s*\(\(\s*const\s+string_list_item_t\s*\*\s*\)\s*a\s*\)->id\s*,\s*"
+        r"\(\(\s*const\s+string_list_item_t\s*\*\s*\)\s*b\s*\)->id\s*\)\s*;\s*",
+        comparator,
+        re.S,
+    ) is None:
+        raise ValueError("string-list comparator must return strcmp(a->id, b->id)")
+    if re.search(
+        r"if\s*\(\s*RB_INSERT_SORTED\s*\(\s*l\s*,\s*item\s*,\s*h_link\s*,\s*"
+        r"string_list_item_cmp\s*\)\s*\)\s*\{?\s*free\s*\(\s*item\s*\)\s*;",
+        insert,
+        re.S,
+    ) is None:
+        raise ValueError("string-list duplicate insertion must free the rejected item")
+
+    broadcast = find_function_body(epg, "epg_broadcast_serialize")
+    if broadcast is None:
+        raise ValueError("EPG broadcast serializer missing")
+    if len(re.findall(r"_epg_object_serialize\s*\(\s*\(epg_object_t\s*\*\)\s*broadcast\s*\)", broadcast)) != 1:
+        raise ValueError("EPG broadcast must delegate exactly once to base serializer")
+    if re.search(
+        r"if\s*\(\s*!\s*\(\s*m\s*=\s*_epg_object_serialize\s*\([^;]*\)\s*\)\s*\)\s*return\s+NULL\s*;\s*"
+        r"htsmsg_add_s64\s*\(\s*m\s*,\s*\"start\"[^;]*;\s*"
+        r"htsmsg_add_s64\s*\(\s*m\s*,\s*\"stop\"",
+        broadcast,
+        re.S,
+    ) is None:
+        raise ValueError("EPG broadcast base/start/stop required order drift")
+    direct_expected = [
+        (name, "msg" if wire_type == "list" else wire_type)
+        for name, wire_type, _presence, _shape, _condition in EPG_BROADCAST_FIELD_CATALOG
+        if name not in {"id", "tp", "gr", "up", "tit", "sti", "sum", "des", "cat", "key"}
+    ]
+    direct_actual = [
+        (field["name"], field["type"])
+        for field in extract_add_fields(broadcast, ("m",))
+    ]
+    if direct_actual != direct_expected:
+        raise ValueError("EPG broadcast direct field inventory/type/order drift")
+    broadcast_calls = named_add_calls(broadcast)
+    broadcast_expressions = (
+        ("start", "s64", "broadcast->start"),
+        ("stop", "s64", "broadcast->stop"),
+        ("ch", "str", "channel_get_uuid(broadcast->channel, ubuf)"),
+        ("eid", "u32", "broadcast->dvb_eid"),
+        ("xeid", "str", "broadcast->xmltv_eid"),
+        ("is_wd", "u32", "1"),
+        ("is_hd", "u32", "1"),
+        ("is_bw", "u32", "1"),
+        ("lines", "u32", "broadcast->lines"),
+        ("aspect", "u32", "broadcast->aspect"),
+        ("is_de", "u32", "1"),
+        ("is_st", "u32", "1"),
+        ("is_ad", "u32", "1"),
+        ("is_n", "u32", "1"),
+        ("is_r", "u32", "1"),
+        ("star", "u32", "broadcast->star_rating"),
+        ("age", "u32", "broadcast->age_rating"),
+        (
+            "ratlab",
+            "str",
+            "idnode_uuid_as_str((idnode_t *)(broadcast->rating_label), ubuf)",
+        ),
+        ("img", "str", "broadcast->image"),
+        ("epn", "msg", "a"),
+        ("cyear", "u32", "broadcast->copyright_year"),
+        ("fair", "s64", "broadcast->first_aired"),
+        ("cred", "msg", "htsmsg_copy(broadcast->credits)"),
+        ("slink", "str", "broadcast->serieslink->uri"),
+        ("elink", "str", "broadcast->episodelink->uri"),
+    )
+    for field, wire_type, expression in broadcast_expressions:
+        require_field_expression(broadcast_calls, field, wire_type, "m", expression)
+    optional_members = {
+        "ch": "channel", "eid": "dvb_eid", "xeid": "xmltv_eid",
+        "is_wd": "is_widescreen", "is_hd": "is_hd", "is_bw": "is_bw",
+        "lines": "lines", "aspect": "aspect", "is_de": "is_deafsigned",
+        "is_st": "is_subtitled", "is_ad": "is_audio_desc", "is_n": "is_new",
+        "is_r": "is_repeat", "star": "star_rating", "age": "age_rating",
+        "ratlab": "rating_label", "img": "image", "cyear": "copyright_year",
+        "fair": "first_aired", "slink": "serieslink", "elink": "episodelink",
+    }
+    for wire_name, member in optional_members.items():
+        if re.search(
+            rf"if\s*\(\s*broadcast->{member}\s*\)\s*(?:\{{\s*)?htsmsg_add_[a-z0-9_]+\s*\(\s*m\s*,\s*\"{wire_name}\"",
+            broadcast,
+            re.S,
+        ) is None:
+            raise ValueError(f"EPG broadcast optionality drift: {wire_name}")
+    for wire_name in ("is_wd", "is_hd", "is_bw", "is_de", "is_st", "is_ad", "is_n", "is_r"):
+        if re.search(rf"htsmsg_add_u32\s*\(\s*m\s*,\s*\"{wire_name}\"\s*,\s*1\s*\)", broadcast) is None:
+            raise ValueError(f'EPG serializer field "{wire_name}" source expression drift')
+    for wire_name, member in (("tit", "title"), ("sti", "subtitle"), ("sum", "summary"), ("des", "description")):
+        if len(re.findall(
+            rf"if\s*\(\s*broadcast->{member}\s*\)\s*lang_str_serialize\s*\(\s*broadcast->{member}\s*,\s*m\s*,\s*\"{wire_name}\"\s*\)",
+            broadcast,
+        )) != 1:
+            raise ValueError(f'EPG serializer field "{wire_name}" source expression drift')
+    for wire_name, member in (("cat", "category"), ("key", "keyword")):
+        if len(re.findall(
+            rf"if\s*\(\s*broadcast->{member}\s*\)\s*string_list_serialize\s*\(\s*broadcast->{member}\s*,\s*m\s*,\s*\"{wire_name}\"\s*\)",
+            broadcast,
+        )) != 1:
+            raise ValueError(f'EPG serializer field "{wire_name}" source expression drift')
+    if len(re.findall(r"htsmsg_add_msg\s*\(\s*m\s*,\s*\"cred\"\s*,\s*htsmsg_copy\s*\(\s*broadcast->credits\s*\)\s*\)", broadcast)) != 1:
+        raise ValueError('EPG serializer field "cred" source expression drift')
+    if len(re.findall(r"epg_episode_epnum_serialize\s*\(\s*&broadcast->epnum\s*\)", broadcast)) != 1 or len(
+        re.findall(r"htsmsg_add_msg\s*\(\s*m\s*,\s*\"epn\"\s*,\s*a\s*\)", broadcast)
+    ) != 1:
+        raise ValueError('EPG serializer field "epn" source expression drift')
+    genre_loop_header = list(re.finditer(
+        r"LIST_FOREACH\s*\(\s*eg\s*,\s*&broadcast->genre\s*,\s*link\s*\)\s*\{",
+        broadcast,
+    ))
+    if len(genre_loop_header) != 1:
+        raise ValueError("EPG genre traversal topology drift")
+    genre_open = genre_loop_header[0].end() - 1
+    genre_body = extract_balanced_block(broadcast, genre_open)
+    before_genre = broadcast[:genre_loop_header[0].start()]
+    if re.search(r"a\s*=\s*NULL\s*;\s*$", before_genre, re.S) is None:
+        raise ValueError("EPG genre list accumulator must reset before traversal")
+    if re.fullmatch(
+        r"\s*if\s*\(\s*!a\s*\)\s*a\s*=\s*htsmsg_create_list\s*\(\s*\)\s*;\s*"
+        r"htsmsg_add_u32\s*\(\s*a\s*,\s*NULL\s*,\s*eg->code\s*\)\s*;\s*",
+        genre_body,
+        re.S,
+    ) is None:
+        raise ValueError("EPG genre traversal must lazily create the emitted list")
+    genre_close = genre_open + len(genre_body) + 1
+    if re.match(
+        r'\s*if\s*\(\s*a\s*\)\s*htsmsg_add_msg\s*\(\s*m\s*,\s*"genre"\s*,\s*a\s*\)\s*;',
+        broadcast[genre_close + 1:],
+        re.S,
+    ) is None:
+        raise ValueError("EPG genre serializer must emit its populated list")
+    if re.search(r"htsmsg_add_s64\s*\(\s*m\s*,\s*\"start\"", broadcast) is None or re.search(
+        r"htsmsg_add_s64\s*\(\s*m\s*,\s*\"stop\"", broadcast
+    ) is None:
+        raise ValueError("EPG broadcast required start/stop drift")
 
 EVENT_UPDATE_NOTE = (
     "Pinned current eventUpdate call sites send the shared htsp_build_event "
@@ -2809,6 +3262,25 @@ def derive_client_methods(server_c: str) -> list[dict[str, Any]]:
                 shape_ref="event",
             )]
 
+        if name == "getEpgObject":
+            if [(field["name"], field["type"]) for field in request_fields] != [
+                ("id", "u32"),
+                ("type", "u32"),
+            ]:
+                raise ValueError("htsp_method_getEpgObject request shape drift")
+            request_fields = [
+                exact_field(
+                    "id", "u32", "request", "required",
+                    "htsp_method_getEpgObject rejects a missing or malformed id",
+                ),
+                exact_field(
+                    "type", "u32", "request", "optional",
+                    "htsp_method_getEpgObject accepts a decoded value at or below EPG_TYPEMAX",
+                    condition="omitted or out-of-range values select EPG_UNDEF before exact id/type lookup",
+                ),
+            ]
+            reply_fields = epg_broadcast_fields()
+
         if name == "fileRead":
             reply_fields = [exact_field(
                 "data", "bin", "reply", "required",
@@ -3023,6 +3495,17 @@ def derive_client_methods(server_c: str) -> list[dict[str, Any]]:
                 "completeness": "complete",
                 "evidence": "bounded pinned htsp_method_getEvents required events-list construction",
             }
+        if name == "getEpgObject":
+            method["requestShape"] = {
+                "kind": "fields",
+                "completeness": "complete",
+                "evidence": "bounded handler accepts exactly required id and optional finite type selector",
+            }
+            method["replyShape"] = {
+                "kind": "fields",
+                "completeness": "complete",
+                "evidence": "bounded seven-file serializer graph has one supported broadcast branch",
+            }
         if name == "epgQuery":
             method["requestShape"] = {
                 "kind": "fields",
@@ -3100,12 +3583,12 @@ def derive_client_methods(server_c: str) -> list[dict[str, Any]]:
                 ),
             }
         if name == "getEpgObject":
-            method["replyFields"] = []
-            method["replyShape"] = {
-                "kind": "dynamic",
-                "completeness": "opaque",
-                "evidence": "htsp_method_getEpgObject returns dynamically serialized EPG objects; official docs say TODO",
-            }
+            method["notes"] = [
+                "Official RPC documentation leaves the reply literally TODO; the exact seven-file source pin is normative.",
+                "EPG_UNDEF=0 and EPG_BROADCAST=1 are the complete pinned object-type vocabulary; only broadcast has a serializer.",
+                "Wire cred is an unconstrained copied message and remains an explicitly opaque shape deliberately omitted from the public response model.",
+                "Pinned time_t updated/start/stop/first_aired members are serialized as signed s64; the SDK exposes unchanged Unix-second values under its EPG time convention.",
+            ]
         elif name == "epgQuery":
             method["replyShape"] = {
                 "kind": "alternative",
@@ -3667,6 +4150,30 @@ def build_spec(
         files_meta["lib/py/tvh/htsp.py"]["gitBlobSha1"],
         files_meta["lib/py/tvh/htsp.py"]["bytes"],
     )
+    epg_c = read_verified_source_file(
+        source_root,
+        "src/epg.c",
+        files_meta["src/epg.c"]["gitBlobSha1"],
+        files_meta["src/epg.c"]["bytes"],
+    )
+    epg_h = read_verified_source_file(
+        source_root,
+        "src/epg.h",
+        files_meta["src/epg.h"]["gitBlobSha1"],
+        files_meta["src/epg.h"]["bytes"],
+    )
+    lang_str_c = read_verified_source_file(
+        source_root,
+        "src/lang_str.c",
+        files_meta["src/lang_str.c"]["gitBlobSha1"],
+        files_meta["src/lang_str.c"]["bytes"],
+    )
+    string_list_c = read_verified_source_file(
+        source_root,
+        "src/string_list.c",
+        files_meta["src/string_list.c"]["gitBlobSha1"],
+        files_meta["src/string_list.c"]["bytes"],
+    )
 
     proto = parse_proto_version(server_c)
     if proto != manifest["htspProtoVersion"]:
@@ -3677,6 +4184,13 @@ def build_spec(
         raise ValueError(f"expected HTSP_PROTO_VERSION 44, got {proto}")
 
     client_methods = derive_client_methods(server_c)
+    require_get_epg_object_source_facts(
+        server_c,
+        epg_c,
+        epg_h,
+        lang_str_c,
+        string_list_c,
+    )
     server_messages = derive_server_messages(server_c)
     coverage = scan_sdk_coverage(EXPECTED_CLIENT_METHODS, EXPECTED_SERVER_MESSAGES)
     python_demo = parse_python_demo(htsp_py)
@@ -3851,6 +4365,26 @@ def build_spec(
             ("eventCreditsDynamic", {
                 "kind": "object", "completeness": "opaque",
                 "evidence": "current event credits payload is dynamically shaped and deliberately opaque",
+            }),
+            ("epgCreditsDynamic", {
+                "kind": "object", "completeness": "opaque",
+                "evidence": "epg_broadcast_serialize copies unconstrained credits; the public response deliberately omits them",
+            }),
+            ("epgLanguageStrings", {
+                "kind": "stringMap", "completeness": "complete",
+                "keyWireType": "str", "valueWireType": "str",
+                "evidence": "lang_str_serialize_map emits each language and localized value through htsmsg_add_str",
+            }),
+            ("epgEpisodeNumber", {
+                "kind": "object", "completeness": "complete",
+                "evidence": "bounded epg_episode_epnum_serialize optional field inventory",
+                "fields": [
+                    exact_field(
+                        name, wire_type, "nested", "optional",
+                        "epg_episode_epnum_serialize nonzero/present branch",
+                    )
+                    for name, wire_type in EPG_EPISODE_NUMBER_FIELDS
+                ],
             }),
             ("service", {
                 "kind": "object", "completeness": "complete",
@@ -4121,7 +4655,25 @@ static htsmsg_t *
 """
             )
             continue
-        if name == "getChannel":
+        if name == "getEpgObject":
+            request_lines = (
+                '  uint32_t id, u32;\n'
+                '  epg_object_type_t type;\n'
+                '  epg_object_t *eo;\n'
+                '  htsmsg_t *out;\n'
+                '  if (htsmsg_get_u32(in, "id", &id))\n'
+                '    return htsp_error(htsp, "invalid");\n'
+                '  if (!htsmsg_get_u32(in, "type", &u32) && (u32 <= EPG_TYPEMAX))\n'
+                '    type = u32;\n'
+                '  else\n'
+                '    type = EPG_UNDEF;\n'
+                '  if (!(eo = epg_object_find_by_id(id, type)))\n'
+                '    return htsp_error(htsp, "not found");\n'
+                '  if (!(out = epg_object_serialize(eo)))\n'
+                '    return htsp_error(htsp, "serialize");'
+            )
+            reply_lines = '  return out;'
+        elif name == "getChannel":
             request_lines = '  htsmsg_get_u32(in, "channelId", &v);'
             reply_lines = '  htsmsg_add_u32(r, "demoReply", v);\n  return r;'
         elif name == "getEvent":
@@ -4466,6 +5018,129 @@ def _pin_bytes_and_sha(content: str) -> tuple[bytes, str, int]:
     return data, git_blob_sha1(data), len(data)
 
 
+def _minimal_epg_sources() -> tuple[str, str, str, str]:
+    epg_h = """
+typedef enum epg_object_type { EPG_UNDEF, EPG_BROADCAST, } epg_object_type_t;
+#define EPG_TYPEMAX EPG_BROADCAST
+struct temporal_decoy { time_t updated; time_t start; time_t stop; time_t first_aired; };
+struct epg_object { time_t updated; };
+struct epg_broadcast { time_t start; time_t stop; time_t first_aired; };
+"""
+    epg_c = """
+epg_object_t *epg_object_find_by_id(uint32_t id, epg_object_type_t type) {
+  epg_object_t *eo = RB_FIND(tree, id);
+  if (eo && eo->type == type) return eo;
+  return NULL;
+}
+static htsmsg_t *_epg_object_serialize(void *o) {
+  htsmsg_t *m; epg_object_t *eo = o;
+  if (!eo->id || !eo->type) return NULL;
+  m = htsmsg_create_map();
+  htsmsg_add_u32(m, "id", eo->id);
+  htsmsg_add_u32(m, "tp", eo->type);
+  if (eo->grabber) htsmsg_add_str(m, "gr", eo->grabber->id);
+  htsmsg_add_s64(m, "up", eo->updated);
+  return m;
+}
+htsmsg_t *epg_object_serialize(epg_object_t *eo) {
+  if (!eo) return NULL;
+  switch (eo->type) {
+    case EPG_BROADCAST: return epg_broadcast_serialize((epg_broadcast_t*)eo);
+    default: return NULL;
+  }
+}
+htsmsg_t *epg_episode_epnum_serialize(epg_episode_num_t *num) {
+  htsmsg_t *m;
+  if (!num) return NULL;
+  if (!num->e_num && !num->e_cnt && !num->s_num && !num->s_cnt &&
+      !num->p_num && !num->p_cnt && !num->text) return NULL;
+  m = htsmsg_create_map();
+  if (num->e_num) htsmsg_add_u32(m, "enum", num->e_num);
+  if (num->e_cnt) htsmsg_add_u32(m, "ecnt", num->e_cnt);
+  if (num->s_num) htsmsg_add_u32(m, "snum", num->s_num);
+  if (num->s_cnt) htsmsg_add_u32(m, "scnt", num->s_cnt);
+  if (num->p_num) htsmsg_add_u32(m, "pnum", num->p_num);
+  if (num->p_cnt) htsmsg_add_u32(m, "pcnt", num->p_cnt);
+  if (num->text) htsmsg_add_str(m, "text", num->text);
+  return m;
+}
+htsmsg_t *epg_broadcast_serialize(epg_broadcast_t *broadcast) {
+  htsmsg_t *m, *a; epg_genre_t *eg;
+  if (!broadcast) return NULL;
+  if (!(m = _epg_object_serialize((epg_object_t*)broadcast))) return NULL;
+  htsmsg_add_s64(m, "start", broadcast->start);
+  htsmsg_add_s64(m, "stop", broadcast->stop);
+  if (broadcast->channel) htsmsg_add_str(m, "ch", channel_get_uuid(broadcast->channel, ubuf));
+  if (broadcast->dvb_eid) htsmsg_add_u32(m, "eid", broadcast->dvb_eid);
+  if (broadcast->xmltv_eid) htsmsg_add_str(m, "xeid", broadcast->xmltv_eid);
+  if (broadcast->is_widescreen) htsmsg_add_u32(m, "is_wd", 1);
+  if (broadcast->is_hd) htsmsg_add_u32(m, "is_hd", 1);
+  if (broadcast->is_bw) htsmsg_add_u32(m, "is_bw", 1);
+  if (broadcast->lines) htsmsg_add_u32(m, "lines", broadcast->lines);
+  if (broadcast->aspect) htsmsg_add_u32(m, "aspect", broadcast->aspect);
+  if (broadcast->is_deafsigned) htsmsg_add_u32(m, "is_de", 1);
+  if (broadcast->is_subtitled) htsmsg_add_u32(m, "is_st", 1);
+  if (broadcast->is_audio_desc) htsmsg_add_u32(m, "is_ad", 1);
+  if (broadcast->is_new) htsmsg_add_u32(m, "is_n", 1);
+  if (broadcast->is_repeat) htsmsg_add_u32(m, "is_r", 1);
+  if (broadcast->star_rating) htsmsg_add_u32(m, "star", broadcast->star_rating);
+  if (broadcast->age_rating) htsmsg_add_u32(m, "age", broadcast->age_rating);
+  if (broadcast->rating_label) htsmsg_add_str(m, "ratlab", idnode_uuid_as_str((idnode_t *)(broadcast->rating_label), ubuf));
+  if (broadcast->image) htsmsg_add_str(m, "img", broadcast->image);
+  if (broadcast->title) lang_str_serialize(broadcast->title, m, "tit");
+  if (broadcast->subtitle) lang_str_serialize(broadcast->subtitle, m, "sti");
+  if (broadcast->summary) lang_str_serialize(broadcast->summary, m, "sum");
+  if (broadcast->description) lang_str_serialize(broadcast->description, m, "des");
+  if ((a = epg_episode_epnum_serialize(&broadcast->epnum)) != NULL) htsmsg_add_msg(m, "epn", a);
+  a = NULL;
+  LIST_FOREACH(eg, &broadcast->genre, link) {
+    if (!a) a = htsmsg_create_list();
+    htsmsg_add_u32(a, NULL, eg->code);
+  }
+  if (a) htsmsg_add_msg(m, "genre", a);
+  if (broadcast->copyright_year) htsmsg_add_u32(m, "cyear", broadcast->copyright_year);
+  if (broadcast->first_aired) htsmsg_add_s64(m, "fair", broadcast->first_aired);
+  if (broadcast->credits) htsmsg_add_msg(m, "cred", htsmsg_copy(broadcast->credits));
+  if (broadcast->category) string_list_serialize(broadcast->category, m, "cat");
+  if (broadcast->keyword) string_list_serialize(broadcast->keyword, m, "key");
+  if (broadcast->serieslink) htsmsg_add_str(m, "slink", broadcast->serieslink->uri);
+  if (broadcast->episodelink) htsmsg_add_str(m, "elink", broadcast->episodelink->uri);
+  return m;
+}
+"""
+    lang_str_c = """
+htsmsg_t *lang_str_serialize_map(lang_str_t *ls) {
+  lang_str_ele_t *e; if (!ls) return NULL;
+  htsmsg_t *a = htsmsg_create_map();
+  RB_FOREACH(e, ls, link) { htsmsg_add_str(a, e->lang, e->str); }
+  return a;
+}
+void lang_str_serialize(lang_str_t *ls, htsmsg_t *m, const char *f) {
+  if (!ls) return;
+  htsmsg_add_msg(m, f, lang_str_serialize_map(ls));
+}
+"""
+    string_list_c = """
+static inline int string_list_item_cmp(const void *a, const void *b) {
+  return strcmp(((const string_list_item_t*)a)->id, ((const string_list_item_t*)b)->id);
+}
+void string_list_insert(string_list_t *l, const char *id) {
+  string_list_item_t *item;
+  if (RB_INSERT_SORTED(l, item, h_link, string_list_item_cmp)) free(item);
+}
+htsmsg_t *string_list_to_htsmsg(const string_list_t *l) {
+  htsmsg_t *ret = htsmsg_create_list(); string_list_item_t *item;
+  RB_FOREACH(item, l, h_link) htsmsg_add_str(ret, NULL, item->id);
+  return ret;
+}
+void string_list_serialize(const string_list_t *l, htsmsg_t *m, const char *f) {
+  htsmsg_t *msg = string_list_to_htsmsg(l);
+  if (msg) htsmsg_add_msg(m, f, msg);
+}
+"""
+    return epg_c, epg_h, lang_str_c, string_list_c
+
+
 def self_test() -> None:
     failures: list[str] = []
 
@@ -4523,7 +5198,39 @@ def self_test() -> None:
     check("muxpkt-no-queue-counters", not ({"packets", "bytes", "Bdrops", "Pdrops", "Idrops"} & mux_fields.keys()))
     check("queueStatus-counters", {"packets", "bytes", "Bdrops", "Pdrops", "Idrops"} <= queue_fields.keys())
     check("queueStatus-no-mux-fields", not ({"stream", "dts", "pts", "duration", "payload"} & queue_fields.keys()))
-    check("getEpgObject-dynamic", methods_by_name["getEpgObject"].get("replyShape", {}).get("kind") == "dynamic")
+    get_epg_object = methods_by_name["getEpgObject"]
+    check(
+        "getEpgObject-finite-complete",
+        get_epg_object.get("accessMask") == "ACCESS_HTSP_STREAMING"
+        and get_epg_object.get("minVersion") is None
+        and [(field["name"], field["type"], field["presence"]) for field in get_epg_object["requestFields"]]
+        == [("id", "u32", "required"), ("type", "u32", "optional")]
+        and [
+            (field["name"], field["type"], field["presence"], field.get("shapeRef"))
+            for field in get_epg_object["replyFields"]
+        ] == [
+            (name, wire_type, presence, shape_ref)
+            for name, wire_type, presence, shape_ref, _condition in EPG_BROADCAST_FIELD_CATALOG
+        ]
+        and get_epg_object.get("requestShape", {}).get("completeness") == "complete"
+        and get_epg_object.get("replyShape", {}).get("kind") == "fields"
+        and get_epg_object.get("replyShape", {}).get("completeness") == "complete"
+        and get_epg_object.get("sdk") == {
+            "referenced": True,
+            "outgoingRequest": True,
+            "typedRequest": True,
+        },
+    )
+    check(
+        "getEpgObject-bounded-nested-shapes",
+        committed.get("shapes", {}).get("epgLanguageStrings", {}).get("kind") == "stringMap"
+        and committed.get("shapes", {}).get("epgLanguageStrings", {}).get("valueWireType") == "str"
+        and [
+            (field["name"], field["type"], field["presence"])
+            for field in committed.get("shapes", {}).get("epgEpisodeNumber", {}).get("fields", [])
+        ] == [(name, wire_type, "optional") for name, wire_type in EPG_EPISODE_NUMBER_FIELDS]
+        and committed.get("shapes", {}).get("epgCreditsDynamic", {}).get("completeness") == "opaque",
+    )
     check("getEvents-nested", methods_by_name["getEvents"].get("replyShape", {}).get("kind") == "fields")
     epg_query = methods_by_name["epgQuery"]
     check(
@@ -4703,7 +5410,9 @@ def self_test() -> None:
             live_coverage["serverMessages"]["handledCount"],
             live_coverage["typedClientRequests"]["count"],
             live_coverage["typedServerMessages"]["count"],
-        ) == (30, 29, 27, 22, 26)
+        ) == (31, 30, 27, 23, 26)
+        and "getEpgObject" in live_coverage["clientMethods"]["referenced"]
+        and "getEpgObject" in live_coverage["clientMethods"]["outgoingRequests"]
         and "epgQuery" in live_coverage["clientMethods"]["referenced"]
         and "epgQuery" in live_coverage["clientMethods"]["outgoingRequests"]
         and "stopDvrEntry" in live_coverage["clientMethods"]["referenced"]
@@ -4756,7 +5465,7 @@ def self_test() -> None:
             live_coverage["clientMethods"]["referencedCount"],
             live_coverage["clientMethods"]["outgoingRequestCount"],
             live_coverage["serverMessages"]["handledCount"],
-        ) == (30, 29, 27)
+        ) == (31, 30, 27)
         and "getChannel" in live_coverage["clientMethods"]["referenced"]
         and "getChannel" in live_coverage["clientMethods"]["outgoingRequests"],
         str(live_coverage.get("metrics")),
@@ -4809,7 +5518,7 @@ def self_test() -> None:
             live_coverage["clientMethods"]["referencedCount"],
             live_coverage["clientMethods"]["outgoingRequestCount"],
             live_coverage["serverMessages"]["handledCount"],
-        ) == (30, 29, 27)
+        ) == (31, 30, 27)
         and "getEvents" in live_coverage["clientMethods"]["referenced"]
         and "getEvents" in live_coverage["clientMethods"]["outgoingRequests"],
     )
@@ -4953,14 +5662,14 @@ def self_test() -> None:
                 else "htsp_method_filter_stream"
                 if name == "subscriptionFilterStream"
                 else f"htsp_method_{name}"
-                if name in {"getEvent", "getEvents", "epgQuery", "stopDvrEntry", "getDvrCutpoints"}
+                if name in {"getEvent", "getEvents", "getEpgObject", "epgQuery", "stopDvrEntry", "getDvrCutpoints"}
                 else f"htsp_method_{idx}"
             ),
             "ACCESS_HTSP_RECORDER"
             if name in {"stopDvrEntry", "getDvrCutpoints"}
             else "ACCESS_HTSP_STREAMING"
             if name in {
-                "epgQuery", "subscriptionChangeWeight", "subscriptionLive", "subscriptionFilterStream",
+                "epgQuery", "getEpgObject", "subscriptionChangeWeight", "subscriptionLive", "subscriptionFilterStream",
             }
             else "ACCESS_ANONYMOUS",
         )
@@ -4969,17 +5678,372 @@ def self_test() -> None:
     server_c = _minimal_server_c(method_rows, proto=44)
     server_h = "/* header fixture */\nvoid htsp_init(const char *bindaddr);\n"
     htsp_py = "HTSP_PROTO_VERSION = 33\nclass HTSPClient(object):\n    def hello(self):\n        self.send('hello')\n"
+    epg_c, epg_h, lang_str_c, string_list_c = _minimal_epg_sources()
+
+    def expect_epg_semantic_rejection(
+        label: str,
+        *,
+        server: str = server_c,
+        epg_source: str = epg_c,
+        header: str = epg_h,
+        language_source: str = lang_str_c,
+        strings_source: str = string_list_c,
+    ) -> None:
+        try:
+            require_get_epg_object_source_facts(
+                server, epg_source, header, language_source, strings_source,
+            )
+            check(label, False, "semantic mutation accepted")
+        except ValueError:
+            pass
+
+    def expect_epg_specific_rejection(
+        label: str,
+        expected_diagnostic: str,
+        *,
+        server: str = server_c,
+        epg_source: str = epg_c,
+        header: str = epg_h,
+        language_source: str = lang_str_c,
+        strings_source: str = string_list_c,
+    ) -> None:
+        try:
+            require_get_epg_object_source_facts(
+                server, epg_source, header, language_source, strings_source,
+            )
+            check(label, False, "semantic mutation accepted")
+        except ValueError as exc:
+            check(label, str(exc) == expected_diagnostic, str(exc))
+
+    def replace_epg_occurrence(source: str, old: str, new: str, occurrence: int) -> str:
+        positions = [match.start() for match in re.finditer(re.escape(old), source)]
+        if len(positions) < occurrence:
+            check(f"replace-{old}-{occurrence}", False, "fixture occurrence missing")
+            return source
+        index = positions[occurrence - 1]
+        return source[:index] + new + source[index + len(old):]
+
+    def replace_epg_exact_target(label: str, source: str, old: str, new: str) -> str:
+        count = source.count(old)
+        check(f"{label}-exact-target", count == 1, f"expected one fixture occurrence, got {count}")
+        if count != 1:
+            return source
+        return source.replace(old, new, 1)
+
+    expect_epg_specific_rejection(
+        "reject-epg-undef-numeric-binding-drift",
+        "EPG_UNDEF must equal 0",
+        header=epg_h.replace("EPG_UNDEF,", "EPG_UNDEF = 1,", 1),
+    )
+    expect_epg_specific_rejection(
+        "reject-epg-broadcast-numeric-binding-drift",
+        "EPG_BROADCAST must equal 1",
+        header=epg_h.replace("EPG_BROADCAST,", "EPG_BROADCAST = 2,", 1),
+    )
+    for owner, member in (
+        ("epg_object", "updated"),
+        ("epg_broadcast", "start"),
+        ("epg_broadcast", "stop"),
+        ("epg_broadcast", "first_aired"),
+    ):
+        expect_epg_specific_rejection(
+            f"reject-{owner}-{member}-owning-type-drift",
+            f"struct {owner}.{member} must have exact type time_t",
+            header=replace_epg_occurrence(
+                epg_h,
+                f"time_t {member};",
+                f"int64_t {member};",
+                2,
+            ),
+        )
+
+    serializer_expression_mutations = (
+        ("id", 'htsmsg_add_u32(m, "id", eo->id)', 'htsmsg_add_u32(m, "id", eo->updated)'),
+        ("tp", 'htsmsg_add_u32(m, "tp", eo->type)', 'htsmsg_add_u32(m, "tp", eo->id)'),
+        ("gr", 'htsmsg_add_str(m, "gr", eo->grabber->id)', 'htsmsg_add_str(m, "gr", eo->grabber->name)'),
+        ("up", 'htsmsg_add_s64(m, "up", eo->updated)', 'htsmsg_add_s64(m, "up", eo->id)'),
+        ("start", 'htsmsg_add_s64(m, "start", broadcast->start)', 'htsmsg_add_s64(m, "start", broadcast->stop)'),
+        ("stop", 'htsmsg_add_s64(m, "stop", broadcast->stop)', 'htsmsg_add_s64(m, "stop", broadcast->start)'),
+        ("ch", 'htsmsg_add_str(m, "ch", channel_get_uuid(broadcast->channel, ubuf))', 'htsmsg_add_str(m, "ch", channel_get_uuid(NULL, ubuf))'),
+        ("eid", 'htsmsg_add_u32(m, "eid", broadcast->dvb_eid)', 'htsmsg_add_u32(m, "eid", broadcast->lines)'),
+        ("xeid", 'htsmsg_add_str(m, "xeid", broadcast->xmltv_eid)', 'htsmsg_add_str(m, "xeid", broadcast->image)'),
+        ("is_wd", 'htsmsg_add_u32(m, "is_wd", 1)', 'htsmsg_add_u32(m, "is_wd", broadcast->is_widescreen)'),
+        ("is_hd", 'htsmsg_add_u32(m, "is_hd", 1)', 'htsmsg_add_u32(m, "is_hd", broadcast->is_hd)'),
+        ("is_bw", 'htsmsg_add_u32(m, "is_bw", 1)', 'htsmsg_add_u32(m, "is_bw", broadcast->is_bw)'),
+        ("lines", 'htsmsg_add_u32(m, "lines", broadcast->lines)', 'htsmsg_add_u32(m, "lines", broadcast->aspect)'),
+        ("aspect", 'htsmsg_add_u32(m, "aspect", broadcast->aspect)', 'htsmsg_add_u32(m, "aspect", broadcast->lines)'),
+        ("is_de", 'htsmsg_add_u32(m, "is_de", 1)', 'htsmsg_add_u32(m, "is_de", broadcast->is_deafsigned)'),
+        ("is_st", 'htsmsg_add_u32(m, "is_st", 1)', 'htsmsg_add_u32(m, "is_st", broadcast->is_subtitled)'),
+        ("is_ad", 'htsmsg_add_u32(m, "is_ad", 1)', 'htsmsg_add_u32(m, "is_ad", broadcast->is_audio_desc)'),
+        ("is_n", 'htsmsg_add_u32(m, "is_n", 1)', 'htsmsg_add_u32(m, "is_n", broadcast->is_new)'),
+        ("is_r", 'htsmsg_add_u32(m, "is_r", 1)', 'htsmsg_add_u32(m, "is_r", broadcast->is_repeat)'),
+        ("star", 'htsmsg_add_u32(m, "star", broadcast->star_rating)', 'htsmsg_add_u32(m, "star", broadcast->age_rating)'),
+        ("age", 'htsmsg_add_u32(m, "age", broadcast->age_rating)', 'htsmsg_add_u32(m, "age", broadcast->star_rating)'),
+        ("ratlab", 'htsmsg_add_str(m, "ratlab", idnode_uuid_as_str((idnode_t *)(broadcast->rating_label), ubuf))', 'htsmsg_add_str(m, "ratlab", broadcast->rating_label->name)'),
+        ("img", 'htsmsg_add_str(m, "img", broadcast->image)', 'htsmsg_add_str(m, "img", broadcast->xmltv_eid)'),
+        ("cyear", 'htsmsg_add_u32(m, "cyear", broadcast->copyright_year)', 'htsmsg_add_u32(m, "cyear", broadcast->dvb_eid)'),
+        ("fair", 'htsmsg_add_s64(m, "fair", broadcast->first_aired)', 'htsmsg_add_s64(m, "fair", broadcast->start)'),
+        ("cred", 'htsmsg_add_msg(m, "cred", htsmsg_copy(broadcast->credits))', 'htsmsg_add_msg(m, "cred", broadcast->credits)'),
+        ("slink", 'htsmsg_add_str(m, "slink", broadcast->serieslink->uri)', 'htsmsg_add_str(m, "slink", broadcast->episodelink->uri)'),
+        ("elink", 'htsmsg_add_str(m, "elink", broadcast->episodelink->uri)', 'htsmsg_add_str(m, "elink", broadcast->serieslink->uri)'),
+    )
+    for wire_name, accepted, mutation in serializer_expression_mutations:
+        expect_epg_specific_rejection(
+            f"reject-epg-{wire_name}-source-expression-drift",
+            f'EPG serializer field "{wire_name}" source expression drift',
+            epg_source=epg_c.replace(accepted, mutation, 1),
+        )
+
+    for wire_name, member in (
+        ("enum", "e_num"),
+        ("ecnt", "e_cnt"),
+        ("snum", "s_num"),
+        ("scnt", "s_cnt"),
+        ("pnum", "p_num"),
+        ("pcnt", "p_cnt"),
+        ("text", "text"),
+    ):
+        wire_type = "str" if wire_name == "text" else "u32"
+        expect_epg_specific_rejection(
+            f"reject-epg-episode-{wire_name}-source-expression-drift",
+            f'EPG serializer field "{wire_name}" source expression drift',
+            epg_source=epg_c.replace(
+                f'htsmsg_add_{wire_type}(m, "{wire_name}", num->{member})',
+                f'htsmsg_add_{wire_type}(m, "{wire_name}", num->text)',
+                1,
+            ) if member != "text" else epg_c.replace(
+                'htsmsg_add_str(m, "text", num->text)',
+                'htsmsg_add_str(m, "text", num->e_num)',
+                1,
+            ),
+        )
+
+    for wire_name, member, replacement in (
+        ("tit", "title", "subtitle"),
+        ("sti", "subtitle", "title"),
+        ("sum", "summary", "description"),
+        ("des", "description", "summary"),
+    ):
+        expect_epg_specific_rejection(
+            f"reject-epg-{wire_name}-source-expression-drift",
+            f'EPG serializer field "{wire_name}" source expression drift',
+            epg_source=epg_c.replace(
+                f'lang_str_serialize(broadcast->{member}, m, "{wire_name}")',
+                f'lang_str_serialize(broadcast->{replacement}, m, "{wire_name}")',
+                1,
+            ),
+        )
+    expect_epg_specific_rejection(
+        "reject-epg-epn-source-expression-drift",
+        'EPG serializer field "epn" source expression drift',
+        epg_source=epg_c.replace(
+            "epg_episode_epnum_serialize(&broadcast->epnum)",
+            "epg_episode_epnum_serialize(NULL)",
+            1,
+        ),
+    )
+    for wire_name, member, replacement in (
+        ("cat", "category", "keyword"),
+        ("key", "keyword", "category"),
+    ):
+        expect_epg_specific_rejection(
+            f"reject-epg-{wire_name}-source-expression-drift",
+            f'EPG serializer field "{wire_name}" source expression drift',
+            epg_source=epg_c.replace(
+                f'string_list_serialize(broadcast->{member}, m, "{wire_name}")',
+                f'string_list_serialize(broadcast->{replacement}, m, "{wire_name}")',
+                1,
+            ),
+        )
+    expect_epg_specific_rejection(
+        "reject-epg-language-map-key-value-expression-drift",
+        "language-map serializer shape drift",
+        language_source=lang_str_c.replace(
+            "htsmsg_add_str(a, e->lang, e->str)",
+            "htsmsg_add_str(a, e->str, e->lang)",
+            1,
+        ),
+    )
+
+    expect_epg_specific_rejection(
+        "reject-epg-episode-null-guard-drift",
+        "EPG episode-number null guard drift",
+        epg_source=epg_c.replace("if (!num) return NULL;", "if (num) return NULL;", 1),
+    )
+    expect_epg_specific_rejection(
+        "reject-epg-episode-empty-guard-drift",
+        "EPG episode-number exact empty guard drift",
+        epg_source=epg_c.replace("&& !num->text", "&& num->text", 1),
+    )
+    expect_epg_specific_rejection(
+        "reject-epg-episode-map-before-empty-guard",
+        "EPG episode-number map creation must follow both guards",
+        epg_source=epg_c.replace(
+            "  if (!num) return NULL;\n  if (!num->e_num",
+            "  m = htsmsg_create_map();\n  if (!num) return NULL;\n  if (!num->e_num",
+            1,
+        ).replace("  m = htsmsg_create_map();\n  if (num->e_num)", "  if (num->e_num)", 1),
+    )
+    expect_epg_specific_rejection(
+        "reject-epg-genre-list-reset-drift",
+        "EPG genre list accumulator must reset before traversal",
+        epg_source=epg_c.replace("  a = NULL;\n  LIST_FOREACH", "  LIST_FOREACH", 1),
+    )
+    expect_epg_specific_rejection(
+        "reject-epg-genre-list-creation-drift",
+        "EPG genre traversal must lazily create the emitted list",
+        epg_source=epg_c.replace("if (!a) a = htsmsg_create_list();", "if (!a) a = htsmsg_create_map();", 1),
+    )
+    expect_epg_specific_rejection(
+        "reject-epg-genre-element-source-expression-drift",
+        "EPG genre traversal must lazily create the emitted list",
+        epg_source=epg_c.replace("htsmsg_add_u32(a, NULL, eg->code)", "htsmsg_add_u32(a, NULL, broadcast->dvb_eid)", 1),
+    )
+    expect_epg_specific_rejection(
+        "reject-epg-genre-list-emission-target-drift",
+        "EPG genre serializer must emit its populated list",
+        epg_source=epg_c.replace('if (a) htsmsg_add_msg(m, "genre", a);', 'if (a) htsmsg_add_msg(m, "genre", m);', 1),
+    )
+    expect_epg_specific_rejection(
+        "reject-epg-string-list-strcmp-argument-order-drift",
+        "string-list comparator must return strcmp(a->id, b->id)",
+        strings_source=string_list_c.replace(
+            "return strcmp(((const string_list_item_t*)a)->id, ((const string_list_item_t*)b)->id);",
+            "return strcmp(((const string_list_item_t*)b)->id, ((const string_list_item_t*)a)->id);",
+            1,
+        ),
+    )
+    expect_epg_specific_rejection(
+        "reject-epg-string-list-strcmp-direction-drift",
+        "string-list comparator must return strcmp(a->id, b->id)",
+        strings_source=string_list_c.replace("return strcmp(", "return -strcmp(", 1),
+    )
+    expect_epg_specific_rejection(
+        "reject-epg-string-list-duplicate-rejection-direction-drift",
+        "string-list duplicate insertion must free the rejected item",
+        strings_source=replace_epg_exact_target(
+            "reject-epg-string-list-duplicate-rejection-direction-drift",
+            string_list_c,
+            "if (RB_INSERT_SORTED(l, item, h_link, string_list_item_cmp)) free(item);",
+            "if (!RB_INSERT_SORTED(l, item, h_link, string_list_item_cmp)) free(item);",
+        ),
+    )
+    expect_epg_specific_rejection(
+        "reject-epg-string-list-duplicate-free-target-drift",
+        "string-list duplicate insertion must free the rejected item",
+        strings_source=replace_epg_exact_target(
+            "reject-epg-string-list-duplicate-free-target-drift",
+            string_list_c,
+            "if (RB_INSERT_SORTED(l, item, h_link, string_list_item_cmp)) free(item);",
+            "if (RB_INSERT_SORTED(l, item, h_link, string_list_item_cmp)) free(id);",
+        ),
+    )
+
+    expect_epg_semantic_rejection(
+        "reject-getEpgObject-required-id-type-drift",
+        server=server_c.replace(
+            'if (htsmsg_get_u32(in, "id", &id))\n    return htsp_error(htsp, "invalid");',
+            'if (htsmsg_get_s64(in, "id", &id))\n    return htsp_error(htsp, "invalid");',
+            1,
+        ),
+    )
+    expect_epg_semantic_rejection(
+        "reject-getEpgObject-type-bound-drift",
+        server=server_c.replace("u32 <= EPG_TYPEMAX", "u32 < EPG_TYPEMAX", 1),
+    )
+    expect_epg_semantic_rejection(
+        "reject-getEpgObject-lookup-argument-drift",
+        server=server_c.replace("epg_object_find_by_id(id, type)", "epg_object_find_by_id(type, id)", 1),
+    )
+    expect_epg_semantic_rejection(
+        "reject-getEpgObject-serialize-result-drift",
+        server=server_c.replace("epg_object_serialize(eo)", "epg_object_serialize(NULL)", 1),
+    )
+    expect_epg_semantic_rejection(
+        "reject-epg-object-enum-expansion",
+        header=epg_h.replace("EPG_BROADCAST,", "EPG_BROADCAST, EPG_SERIES,", 1),
+    )
+    expect_epg_specific_rejection(
+        "reject-epg-type-max-drift",
+        "EPG_TYPEMAX must be exactly EPG_BROADCAST",
+        header=replace_epg_exact_target(
+            "reject-epg-type-max-drift",
+            epg_h,
+            "#define EPG_TYPEMAX EPG_BROADCAST",
+            "#define EPG_TYPEMAX EPG_UNDEF",
+        ),
+    )
+    expect_epg_semantic_rejection(
+        "reject-epg-base-field-type-drift",
+        epg_source=epg_c.replace('htsmsg_add_u32(m, "id"', 'htsmsg_add_s64(m, "id"', 1),
+    )
+    expect_epg_semantic_rejection(
+        "reject-epg-unsupported-serializer-branch",
+        epg_source=epg_c.replace(
+            "case EPG_BROADCAST: return epg_broadcast_serialize((epg_broadcast_t*)eo);",
+            "case EPG_BROADCAST: return epg_broadcast_serialize((epg_broadcast_t*)eo); case EPG_SERIES: return NULL;",
+            1,
+        ),
+    )
+    expect_epg_semantic_rejection(
+        "reject-epg-required-broadcast-field-omission",
+        epg_source=epg_c.replace('  htsmsg_add_s64(m, "start", broadcast->start);\n', "", 1),
+    )
+    expect_epg_semantic_rejection(
+        "reject-epg-optional-broadcast-field-requiredness-drift",
+        epg_source=epg_c.replace(
+            '  if (broadcast->image) htsmsg_add_str(m, "img", broadcast->image);',
+            '  htsmsg_add_str(m, "img", broadcast->image);',
+            1,
+        ),
+    )
+    expect_epg_semantic_rejection(
+        "reject-epg-opaque-credits-copy-drift",
+        epg_source=epg_c.replace("htsmsg_copy(broadcast->credits)", "broadcast->credits", 1),
+    )
+    expect_epg_semantic_rejection(
+        "reject-epg-episode-field-type-drift",
+        epg_source=epg_c.replace('htsmsg_add_str(m, "text"', 'htsmsg_add_u32(m, "text"', 1),
+    )
+    expect_epg_semantic_rejection(
+        "reject-epg-language-map-key-value-drift",
+        language_source=lang_str_c.replace(
+            "htsmsg_add_str(a, e->lang, e->str)",
+            "htsmsg_add_str(a, e->str, e->lang)",
+            1,
+        ),
+    )
+    expect_epg_semantic_rejection(
+        "reject-epg-string-list-ordering-drift",
+        strings_source=string_list_c.replace("return strcmp(", "return strcasecmp(", 1),
+    )
+    expect_epg_semantic_rejection(
+        "reject-epg-string-list-element-shape-drift",
+        strings_source=string_list_c.replace(
+            "htsmsg_add_str(ret, NULL, item->id)",
+            "htsmsg_add_u32(ret, NULL, item->id)",
+            1,
+        ),
+    )
 
     with tempfile.TemporaryDirectory(prefix="htsp-derive-selftest-") as tmp:
         root = Path(tmp)
         c_data, c_sha, c_len = _pin_bytes_and_sha(server_c)
         h_data, h_sha, h_len = _pin_bytes_and_sha(server_h)
         p_data, p_sha, p_len = _pin_bytes_and_sha(htsp_py)
+        ec_data, ec_sha, ec_len = _pin_bytes_and_sha(epg_c)
+        eh_data, eh_sha, eh_len = _pin_bytes_and_sha(epg_h)
+        ls_data, ls_sha, ls_len = _pin_bytes_and_sha(lang_str_c)
+        sl_data, sl_sha, sl_len = _pin_bytes_and_sha(string_list_c)
         (root / "src").mkdir()
         (root / "lib" / "py" / "tvh").mkdir(parents=True)
         (root / "src" / "htsp_server.c").write_bytes(c_data)
         (root / "src" / "htsp_server.h").write_bytes(h_data)
         (root / "lib" / "py" / "tvh" / "htsp.py").write_bytes(p_data)
+        (root / "src" / "epg.c").write_bytes(ec_data)
+        (root / "src" / "epg.h").write_bytes(eh_data)
+        (root / "src" / "lang_str.c").write_bytes(ls_data)
+        (root / "src" / "string_list.c").write_bytes(sl_data)
 
         manifest = {
             "schemaVersion": 1,
@@ -4990,6 +6054,10 @@ def self_test() -> None:
                 "src/htsp_server.c": {"gitBlobSha1": c_sha, "bytes": c_len},
                 "src/htsp_server.h": {"gitBlobSha1": h_sha, "bytes": h_len},
                 "lib/py/tvh/htsp.py": {"gitBlobSha1": p_sha, "bytes": p_len},
+                "src/epg.c": {"gitBlobSha1": ec_sha, "bytes": ec_len},
+                "src/epg.h": {"gitBlobSha1": eh_sha, "bytes": eh_len},
+                "src/lang_str.c": {"gitBlobSha1": ls_sha, "bytes": ls_len},
+                "src/string_list.c": {"gitBlobSha1": sl_sha, "bytes": sl_len},
             },
             "docsUrls": {},
         }
@@ -6995,7 +8063,7 @@ def main(argv: list[str] | None = None) -> int:
     source_group.add_argument(
         "--source-root",
         type=Path,
-        help="External TVHeadend source root containing the three pinned files",
+        help="External TVHeadend source root containing the seven pinned files",
     )
     parser.add_argument(
         "--write",

@@ -69,6 +69,7 @@ EXPECTED_TYPED_CLIENT_REQUESTS: tuple[tuple[str, str, int | None], ...] = (
     ("getEvent", "ACCESS_HTSP_STREAMING", None),
     ("getEvents", "ACCESS_HTSP_STREAMING", 4),
     ("epgQuery", "ACCESS_HTSP_STREAMING", 4),
+    ("getEpgObject", "ACCESS_HTSP_STREAMING", None),
     ("getDvrConfigs", "ACCESS_HTSP_RECORDER", 16),
     ("addDvrEntry", "ACCESS_HTSP_RECORDER", 4),
     ("updateDvrEntry", "ACCESS_HTSP_RECORDER", 5),
@@ -163,6 +164,15 @@ EXPECTED_FIELD_SHAPE_REFS: tuple[tuple[str, str, str, str, str], ...] = (
     ("clientMethod", "getEvents", "replyFields", "events", "event"),
     ("clientMethod", "epgQuery", "replyFields", "eventIds", "u32"),
     ("clientMethod", "epgQuery", "replyFields", "events", "event"),
+    ("clientMethod", "getEpgObject", "replyFields", "tit", "epgLanguageStrings"),
+    ("clientMethod", "getEpgObject", "replyFields", "sti", "epgLanguageStrings"),
+    ("clientMethod", "getEpgObject", "replyFields", "sum", "epgLanguageStrings"),
+    ("clientMethod", "getEpgObject", "replyFields", "des", "epgLanguageStrings"),
+    ("clientMethod", "getEpgObject", "replyFields", "epn", "epgEpisodeNumber"),
+    ("clientMethod", "getEpgObject", "replyFields", "genre", "u32"),
+    ("clientMethod", "getEpgObject", "replyFields", "cred", "epgCreditsDynamic"),
+    ("clientMethod", "getEpgObject", "replyFields", "cat", "str"),
+    ("clientMethod", "getEpgObject", "replyFields", "key", "str"),
     ("clientMethod", "getDvrConfigs", "replyFields", "dvrconfigs", "dvrConfig"),
     ("clientMethod", "getDvrCutpoints", "replyFields", "cutpoints", "cutpoint"),
     ("clientMethod", "subscriptionFilterStream", "requestFields", "enable", "u32"),
@@ -200,6 +210,10 @@ EXPECTED_FILES = {
             "Never treat as completeness authority.",
         ],
     },
+    "src/epg.c": {"gitBlobSha1": "7d95b27466e070a6c76b37ef3a945cd9e980d683", "bytes": 88770},
+    "src/epg.h": {"gitBlobSha1": "cce9c09d25612f1abc892c7a0071dca9481030e9", "bytes": 22374},
+    "src/lang_str.c": {"gitBlobSha1": "c0cfbe016938472778ef6aec0e6e0b829a0abd31", "bytes": 8481},
+    "src/string_list.c": {"gitBlobSha1": "cfe0fa03415abf649c94737d599561556b5e0a76", "bytes": 4655},
 }
 EXPECTED_DOCS_URLS = {
     "communication": "https://docs.tvheadend.org/documentation/development/htsp/communication",
@@ -367,6 +381,63 @@ EPG_QUERY_NOTES = [
     "channelId and tagId are independent optional selectors; contentType retains the pinned pre-v6 conversion.",
     "language has field minimum v6 and minduration/maxduration have field minimum v13; no other field raises the method minimum v4.",
     "The selected result field is omitted when the query has zero matches.",
+]
+GET_EPG_OBJECT_REQUEST_CONTRACT = (
+    ("id", "u32", "required"),
+    ("type", "u32", "optional"),
+)
+GET_EPG_OBJECT_REPLY_CONTRACT = (
+    ("id", "u32", "required", None),
+    ("tp", "u32", "required", None),
+    ("gr", "str", "conditional", None),
+    ("up", "s64", "required", None),
+    ("start", "s64", "required", None),
+    ("stop", "s64", "required", None),
+    ("ch", "str", "conditional", None),
+    ("eid", "u32", "conditional", None),
+    ("xeid", "str", "conditional", None),
+    ("is_wd", "u32", "conditional", None),
+    ("is_hd", "u32", "conditional", None),
+    ("is_bw", "u32", "conditional", None),
+    ("lines", "u32", "conditional", None),
+    ("aspect", "u32", "conditional", None),
+    ("is_de", "u32", "conditional", None),
+    ("is_st", "u32", "conditional", None),
+    ("is_ad", "u32", "conditional", None),
+    ("is_n", "u32", "conditional", None),
+    ("is_r", "u32", "conditional", None),
+    ("star", "u32", "conditional", None),
+    ("age", "u32", "conditional", None),
+    ("ratlab", "str", "conditional", None),
+    ("img", "str", "conditional", None),
+    ("tit", "msg", "conditional", "epgLanguageStrings"),
+    ("sti", "msg", "conditional", "epgLanguageStrings"),
+    ("sum", "msg", "conditional", "epgLanguageStrings"),
+    ("des", "msg", "conditional", "epgLanguageStrings"),
+    ("epn", "msg", "conditional", "epgEpisodeNumber"),
+    ("genre", "list", "conditional", "u32"),
+    ("cyear", "u32", "conditional", None),
+    ("fair", "s64", "conditional", None),
+    ("cred", "msg", "conditional", "epgCreditsDynamic"),
+    ("cat", "list", "conditional", "str"),
+    ("key", "list", "conditional", "str"),
+    ("slink", "str", "conditional", None),
+    ("elink", "str", "conditional", None),
+)
+GET_EPG_OBJECT_EPISODE_CONTRACT = (
+    ("enum", "u32", "optional"),
+    ("ecnt", "u32", "optional"),
+    ("snum", "u32", "optional"),
+    ("scnt", "u32", "optional"),
+    ("pnum", "u32", "optional"),
+    ("pcnt", "u32", "optional"),
+    ("text", "str", "optional"),
+)
+GET_EPG_OBJECT_NOTES = [
+    "Official RPC documentation leaves the reply literally TODO; the exact seven-file source pin is normative.",
+    "EPG_UNDEF=0 and EPG_BROADCAST=1 are the complete pinned object-type vocabulary; only broadcast has a serializer.",
+    "Wire cred is an unconstrained copied message and remains an explicitly opaque shape deliberately omitted from the public response model.",
+    "Pinned time_t updated/start/stop/first_aired members are serialized as signed s64; the SDK exposes unchanged Unix-second values under its EPG time convention.",
 ]
 GET_DVR_CUTPOINTS_LIMITATION_ID = (
     "getDvrCutpoints-coordinate-order-semantics-underdocumented"
@@ -566,7 +637,7 @@ def validate_exact_upstream(data: Any, label: str) -> list[str]:
         errors.append(f"{label}.htspProtoVersion does not match immutable pin")
     files = data.get("files")
     if not isinstance(files, dict) or list(files) != list(EXPECTED_FILES):
-        errors.append(f"{label}.files must be the exact ordered three-file key set")
+        errors.append(f"{label}.files must be the exact ordered seven-file key set")
     else:
         for relative, expected in EXPECTED_FILES.items():
             meta = files.get(relative)
@@ -626,7 +697,7 @@ def validate_spec(spec: dict[str, Any], upstream: dict[str, Any] | None = None) 
             if not isinstance(shape, dict):
                 errors.append(f"shape {shape_name} must be an object")
                 continue
-            if shape.get("kind") not in {"object", "reference", "scalar"}:
+            if shape.get("kind") not in {"object", "reference", "scalar", "stringMap"}:
                 errors.append(f"shape {shape_name}: invalid kind")
             if shape.get("completeness") not in COMPLETENESS_VALUES:
                 errors.append(f"shape {shape_name}: invalid completeness")
@@ -647,6 +718,11 @@ def validate_spec(spec: dict[str, Any], upstream: dict[str, Any] | None = None) 
                 errors.append(f"shape {shape_name}: invalid reference target")
             elif shape.get("kind") == "scalar" and shape.get("wireType") not in WIRE_TYPES:
                 errors.append(f"shape {shape_name}: invalid scalar wireType")
+            elif shape.get("kind") == "stringMap" and (
+                shape.get("keyWireType") != "str"
+                or shape.get("valueWireType") != "str"
+            ):
+                errors.append(f"shape {shape_name}: stringMap must have strict str keys and values")
     if not isinstance(methods, list):
         errors.append("clientMethods must be a list")
         methods = []
@@ -1016,8 +1092,49 @@ def validate_spec(spec: dict[str, Any], upstream: dict[str, Any] | None = None) 
         errors.append("epgQuery reply shape must preserve complete selected alternatives and empty-map success")
     if epg_query.get("notes") != EPG_QUERY_NOTES:
         errors.append("epgQuery notes must preserve defaults, nonzero full, field minima, and zero-match behavior")
-    if method_map.get("getEpgObject", {}).get("replyShape", {}).get("kind") != "dynamic":
-        errors.append("getEpgObject reply must be explicitly dynamic/opaque")
+    get_epg_object = method_map.get("getEpgObject", {})
+    if get_epg_object.get("accessMask") != "ACCESS_HTSP_STREAMING" or get_epg_object.get("minVersion") is not None:
+        errors.append("getEpgObject must preserve streaming access with no invented method minimum")
+    if [
+        (field.get("name"), field.get("type"), field.get("presence"))
+        for field in get_epg_object.get("requestFields", [])
+    ] != list(GET_EPG_OBJECT_REQUEST_CONTRACT):
+        errors.append("getEpgObject request must preserve required id and optional type")
+    if [
+        (field.get("name"), field.get("type"), field.get("presence"), field.get("shapeRef"))
+        for field in get_epg_object.get("replyFields", [])
+    ] != list(GET_EPG_OBJECT_REPLY_CONTRACT):
+        errors.append("getEpgObject reply must preserve the finite complete broadcast serializer contract")
+    if (
+        get_epg_object.get("requestShape", {}).get("kind") != "fields"
+        or get_epg_object.get("requestShape", {}).get("completeness") != "complete"
+        or get_epg_object.get("replyShape", {}).get("kind") != "fields"
+        or get_epg_object.get("replyShape", {}).get("completeness") != "complete"
+    ):
+        errors.append("getEpgObject request/reply shapes must be fields/complete")
+    if get_epg_object.get("notes") != GET_EPG_OBJECT_NOTES:
+        errors.append("getEpgObject notes must preserve source authority, finite type, opaque credits, and time semantics")
+    language_shape = shapes.get("epgLanguageStrings") or {}
+    if (
+        language_shape.get("kind") != "stringMap"
+        or language_shape.get("completeness") != "complete"
+        or language_shape.get("keyWireType") != "str"
+        or language_shape.get("valueWireType") != "str"
+    ):
+        errors.append("epgLanguageStrings must remain a complete strict string map")
+    episode_shape = shapes.get("epgEpisodeNumber") or {}
+    if (
+        episode_shape.get("kind") != "object"
+        or episode_shape.get("completeness") != "complete"
+        or [
+            (field.get("name"), field.get("type"), field.get("presence"))
+            for field in episode_shape.get("fields", [])
+        ] != list(GET_EPG_OBJECT_EPISODE_CONTRACT)
+    ):
+        errors.append("epgEpisodeNumber must preserve the finite optional field contract")
+    epg_credits = shapes.get("epgCreditsDynamic") or {}
+    if epg_credits.get("kind") != "object" or epg_credits.get("completeness") != "opaque" or "fields" in epg_credits:
+        errors.append("epgCreditsDynamic must remain explicitly opaque without invented fields")
     system_time = method_map.get("getSysTime", {})
     system_time_fields = [
         (field.get("name"), field.get("type"), field.get("presence"))
@@ -1251,8 +1368,8 @@ def validate_spec(spec: dict[str, Any], upstream: dict[str, Any] | None = None) 
             errors.append(f"{name}: typed catalog access mask disagrees with pinned method")
         if method.get("minVersion") != method_min_version:
             errors.append(f"{name}: typed catalog method minimum disagrees with pinned method")
-    if typed_count != len(typed_methods) or typed_count != 22:
-        errors.append("coverage typedClientRequests.count must match exactly 22 methods")
+    if typed_count != len(typed_methods) or typed_count != 23:
+        errors.append("coverage typedClientRequests.count must match exactly 23 methods")
     if typed_cov.get("catalog") != "docs/htsp-protocol/generate_typed_requests.py":
         errors.append("coverage typedClientRequests.catalog must name the reviewed generator")
     if typed_cov.get("meaning") != (
@@ -1329,13 +1446,13 @@ def validate_spec(spec: dict[str, Any], upstream: dict[str, Any] | None = None) 
         errors.append("outgoingRequestCount cannot exceed referencedCount")
 
     # Current repository acceptance targets (exact-literal metric).
-    if ref_count not in (None, 30):
+    if ref_count not in (None, 31):
         errors.append(
-            f"expected referenced client methods == 30 under current metric, got {ref_count}"
+            f"expected referenced client methods == 31 under current metric, got {ref_count}"
         )
-    if out_count not in (None, 29):
+    if out_count not in (None, 30):
         errors.append(
-            f"expected outgoing client methods == 29 under current metric, got {out_count}"
+            f"expected outgoing client methods == 30 under current metric, got {out_count}"
         )
     if handled_count not in (None, 27):
         errors.append(
@@ -2087,13 +2204,13 @@ def _derive_fresh_self_test_spec(fresh_mutator: Any = None) -> dict[str, Any]:
             else "htsp_method_filter_stream"
             if name == "subscriptionFilterStream"
             else f"htsp_method_{name}"
-            if name in {"getEvent", "getEvents", "epgQuery", "stopDvrEntry", "getDvrCutpoints"}
+            if name in {"getEvent", "getEvents", "getEpgObject", "epgQuery", "stopDvrEntry", "getDvrCutpoints"}
             else f"htsp_method_{index}",
             "ACCESS_HTSP_RECORDER"
             if name in {"stopDvrEntry", "getDvrCutpoints"}
             else "ACCESS_HTSP_STREAMING"
             if name in {
-                "getEvents", "epgQuery", "subscriptionChangeWeight", "subscriptionLive",
+                "getEvents", "epgQuery", "getEpgObject", "subscriptionChangeWeight", "subscriptionLive",
                 "subscriptionFilterStream",
             }
             else "ACCESS_ANONYMOUS",
@@ -2110,6 +2227,7 @@ def _derive_fresh_self_test_spec(fresh_mutator: Any = None) -> dict[str, Any]:
         "        self.send('authenticate')\n"
         "        self.send('enableAsyncMetadata')\n"
     )
+    epg_c, epg_h, lang_str_c, string_list_c = derive_module._minimal_epg_sources()
 
     with tempfile.TemporaryDirectory(prefix="htsp-report-derived-selftest-") as tmp:
         root = Path(tmp)
@@ -2119,6 +2237,10 @@ def _derive_fresh_self_test_spec(fresh_mutator: Any = None) -> dict[str, Any]:
             "src/htsp_server.c": server_c,
             "src/htsp_server.h": server_h,
             "lib/py/tvh/htsp.py": htsp_py,
+            "src/epg.c": epg_c,
+            "src/epg.h": epg_h,
+            "src/lang_str.c": lang_str_c,
+            "src/string_list.c": string_list_c,
         }
         file_metadata: dict[str, dict[str, Any]] = {}
         for relative, content in fixture_files.items():
@@ -2142,7 +2264,7 @@ def _derive_fresh_self_test_spec(fresh_mutator: Any = None) -> dict[str, Any]:
             fresh_mutator(fresh)
 
     # Report validation owns schema/policy, not fixture-byte pin verification.
-    # Evaluate freshly derived getEvents/epgQuery/event/stopDvrEntry/getDvrCutpoints/
+    # Evaluate freshly derived getEvents/epgQuery/getEpgObject/event/stopDvrEntry/getDvrCutpoints/
     # subscriptionChangeWeight/subscriptionLive/subscriptionFilterStream evidence
     # inside the complete committed-schema baseline; unrelated minimal fixture
     # handlers deliberately do not pretend to model every pinned method.
@@ -2153,7 +2275,7 @@ def _derive_fresh_self_test_spec(fresh_mutator: Any = None) -> dict[str, Any]:
     candidate["clientMethods"] = [
         fresh_methods[item["name"]]
         if item["name"] in {
-            "getEvents", "epgQuery", "stopDvrEntry", "getDvrCutpoints",
+            "getEvents", "epgQuery", "getEpgObject", "stopDvrEntry", "getDvrCutpoints",
             "subscriptionChangeWeight", "subscriptionLive",
             "subscriptionFilterStream",
         }
@@ -2167,7 +2289,10 @@ def _derive_fresh_self_test_spec(fresh_mutator: Any = None) -> dict[str, Any]:
         else item
         for item in candidate["serverMessages"]
     ]
-    for shape_name in ("cutpoint", "event", "str", "eventCreditsDynamic"):
+    for shape_name in (
+        "cutpoint", "event", "str", "eventCreditsDynamic", "epgCreditsDynamic",
+        "epgLanguageStrings", "epgEpisodeNumber",
+    ):
         candidate["shapes"][shape_name] = fresh["shapes"][shape_name]
     candidate["coverage"] = fresh["coverage"]
     candidate["pythonDemo"] = fresh["pythonDemo"]
@@ -2320,8 +2445,8 @@ def self_test() -> None:
     )
     check(
         "getChannel-fresh-coverage",
-        good_spec["coverage"]["clientMethods"]["referencedCount"] == 30
-        and good_spec["coverage"]["clientMethods"]["outgoingRequestCount"] == 29
+        good_spec["coverage"]["clientMethods"]["referencedCount"] == 31
+        and good_spec["coverage"]["clientMethods"]["outgoingRequestCount"] == 30
         and "getChannel" in good_spec["coverage"]["clientMethods"]["outgoingRequests"],
     )
 
@@ -2355,8 +2480,8 @@ def self_test() -> None:
     )
     check(
         "getEvents-fresh-unchanged-coverage",
-        good_spec["coverage"]["clientMethods"]["referencedCount"] == 30
-        and good_spec["coverage"]["clientMethods"]["outgoingRequestCount"] == 29
+        good_spec["coverage"]["clientMethods"]["referencedCount"] == 31
+        and good_spec["coverage"]["clientMethods"]["outgoingRequestCount"] == 30
         and good_spec["coverage"]["serverMessages"]["handledCount"] == 27
         and "getEvents" in good_spec["coverage"]["clientMethods"]["outgoingRequests"],
     )
@@ -2390,6 +2515,40 @@ def self_test() -> None:
         "epgQuery-fresh-contract-mutation-rejected",
         any("epgQuery request" in error for error in mutated_fresh_epg_errors),
         str(mutated_fresh_epg_errors),
+    )
+    get_epg_object = next(
+        method for method in good_spec["clientMethods"] if method["name"] == "getEpgObject"
+    )
+    check(
+        "getEpgObject-fresh-complete-contract",
+        get_epg_object.get("accessMask") == "ACCESS_HTSP_STREAMING"
+        and get_epg_object.get("minVersion") is None
+        and [
+            (field["name"], field["type"], field["presence"])
+            for field in get_epg_object["requestFields"]
+        ] == list(GET_EPG_OBJECT_REQUEST_CONTRACT)
+        and [
+            (field["name"], field["type"], field["presence"], field.get("shapeRef"))
+            for field in get_epg_object["replyFields"]
+        ] == list(GET_EPG_OBJECT_REPLY_CONTRACT)
+        and get_epg_object.get("replyShape", {}).get("completeness") == "complete"
+        and get_epg_object.get("notes") == GET_EPG_OBJECT_NOTES
+        and get_epg_object.get("sdk") == {
+            "referenced": True,
+            "outgoingRequest": True,
+            "typedRequest": True,
+        },
+    )
+    mutated_fresh_get_epg = _derive_fresh_self_test_spec(
+        lambda fresh: next(
+            method for method in fresh["clientMethods"] if method["name"] == "getEpgObject"
+        )["replyFields"][0].update({"presence": "optional"}),
+    )
+    mutated_fresh_get_epg_errors = validate_spec(mutated_fresh_get_epg)
+    check(
+        "getEpgObject-fresh-contract-mutation-rejected",
+        any("getEpgObject reply" in error for error in mutated_fresh_get_epg_errors),
+        str(mutated_fresh_get_epg_errors),
     )
     stop_dvr_entry = next(
         method for method in good_spec["clientMethods"] if method["name"] == "stopDvrEntry"
@@ -3478,7 +3637,7 @@ def self_test() -> None:
     err = validate_spec(bad)
     check(
         "reject-false-all-called",
-        any("outgoing client methods == 29" in e for e in err),
+        any("outgoing client methods == 30" in e for e in err),
         str(err),
     )
 

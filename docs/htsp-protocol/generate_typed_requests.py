@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate the reviewed 22-request HTSP convenience/catalog surface."""
+"""Generate the reviewed 23-request HTSP convenience/catalog surface."""
 
 from __future__ import annotations
 
@@ -79,6 +79,10 @@ CATALOG: tuple[Entry, ...] = (
         parameter("full", "Long?", "null"),
         parameter("minDurationSeconds", "Long?", "null"),
         parameter("maxDurationSeconds", "Long?", "null"),
+    )),
+    Entry("getEpgObject", "GetEpgObjectRequest", "GetEpgObjectResponse", "ACCESS_HTSP_STREAMING", None, (
+        parameter("id", "Long"),
+        parameter("objectType", "HtspEpgObjectType?", "HtspEpgObjectType.BROADCAST"),
     )),
     Entry("getDvrConfigs", "GetDvrConfigsRequest", "GetDvrConfigsResponse", "ACCESS_HTSP_RECORDER", 16),
     Entry("addDvrEntry", "AddDvrEntryRequest", "AddDvrEntryResponse", "ACCESS_HTSP_RECORDER", 4, (
@@ -164,48 +168,48 @@ CATALOG: tuple[Entry, ...] = (
 SELECTOR_OVERLOADS: tuple[SelectorOverload, ...] = (
     SelectorOverload("addDvrEntry", (
         parameter("eventId", "Long"),
-        *CATALOG[9].parameters[1:],
+        *CATALOG[10].parameters[1:],
     ), (
         "selector = AddDvrEntrySelector.Event(eventId)",
-        *(f"{value.name} = {value.name}" for value in CATALOG[9].parameters[1:]),
+        *(f"{value.name} = {value.name}" for value in CATALOG[10].parameters[1:]),
     )),
     SelectorOverload("addDvrEntry", (
         parameter("channelId", "Long"),
         parameter("start", "Long"),
         parameter("stop", "Long"),
-        *CATALOG[9].parameters[1:],
+        *CATALOG[10].parameters[1:],
     ), (
         "selector = AddDvrEntrySelector.ExplicitChannelTime(channelId, start, stop)",
-        *(f"{value.name} = {value.name}" for value in CATALOG[9].parameters[1:]),
+        *(f"{value.name} = {value.name}" for value in CATALOG[10].parameters[1:]),
     )),
     SelectorOverload("subscribe", (
-        CATALOG[15].parameters[0],
+        CATALOG[16].parameters[0],
         parameter("channelId", "Long"),
-        *CATALOG[15].parameters[2:],
+        *CATALOG[16].parameters[2:],
     ), (
         "subscriptionId = subscriptionId",
         "channel = SubscribeChannel.Id(channelId)",
-        *(f"{value.name} = {value.name}" for value in CATALOG[15].parameters[2:]),
+        *(f"{value.name} = {value.name}" for value in CATALOG[16].parameters[2:]),
     )),
     SelectorOverload("subscribe", (
-        CATALOG[15].parameters[0],
+        CATALOG[16].parameters[0],
         parameter("channelName", "String"),
-        *CATALOG[15].parameters[2:],
+        *CATALOG[16].parameters[2:],
     ), (
         "subscriptionId = subscriptionId",
         "channel = SubscribeChannel.Name(channelName)",
-        *(f"{value.name} = {value.name}" for value in CATALOG[15].parameters[2:]),
+        *(f"{value.name} = {value.name}" for value in CATALOG[16].parameters[2:]),
     )),
     SelectorOverload("subscriptionSeek", (
-        CATALOG[18].parameters[0],
+        CATALOG[19].parameters[0],
         parameter("position", "SubscriptionSeekPosition.Time"),
-        *CATALOG[18].parameters[2:],
-    ), tuple(f"{value.name} = {value.name}" for value in CATALOG[18].parameters)),
+        *CATALOG[19].parameters[2:],
+    ), tuple(f"{value.name} = {value.name}" for value in CATALOG[19].parameters)),
     SelectorOverload("subscriptionSeek", (
-        CATALOG[18].parameters[0],
+        CATALOG[19].parameters[0],
         parameter("position", "SubscriptionSeekPosition.Size"),
-        *CATALOG[18].parameters[2:],
-    ), tuple(f"{value.name} = {value.name}" for value in CATALOG[18].parameters)),
+        *CATALOG[19].parameters[2:],
+    ), tuple(f"{value.name} = {value.name}" for value in CATALOG[19].parameters)),
 )
 
 
@@ -278,14 +282,14 @@ def render() -> str:
 def validate_catalog() -> None:
     expected = (
         "getProfiles", "getDiskSpace", "getSysTime", "enableAsyncMetadata", "getChannel", "getEvent",
-        "getEvents", "epgQuery", "getDvrConfigs", "addDvrEntry", "updateDvrEntry", "stopDvrEntry",
+        "getEvents", "epgQuery", "getEpgObject", "getDvrConfigs", "addDvrEntry", "updateDvrEntry", "stopDvrEntry",
         "cancelDvrEntry", "deleteDvrEntry", "getDvrCutpoints", "subscribe", "unsubscribe",
         "subscriptionChangeWeight", "subscriptionSeek", "subscriptionSpeed",
         "subscriptionLive", "subscriptionFilterStream",
     )
     methods = tuple(entry.method for entry in CATALOG)
-    if methods != expected or len(set(methods)) != 22:
-        raise ValueError("typed request catalog must contain exactly the reviewed 22 methods")
+    if methods != expected or len(set(methods)) != 23:
+        raise ValueError("typed request catalog must contain exactly the reviewed 23 methods")
     epg_query = CATALOG[7]
     if epg_query != Entry(
         "epgQuery", "EpgQueryRequest", "EpgQueryResponse", "ACCESS_HTSP_STREAMING", 4, (
@@ -302,6 +306,14 @@ def validate_catalog() -> None:
         ),
     ):
         raise ValueError("epgQuery catalog entry must preserve the reviewed constructor contract")
+    get_epg_object = CATALOG[8]
+    if get_epg_object != Entry(
+        "getEpgObject", "GetEpgObjectRequest", "GetEpgObjectResponse", "ACCESS_HTSP_STREAMING", None, (
+            parameter("id", "Long"),
+            parameter("objectType", "HtspEpgObjectType?", "HtspEpgObjectType.BROADCAST"),
+        ),
+    ):
+        raise ValueError("getEpgObject catalog entry must preserve the reviewed constructor contract")
     forbidden = {"hello", "authenticate", "subscriptionSkip", "fileOpen"}
     if forbidden.intersection(methods):
         raise ValueError("typed request catalog contains an excluded method")
@@ -319,17 +331,18 @@ def self_test() -> None:
     if first != second:
         raise AssertionError("generator output is not deterministic")
     extension_lines = [line for line in first.splitlines() if line.startswith("public suspend fun")]
-    if len(extension_lines) != 28:
-        raise AssertionError("generated extensions must contain 22 canonical and 6 selector overloads")
+    if len(extension_lines) != 29:
+        raise AssertionError("generated extensions must contain 23 canonical and 6 selector overloads")
     if "    request:" in first:
         raise AssertionError("generated extensions must not accept request objects")
-    if first.count("timeoutMs: Long = 5_000L") != 28:
+    if first.count("timeoutMs: Long = 5_000L") != 29:
         raise AssertionError("every generated extension must expose the default request timeout")
-    if first.count("expectedGeneration: HtspConnectionGeneration? = null") != 28:
+    if first.count("expectedGeneration: HtspConnectionGeneration? = null") != 29:
         raise AssertionError("every generated extension must expose the optional generation fence")
     required_signatures = (
         "public suspend fun HtspConnection.getEvents(\n    channelId: Long? = null,",
         "public suspend fun HtspConnection.epgQuery(\n    query: String,\n    channelId: Long? = null,",
+        "public suspend fun HtspConnection.getEpgObject(\n    id: Long,\n    objectType: HtspEpgObjectType? = HtspEpgObjectType.BROADCAST,",
         "    fullText: Boolean? = null,\n    mergeText: Boolean? = null,\n    full: Long? = null,\n    minDurationSeconds: Long? = null,\n    maxDurationSeconds: Long? = null,",
         "public suspend fun HtspConnection.addDvrEntry(\n    selector: AddDvrEntrySelector,",
         "    selector: AddDvrEntrySelector,\n    configName: String? = null,\n    language: String? = null,\n    title: String? = null,",
@@ -348,11 +361,11 @@ def self_test() -> None:
     missing = [signature for signature in required_signatures if signature not in first]
     if missing:
         raise AssertionError(f"generated extension signatures are incomplete: {missing}")
-    if first.count("    call(") != 28:
+    if first.count("    call(") != 29:
         raise AssertionError("every generated extension must contain exactly one call delegation")
-    if first.count("        timeoutMs = timeoutMs,") != 28:
+    if first.count("        timeoutMs = timeoutMs,") != 29:
         raise AssertionError("every generated extension must forward timeout exactly once")
-    if first.count("        expectedGeneration = expectedGeneration,") != 28:
+    if first.count("        expectedGeneration = expectedGeneration,") != 29:
         raise AssertionError("every generated extension must forward generation exactly once")
     with tempfile.TemporaryDirectory() as directory:
         path = Path(directory) / "generated.kt"

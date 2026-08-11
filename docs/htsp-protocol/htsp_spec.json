@@ -23,6 +23,22 @@
           "Covers only hello, authenticate, and enableAsyncMetadata.",
           "Never treat as completeness authority."
         ]
+      },
+      "src/epg.c": {
+        "gitBlobSha1": "7d95b27466e070a6c76b37ef3a945cd9e980d683",
+        "bytes": 88770
+      },
+      "src/epg.h": {
+        "gitBlobSha1": "cce9c09d25612f1abc892c7a0071dca9481030e9",
+        "bytes": 22374
+      },
+      "src/lang_str.c": {
+        "gitBlobSha1": "c0cfbe016938472778ef6aec0e6e0b829a0abd31",
+        "bytes": 8481
+      },
+      "src/string_list.c": {
+        "gitBlobSha1": "cfe0fa03415abf649c94737d599561556b5e0a76",
+        "bytes": 4655
       }
     },
     "docsUrls": {
@@ -213,6 +229,95 @@
       "kind": "object",
       "completeness": "opaque",
       "evidence": "current event credits payload is dynamically shaped and deliberately opaque"
+    },
+    "epgCreditsDynamic": {
+      "kind": "object",
+      "completeness": "opaque",
+      "evidence": "epg_broadcast_serialize copies unconstrained credits; the public response deliberately omits them"
+    },
+    "epgLanguageStrings": {
+      "kind": "stringMap",
+      "completeness": "complete",
+      "keyWireType": "str",
+      "valueWireType": "str",
+      "evidence": "lang_str_serialize_map emits each language and localized value through htsmsg_add_str"
+    },
+    "epgEpisodeNumber": {
+      "kind": "object",
+      "completeness": "complete",
+      "evidence": "bounded epg_episode_epnum_serialize optional field inventory",
+      "fields": [
+        {
+          "name": "enum",
+          "type": "u32",
+          "direction": "nested",
+          "presence": "optional",
+          "evidence": "epg_episode_epnum_serialize nonzero/present branch",
+          "confidence": "mechanical+annotated",
+          "minVersion": null,
+          "order": 1
+        },
+        {
+          "name": "ecnt",
+          "type": "u32",
+          "direction": "nested",
+          "presence": "optional",
+          "evidence": "epg_episode_epnum_serialize nonzero/present branch",
+          "confidence": "mechanical+annotated",
+          "minVersion": null,
+          "order": 2
+        },
+        {
+          "name": "snum",
+          "type": "u32",
+          "direction": "nested",
+          "presence": "optional",
+          "evidence": "epg_episode_epnum_serialize nonzero/present branch",
+          "confidence": "mechanical+annotated",
+          "minVersion": null,
+          "order": 3
+        },
+        {
+          "name": "scnt",
+          "type": "u32",
+          "direction": "nested",
+          "presence": "optional",
+          "evidence": "epg_episode_epnum_serialize nonzero/present branch",
+          "confidence": "mechanical+annotated",
+          "minVersion": null,
+          "order": 4
+        },
+        {
+          "name": "pnum",
+          "type": "u32",
+          "direction": "nested",
+          "presence": "optional",
+          "evidence": "epg_episode_epnum_serialize nonzero/present branch",
+          "confidence": "mechanical+annotated",
+          "minVersion": null,
+          "order": 5
+        },
+        {
+          "name": "pcnt",
+          "type": "u32",
+          "direction": "nested",
+          "presence": "optional",
+          "evidence": "epg_episode_epnum_serialize nonzero/present branch",
+          "confidence": "mechanical+annotated",
+          "minVersion": null,
+          "order": 6
+        },
+        {
+          "name": "text",
+          "type": "str",
+          "direction": "nested",
+          "presence": "optional",
+          "evidence": "epg_episode_epnum_serialize nonzero/present branch",
+          "confidence": "mechanical+annotated",
+          "minVersion": null,
+          "order": 7
+        }
+      ]
     },
     "service": {
       "kind": "object",
@@ -1966,9 +2071,9 @@
           "name": "id",
           "type": "u32",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_u32",
-          "confidence": "mechanical",
+          "presence": "required",
+          "evidence": "htsp_method_getEpgObject rejects a missing or malformed id",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 1
         },
@@ -1976,28 +2081,437 @@
           "name": "type",
           "type": "u32",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_u32",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "htsp_method_getEpgObject accepts a decoded value at or below EPG_TYPEMAX",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
+          "condition": "omitted or out-of-range values select EPG_UNDEF before exact id/type lookup",
           "order": 2
         }
       ],
-      "replyFields": [],
+      "replyFields": [
+        {
+          "name": "id",
+          "type": "u32",
+          "direction": "reply",
+          "presence": "required",
+          "evidence": "bounded seven-file getEpgObject serializer derivation",
+          "confidence": "mechanical+annotated",
+          "minVersion": null,
+          "order": 1
+        },
+        {
+          "name": "tp",
+          "type": "u32",
+          "direction": "reply",
+          "presence": "required",
+          "evidence": "bounded seven-file getEpgObject serializer derivation",
+          "confidence": "mechanical+annotated",
+          "minVersion": null,
+          "condition": "exactly EPG_BROADCAST (1)",
+          "order": 2
+        },
+        {
+          "name": "gr",
+          "type": "str",
+          "direction": "reply",
+          "presence": "conditional",
+          "evidence": "bounded seven-file getEpgObject serializer derivation",
+          "confidence": "mechanical+annotated",
+          "minVersion": null,
+          "condition": "emitted when a grabber is associated",
+          "order": 3
+        },
+        {
+          "name": "up",
+          "type": "s64",
+          "direction": "reply",
+          "presence": "required",
+          "evidence": "bounded seven-file getEpgObject serializer derivation",
+          "confidence": "mechanical+annotated",
+          "minVersion": null,
+          "order": 4
+        },
+        {
+          "name": "start",
+          "type": "s64",
+          "direction": "reply",
+          "presence": "required",
+          "evidence": "bounded seven-file getEpgObject serializer derivation",
+          "confidence": "mechanical+annotated",
+          "minVersion": null,
+          "order": 5
+        },
+        {
+          "name": "stop",
+          "type": "s64",
+          "direction": "reply",
+          "presence": "required",
+          "evidence": "bounded seven-file getEpgObject serializer derivation",
+          "confidence": "mechanical+annotated",
+          "minVersion": null,
+          "order": 6
+        },
+        {
+          "name": "ch",
+          "type": "str",
+          "direction": "reply",
+          "presence": "conditional",
+          "evidence": "bounded seven-file getEpgObject serializer derivation",
+          "confidence": "mechanical+annotated",
+          "minVersion": null,
+          "condition": "emitted when the broadcast has a channel UUID",
+          "order": 7
+        },
+        {
+          "name": "eid",
+          "type": "u32",
+          "direction": "reply",
+          "presence": "conditional",
+          "evidence": "bounded seven-file getEpgObject serializer derivation",
+          "confidence": "mechanical+annotated",
+          "minVersion": null,
+          "condition": "emitted when the DVB event id is nonzero",
+          "order": 8
+        },
+        {
+          "name": "xeid",
+          "type": "str",
+          "direction": "reply",
+          "presence": "conditional",
+          "evidence": "bounded seven-file getEpgObject serializer derivation",
+          "confidence": "mechanical+annotated",
+          "minVersion": null,
+          "condition": "emitted when the XMLTV event id is present",
+          "order": 9
+        },
+        {
+          "name": "is_wd",
+          "type": "u32",
+          "direction": "reply",
+          "presence": "conditional",
+          "evidence": "bounded seven-file getEpgObject serializer derivation",
+          "confidence": "mechanical+annotated",
+          "minVersion": null,
+          "condition": "true-only flag emitted with value 1",
+          "order": 10
+        },
+        {
+          "name": "is_hd",
+          "type": "u32",
+          "direction": "reply",
+          "presence": "conditional",
+          "evidence": "bounded seven-file getEpgObject serializer derivation",
+          "confidence": "mechanical+annotated",
+          "minVersion": null,
+          "condition": "true-only flag emitted with value 1",
+          "order": 11
+        },
+        {
+          "name": "is_bw",
+          "type": "u32",
+          "direction": "reply",
+          "presence": "conditional",
+          "evidence": "bounded seven-file getEpgObject serializer derivation",
+          "confidence": "mechanical+annotated",
+          "minVersion": null,
+          "condition": "true-only flag emitted with value 1",
+          "order": 12
+        },
+        {
+          "name": "lines",
+          "type": "u32",
+          "direction": "reply",
+          "presence": "conditional",
+          "evidence": "bounded seven-file getEpgObject serializer derivation",
+          "confidence": "mechanical+annotated",
+          "minVersion": null,
+          "condition": "emitted when nonzero",
+          "order": 13
+        },
+        {
+          "name": "aspect",
+          "type": "u32",
+          "direction": "reply",
+          "presence": "conditional",
+          "evidence": "bounded seven-file getEpgObject serializer derivation",
+          "confidence": "mechanical+annotated",
+          "minVersion": null,
+          "condition": "emitted when nonzero",
+          "order": 14
+        },
+        {
+          "name": "is_de",
+          "type": "u32",
+          "direction": "reply",
+          "presence": "conditional",
+          "evidence": "bounded seven-file getEpgObject serializer derivation",
+          "confidence": "mechanical+annotated",
+          "minVersion": null,
+          "condition": "true-only flag emitted with value 1",
+          "order": 15
+        },
+        {
+          "name": "is_st",
+          "type": "u32",
+          "direction": "reply",
+          "presence": "conditional",
+          "evidence": "bounded seven-file getEpgObject serializer derivation",
+          "confidence": "mechanical+annotated",
+          "minVersion": null,
+          "condition": "true-only flag emitted with value 1",
+          "order": 16
+        },
+        {
+          "name": "is_ad",
+          "type": "u32",
+          "direction": "reply",
+          "presence": "conditional",
+          "evidence": "bounded seven-file getEpgObject serializer derivation",
+          "confidence": "mechanical+annotated",
+          "minVersion": null,
+          "condition": "true-only flag emitted with value 1",
+          "order": 17
+        },
+        {
+          "name": "is_n",
+          "type": "u32",
+          "direction": "reply",
+          "presence": "conditional",
+          "evidence": "bounded seven-file getEpgObject serializer derivation",
+          "confidence": "mechanical+annotated",
+          "minVersion": null,
+          "condition": "true-only flag emitted with value 1",
+          "order": 18
+        },
+        {
+          "name": "is_r",
+          "type": "u32",
+          "direction": "reply",
+          "presence": "conditional",
+          "evidence": "bounded seven-file getEpgObject serializer derivation",
+          "confidence": "mechanical+annotated",
+          "minVersion": null,
+          "condition": "true-only flag emitted with value 1",
+          "order": 19
+        },
+        {
+          "name": "star",
+          "type": "u32",
+          "direction": "reply",
+          "presence": "conditional",
+          "evidence": "bounded seven-file getEpgObject serializer derivation",
+          "confidence": "mechanical+annotated",
+          "minVersion": null,
+          "condition": "emitted when nonzero",
+          "order": 20
+        },
+        {
+          "name": "age",
+          "type": "u32",
+          "direction": "reply",
+          "presence": "conditional",
+          "evidence": "bounded seven-file getEpgObject serializer derivation",
+          "confidence": "mechanical+annotated",
+          "minVersion": null,
+          "condition": "emitted when nonzero",
+          "order": 21
+        },
+        {
+          "name": "ratlab",
+          "type": "str",
+          "direction": "reply",
+          "presence": "conditional",
+          "evidence": "bounded seven-file getEpgObject serializer derivation",
+          "confidence": "mechanical+annotated",
+          "minVersion": null,
+          "condition": "emitted when a rating label is present",
+          "order": 22
+        },
+        {
+          "name": "img",
+          "type": "str",
+          "direction": "reply",
+          "presence": "conditional",
+          "evidence": "bounded seven-file getEpgObject serializer derivation",
+          "confidence": "mechanical+annotated",
+          "minVersion": null,
+          "condition": "emitted when an image is present",
+          "order": 23
+        },
+        {
+          "name": "tit",
+          "type": "msg",
+          "direction": "reply",
+          "presence": "conditional",
+          "evidence": "bounded seven-file getEpgObject serializer derivation",
+          "confidence": "mechanical+annotated",
+          "minVersion": null,
+          "condition": "strict language-keyed string map",
+          "shapeRef": "epgLanguageStrings",
+          "order": 24
+        },
+        {
+          "name": "sti",
+          "type": "msg",
+          "direction": "reply",
+          "presence": "conditional",
+          "evidence": "bounded seven-file getEpgObject serializer derivation",
+          "confidence": "mechanical+annotated",
+          "minVersion": null,
+          "condition": "strict language-keyed string map",
+          "shapeRef": "epgLanguageStrings",
+          "order": 25
+        },
+        {
+          "name": "sum",
+          "type": "msg",
+          "direction": "reply",
+          "presence": "conditional",
+          "evidence": "bounded seven-file getEpgObject serializer derivation",
+          "confidence": "mechanical+annotated",
+          "minVersion": null,
+          "condition": "strict language-keyed string map",
+          "shapeRef": "epgLanguageStrings",
+          "order": 26
+        },
+        {
+          "name": "des",
+          "type": "msg",
+          "direction": "reply",
+          "presence": "conditional",
+          "evidence": "bounded seven-file getEpgObject serializer derivation",
+          "confidence": "mechanical+annotated",
+          "minVersion": null,
+          "condition": "strict language-keyed string map",
+          "shapeRef": "epgLanguageStrings",
+          "order": 27
+        },
+        {
+          "name": "epn",
+          "type": "msg",
+          "direction": "reply",
+          "presence": "conditional",
+          "evidence": "bounded seven-file getEpgObject serializer derivation",
+          "confidence": "mechanical+annotated",
+          "minVersion": null,
+          "condition": "emitted when episode numbering is nonempty",
+          "shapeRef": "epgEpisodeNumber",
+          "order": 28
+        },
+        {
+          "name": "genre",
+          "type": "list",
+          "direction": "reply",
+          "presence": "conditional",
+          "evidence": "bounded seven-file getEpgObject serializer derivation",
+          "confidence": "mechanical+annotated",
+          "minVersion": null,
+          "condition": "genre codes in source list order",
+          "shapeRef": "u32",
+          "order": 29
+        },
+        {
+          "name": "cyear",
+          "type": "u32",
+          "direction": "reply",
+          "presence": "conditional",
+          "evidence": "bounded seven-file getEpgObject serializer derivation",
+          "confidence": "mechanical+annotated",
+          "minVersion": null,
+          "condition": "emitted when nonzero",
+          "order": 30
+        },
+        {
+          "name": "fair",
+          "type": "s64",
+          "direction": "reply",
+          "presence": "conditional",
+          "evidence": "bounded seven-file getEpgObject serializer derivation",
+          "confidence": "mechanical+annotated",
+          "minVersion": null,
+          "condition": "emitted when first_aired is nonzero",
+          "order": 31
+        },
+        {
+          "name": "cred",
+          "type": "msg",
+          "direction": "reply",
+          "presence": "conditional",
+          "evidence": "bounded seven-file getEpgObject serializer derivation",
+          "confidence": "mechanical+annotated",
+          "minVersion": null,
+          "condition": "opaque credits deliberately omitted from the public response model",
+          "shapeRef": "epgCreditsDynamic",
+          "order": 32
+        },
+        {
+          "name": "cat",
+          "type": "list",
+          "direction": "reply",
+          "presence": "conditional",
+          "evidence": "bounded seven-file getEpgObject serializer derivation",
+          "confidence": "mechanical+annotated",
+          "minVersion": null,
+          "condition": "sorted unique strings from string_list serializer",
+          "shapeRef": "str",
+          "order": 33
+        },
+        {
+          "name": "key",
+          "type": "list",
+          "direction": "reply",
+          "presence": "conditional",
+          "evidence": "bounded seven-file getEpgObject serializer derivation",
+          "confidence": "mechanical+annotated",
+          "minVersion": null,
+          "condition": "sorted unique strings from string_list serializer",
+          "shapeRef": "str",
+          "order": 34
+        },
+        {
+          "name": "slink",
+          "type": "str",
+          "direction": "reply",
+          "presence": "conditional",
+          "evidence": "bounded seven-file getEpgObject serializer derivation",
+          "confidence": "mechanical+annotated",
+          "minVersion": null,
+          "condition": "emitted when a series link is present",
+          "order": 35
+        },
+        {
+          "name": "elink",
+          "type": "str",
+          "direction": "reply",
+          "presence": "conditional",
+          "evidence": "bounded seven-file getEpgObject serializer derivation",
+          "confidence": "mechanical+annotated",
+          "minVersion": null,
+          "condition": "emitted when an episode link is present",
+          "order": 36
+        }
+      ],
       "requestShape": {
         "kind": "fields",
-        "completeness": "partial",
-        "evidence": "bounded handler/helper extraction plus exact-pin annotations"
+        "completeness": "complete",
+        "evidence": "bounded handler accepts exactly required id and optional finite type selector"
       },
       "replyShape": {
-        "kind": "dynamic",
-        "completeness": "opaque",
-        "evidence": "htsp_method_getEpgObject returns dynamically serialized EPG objects; official docs say TODO"
+        "kind": "fields",
+        "completeness": "complete",
+        "evidence": "bounded seven-file serializer graph has one supported broadcast branch"
       },
+      "notes": [
+        "Official RPC documentation leaves the reply literally TODO; the exact seven-file source pin is normative.",
+        "EPG_UNDEF=0 and EPG_BROADCAST=1 are the complete pinned object-type vocabulary; only broadcast has a serializer.",
+        "Wire cred is an unconstrained copied message and remains an explicitly opaque shape deliberately omitted from the public response model.",
+        "Pinned time_t updated/start/stop/first_aired members are serialized as signed s64; the SDK exposes unchanged Unix-second values under its EPG time convention."
+      ],
       "sdk": {
-        "referenced": false,
-        "outgoingRequest": false,
-        "typedRequest": false
+        "referenced": true,
+        "outgoingRequest": true,
+        "typedRequest": true
       }
     },
     {
@@ -8940,6 +9454,7 @@
         "getDiskSpace",
         "getDvrConfigs",
         "getDvrCutpoints",
+        "getEpgObject",
         "getEvent",
         "getEvents",
         "getProfiles",
@@ -8956,7 +9471,7 @@
         "unsubscribe",
         "updateDvrEntry"
       ],
-      "referencedCount": 30,
+      "referencedCount": 31,
       "outgoingRequests": [
         "addDvrEntry",
         "authenticate",
@@ -8973,6 +9488,7 @@
         "getDiskSpace",
         "getDvrConfigs",
         "getDvrCutpoints",
+        "getEpgObject",
         "getEvent",
         "getEvents",
         "getProfiles",
@@ -8988,10 +9504,9 @@
         "unsubscribe",
         "updateDvrEntry"
       ],
-      "outgoingRequestCount": 29,
+      "outgoingRequestCount": 30,
       "unreferenced": [
         "api",
-        "getEpgObject",
         "addAutorecEntry",
         "updateAutorecEntry",
         "deleteAutorecEntry",
@@ -9003,7 +9518,7 @@
     },
     "typedClientRequests": {
       "catalog": "docs/htsp-protocol/generate_typed_requests.py",
-      "count": 22,
+      "count": 23,
       "methods": [
         {
           "name": "getProfiles",
@@ -9044,6 +9559,11 @@
           "name": "epgQuery",
           "accessMask": "ACCESS_HTSP_STREAMING",
           "methodMinVersion": 4
+        },
+        {
+          "name": "getEpgObject",
+          "accessMask": "ACCESS_HTSP_STREAMING",
+          "methodMinVersion": null
         },
         {
           "name": "getDvrConfigs",
@@ -9294,10 +9814,10 @@
       ]
     },
     "metrics": {
-      "referencedClientMethods": 30,
-      "outgoingClientMethods": 29,
+      "referencedClientMethods": 31,
+      "outgoingClientMethods": 30,
       "handledServerMessages": 27,
-      "typedClientRequests": 22,
+      "typedClientRequests": 23,
       "typedServerMessages": 26,
       "notes": [
         "referenced counts exact string literals in SDK production main sources",
