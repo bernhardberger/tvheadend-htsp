@@ -437,6 +437,12 @@ public final class at/bernhardberger/tvheadend/htsp/GeneratedHtspExtensionsKt {
 	public static synthetic fun getProfiles$default (Lat/bernhardberger/tvheadend/htsp/HtspConnection;JLat/bernhardberger/tvheadend/htsp/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
 	public static final fun getSysTime (Lat/bernhardberger/tvheadend/htsp/HtspConnection;JLat/bernhardberger/tvheadend/htsp/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public static synthetic fun getSysTime$default (Lat/bernhardberger/tvheadend/htsp/HtspConnection;JLat/bernhardberger/tvheadend/htsp/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+	public static final fun getTicket (Lat/bernhardberger/tvheadend/htsp/HtspConnection;Lat/bernhardberger/tvheadend/htsp/GetTicketSelector;JLat/bernhardberger/tvheadend/htsp/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static synthetic fun getTicket$default (Lat/bernhardberger/tvheadend/htsp/HtspConnection;Lat/bernhardberger/tvheadend/htsp/GetTicketSelector;JLat/bernhardberger/tvheadend/htsp/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+	public static final fun getTicket-Sg-zqNY (Lat/bernhardberger/tvheadend/htsp/HtspConnection;JJLat/bernhardberger/tvheadend/htsp/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static synthetic fun getTicket-Sg-zqNY$default (Lat/bernhardberger/tvheadend/htsp/HtspConnection;JJLat/bernhardberger/tvheadend/htsp/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+	public static final fun getTicket-_Gm4-Gs (Lat/bernhardberger/tvheadend/htsp/HtspConnection;JJLat/bernhardberger/tvheadend/htsp/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static synthetic fun getTicket-_Gm4-Gs$default (Lat/bernhardberger/tvheadend/htsp/HtspConnection;JJLat/bernhardberger/tvheadend/htsp/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
 	public static final fun stopDvrEntry (Lat/bernhardberger/tvheadend/htsp/HtspConnection;JJLat/bernhardberger/tvheadend/htsp/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public static synthetic fun stopDvrEntry$default (Lat/bernhardberger/tvheadend/htsp/HtspConnection;JJLat/bernhardberger/tvheadend/htsp/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
 	public static final fun subscribe (Lat/bernhardberger/tvheadend/htsp/HtspConnection;JJLjava/lang/String;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;JLat/bernhardberger/tvheadend/htsp/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
@@ -665,6 +671,55 @@ public final class at/bernhardberger/tvheadend/htsp/GetSysTimeResponse {
 	public final fun getUnixTimeSeconds ()J
 	public fun hashCode ()I
 	public fun toString ()Ljava/lang/String;
+}
+
+public final class at/bernhardberger/tvheadend/htsp/GetTicketRequest : at/bernhardberger/tvheadend/htsp/HtspRequest {
+	public fun <init> (Lat/bernhardberger/tvheadend/htsp/GetTicketSelector;)V
+	public final fun component1 ()Lat/bernhardberger/tvheadend/htsp/GetTicketSelector;
+	public final fun copy (Lat/bernhardberger/tvheadend/htsp/GetTicketSelector;)Lat/bernhardberger/tvheadend/htsp/GetTicketRequest;
+	public static synthetic fun copy$default (Lat/bernhardberger/tvheadend/htsp/GetTicketRequest;Lat/bernhardberger/tvheadend/htsp/GetTicketSelector;ILjava/lang/Object;)Lat/bernhardberger/tvheadend/htsp/GetTicketRequest;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getSelector ()Lat/bernhardberger/tvheadend/htsp/GetTicketSelector;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class at/bernhardberger/tvheadend/htsp/GetTicketResponse {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;)V
+	public final fun getPath ()Ljava/lang/String;
+	public final fun getTicket ()Ljava/lang/String;
+	public fun toString ()Ljava/lang/String;
+}
+
+public abstract interface class at/bernhardberger/tvheadend/htsp/GetTicketSelector {
+}
+
+public final class at/bernhardberger/tvheadend/htsp/GetTicketSelector$Channel : at/bernhardberger/tvheadend/htsp/GetTicketSelector {
+	public static final synthetic fun box-impl (J)Lat/bernhardberger/tvheadend/htsp/GetTicketSelector$Channel;
+	public static fun constructor-impl (J)J
+	public fun equals (Ljava/lang/Object;)Z
+	public static fun equals-impl (JLjava/lang/Object;)Z
+	public static final fun equals-impl0 (JJ)Z
+	public final fun getChannelId ()J
+	public fun hashCode ()I
+	public static fun hashCode-impl (J)I
+	public fun toString ()Ljava/lang/String;
+	public static fun toString-impl (J)Ljava/lang/String;
+	public final synthetic fun unbox-impl ()J
+}
+
+public final class at/bernhardberger/tvheadend/htsp/GetTicketSelector$Dvr : at/bernhardberger/tvheadend/htsp/GetTicketSelector {
+	public static final synthetic fun box-impl (J)Lat/bernhardberger/tvheadend/htsp/GetTicketSelector$Dvr;
+	public static fun constructor-impl (J)J
+	public fun equals (Ljava/lang/Object;)Z
+	public static fun equals-impl (JLjava/lang/Object;)Z
+	public static final fun equals-impl0 (JJ)Z
+	public final fun getDvrId ()J
+	public fun hashCode ()I
+	public static fun hashCode-impl (J)I
+	public fun toString ()Ljava/lang/String;
+	public static fun toString-impl (J)Ljava/lang/String;
+	public final synthetic fun unbox-impl ()J
 }
 
 public final class at/bernhardberger/tvheadend/htsp/HtspAccess : java/lang/Enum {

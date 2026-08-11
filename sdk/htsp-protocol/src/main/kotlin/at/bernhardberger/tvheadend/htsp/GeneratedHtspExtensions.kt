@@ -37,6 +37,7 @@ internal val typedHtspRequestCatalog: List<TypedHtspRequestCatalogEntry> = listO
     TypedHtspRequestCatalogEntry("updateTimerecEntry", "UpdateTimerecEntryRequest", "UpdateTimerecEntryResponse", HtspAccess.ACCESS_HTSP_RECORDER, 25),
     TypedHtspRequestCatalogEntry("deleteTimerecEntry", "DeleteTimerecEntryRequest", "DeleteTimerecEntryResponse", HtspAccess.ACCESS_HTSP_RECORDER, 18),
     TypedHtspRequestCatalogEntry("getDvrCutpoints", "GetDvrCutpointsRequest", "GetDvrCutpointsResponse", HtspAccess.ACCESS_HTSP_RECORDER, 12),
+    TypedHtspRequestCatalogEntry("getTicket", "GetTicketRequest", "GetTicketResponse", HtspAccess.ACCESS_HTSP_STREAMING, 5),
     TypedHtspRequestCatalogEntry("subscribe", "SubscribeRequest", "SubscribeResponse", HtspAccess.ACCESS_HTSP_STREAMING, null),
     TypedHtspRequestCatalogEntry("unsubscribe", "UnsubscribeRequest", "HtspEmptyResponse", HtspAccess.ACCESS_HTSP_STREAMING, null),
     TypedHtspRequestCatalogEntry("subscriptionChangeWeight", "SubscriptionChangeWeightRequest", "HtspEmptyResponse", HtspAccess.ACCESS_HTSP_STREAMING, 5),
@@ -601,6 +602,45 @@ public suspend fun HtspConnection.getDvrCutpoints(
     call(
         request = GetDvrCutpointsRequest(
             entryId = entryId,
+        ),
+        timeoutMs = timeoutMs,
+        expectedGeneration = expectedGeneration,
+    )
+
+public suspend fun HtspConnection.getTicket(
+    selector: GetTicketSelector,
+    timeoutMs: Long = 5_000L,
+    expectedGeneration: HtspConnectionGeneration? = null,
+): HtspResult<GetTicketResponse> =
+    call(
+        request = GetTicketRequest(
+            selector = selector,
+        ),
+        timeoutMs = timeoutMs,
+        expectedGeneration = expectedGeneration,
+    )
+
+public suspend fun HtspConnection.getTicket(
+    selector: GetTicketSelector.Channel,
+    timeoutMs: Long = 5_000L,
+    expectedGeneration: HtspConnectionGeneration? = null,
+): HtspResult<GetTicketResponse> =
+    call(
+        request = GetTicketRequest(
+            selector = selector,
+        ),
+        timeoutMs = timeoutMs,
+        expectedGeneration = expectedGeneration,
+    )
+
+public suspend fun HtspConnection.getTicket(
+    selector: GetTicketSelector.Dvr,
+    timeoutMs: Long = 5_000L,
+    expectedGeneration: HtspConnectionGeneration? = null,
+): HtspResult<GetTicketResponse> =
+    call(
+        request = GetTicketRequest(
+            selector = selector,
         ),
         timeoutMs = timeoutMs,
         expectedGeneration = expectedGeneration,

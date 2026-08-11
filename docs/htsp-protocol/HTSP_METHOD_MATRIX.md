@@ -21,10 +21,10 @@ Primary authority is the pinned TVHeadend server source. Official HTSP documenta
 ## SDK coverage (exact-literal metric)
 
 - Production scan roots: `sdk/htsp-protocol/src/main`, `sdk/htsp/src/main`, `sdk/playback-media3/src/main`
-- Client→server methods referenced in production sources: **37 / 39**
-- Distinct outgoing request names: **36 / 39**
+- Client→server methods referenced in production sources: **38 / 39**
+- Distinct outgoing request names: **37 / 39**
 - Server→client messages handled (exact literal): **27 / 30**
-- Public typed client requests from the reviewed catalog: **29 / 39**
+- Public typed client requests from the reviewed catalog: **30 / 39**
 - Public typed server messages from the separate reviewed catalog: **26 / 30**
 - Distinguish **referenced** from **outgoing**: a name can appear because an inbound handler mentions it (for example `subscriptionSkip`) while the client sends a synonym (`subscriptionSeek`).
 - Never claim methods are implemented/called merely because they are referenced.
@@ -74,7 +74,7 @@ These fields are protocol-wide and are **not** method-specific success fields.
 | 22 | `updateTimerecEntry` | `ACCESS_HTSP_RECORDER` | 25 (annotated) | yes | yes | yes | `id`:str [required], `channelId`:s64 [optional], `start`:u32 [optional], `stop`:u32 [optional], `enabled`:u32 [optional] ≥v19, `retention`:u32 [optional], `removal`:u32 [optional], `priority`:u32 [optional], `name`:str [optional], `comment`:str [optional] ≥v42, `directory`:str [optional] ≥v19, `title`:str [optional], `configName`:str [optional], `daysOfWeek`:u32 [optional] — fields/complete | `success`:u32 [required] — fields/complete |
 | 23 | `deleteTimerecEntry` | `ACCESS_HTSP_RECORDER` | 18 (annotated) | yes | yes | yes | `id`:str [required] — fields/complete | `success`:u32 [required] — fields/complete |
 | 24 | `getDvrCutpoints` | `ACCESS_HTSP_RECORDER` | 12 (annotated) | yes | yes | yes | `id`:u32 [required] — fields/complete | `cutpoints`:list [optional] → `cutpoint` — fields/complete |
-| 25 | `getTicket` | `ACCESS_HTSP_STREAMING` | 5 (annotated) |  |  |  | `channelId`:u32 [unknown], `dvrId`:u32 [unknown] — fields/partial | `path`:str [unknown], `ticket`:str [unknown] — fields/partial |
+| 25 | `getTicket` | `ACCESS_HTSP_STREAMING` | 5 (annotated) | yes | yes | yes | `channelId`:u32 [alternative], `dvrId`:u32 [alternative] — alternative/complete | `path`:str [required], `ticket`:str [required] — fields/complete |
 | 26 | `subscribe` | `ACCESS_HTSP_STREAMING` | — | yes | yes | yes | `subscriptionId`:u32 [required], `channelId`:u32 [alternative], `channelName`:str [alternative], `profile`:str [unknown], `weight`:u32 [unknown], `90khz`:u32 [unknown], `timeshiftPeriod`:u32 [unknown], `queueDepth`:u32 [unknown] — fields/partial | `90khz`:u32 [unknown], `normts`:u32 [unknown], `weight`:u32 [unknown], `timeshiftPeriod`:u32 [unknown] — fields/partial |
 | 27 | `unsubscribe` | `ACCESS_HTSP_STREAMING` | — | yes | yes | yes | `subscriptionId`:u32 [unknown] — fields/partial | _knownEmpty/complete_ |
 | 28 | `subscriptionChangeWeight` | `ACCESS_HTSP_STREAMING` | 5 (annotated) | yes | yes | yes | `subscriptionId`:u32 [required], `weight`:u32 [optional] — fields/complete | _knownEmpty/complete_ |
@@ -160,6 +160,13 @@ Pinned htsp_method_getEvents source gives eventId selection precedence when both
 The official Client-to-Server RPC methods page does not define the millisecond coordinate origin or chronological ordering, overlap, or uniqueness semantics for getDvrCutpoints. Pinned source serializes dc_start_ms and dc_end_ms and traverses the TAILQ in its observed order; the SDK preserves those values and order without interpreting them.
 
 - Authority: src/htsp_server.c htsp_method_getDvrCutpoints
+- Docs URL: https://docs.tvheadend.org/documentation/development/htsp/client-to-server-rpc-methods
+
+### `getTicket-selector-precedence-underdocumented`
+
+The official Client-to-Server RPC methods page marks channelId and dvrId optional and the path/ticket reply fields required, but does not state that at least one selector must decode or that channelId wins when both decode. Pinned current source establishes that either/or and channel-first behavior.
+
+- Authority: src/htsp_server.c htsp_method_getTicket
 - Docs URL: https://docs.tvheadend.org/documentation/development/htsp/client-to-server-rpc-methods
 
 ### `subscriptionChangeWeight-default-ack-order-underdocumented`

@@ -83,6 +83,7 @@ EXPECTED_TYPED_CLIENT_REQUESTS: tuple[tuple[str, str, int | None], ...] = (
     ("updateTimerecEntry", "ACCESS_HTSP_RECORDER", 25),
     ("deleteTimerecEntry", "ACCESS_HTSP_RECORDER", 18),
     ("getDvrCutpoints", "ACCESS_HTSP_RECORDER", 12),
+    ("getTicket", "ACCESS_HTSP_STREAMING", 5),
     ("subscribe", "ACCESS_HTSP_STREAMING", None),
     ("unsubscribe", "ACCESS_HTSP_STREAMING", None),
     ("subscriptionChangeWeight", "ACCESS_HTSP_STREAMING", 5),
@@ -539,6 +540,64 @@ GET_EPG_OBJECT_NOTES = [
     "EPG_UNDEF=0 and EPG_BROADCAST=1 are the complete pinned object-type vocabulary; only broadcast has a serializer.",
     "Wire cred is an unconstrained copied message and remains an explicitly opaque shape deliberately omitted from the public response model.",
     "Pinned time_t updated/start/stop/first_aired members are serialized as signed s64; the SDK exposes unchanged Unix-second values under its EPG time convention.",
+]
+GET_TICKET_LIMITATION_ID = "getTicket-selector-precedence-underdocumented"
+GET_TICKET_DOCS_URL = (
+    "https://docs.tvheadend.org/documentation/development/htsp/"
+    "client-to-server-rpc-methods"
+)
+GET_TICKET_LIMITATION_SUMMARY = (
+    "The official Client-to-Server RPC methods page marks channelId and "
+    "dvrId optional and the path/ticket reply fields required, but does "
+    "not state that at least one selector must decode or that channelId "
+    "wins when both decode. Pinned current source establishes that "
+    "either/or and channel-first behavior."
+)
+GET_TICKET_REQUEST_CONTRACT = (
+    (
+        "channelId", "u32", "alternative",
+        "selected first; when both selectors decode, channelId wins",
+        "bounded htsp_method_getTicket tries strict u32 channelId first",
+    ),
+    (
+        "dvrId", "u32", "alternative",
+        "selected only when channelId does not decode",
+        "bounded htsp_method_getTicket tries strict u32 dvrId only as fallback",
+    ),
+)
+GET_TICKET_REPLY_CONTRACT = (
+    (
+        "path", "str", "required",
+        "bounded successful getTicket output adds exact string path first",
+    ),
+    (
+        "ticket", "str", "required",
+        "bounded successful getTicket output adds exact string ticket second",
+    ),
+)
+GET_TICKET_REQUEST_SHAPE = {
+    "kind": "alternative",
+    "completeness": "complete",
+    "evidence": "bounded handler requires one decodable u32 selector and gives channelId precedence",
+    "alternatives": [
+        "channelId only",
+        "dvrId only",
+        "channelId and dvrId; channelId wins",
+    ],
+    "invalidAlternatives": [
+        "neither channelId nor dvrId; at least one decodable u32 selector is required",
+    ],
+}
+GET_TICKET_REPLY_SHAPE = {
+    "kind": "fields",
+    "completeness": "complete",
+    "evidence": "bounded successful handler emits exactly ordered required string path and ticket",
+}
+GET_TICKET_NOTES = [
+    "Dispatch requires ACCESS_HTSP_STREAMING and the method is annotated as available since HTSP version 5.",
+    "Pinned source accepts channelId only, dvrId only, or both selectors with channelId precedence; the neither-present state takes the invalid-arguments path. The stricter typed SDK models exactly one selector.",
+    "Channel selection verifies channel lookup and access before creating /stream/channelid/%d; DVR selection verifies entry lookup and its channel access before creating /dvrfile/%d.",
+    "Successful source output creates one map and adds required string path then required string ticket; both values are untrusted and diagnostic-sensitive, and ticket is credential-bearing.",
 ]
 GET_DVR_CUTPOINTS_LIMITATION_ID = (
     "getDvrCutpoints-coordinate-order-semantics-underdocumented"
@@ -1215,6 +1274,40 @@ def validate_spec(spec: dict[str, Any], upstream: dict[str, Any] | None = None) 
         errors.append("getEpgObject request/reply shapes must be fields/complete")
     if get_epg_object.get("notes") != GET_EPG_OBJECT_NOTES:
         errors.append("getEpgObject notes must preserve source authority, finite type, opaque credits, and time semantics")
+    get_ticket = method_map.get("getTicket", {})
+    if (
+        get_ticket.get("handler") != "htsp_method_getTicket"
+        or get_ticket.get("accessMask") != "ACCESS_HTSP_STREAMING"
+        or get_ticket.get("minVersion") != 5
+        or get_ticket.get("minVersionConfidence") != "annotated"
+    ):
+        errors.append("getTicket must preserve exact handler, streaming access, and annotated minimum v5")
+    ticket_request = [
+        (
+            field.get("name"), field.get("type"), field.get("presence"),
+            field.get("condition"), field.get("evidence"),
+        )
+        for field in get_ticket.get("requestFields", [])
+    ]
+    if ticket_request != list(GET_TICKET_REQUEST_CONTRACT):
+        errors.append("getTicket request must preserve exact channel-first alternative u32 selector contract")
+    ticket_reply = [
+        (
+            field.get("name"), field.get("type"), field.get("presence"),
+            field.get("evidence"),
+        )
+        for field in get_ticket.get("replyFields", [])
+    ]
+    if ticket_reply != list(GET_TICKET_REPLY_CONTRACT):
+        errors.append("getTicket reply must preserve exact ordered required string path and ticket")
+    if get_ticket.get("requestShape") != GET_TICKET_REQUEST_SHAPE:
+        errors.append("getTicket request shape must preserve complete alternative-selector evidence")
+    if get_ticket.get("replyShape") != GET_TICKET_REPLY_SHAPE:
+        errors.append("getTicket reply shape must preserve complete ordered-field evidence")
+    if get_ticket.get("docStatus") != "selector-requirement-and-precedence-underdocumented":
+        errors.append("getTicket must preserve the official selector-documentation gap status")
+    if get_ticket.get("notes") != GET_TICKET_NOTES:
+        errors.append("getTicket notes must preserve selector, branch, path, output, and credential facts")
     language_shape = shapes.get("epgLanguageStrings") or {}
     if (
         language_shape.get("kind") != "stringMap"
@@ -1529,8 +1622,8 @@ def validate_spec(spec: dict[str, Any], upstream: dict[str, Any] | None = None) 
             errors.append(f"{name}: typed catalog access mask disagrees with pinned method")
         if method.get("minVersion") != method_min_version:
             errors.append(f"{name}: typed catalog method minimum disagrees with pinned method")
-    if typed_count != len(typed_methods) or typed_count != 29:
-        errors.append("coverage typedClientRequests.count must match exactly 29 methods")
+    if typed_count != len(typed_methods) or typed_count != 30:
+        errors.append("coverage typedClientRequests.count must match exactly 30 methods")
     if typed_cov.get("catalog") != "docs/htsp-protocol/generate_typed_requests.py":
         errors.append("coverage typedClientRequests.catalog must name the reviewed generator")
     if typed_cov.get("meaning") != (
@@ -1607,13 +1700,13 @@ def validate_spec(spec: dict[str, Any], upstream: dict[str, Any] | None = None) 
         errors.append("outgoingRequestCount cannot exceed referencedCount")
 
     # Current repository acceptance targets (exact-literal metric).
-    if ref_count not in (None, 37):
+    if ref_count not in (None, 38):
         errors.append(
-            f"expected referenced client methods == 37 under current metric, got {ref_count}"
+            f"expected referenced client methods == 38 under current metric, got {ref_count}"
         )
-    if out_count not in (None, 36):
+    if out_count not in (None, 37):
         errors.append(
-            f"expected outgoing client methods == 36 under current metric, got {out_count}"
+            f"expected outgoing client methods == 37 under current metric, got {out_count}"
         )
     if handled_count not in (None, 27):
         errors.append(
@@ -1652,6 +1745,8 @@ def validate_spec(spec: dict[str, Any], upstream: dict[str, Any] | None = None) 
         )
     if "subscriptionLive" not in referenced_list or "subscriptionLive" not in outgoing_list:
         errors.append("subscriptionLive must be fresh referenced and outgoing production coverage")
+    if "getTicket" not in referenced_list or "getTicket" not in outgoing_list:
+        errors.append("getTicket must be fresh referenced and outgoing production coverage")
     if (
         "subscriptionFilterStream" not in referenced_list
         or "subscriptionFilterStream" not in outgoing_list
@@ -1800,6 +1895,22 @@ def validate_spec(spec: dict[str, Any], upstream: dict[str, Any] | None = None) 
             errors.append(
                 "getDvrCutpoints limitation must preserve exact coordinate/order uncertainty, "
                 "pinned source facts, SDK preservation policy, and governing Client-to-Server URL"
+            )
+        get_ticket_limitation = next(
+            (
+                item for item in limitations
+                if isinstance(item, dict) and item.get("id") == GET_TICKET_LIMITATION_ID
+            ),
+            None,
+        )
+        if not get_ticket_limitation or (
+            get_ticket_limitation.get("summary") != GET_TICKET_LIMITATION_SUMMARY
+            or get_ticket_limitation.get("authority")
+            != "src/htsp_server.c htsp_method_getTicket"
+            or get_ticket_limitation.get("docsUrl") != GET_TICKET_DOCS_URL
+        ):
+            errors.append(
+                "getTicket limitation must preserve exact selector requirement, precedence gap, and pinned authority"
             )
         stop_dvr_entry_limitation = next(
             (
@@ -2002,7 +2113,9 @@ def _validate_shape_descriptor(
 ) -> list[str]:
     if not isinstance(descriptor, dict):
         return [f"{owner}.{section}: shape descriptor must be an object"]
-    allowed = {"kind", "completeness", "evidence", "alternatives"}
+    allowed = {
+        "kind", "completeness", "evidence", "alternatives", "invalidAlternatives",
+    }
     if not {"kind", "completeness", "evidence"} <= set(descriptor) or not set(descriptor) <= allowed:
         return [f"{owner}.{section}: shape descriptor keys do not match schema"]
     errors: list[str] = []
@@ -2027,6 +2140,18 @@ def _validate_shape_descriptor(
         errors.append(f"{owner}.{section}: unknown shape must be partial")
     if kind == "alternative" and not descriptor.get("alternatives"):
         errors.append(f"{owner}.{section}: alternative shape requires alternatives")
+    if "invalidAlternatives" in descriptor:
+        invalid_alternatives = descriptor.get("invalidAlternatives")
+        if kind != "alternative":
+            errors.append(f"{owner}.{section}: invalidAlternatives requires alternative kind")
+        if (
+            not isinstance(invalid_alternatives, list)
+            or not invalid_alternatives
+            or any(not isinstance(item, str) or not item for item in invalid_alternatives)
+        ):
+            errors.append(
+                f"{owner}.{section}: invalidAlternatives must be non-empty strings when present"
+            )
     return errors
 
 
@@ -2375,7 +2500,7 @@ def _derive_fresh_self_test_spec(fresh_mutator: Any = None) -> dict[str, Any]:
             else f"htsp_method_{name}"
             if name in {
                 "getEvent", "getEvents", "getEpgObject", "epgQuery", "stopDvrEntry",
-                "getDvrCutpoints", *derive_module.RECORDING_RULE_METHODS,
+                "getDvrCutpoints", "getTicket", *derive_module.RECORDING_RULE_METHODS,
             }
             else f"htsp_method_{index}",
             "ACCESS_HTSP_RECORDER"
@@ -2384,7 +2509,7 @@ def _derive_fresh_self_test_spec(fresh_mutator: Any = None) -> dict[str, Any]:
             }
             else "ACCESS_HTSP_STREAMING"
             if name in {
-                "getEvents", "epgQuery", "getEpgObject", "subscriptionChangeWeight", "subscriptionLive",
+                "getEvents", "epgQuery", "getEpgObject", "getTicket", "subscriptionChangeWeight", "subscriptionLive",
                 "subscriptionFilterStream",
             }
             else "ACCESS_ANONYMOUS",
@@ -2438,7 +2563,7 @@ def _derive_fresh_self_test_spec(fresh_mutator: Any = None) -> dict[str, Any]:
             fresh_mutator(fresh)
 
     # Report validation owns schema/policy, not fixture-byte pin verification.
-    # Evaluate freshly derived getEvents/epgQuery/getEpgObject/event/stopDvrEntry/getDvrCutpoints,
+    # Evaluate freshly derived getEvents/epgQuery/getEpgObject/getTicket/event/stopDvrEntry/getDvrCutpoints,
     # six recording-rule methods, and subscription control evidence
     # inside the complete committed-schema baseline; unrelated minimal fixture
     # handlers deliberately do not pretend to model every pinned method.
@@ -2449,7 +2574,7 @@ def _derive_fresh_self_test_spec(fresh_mutator: Any = None) -> dict[str, Any]:
     candidate["clientMethods"] = [
         fresh_methods[item["name"]]
         if item["name"] in {
-            "getEvents", "epgQuery", "getEpgObject", "stopDvrEntry", "getDvrCutpoints",
+            "getEvents", "epgQuery", "getEpgObject", "getTicket", "stopDvrEntry", "getDvrCutpoints",
             "addAutorecEntry", "updateAutorecEntry", "deleteAutorecEntry",
             "addTimerecEntry", "updateTimerecEntry", "deleteTimerecEntry",
             "subscriptionChangeWeight", "subscriptionLive",
@@ -2678,8 +2803,8 @@ def self_test() -> None:
     )
     check(
         "getChannel-fresh-coverage",
-        good_spec["coverage"]["clientMethods"]["referencedCount"] == 37
-        and good_spec["coverage"]["clientMethods"]["outgoingRequestCount"] == 36
+        good_spec["coverage"]["clientMethods"]["referencedCount"] == 38
+        and good_spec["coverage"]["clientMethods"]["outgoingRequestCount"] == 37
         and "getChannel" in good_spec["coverage"]["clientMethods"]["outgoingRequests"],
     )
 
@@ -2713,8 +2838,8 @@ def self_test() -> None:
     )
     check(
         "getEvents-fresh-unchanged-coverage",
-        good_spec["coverage"]["clientMethods"]["referencedCount"] == 37
-        and good_spec["coverage"]["clientMethods"]["outgoingRequestCount"] == 36
+        good_spec["coverage"]["clientMethods"]["referencedCount"] == 38
+        and good_spec["coverage"]["clientMethods"]["outgoingRequestCount"] == 37
         and good_spec["coverage"]["serverMessages"]["handledCount"] == 27
         and "getEvents" in good_spec["coverage"]["clientMethods"]["outgoingRequests"],
     )
@@ -2783,6 +2908,149 @@ def self_test() -> None:
         any("getEpgObject reply" in error for error in mutated_fresh_get_epg_errors),
         str(mutated_fresh_get_epg_errors),
     )
+    get_ticket = next(
+        method for method in good_spec["clientMethods"] if method["name"] == "getTicket"
+    )
+    check(
+        "getTicket-fresh-complete-contract",
+        get_ticket.get("handler") == "htsp_method_getTicket"
+        and get_ticket.get("accessMask") == "ACCESS_HTSP_STREAMING"
+        and get_ticket.get("minVersion") == 5
+        and get_ticket.get("minVersionConfidence") == "annotated"
+        and [
+            (
+                field["name"], field["type"], field["presence"],
+                field.get("condition"), field["evidence"],
+            )
+            for field in get_ticket["requestFields"]
+        ] == list(GET_TICKET_REQUEST_CONTRACT)
+        and [
+            (
+                field["name"], field["type"], field["presence"],
+                field["evidence"],
+            )
+            for field in get_ticket["replyFields"]
+        ] == list(GET_TICKET_REPLY_CONTRACT)
+        and get_ticket.get("requestShape") == GET_TICKET_REQUEST_SHAPE
+        and get_ticket.get("replyShape") == GET_TICKET_REPLY_SHAPE
+        and get_ticket.get("docStatus")
+        == "selector-requirement-and-precedence-underdocumented"
+        and get_ticket.get("notes") == GET_TICKET_NOTES
+        and get_ticket.get("sdk") == {
+            "referenced": True,
+            "outgoingRequest": True,
+            "typedRequest": True,
+        },
+        str(get_ticket),
+    )
+    mutated_fresh_ticket = _derive_fresh_self_test_spec(
+        lambda fresh: next(
+            method for method in fresh["clientMethods"] if method["name"] == "getTicket"
+        )["requestFields"][0].update({"condition": "no precedence"}),
+    )
+    mutated_fresh_ticket_errors = validate_spec(mutated_fresh_ticket)
+    check(
+        "getTicket-fresh-contract-mutation-rejected",
+        any("getTicket request" in error for error in mutated_fresh_ticket_errors),
+        str(mutated_fresh_ticket_errors),
+    )
+
+    for label, mutate in (
+        ("handler", lambda method: method.update({"handler": "htsp_method_ticket_alias"})),
+        ("access", lambda method: method.update({"accessMask": "ACCESS_ANONYMOUS"})),
+        ("minimum", lambda method: method.update({"minVersion": 4})),
+        ("minimum-confidence", lambda method: method.update({"minVersionConfidence": "unknown"})),
+        ("channel-name", lambda method: method["requestFields"][0].update({"name": "channel"})),
+        ("channel-type", lambda method: method["requestFields"][0].update({"type": "s64"})),
+        ("channel-presence", lambda method: method["requestFields"][0].update({"presence": "optional"})),
+        ("channel-condition", lambda method: method["requestFields"][0].update({"condition": "no precedence"})),
+        ("channel-evidence", lambda method: method["requestFields"][0].update({"evidence": "generic getter"})),
+        ("dvr-name", lambda method: method["requestFields"][1].update({"name": "entryId"})),
+        ("dvr-condition", lambda method: method["requestFields"][1].update({"condition": "selected first"})),
+        ("request-order", lambda method: method["requestFields"].reverse()),
+        ("path-name", lambda method: method["replyFields"][0].update({"name": "url"})),
+        ("path-type", lambda method: method["replyFields"][0].update({"type": "bin"})),
+        ("path-presence", lambda method: method["replyFields"][0].update({"presence": "optional"})),
+        ("path-evidence", lambda method: method["replyFields"][0].update({"evidence": "generic output"})),
+        ("ticket-name", lambda method: method["replyFields"][1].update({"name": "token"})),
+        ("reply-order", lambda method: method["replyFields"].reverse()),
+        ("request-shape-kind", lambda method: method["requestShape"].update({"kind": "fields"})),
+        ("request-shape-completeness", lambda method: method["requestShape"].update({"completeness": "partial"})),
+        ("request-shape-evidence", lambda method: method["requestShape"].update({"evidence": "generic"})),
+        ("reply-shape-completeness", lambda method: method["replyShape"].update({"completeness": "partial"})),
+        ("reply-shape-evidence", lambda method: method["replyShape"].update({"evidence": "generic"})),
+        ("doc-status", lambda method: method.update({"docStatus": "documented"})),
+        ("notes", lambda method: method["notes"].__setitem__(1, "selectors are interchangeable")),
+    ):
+        bad = json.loads(json.dumps(good_spec))
+        method = next(item for item in bad["clientMethods"] if item["name"] == "getTicket")
+        mutate(method)
+        err = validate_spec(bad)
+        check(
+            f"reject-getTicket-{label}",
+            any("getTicket" in error for error in err),
+            str(err),
+        )
+
+    for label, mutate in (
+        ("remove-both-present", lambda shape: shape["alternatives"].pop()),
+        ("weaken-channel-wins", lambda shape: shape["alternatives"].__setitem__(2, "channelId and dvrId; dvrId wins")),
+        ("remove-neither-invalid", lambda shape: shape.pop("invalidAlternatives")),
+        ("weaken-neither-invalid", lambda shape: shape["invalidAlternatives"].__setitem__(0, "neither selector is accepted")),
+    ):
+        bad = json.loads(json.dumps(good_spec))
+        method = next(item for item in bad["clientMethods"] if item["name"] == "getTicket")
+        original = json.loads(json.dumps(method))
+        mutate(method["requestShape"])
+        check(
+            f"getTicket-request-shape-mutation-exact-target-{label}",
+            [key for key in method if method[key] != original[key]] == ["requestShape"],
+            str(method),
+        )
+        err = validate_spec(bad)
+        check(
+            f"getTicket-request-shape-mutation-exact-diagnostic-{label}",
+            err == [
+                "getTicket request shape must preserve complete alternative-selector evidence",
+            ],
+            str(err),
+        )
+
+    bad = json.loads(json.dumps(good_spec))
+    bad["coverage"]["clientMethods"]["referenced"].remove("getTicket")
+    bad["coverage"]["clientMethods"]["referencedCount"] -= 1
+    bad["coverage"]["clientMethods"]["outgoingRequests"].remove("getTicket")
+    bad["coverage"]["clientMethods"]["outgoingRequestCount"] -= 1
+    bad["coverage"]["metrics"]["referencedClientMethods"] -= 1
+    bad["coverage"]["metrics"]["outgoingClientMethods"] -= 1
+    next(
+        method for method in bad["clientMethods"] if method["name"] == "getTicket"
+    )["sdk"] = {"referenced": False, "outgoingRequest": False, "typedRequest": True}
+    err = validate_spec(bad)
+    check(
+        "reject-getTicket-stale-live-coverage",
+        any("getTicket must be fresh" in error for error in err),
+        str(err),
+    )
+
+    for label, key, replacement in (
+        ("summary", "summary", "selectors are fully documented"),
+        ("authority", "authority", "src/htsp_server.c decoy"),
+        ("docs-url", "docsUrl", "https://example.invalid/ticket"),
+    ):
+        bad = json.loads(json.dumps(good_spec))
+        limitation = next(
+            item for item in bad["docLimitations"]
+            if item["id"] == GET_TICKET_LIMITATION_ID
+        )
+        limitation[key] = replacement
+        err = validate_spec(bad)
+        check(
+            f"reject-getTicket-limitation-{label}",
+            any("getTicket limitation" in error for error in err),
+            str(err),
+        )
+
     stop_dvr_entry = next(
         method for method in good_spec["clientMethods"] if method["name"] == "stopDvrEntry"
     )
@@ -3870,7 +4138,7 @@ def self_test() -> None:
     err = validate_spec(bad)
     check(
         "reject-false-all-called",
-        any("outgoing client methods == 36" in e for e in err),
+        any("outgoing client methods == 37" in e for e in err),
         str(err),
     )
 

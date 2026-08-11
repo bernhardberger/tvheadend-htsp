@@ -4300,20 +4300,22 @@
           "name": "channelId",
           "type": "u32",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_u32",
-          "confidence": "mechanical",
+          "presence": "alternative",
+          "evidence": "bounded htsp_method_getTicket tries strict u32 channelId first",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
+          "condition": "selected first; when both selectors decode, channelId wins",
           "order": 1
         },
         {
           "name": "dvrId",
           "type": "u32",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_u32",
-          "confidence": "mechanical",
+          "presence": "alternative",
+          "evidence": "bounded htsp_method_getTicket tries strict u32 dvrId only as fallback",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
+          "condition": "selected only when channelId does not decode",
           "order": 2
         }
       ],
@@ -4322,9 +4324,9 @@
           "name": "path",
           "type": "str",
           "direction": "reply",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_str",
-          "confidence": "mechanical",
+          "presence": "required",
+          "evidence": "bounded successful getTicket output adds exact string path first",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 1
         },
@@ -4332,27 +4334,42 @@
           "name": "ticket",
           "type": "str",
           "direction": "reply",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_str",
-          "confidence": "mechanical",
+          "presence": "required",
+          "evidence": "bounded successful getTicket output adds exact string ticket second",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 2
         }
       ],
       "requestShape": {
-        "kind": "fields",
-        "completeness": "partial",
-        "evidence": "bounded handler/helper extraction plus exact-pin annotations"
+        "kind": "alternative",
+        "completeness": "complete",
+        "evidence": "bounded handler requires one decodable u32 selector and gives channelId precedence",
+        "alternatives": [
+          "channelId only",
+          "dvrId only",
+          "channelId and dvrId; channelId wins"
+        ],
+        "invalidAlternatives": [
+          "neither channelId nor dvrId; at least one decodable u32 selector is required"
+        ]
       },
       "replyShape": {
         "kind": "fields",
-        "completeness": "partial",
-        "evidence": "bounded handler/helper extraction plus exact-pin annotations"
+        "completeness": "complete",
+        "evidence": "bounded successful handler emits exactly ordered required string path and ticket"
       },
+      "docStatus": "selector-requirement-and-precedence-underdocumented",
+      "notes": [
+        "Dispatch requires ACCESS_HTSP_STREAMING and the method is annotated as available since HTSP version 5.",
+        "Pinned source accepts channelId only, dvrId only, or both selectors with channelId precedence; the neither-present state takes the invalid-arguments path. The stricter typed SDK models exactly one selector.",
+        "Channel selection verifies channel lookup and access before creating /stream/channelid/%d; DVR selection verifies entry lookup and its channel access before creating /dvrfile/%d.",
+        "Successful source output creates one map and adds required string path then required string ticket; both values are untrusted and diagnostic-sensitive, and ticket is credential-bearing."
+      ],
       "sdk": {
-        "referenced": false,
-        "outgoingRequest": false,
-        "typedRequest": false
+        "referenced": true,
+        "outgoingRequest": true,
+        "typedRequest": true
       }
     },
     {
@@ -9313,6 +9330,7 @@
         "getEvents",
         "getProfiles",
         "getSysTime",
+        "getTicket",
         "hello",
         "stopDvrEntry",
         "subscribe",
@@ -9327,7 +9345,7 @@
         "updateDvrEntry",
         "updateTimerecEntry"
       ],
-      "referencedCount": 37,
+      "referencedCount": 38,
       "outgoingRequests": [
         "addAutorecEntry",
         "addDvrEntry",
@@ -9353,6 +9371,7 @@
         "getEvents",
         "getProfiles",
         "getSysTime",
+        "getTicket",
         "hello",
         "stopDvrEntry",
         "subscribe",
@@ -9366,15 +9385,14 @@
         "updateDvrEntry",
         "updateTimerecEntry"
       ],
-      "outgoingRequestCount": 36,
+      "outgoingRequestCount": 37,
       "unreferenced": [
-        "api",
-        "getTicket"
+        "api"
       ]
     },
     "typedClientRequests": {
       "catalog": "docs/htsp-protocol/generate_typed_requests.py",
-      "count": 29,
+      "count": 30,
       "methods": [
         {
           "name": "getProfiles",
@@ -9485,6 +9503,11 @@
           "name": "getDvrCutpoints",
           "accessMask": "ACCESS_HTSP_RECORDER",
           "methodMinVersion": 12
+        },
+        {
+          "name": "getTicket",
+          "accessMask": "ACCESS_HTSP_STREAMING",
+          "methodMinVersion": 5
         },
         {
           "name": "subscribe",
@@ -9700,10 +9723,10 @@
       ]
     },
     "metrics": {
-      "referencedClientMethods": 37,
-      "outgoingClientMethods": 36,
+      "referencedClientMethods": 38,
+      "outgoingClientMethods": 37,
       "handledServerMessages": 27,
-      "typedClientRequests": 29,
+      "typedClientRequests": 30,
       "typedServerMessages": 26,
       "notes": [
         "referenced counts exact string literals in SDK production main sources",
@@ -9744,6 +9767,12 @@
       "id": "getDvrCutpoints-coordinate-order-semantics-underdocumented",
       "summary": "The official Client-to-Server RPC methods page does not define the millisecond coordinate origin or chronological ordering, overlap, or uniqueness semantics for getDvrCutpoints. Pinned source serializes dc_start_ms and dc_end_ms and traverses the TAILQ in its observed order; the SDK preserves those values and order without interpreting them.",
       "authority": "src/htsp_server.c htsp_method_getDvrCutpoints",
+      "docsUrl": "https://docs.tvheadend.org/documentation/development/htsp/client-to-server-rpc-methods"
+    },
+    {
+      "id": "getTicket-selector-precedence-underdocumented",
+      "summary": "The official Client-to-Server RPC methods page marks channelId and dvrId optional and the path/ticket reply fields required, but does not state that at least one selector must decode or that channelId wins when both decode. Pinned current source establishes that either/or and channel-first behavior.",
+      "authority": "src/htsp_server.c htsp_method_getTicket",
       "docsUrl": "https://docs.tvheadend.org/documentation/development/htsp/client-to-server-rpc-methods"
     },
     {

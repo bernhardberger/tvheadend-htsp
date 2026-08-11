@@ -437,6 +437,21 @@ DOC_LIMITATIONS = [
         ),
     },
     {
+        "id": "getTicket-selector-precedence-underdocumented",
+        "summary": (
+            "The official Client-to-Server RPC methods page marks channelId and "
+            "dvrId optional and the path/ticket reply fields required, but does "
+            "not state that at least one selector must decode or that channelId "
+            "wins when both decode. Pinned current source establishes that "
+            "either/or and channel-first behavior."
+        ),
+        "authority": "src/htsp_server.c htsp_method_getTicket",
+        "docsUrl": (
+            "https://docs.tvheadend.org/documentation/development/htsp/"
+            "client-to-server-rpc-methods"
+        ),
+    },
+    {
         "id": "subscriptionChangeWeight-default-ack-order-underdocumented",
         "summary": (
             "The official Client-to-Server RPC methods page leaves the optional "
@@ -3009,6 +3024,105 @@ def require_stop_dvr_entry_source_facts(server_c: str) -> None:
         raise ValueError("htsp_success must emit exactly add-u32 success=1 and return its map")
 
 
+def require_get_ticket_source_facts(
+    server_c: str,
+    method_min_versions: dict[str, int | None] = METHOD_MIN_VERSION,
+) -> None:
+    """Validate the exact bounded getTicket dispatch and handler topology."""
+    if method_min_versions.get("getTicket") != 5:
+        raise ValueError("getTicket annotated minimum must remain exactly 5")
+
+    source = strip_c_comments(server_c)
+    try:
+        parsed_methods = parse_methods_table(source)
+    except ValueError as exc:
+        raise ValueError(
+            "getTicket dispatch must use htsp_method_getTicket with streaming access exactly once"
+        ) from exc
+    dispatch = [
+        entry for entry in parsed_methods
+        if entry["name"] == "getTicket"
+    ]
+    if dispatch != [{
+        "name": "getTicket",
+        "handler": "htsp_method_getTicket",
+        "accessMask": "ACCESS_HTSP_STREAMING",
+    }]:
+        raise ValueError(
+            "getTicket dispatch must use htsp_method_getTicket with streaming access exactly once"
+        )
+
+    body = find_function_body(source, "htsp_method_getTicket")
+    if body is None:
+        raise ValueError("htsp_method_getTicket body not found")
+    compact = re.sub(r"\s+", " ", body).strip()
+    getters = [(field["name"], field["type"]) for field in extract_get_fields(body, "in")]
+    if getters != [("channelId", "u32"), ("dvrId", "u32")]:
+        raise ValueError(
+            "htsp_method_getTicket must read exactly ordered u32 channelId then dvrId"
+        )
+
+    channel_branch = (
+        r'if\s*\(\s*!\s*htsmsg_get_u32\(\s*in\s*,\s*"channelId"\s*,\s*&\s*id\s*\)\s*\)\s*\{\s*'
+        r'if\s*\(\s*!\s*\(\s*ch\s*=\s*channel_find_by_id\(\s*id\s*\)\s*\)\s*\)\s*'
+        r'return\s+htsp_error\(\s*htsp\s*,\s*N_\(\s*"Channel not found"\s*\)\s*\)\s*;\s*'
+        r'if\s*\(\s*!\s*htsp_user_access_channel\(\s*htsp\s*,\s*ch\s*\)\s*\)\s*'
+        r'return\s+htsp_error\(\s*htsp\s*,\s*N_\(\s*"User does not have access"\s*\)\s*\)\s*;\s*'
+        r'snprintf\(\s*path\s*,\s*sizeof\(\s*path\s*\)\s*,\s*"/stream/channelid/%d"\s*,\s*id\s*\)\s*;\s*'
+        r'ticket\s*=\s*access_ticket_create\(\s*path\s*,\s*htsp->htsp_granted_access\s*\)\s*;\s*\}'
+    )
+    if len(re.findall(channel_branch, compact)) != 1:
+        raise ValueError(
+            "htsp_method_getTicket channel branch must preserve lookup, access, path, and ticket association"
+        )
+
+    dvr_branch = (
+        r'else\s+if\s*\(\s*!\s*htsmsg_get_u32\(\s*in\s*,\s*"dvrId"\s*,\s*&\s*id\s*\)\s*\)\s*\{\s*'
+        r'if\s*\(\s*!\s*\(\s*de\s*=\s*dvr_entry_find_by_id\(\s*id\s*\)\s*\)\s*\)\s*'
+        r'return\s+htsp_error\(\s*htsp\s*,\s*N_\(\s*"DVR schedule does not exist"\s*\)\s*\)\s*;\s*'
+        r'if\s*\(\s*!\s*htsp_user_access_channel\(\s*htsp\s*,\s*de->de_channel\s*\)\s*\)\s*'
+        r'return\s+htsp_error\(\s*htsp\s*,\s*N_\(\s*"User does not have access"\s*\)\s*\)\s*;\s*'
+        r'snprintf\(\s*path\s*,\s*sizeof\(\s*path\s*\)\s*,\s*"/dvrfile/%d"\s*,\s*id\s*\)\s*;\s*'
+        r'ticket\s*=\s*access_ticket_create\(\s*path\s*,\s*htsp->htsp_granted_access\s*\)\s*;\s*\}'
+    )
+    if len(re.findall(dvr_branch, compact)) != 1:
+        raise ValueError(
+            "htsp_method_getTicket DVR fallback must preserve both-present channel precedence, "
+            "lookup, channel access, path, and ticket association"
+        )
+
+    fallback = (
+        r'else\s*\{\s*return\s+htsp_error\(\s*htsp\s*,\s*'
+        r'N_\(\s*"Invalid arguments"\s*\)\s*\)\s*;\s*\}'
+    )
+    if len(re.findall(fallback, compact)) != 1:
+        raise ValueError(
+            "htsp_method_getTicket must reject when neither strict u32 selector decodes"
+        )
+
+    output = (
+        r'out\s*=\s*htsmsg_create_map\(\s*\)\s*;\s*'
+        r'htsmsg_add_str\(\s*out\s*,\s*"path"\s*,\s*path\s*\)\s*;\s*'
+        r'htsmsg_add_str\(\s*out\s*,\s*"ticket"\s*,\s*ticket\s*\)\s*;\s*'
+        r'return\s+out\s*;'
+    )
+    if len(re.findall(output, compact)) != 1:
+        raise ValueError(
+            "htsp_method_getTicket must emit exactly ordered string path then ticket and return that map"
+        )
+
+    expected = (
+        r'htsmsg_t\s*\*\s*out\s*;\s*uint32_t\s+id\s*;\s*char\s+path\s*\[\s*255\s*\]\s*;\s*'
+        r'const\s+char\s*\*\s*ticket\s*=\s*NULL\s*;\s*channel_t\s*\*\s*ch\s*;\s*'
+        r'dvr_entry_t\s*\*\s*de\s*;\s*'
+        + channel_branch + r'\s*' + dvr_branch + r'\s*' + fallback + r'\s*' + output
+    )
+    if re.fullmatch(expected, compact) is None:
+        raise ValueError(
+            "htsp_method_getTicket contains unmodeled input, output, alias, helper, or return topology"
+        )
+
+
 def require_subscription_change_weight_source_facts(server_c: str) -> None:
     """Validate the exact bounded subscriptionChangeWeight handler topology."""
     source = strip_c_comments(server_c)
@@ -3963,6 +4077,30 @@ def derive_client_methods(server_c: str) -> list[dict[str, Any]]:
                 "htsp_method_getDvrCutpoints adds the list only when retrieved cutpoints are non-null",
                 shape_ref="cutpoint",
             )]
+        elif name == "getTicket":
+            require_get_ticket_source_facts(server_c)
+            request_fields = [
+                exact_field(
+                    "channelId", "u32", "request", "alternative",
+                    "bounded htsp_method_getTicket tries strict u32 channelId first",
+                    condition="selected first; when both selectors decode, channelId wins",
+                ),
+                exact_field(
+                    "dvrId", "u32", "request", "alternative",
+                    "bounded htsp_method_getTicket tries strict u32 dvrId only as fallback",
+                    condition="selected only when channelId does not decode",
+                ),
+            ]
+            reply_fields = [
+                exact_field(
+                    "path", "str", "reply", "required",
+                    "bounded successful getTicket output adds exact string path first",
+                ),
+                exact_field(
+                    "ticket", "str", "reply", "required",
+                    "bounded successful getTicket output adds exact string ticket second",
+                ),
+            ]
         elif name == "stopDvrEntry":
             require_stop_dvr_entry_source_facts(server_c)
             request_fields = [exact_field(
@@ -4149,6 +4287,29 @@ def derive_client_methods(server_c: str) -> list[dict[str, Any]]:
                 "completeness": "complete",
                 "evidence": "bounded htsp_method_getDvrCutpoints emits only optional cutpoints list",
             }
+        if name == "getTicket":
+            method["requestShape"] = {
+                "kind": "alternative",
+                "completeness": "complete",
+                "evidence": (
+                    "bounded handler requires one decodable u32 selector and gives channelId precedence"
+                ),
+                "alternatives": [
+                    "channelId only",
+                    "dvrId only",
+                    "channelId and dvrId; channelId wins",
+                ],
+                "invalidAlternatives": [
+                    "neither channelId nor dvrId; at least one decodable u32 selector is required",
+                ],
+            }
+            method["replyShape"] = {
+                "kind": "fields",
+                "completeness": "complete",
+                "evidence": (
+                    "bounded successful handler emits exactly ordered required string path and ticket"
+                ),
+            }
         if name == "stopDvrEntry":
             method["requestShape"] = {
                 "kind": "fields",
@@ -4262,6 +4423,14 @@ def derive_client_methods(server_c: str) -> list[dict[str, Any]]:
                 "The handler calls the shared DVR-entry helper in write mode and returns its bounded error result.",
                 "On helper success it calls exactly dvr_entry_stop; cancel and delete remain distinct operations.",
                 "The standard success reply carries success=1 only; later asynchronous DVR metadata is authoritative for lifecycle state.",
+            ]
+        if name == "getTicket":
+            method["docStatus"] = "selector-requirement-and-precedence-underdocumented"
+            method["notes"] = [
+                "Dispatch requires ACCESS_HTSP_STREAMING and the method is annotated as available since HTSP version 5.",
+                "Pinned source accepts channelId only, dvrId only, or both selectors with channelId precedence; the neither-present state takes the invalid-arguments path. The stricter typed SDK models exactly one selector.",
+                "Channel selection verifies channel lookup and access before creating /stream/channelid/%d; DVR selection verifies entry lookup and its channel access before creating /dvrfile/%d.",
+                "Successful source output creates one map and adds required string path then required string ticket; both values are untrusted and diagnostic-sensitive, and ticket is credential-bearing.",
             ]
         if name == "subscriptionSeek":
             method["notes"] = [
@@ -5400,6 +5569,49 @@ static htsmsg_t *
 """
             )
             continue
+        if name == "getTicket":
+            handlers.append(
+                f"""
+static htsmsg_t *
+{handler}(htsp_connection_t *htsp, htsmsg_t *in)
+{{
+  htsmsg_t *out;
+  uint32_t id;
+  char path[255];
+  const char *ticket = NULL;
+  channel_t *ch;
+  dvr_entry_t *de;
+
+  if(!htsmsg_get_u32(in, "channelId", &id)) {{
+    if (!(ch = channel_find_by_id(id)))
+      return htsp_error(htsp, N_("Channel not found"));
+    if (!htsp_user_access_channel(htsp, ch))
+      return htsp_error(htsp, N_("User does not have access"));
+
+    snprintf(path, sizeof(path), "/stream/channelid/%d", id);
+    ticket = access_ticket_create(path, htsp->htsp_granted_access);
+  }} else if(!htsmsg_get_u32(in, "dvrId", &id)) {{
+    if (!(de = dvr_entry_find_by_id(id)))
+      return htsp_error(htsp, N_("DVR schedule does not exist"));
+    if (!htsp_user_access_channel(htsp, de->de_channel))
+      return htsp_error(htsp, N_("User does not have access"));
+
+    snprintf(path, sizeof(path), "/dvrfile/%d", id);
+    ticket = access_ticket_create(path, htsp->htsp_granted_access);
+  }} else {{
+    return htsp_error(htsp, N_("Invalid arguments"));
+  }}
+
+  out = htsmsg_create_map();
+
+  htsmsg_add_str(out, "path", path);
+  htsmsg_add_str(out, "ticket", ticket);
+
+  return out;
+}}
+"""
+            )
+            continue
         if name == "getEpgObject":
             request_lines = (
                 '  uint32_t id, u32;\n'
@@ -6259,7 +6471,7 @@ def self_test() -> None:
             live_coverage["serverMessages"]["handledCount"],
             live_coverage["typedClientRequests"]["count"],
             live_coverage["typedServerMessages"]["count"],
-        ) == (37, 36, 27, 29, 26)
+        ) == (38, 37, 27, 30, 26)
         and "getEpgObject" in live_coverage["clientMethods"]["referenced"]
         and "getEpgObject" in live_coverage["clientMethods"]["outgoingRequests"]
         and "epgQuery" in live_coverage["clientMethods"]["referenced"]
@@ -6314,7 +6526,7 @@ def self_test() -> None:
             live_coverage["clientMethods"]["referencedCount"],
             live_coverage["clientMethods"]["outgoingRequestCount"],
             live_coverage["serverMessages"]["handledCount"],
-        ) == (37, 36, 27)
+        ) == (38, 37, 27)
         and "getChannel" in live_coverage["clientMethods"]["referenced"]
         and "getChannel" in live_coverage["clientMethods"]["outgoingRequests"],
         str(live_coverage.get("metrics")),
@@ -6367,7 +6579,7 @@ def self_test() -> None:
             live_coverage["clientMethods"]["referencedCount"],
             live_coverage["clientMethods"]["outgoingRequestCount"],
             live_coverage["serverMessages"]["handledCount"],
-        ) == (37, 36, 27)
+        ) == (38, 37, 27)
         and "getEvents" in live_coverage["clientMethods"]["referenced"]
         and "getEvents" in live_coverage["clientMethods"]["outgoingRequests"],
     )
@@ -6513,7 +6725,7 @@ def self_test() -> None:
                 else f"htsp_method_{name}"
                 if name in {
                     "getEvent", "getEvents", "getEpgObject", "epgQuery", "stopDvrEntry",
-                    "getDvrCutpoints", *RECORDING_RULE_METHODS,
+                    "getDvrCutpoints", "getTicket", *RECORDING_RULE_METHODS,
                 }
                 else f"htsp_method_{idx}"
             ),
@@ -6521,7 +6733,7 @@ def self_test() -> None:
             if name in {"stopDvrEntry", "getDvrCutpoints", *RECORDING_RULE_METHODS}
             else "ACCESS_HTSP_STREAMING"
             if name in {
-                "epgQuery", "getEpgObject", "subscriptionChangeWeight", "subscriptionLive", "subscriptionFilterStream",
+                "epgQuery", "getEpgObject", "getTicket", "subscriptionChangeWeight", "subscriptionLive", "subscriptionFilterStream",
             }
             else "ACCESS_ANONYMOUS",
         )
@@ -7517,6 +7729,352 @@ def self_test() -> None:
             not falsely_accepted_epg_query_mutations,
             ", ".join(falsely_accepted_epg_query_mutations),
         )
+
+        ticket_method = next(
+            item for item in spec["clientMethods"]
+            if item["name"] == "getTicket"
+        )
+        check(
+            "getTicket-fresh-exact-contract",
+            ticket_method.get("handler") == "htsp_method_getTicket"
+            and ticket_method.get("accessMask") == "ACCESS_HTSP_STREAMING"
+            and ticket_method.get("minVersion") == 5
+            and ticket_method.get("minVersionConfidence") == "annotated"
+            and [
+                (
+                    field["name"], field["type"], field["presence"],
+                    field.get("condition"), field["evidence"],
+                )
+                for field in ticket_method["requestFields"]
+            ] == [
+                (
+                    "channelId", "u32", "alternative",
+                    "selected first; when both selectors decode, channelId wins",
+                    "bounded htsp_method_getTicket tries strict u32 channelId first",
+                ),
+                (
+                    "dvrId", "u32", "alternative",
+                    "selected only when channelId does not decode",
+                    "bounded htsp_method_getTicket tries strict u32 dvrId only as fallback",
+                ),
+            ]
+            and [
+                (field["name"], field["type"], field["presence"], field["evidence"])
+                for field in ticket_method["replyFields"]
+            ] == [
+                (
+                    "path", "str", "required",
+                    "bounded successful getTicket output adds exact string path first",
+                ),
+                (
+                    "ticket", "str", "required",
+                    "bounded successful getTicket output adds exact string ticket second",
+                ),
+            ]
+            and ticket_method.get("requestShape") == {
+                "kind": "alternative",
+                "completeness": "complete",
+                "evidence": (
+                    "bounded handler requires one decodable u32 selector and gives channelId precedence"
+                ),
+                "alternatives": [
+                    "channelId only",
+                    "dvrId only",
+                    "channelId and dvrId; channelId wins",
+                ],
+                "invalidAlternatives": [
+                    "neither channelId nor dvrId; at least one decodable u32 selector is required",
+                ],
+            }
+            and ticket_method.get("replyShape") == {
+                "kind": "fields",
+                "completeness": "complete",
+                "evidence": (
+                    "bounded successful handler emits exactly ordered required string path and ticket"
+                ),
+            }
+            and ticket_method.get("docStatus")
+            == "selector-requirement-and-precedence-underdocumented"
+            and len(ticket_method.get("notes", [])) == 4,
+            str(ticket_method),
+        )
+
+        changed_ticket_minima = dict(METHOD_MIN_VERSION)
+        changed_ticket_minima["getTicket"] = 4
+        try:
+            require_get_ticket_source_facts(server_c, changed_ticket_minima)
+        except ValueError as exc:
+            check(
+                "getTicket-minimum-mutation-exact-diagnostic",
+                str(exc) == "getTicket annotated minimum must remain exactly 5",
+                str(exc),
+            )
+        else:
+            check("reject-getTicket-minimum-mutation", False)
+
+        def mutate_ticket_handler(label: str, old: str, new: str) -> str:
+            marker = "htsp_method_getTicket(htsp_connection_t *htsp, htsmsg_t *in)"
+            start = server_c.index(marker)
+            open_brace = server_c.index("{", start)
+            end = _balanced_block_end(server_c, open_brace)
+            handler_source = server_c[start:end]
+            check(
+                f"getTicket-mutation-target-{label}",
+                handler_source.count(old) == 1,
+                str(handler_source.count(old)),
+            )
+            changed_handler = handler_source.replace(old, new, 1)
+            check(
+                f"getTicket-mutation-changed-{label}",
+                changed_handler != handler_source,
+            )
+            return server_c[:start] + changed_handler + server_c[end:]
+
+        def mutate_ticket_dispatch(label: str, old: str, new: str) -> str:
+            check(
+                f"getTicket-mutation-target-{label}",
+                server_c.count(old) == 1,
+                str(server_c.count(old)),
+            )
+            changed = server_c.replace(old, new, 1)
+            check(f"getTicket-mutation-changed-{label}", changed != server_c)
+            return changed
+
+        ticket_dispatch = (
+            '{ "getTicket", htsp_method_getTicket, ACCESS_HTSP_STREAMING}'
+        )
+        ticket_source_mutations = (
+            (
+                "dispatch-handler",
+                mutate_ticket_dispatch(
+                    "dispatch-handler", ticket_dispatch,
+                    '{ "getTicket", htsp_method_ticket_alias, ACCESS_HTSP_STREAMING}',
+                ),
+                "getTicket dispatch must use htsp_method_getTicket with streaming access exactly once",
+            ),
+            (
+                "dispatch-access",
+                mutate_ticket_dispatch(
+                    "dispatch-access", ticket_dispatch,
+                    '{ "getTicket", htsp_method_getTicket, ACCESS_ANONYMOUS}',
+                ),
+                "getTicket dispatch must use htsp_method_getTicket with streaming access exactly once",
+            ),
+            (
+                "duplicate-dispatch",
+                mutate_ticket_dispatch(
+                    "duplicate-dispatch", ticket_dispatch,
+                    ticket_dispatch + ',\n  ' + ticket_dispatch,
+                ),
+                "getTicket dispatch must use htsp_method_getTicket with streaming access exactly once",
+            ),
+            (
+                "channel-selector-name",
+                mutate_ticket_handler(
+                    "channel-selector-name", '"channelId", &id', '"channel", &id',
+                ),
+                "htsp_method_getTicket must read exactly ordered u32 channelId then dvrId",
+            ),
+            (
+                "channel-selector-type",
+                mutate_ticket_handler(
+                    "channel-selector-type", 'htsmsg_get_u32(in, "channelId"',
+                    'htsmsg_get_s64(in, "channelId"',
+                ),
+                "htsp_method_getTicket must read exactly ordered u32 channelId then dvrId",
+            ),
+            (
+                "dvr-selector-name",
+                mutate_ticket_handler(
+                    "dvr-selector-name", '"dvrId", &id', '"entryId", &id',
+                ),
+                "htsp_method_getTicket must read exactly ordered u32 channelId then dvrId",
+            ),
+            (
+                "dvr-selector-type",
+                mutate_ticket_handler(
+                    "dvr-selector-type", 'htsmsg_get_u32(in, "dvrId"',
+                    'htsmsg_get_s64(in, "dvrId"',
+                ),
+                "htsp_method_getTicket must read exactly ordered u32 channelId then dvrId",
+            ),
+            (
+                "channel-lookup",
+                mutate_ticket_handler(
+                    "channel-lookup", 'channel_find_by_id(id)', 'channel_find_by_name(id)',
+                ),
+                "htsp_method_getTicket channel branch must preserve lookup, access, path, and ticket association",
+            ),
+            (
+                "channel-error",
+                mutate_ticket_handler(
+                    "channel-error", 'N_("Channel not found")', 'N_("Channel missing")',
+                ),
+                "htsp_method_getTicket channel branch must preserve lookup, access, path, and ticket association",
+            ),
+            (
+                "channel-access",
+                mutate_ticket_handler(
+                    "channel-access", 'htsp_user_access_channel(htsp, ch)',
+                    'htsp_user_access_channel(htsp, de->de_channel)',
+                ),
+                "htsp_method_getTicket channel branch must preserve lookup, access, path, and ticket association",
+            ),
+            (
+                "channel-path",
+                mutate_ticket_handler(
+                    "channel-path", '"/stream/channelid/%d", id',
+                    '"/stream/channel/%d", id',
+                ),
+                "htsp_method_getTicket channel branch must preserve lookup, access, path, and ticket association",
+            ),
+            (
+                "channel-ticket-access",
+                mutate_ticket_handler(
+                    "channel-ticket-access",
+                    '    snprintf(path, sizeof(path), "/stream/channelid/%d", id);\n'
+                    '    ticket = access_ticket_create(path, htsp->htsp_granted_access);',
+                    '    snprintf(path, sizeof(path), "/stream/channelid/%d", id);\n'
+                    '    ticket = access_ticket_create(path, NULL);',
+                ),
+                "htsp_method_getTicket channel branch must preserve lookup, access, path, and ticket association",
+            ),
+            (
+                "both-present-channel-wins",
+                mutate_ticket_handler(
+                    "both-present-channel-wins", '} else if(!htsmsg_get_u32(in, "dvrId", &id)) {',
+                    '} if(!htsmsg_get_u32(in, "dvrId", &id)) {',
+                ),
+                "htsp_method_getTicket DVR fallback must preserve both-present channel precedence, lookup, channel access, path, and ticket association",
+            ),
+            (
+                "dvr-lookup",
+                mutate_ticket_handler(
+                    "dvr-lookup", 'dvr_entry_find_by_id(id)', 'dvr_entry_find_by_uuid(id)',
+                ),
+                "htsp_method_getTicket DVR fallback must preserve both-present channel precedence, lookup, channel access, path, and ticket association",
+            ),
+            (
+                "dvr-error",
+                mutate_ticket_handler(
+                    "dvr-error", 'N_("DVR schedule does not exist")',
+                    'N_("DVR entry not found")',
+                ),
+                "htsp_method_getTicket DVR fallback must preserve both-present channel precedence, lookup, channel access, path, and ticket association",
+            ),
+            (
+                "dvr-channel-access",
+                mutate_ticket_handler(
+                    "dvr-channel-access", 'htsp_user_access_channel(htsp, de->de_channel)',
+                    'htsp_user_access_channel(htsp, de)',
+                ),
+                "htsp_method_getTicket DVR fallback must preserve both-present channel precedence, lookup, channel access, path, and ticket association",
+            ),
+            (
+                "dvr-path",
+                mutate_ticket_handler(
+                    "dvr-path", '"/dvrfile/%d", id', '"/recording/%d", id',
+                ),
+                "htsp_method_getTicket DVR fallback must preserve both-present channel precedence, lookup, channel access, path, and ticket association",
+            ),
+            (
+                "dvr-ticket-association",
+                mutate_ticket_handler(
+                    "dvr-ticket-association",
+                    '    snprintf(path, sizeof(path), "/dvrfile/%d", id);\n'
+                    '    ticket = access_ticket_create(path, htsp->htsp_granted_access);',
+                    '    snprintf(path, sizeof(path), "/dvrfile/%d", id);\n'
+                    '    ticket = access_ticket_create("/wrong", htsp->htsp_granted_access);',
+                ),
+                "htsp_method_getTicket DVR fallback must preserve both-present channel precedence, lookup, channel access, path, and ticket association",
+            ),
+            (
+                "fallback-error",
+                mutate_ticket_handler(
+                    "fallback-error", 'N_("Invalid arguments")', 'N_("Missing selector")',
+                ),
+                "htsp_method_getTicket must reject when neither strict u32 selector decodes",
+            ),
+            (
+                "output-map",
+                mutate_ticket_handler(
+                    "output-map", 'out = htsmsg_create_map();', 'out = build_ticket_map();',
+                ),
+                "htsp_method_getTicket must emit exactly ordered string path then ticket and return that map",
+            ),
+            (
+                "path-output-type",
+                mutate_ticket_handler(
+                    "path-output-type", 'htsmsg_add_str(out, "path", path)',
+                    'htsmsg_add_u32(out, "path", id)',
+                ),
+                "htsp_method_getTicket must emit exactly ordered string path then ticket and return that map",
+            ),
+            (
+                "ticket-output-name",
+                mutate_ticket_handler(
+                    "ticket-output-name", 'htsmsg_add_str(out, "ticket", ticket)',
+                    'htsmsg_add_str(out, "token", ticket)',
+                ),
+                "htsp_method_getTicket must emit exactly ordered string path then ticket and return that map",
+            ),
+            (
+                "output-order",
+                mutate_ticket_handler(
+                    "output-order",
+                    '  htsmsg_add_str(out, "path", path);\n  htsmsg_add_str(out, "ticket", ticket);',
+                    '  htsmsg_add_str(out, "ticket", ticket);\n  htsmsg_add_str(out, "path", path);',
+                ),
+                "htsp_method_getTicket must emit exactly ordered string path then ticket and return that map",
+            ),
+            (
+                "extra-output",
+                mutate_ticket_handler(
+                    "extra-output", '  htsmsg_add_str(out, "ticket", ticket);',
+                    '  htsmsg_add_str(out, "extra", "value");\n'
+                    '  htsmsg_add_str(out, "ticket", ticket);',
+                ),
+                "htsp_method_getTicket must emit exactly ordered string path then ticket and return that map",
+            ),
+            (
+                "final-return",
+                mutate_ticket_handler("final-return", '  return out;', '  return NULL;'),
+                "htsp_method_getTicket must emit exactly ordered string path then ticket and return that map",
+            ),
+            (
+                "unmodeled-declaration",
+                mutate_ticket_handler(
+                    "unmodeled-declaration", '  dvr_entry_t *de;',
+                    '  dvr_entry_t *de;\n  htsmsg_t *alias;',
+                ),
+                "htsp_method_getTicket contains unmodeled input, output, alias, helper, or return topology",
+            ),
+        )
+        for label, mutated_source, expected_diagnostic in ticket_source_mutations:
+            try:
+                require_get_ticket_source_facts(mutated_source)
+            except ValueError as exc:
+                check(
+                    f"getTicket-source-mutation-diagnostic-{label}",
+                    str(exc) == expected_diagnostic,
+                    str(exc),
+                )
+                continue
+            check(f"reject-getTicket-source-{label}", False)
+
+        ticket_decoy_source = mutate_ticket_handler(
+            "comment-string-decoys",
+            '  htsmsg_add_str(out, "ticket", ticket);',
+            '  /* htsmsg_add_str(out, "extra", ticket); */\n'
+            '  htsmsg_add_str(out, "ticket", ticket);',
+        ) + (
+            '\nstatic const char *ticket_topology_decoy = '
+            '"htsmsg_add_str(out, ticket, ticket);";\n'
+        )
+        try:
+            require_get_ticket_source_facts(ticket_decoy_source)
+        except ValueError as exc:
+            check("accept-getTicket-comment-string-decoys", False, str(exc))
 
         weight_method = next(
             item for item in spec["clientMethods"]

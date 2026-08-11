@@ -14,6 +14,75 @@ import java.lang.reflect.Modifier
 
 class HtspProtocolCoreTest {
     @Test
+    fun getTicketUsesOneStrictSelectorAndRedactsCredentialBearingSuccess() = runTest {
+        val channelSelector = GetTicketSelector.Channel(0L)
+        val dvrSelector = GetTicketSelector.Dvr(0xffff_ffffL)
+
+        assertEquals(
+            linkedMapOf("channelId" to 0L),
+            HtspRequestCodecs.encode(GetTicketRequest(channelSelector)),
+        )
+        assertEquals(
+            linkedMapOf("dvrId" to 0xffff_ffffL),
+            HtspRequestCodecs.encode(GetTicketRequest(dvrSelector)),
+        )
+        listOf<() -> Unit>(
+            { GetTicketSelector.Channel(-1L) },
+            { GetTicketSelector.Channel(0x1_0000_0000L) },
+            { GetTicketSelector.Dvr(-1L) },
+            { GetTicketSelector.Dvr(0x1_0000_0000L) },
+        ).forEach(::assertIllegalArgument)
+
+        val transport = FakeProtocolTransport(version = 4)
+        val connection = HtspTypedRequestCaller(transport)
+        val request = GetTicketRequest(channelSelector)
+        assertSame(HtspResult.NotSupported, connection.call(request))
+        assertEquals(0, transport.dispatches)
+
+        transport.version = 5
+        transport.reply = HtspWireReply(
+            linkedMapOf(
+                "path" to "wire-path-value",
+                "ticket" to "wire-ticket-value",
+            ),
+        )
+        val successful = connection.call(request)
+        assertTrue(successful is HtspResult.Ok)
+        val response = (successful as HtspResult.Ok).value
+        assertEquals("wire-path-value", response.path)
+        assertEquals("wire-ticket-value", response.ticket)
+        assertNotEquals(response, GetTicketResponse("wire-path-value", "wire-ticket-value"))
+        assertTrue(response.toString().contains("redacted", ignoreCase = true))
+        assertTrue(!response.toString().contains("wire-path-value"))
+        assertTrue(!response.toString().contains("wire-ticket-value"))
+        assertTrue(response.javaClass.declaredMethods.none { method ->
+            method.name == "copy" || method.name.startsWith("component")
+        })
+
+        transport.reply = HtspWireReply(linkedMapOf("path" to "", "ticket" to ""))
+        val emptySuccessful = connection.call(GetTicketRequest(dvrSelector))
+        assertTrue(emptySuccessful is HtspResult.Ok)
+        assertEquals("", (emptySuccessful as HtspResult.Ok).value.path)
+        assertEquals("", emptySuccessful.value.ticket)
+
+        listOf(
+            linkedMapOf<String, Any?>(),
+            linkedMapOf<String, Any?>("path" to "wire-path-value"),
+            linkedMapOf<String, Any?>("ticket" to "wire-ticket-value"),
+            linkedMapOf<String, Any?>("path" to 1L, "ticket" to "wire-ticket-value"),
+            linkedMapOf<String, Any?>("path" to "wire-path-value", "ticket" to 1L),
+        ).forEach { fields ->
+            transport.reply = HtspWireReply(fields)
+            assertSame(HtspResult.ServerError, connection.call(request))
+        }
+
+        transport.reply = HtspWireReply(linkedMapOf("noaccess" to 1L))
+        assertSame(HtspResult.AccessDenied, connection.call(request))
+        transport.reply = HtspWireReply(linkedMapOf("error" to "synthetic rejection"))
+        assertSame(HtspResult.ServerError, connection.call(request))
+    }
+
+    @Test
     fun authenticationPolicyRequiresBothTrimmedCredentials() {
         assertTrue(HtspAuthenticationPolicy.shouldAuthenticate(" user ", " pass "))
         assertTrue(!HtspAuthenticationPolicy.shouldAuthenticate(null, null))
@@ -48,6 +117,7 @@ class HtspProtocolCoreTest {
                 "updateTimerecEntry",
                 "deleteTimerecEntry",
                 "getDvrCutpoints",
+                "getTicket",
                 "subscribe",
                 "unsubscribe",
                 "subscriptionChangeWeight",
@@ -89,6 +159,7 @@ class HtspProtocolCoreTest {
                 HtspAccess.ACCESS_HTSP_STREAMING,
                 HtspAccess.ACCESS_HTSP_STREAMING,
                 HtspAccess.ACCESS_HTSP_STREAMING,
+                HtspAccess.ACCESS_HTSP_STREAMING,
             ),
             typedHtspRequestCatalog.map { it.access },
         )
@@ -115,6 +186,7 @@ class HtspProtocolCoreTest {
             UpdateTimerecEntryRequest(""),
             DeleteTimerecEntryRequest(""),
             GetDvrCutpointsRequest(0L),
+            GetTicketRequest(GetTicketSelector.Channel(0L)),
             SubscribeRequest(0L, SubscribeChannel.Id(0L)),
             UnsubscribeRequest(0L),
             SubscriptionChangeWeightRequest(0L),

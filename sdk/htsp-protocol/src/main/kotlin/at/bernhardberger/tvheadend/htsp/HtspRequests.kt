@@ -241,6 +241,40 @@ public data object DeleteTimerecEntryResponse
 
 public data class GetDvrCutpointsResponse(public val cutpoints: List<HtspDvrCutpoint>?)
 
+/**
+ * Exactly-one channel-or-DVR selection is the stricter SDK API contract.
+ *
+ * The pinned upstream `getTicket` handler also accepts both selectors and gives
+ * `channelId` precedence. This sealed API makes both-present and neither-present
+ * selection unrepresentable.
+ */
+public sealed interface GetTicketSelector {
+    /** Select one channel by its complete unsigned HTSP channel ID. */
+    @JvmInline
+    public value class Channel(public val channelId: Long) : GetTicketSelector {
+        init {
+            requireU32("channelId", channelId)
+        }
+    }
+
+    /** Select one DVR entry by its complete unsigned HTSP DVR ID. */
+    @JvmInline
+    public value class Dvr(public val dvrId: Long) : GetTicketSelector {
+        init {
+            requireU32("dvrId", dvrId)
+        }
+    }
+}
+
+/** Purpose-specific credential-bearing successful `getTicket` reply. */
+public class GetTicketResponse(
+    public val path: String,
+    public val ticket: String,
+) {
+    override fun toString(): String =
+        "GetTicketResponse(path=<redacted>, ticket=<redacted>)"
+}
+
 public data class SubscribeResponse(
     public val ninetyKhz: Long?,
     public val normalizedTimestamps: Long?,
@@ -664,6 +698,14 @@ public data class GetDvrCutpointsRequest(public val entryId: Long) : HtspRequest
     }
 }
 
+public data class GetTicketRequest(
+    public val selector: GetTicketSelector,
+) : HtspRequest<GetTicketResponse>(
+    method = "getTicket",
+    access = HtspAccess.ACCESS_HTSP_STREAMING,
+    minimumProtocolVersion = 5,
+)
+
 /** Exactly one channel selector accepted by the pinned `subscribe` handler. */
 public sealed interface SubscribeChannel {
     public data class Id(public val channelId: Long) : SubscribeChannel {
@@ -975,6 +1017,10 @@ internal object `HtspRequestCodecs-internal` {
 
         is DeleteTimerecEntryRequest -> linkedMapOf("id" to request.id)
         is GetDvrCutpointsRequest -> linkedMapOf("id" to request.entryId)
+        is GetTicketRequest -> when (val selector = request.selector) {
+            is GetTicketSelector.Channel -> linkedMapOf("channelId" to selector.channelId)
+            is GetTicketSelector.Dvr -> linkedMapOf("dvrId" to selector.dvrId)
+        }
         is SubscribeRequest -> linkedMapOf<String, Any?>(
             "subscriptionId" to request.subscriptionId,
         ).apply {
@@ -1079,6 +1125,11 @@ internal object `HtspRequestCodecs-internal` {
                     type = cutpoint.requiredU32("type"),
                 )
             },
+        )
+
+        is GetTicketRequest -> GetTicketResponse(
+            path = fields.requiredString("path"),
+            ticket = fields.requiredString("ticket"),
         )
 
         is SubscribeRequest -> SubscribeResponse(
