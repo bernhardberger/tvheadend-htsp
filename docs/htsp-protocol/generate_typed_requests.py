@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate the reviewed 23-request HTSP convenience/catalog surface."""
+"""Generate the reviewed 29-request HTSP convenience/catalog surface."""
 
 from __future__ import annotations
 
@@ -126,6 +126,95 @@ CATALOG: tuple[Entry, ...] = (
     Entry("deleteDvrEntry", "DeleteDvrEntryRequest", "DeleteDvrEntryResponse", "ACCESS_HTSP_RECORDER", 4, (
         parameter("entryId", "Long"),
     )),
+    Entry("addAutorecEntry", "AddAutorecEntryRequest", "AddAutorecEntryResponse", "ACCESS_HTSP_RECORDER", 13, (
+        parameter("title", "String"),
+        parameter("channel", "HtspRecordingRuleChannel?", "null"),
+        parameter("minDurationSeconds", "Long?", "null"),
+        parameter("maxDurationSeconds", "Long?", "null"),
+        parameter("fullText", "Long?", "null"),
+        parameter("mergeText", "Long?", "null"),
+        parameter("duplicateDetection", "Long?", "null"),
+        parameter("maximumRecordingCount", "Long?", "null"),
+        parameter("broadcastType", "Long?", "null"),
+        parameter("startExtraMinutes", "Long?", "null"),
+        parameter("stopExtraMinutes", "Long?", "null"),
+        parameter("seriesLinkUri", "String?", "null"),
+        parameter("approximateStartMinutesSinceMidnight", "Int?", "null"),
+        parameter("startMinutesSinceMidnight", "Int?", "null"),
+        parameter("startWindowEndMinutesSinceMidnight", "Int?", "null"),
+        parameter("enabled", "Boolean?", "null"),
+        parameter("retentionDays", "Long?", "null"),
+        parameter("removalDays", "Long?", "null"),
+        parameter("priority", "Long?", "null"),
+        parameter("name", "String?", "null"),
+        parameter("comment", "String?", "null"),
+        parameter("directory", "String?", "null"),
+        parameter("configName", "String?", "null"),
+        parameter("daysOfWeekMask", "Long?", "null"),
+    )),
+    Entry("updateAutorecEntry", "UpdateAutorecEntryRequest", "UpdateAutorecEntryResponse", "ACCESS_HTSP_RECORDER", 25, (
+        parameter("id", "String"),
+        parameter("channel", "HtspRecordingRuleChannel?", "null"),
+        parameter("minDurationSeconds", "Long?", "null"),
+        parameter("maxDurationSeconds", "Long?", "null"),
+        parameter("fullText", "Long?", "null"),
+        parameter("mergeText", "Long?", "null"),
+        parameter("duplicateDetection", "Long?", "null"),
+        parameter("maximumRecordingCount", "Long?", "null"),
+        parameter("broadcastType", "Long?", "null"),
+        parameter("startExtraMinutes", "Long?", "null"),
+        parameter("stopExtraMinutes", "Long?", "null"),
+        parameter("seriesLinkUri", "String?", "null"),
+        parameter("startMinutesSinceMidnight", "Int?", "null"),
+        parameter("startWindowEndMinutesSinceMidnight", "Int?", "null"),
+        parameter("enabled", "Boolean?", "null"),
+        parameter("retentionDays", "Long?", "null"),
+        parameter("removalDays", "Long?", "null"),
+        parameter("priority", "Long?", "null"),
+        parameter("name", "String?", "null"),
+        parameter("comment", "String?", "null"),
+        parameter("directory", "String?", "null"),
+        parameter("title", "String?", "null"),
+        parameter("configName", "String?", "null"),
+        parameter("daysOfWeekMask", "Long?", "null"),
+    )),
+    Entry("deleteAutorecEntry", "DeleteAutorecEntryRequest", "DeleteAutorecEntryResponse", "ACCESS_HTSP_RECORDER", 13, (
+        parameter("id", "String"),
+    )),
+    Entry("addTimerecEntry", "AddTimerecEntryRequest", "AddTimerecEntryResponse", "ACCESS_HTSP_RECORDER", 18, (
+        parameter("title", "String"),
+        parameter("channel", "HtspRecordingRuleChannel?", "null"),
+        parameter("startMinutesSinceMidnight", "Long?", "null"),
+        parameter("stopMinutesSinceMidnight", "Long?", "null"),
+        parameter("enabled", "Boolean?", "null"),
+        parameter("retentionDays", "Long?", "null"),
+        parameter("removalDays", "Long?", "null"),
+        parameter("priority", "Long?", "null"),
+        parameter("name", "String?", "null"),
+        parameter("comment", "String?", "null"),
+        parameter("directory", "String?", "null"),
+        parameter("configName", "String?", "null"),
+        parameter("daysOfWeekMask", "Long?", "null"),
+    )),
+    Entry("updateTimerecEntry", "UpdateTimerecEntryRequest", "UpdateTimerecEntryResponse", "ACCESS_HTSP_RECORDER", 25, (
+        parameter("id", "String"),
+        parameter("channel", "HtspRecordingRuleChannel?", "null"),
+        parameter("startMinutesSinceMidnight", "Long?", "null"),
+        parameter("stopMinutesSinceMidnight", "Long?", "null"),
+        parameter("enabled", "Boolean?", "null"),
+        parameter("retentionDays", "Long?", "null"),
+        parameter("removalDays", "Long?", "null"),
+        parameter("priority", "Long?", "null"),
+        parameter("name", "String?", "null"),
+        parameter("comment", "String?", "null"),
+        parameter("directory", "String?", "null"),
+        parameter("title", "String?", "null"),
+        parameter("configName", "String?", "null"),
+        parameter("daysOfWeekMask", "Long?", "null"),
+    )),
+    Entry("deleteTimerecEntry", "DeleteTimerecEntryRequest", "DeleteTimerecEntryResponse", "ACCESS_HTSP_RECORDER", 18, (
+        parameter("id", "String"),
+    )),
     Entry("getDvrCutpoints", "GetDvrCutpointsRequest", "GetDvrCutpointsResponse", "ACCESS_HTSP_RECORDER", 12, (
         parameter("entryId", "Long"),
     )),
@@ -183,33 +272,33 @@ SELECTOR_OVERLOADS: tuple[SelectorOverload, ...] = (
         *(f"{value.name} = {value.name}" for value in CATALOG[10].parameters[1:]),
     )),
     SelectorOverload("subscribe", (
-        CATALOG[16].parameters[0],
+        CATALOG[22].parameters[0],
         parameter("channelId", "Long"),
-        *CATALOG[16].parameters[2:],
+        *CATALOG[22].parameters[2:],
     ), (
         "subscriptionId = subscriptionId",
         "channel = SubscribeChannel.Id(channelId)",
-        *(f"{value.name} = {value.name}" for value in CATALOG[16].parameters[2:]),
+        *(f"{value.name} = {value.name}" for value in CATALOG[22].parameters[2:]),
     )),
     SelectorOverload("subscribe", (
-        CATALOG[16].parameters[0],
+        CATALOG[22].parameters[0],
         parameter("channelName", "String"),
-        *CATALOG[16].parameters[2:],
+        *CATALOG[22].parameters[2:],
     ), (
         "subscriptionId = subscriptionId",
         "channel = SubscribeChannel.Name(channelName)",
-        *(f"{value.name} = {value.name}" for value in CATALOG[16].parameters[2:]),
+        *(f"{value.name} = {value.name}" for value in CATALOG[22].parameters[2:]),
     )),
     SelectorOverload("subscriptionSeek", (
-        CATALOG[19].parameters[0],
+        CATALOG[25].parameters[0],
         parameter("position", "SubscriptionSeekPosition.Time"),
-        *CATALOG[19].parameters[2:],
-    ), tuple(f"{value.name} = {value.name}" for value in CATALOG[19].parameters)),
+        *CATALOG[25].parameters[2:],
+    ), tuple(f"{value.name} = {value.name}" for value in CATALOG[25].parameters)),
     SelectorOverload("subscriptionSeek", (
-        CATALOG[19].parameters[0],
+        CATALOG[25].parameters[0],
         parameter("position", "SubscriptionSeekPosition.Size"),
-        *CATALOG[19].parameters[2:],
-    ), tuple(f"{value.name} = {value.name}" for value in CATALOG[19].parameters)),
+        *CATALOG[25].parameters[2:],
+    ), tuple(f"{value.name} = {value.name}" for value in CATALOG[25].parameters)),
 )
 
 
@@ -283,13 +372,15 @@ def validate_catalog() -> None:
     expected = (
         "getProfiles", "getDiskSpace", "getSysTime", "enableAsyncMetadata", "getChannel", "getEvent",
         "getEvents", "epgQuery", "getEpgObject", "getDvrConfigs", "addDvrEntry", "updateDvrEntry", "stopDvrEntry",
-        "cancelDvrEntry", "deleteDvrEntry", "getDvrCutpoints", "subscribe", "unsubscribe",
+        "cancelDvrEntry", "deleteDvrEntry", "addAutorecEntry", "updateAutorecEntry",
+        "deleteAutorecEntry", "addTimerecEntry", "updateTimerecEntry", "deleteTimerecEntry",
+        "getDvrCutpoints", "subscribe", "unsubscribe",
         "subscriptionChangeWeight", "subscriptionSeek", "subscriptionSpeed",
         "subscriptionLive", "subscriptionFilterStream",
     )
     methods = tuple(entry.method for entry in CATALOG)
-    if methods != expected or len(set(methods)) != 23:
-        raise ValueError("typed request catalog must contain exactly the reviewed 23 methods")
+    if methods != expected or len(set(methods)) != 29:
+        raise ValueError("typed request catalog must contain exactly the reviewed 29 methods")
     epg_query = CATALOG[7]
     if epg_query != Entry(
         "epgQuery", "EpgQueryRequest", "EpgQueryResponse", "ACCESS_HTSP_STREAMING", 4, (
@@ -331,13 +422,13 @@ def self_test() -> None:
     if first != second:
         raise AssertionError("generator output is not deterministic")
     extension_lines = [line for line in first.splitlines() if line.startswith("public suspend fun")]
-    if len(extension_lines) != 29:
-        raise AssertionError("generated extensions must contain 23 canonical and 6 selector overloads")
+    if len(extension_lines) != 35:
+        raise AssertionError("generated extensions must contain 29 canonical and 6 selector overloads")
     if "    request:" in first:
         raise AssertionError("generated extensions must not accept request objects")
-    if first.count("timeoutMs: Long = 5_000L") != 29:
+    if first.count("timeoutMs: Long = 5_000L") != 35:
         raise AssertionError("every generated extension must expose the default request timeout")
-    if first.count("expectedGeneration: HtspConnectionGeneration? = null") != 29:
+    if first.count("expectedGeneration: HtspConnectionGeneration? = null") != 35:
         raise AssertionError("every generated extension must expose the optional generation fence")
     required_signatures = (
         "public suspend fun HtspConnection.getEvents(\n    channelId: Long? = null,",
@@ -357,15 +448,21 @@ def self_test() -> None:
         "public suspend fun HtspConnection.subscriptionSeek(\n    subscriptionId: Long,\n    position: SubscriptionSeekPosition.Size,",
         "public suspend fun HtspConnection.updateDvrEntry(\n    entryId: Long,\n    channelId: Long? = null,\n    configName: String? = null,\n    title: String? = null,",
         "    comment: String? = null,\n    playCount: Long? = null,\n    playPosition: Long? = null,\n    enabled: Long? = null,\n    start: Long? = null,",
+        "public suspend fun HtspConnection.addAutorecEntry(\n    title: String,\n    channel: HtspRecordingRuleChannel? = null,",
+        "public suspend fun HtspConnection.updateAutorecEntry(\n    id: String,\n    channel: HtspRecordingRuleChannel? = null,",
+        "public suspend fun HtspConnection.deleteAutorecEntry(\n    id: String,",
+        "public suspend fun HtspConnection.addTimerecEntry(\n    title: String,\n    channel: HtspRecordingRuleChannel? = null,",
+        "public suspend fun HtspConnection.updateTimerecEntry(\n    id: String,\n    channel: HtspRecordingRuleChannel? = null,",
+        "public suspend fun HtspConnection.deleteTimerecEntry(\n    id: String,",
     )
     missing = [signature for signature in required_signatures if signature not in first]
     if missing:
         raise AssertionError(f"generated extension signatures are incomplete: {missing}")
-    if first.count("    call(") != 29:
+    if first.count("    call(") != 35:
         raise AssertionError("every generated extension must contain exactly one call delegation")
-    if first.count("        timeoutMs = timeoutMs,") != 29:
+    if first.count("        timeoutMs = timeoutMs,") != 35:
         raise AssertionError("every generated extension must forward timeout exactly once")
-    if first.count("        expectedGeneration = expectedGeneration,") != 29:
+    if first.count("        expectedGeneration = expectedGeneration,") != 35:
         raise AssertionError("every generated extension must forward generation exactly once")
     with tempfile.TemporaryDirectory() as directory:
         path = Path(directory) / "generated.kt"

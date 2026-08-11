@@ -21,7 +21,7 @@ import sys
 import tempfile
 import traceback
 import urllib.request
-from collections import OrderedDict
+from collections import Counter, OrderedDict
 from pathlib import Path
 from typing import Any
 
@@ -291,6 +291,30 @@ FIELD_MIN_VERSION: dict[tuple[str, str, str], int] = {
     ("clientMethod", "epgQuery", "language"): 6,
     ("clientMethod", "epgQuery", "minduration"): 13,
     ("clientMethod", "epgQuery", "maxduration"): 13,
+    ("clientMethod", "addAutorecEntry", "name"): 18,
+    ("clientMethod", "addAutorecEntry", "start"): 18,
+    ("clientMethod", "addAutorecEntry", "startWindow"): 18,
+    ("clientMethod", "addAutorecEntry", "enabled"): 19,
+    ("clientMethod", "addAutorecEntry", "directory"): 19,
+    ("clientMethod", "addAutorecEntry", "fulltext"): 20,
+    ("clientMethod", "addAutorecEntry", "dupDetect"): 20,
+    ("clientMethod", "addAutorecEntry", "broadcastType"): 39,
+    ("clientMethod", "addAutorecEntry", "comment"): 42,
+    ("clientMethod", "updateAutorecEntry", "name"): 18,
+    ("clientMethod", "updateAutorecEntry", "start"): 18,
+    ("clientMethod", "updateAutorecEntry", "startWindow"): 18,
+    ("clientMethod", "updateAutorecEntry", "enabled"): 19,
+    ("clientMethod", "updateAutorecEntry", "directory"): 19,
+    ("clientMethod", "updateAutorecEntry", "fulltext"): 20,
+    ("clientMethod", "updateAutorecEntry", "dupDetect"): 20,
+    ("clientMethod", "updateAutorecEntry", "broadcastType"): 39,
+    ("clientMethod", "updateAutorecEntry", "comment"): 42,
+    ("clientMethod", "addTimerecEntry", "enabled"): 19,
+    ("clientMethod", "addTimerecEntry", "directory"): 19,
+    ("clientMethod", "addTimerecEntry", "comment"): 42,
+    ("clientMethod", "updateTimerecEntry", "enabled"): 19,
+    ("clientMethod", "updateTimerecEntry", "directory"): 19,
+    ("clientMethod", "updateTimerecEntry", "comment"): 42,
     ("serverMessage", "channelAdd", "channelIdStr"): 41,
     ("serverMessage", "channelUpdate", "channelIdStr"): 41,
     ("serverMessage", "channelAdd", "channelNumberMinor"): 13,
@@ -1119,6 +1143,592 @@ def exact_field(
         name, wire_type, direction, evidence, "mechanical+annotated", presence,
         min_version=min_version, condition=condition, shape_ref=shape_ref,
     )
+
+
+RECORDING_RULE_METHODS = (
+    "addAutorecEntry",
+    "updateAutorecEntry",
+    "deleteAutorecEntry",
+    "addTimerecEntry",
+    "updateTimerecEntry",
+    "deleteTimerecEntry",
+)
+
+RECORDING_RULE_COMMON_REQUEST_FIELDS: tuple[tuple[str, str], ...] = (
+    ("enabled", "u32"),
+    ("retention", "u32"),
+    ("removal", "u32"),
+    ("priority", "u32"),
+    ("name", "str"),
+    ("comment", "str"),
+    ("directory", "str"),
+    ("title", "str"),
+    ("configName", "str"),
+    ("daysOfWeek", "u32"),
+)
+
+AUTOREC_REQUEST_FIELDS: tuple[tuple[str, str], ...] = (
+    ("minduration", "u32"),
+    ("maxduration", "u32"),
+    ("fulltext", "u32"),
+    ("mergetext", "u32"),
+    ("dupDetect", "u32"),
+    ("maxCount", "u32"),
+    ("broadcastType", "u32"),
+    ("startExtra", "s64"),
+    ("stopExtra", "s64"),
+    ("serieslinkUri", "str"),
+)
+
+
+def recording_rule_request_fields(name: str) -> list[dict[str, Any]]:
+    if name.startswith("delete"):
+        return [exact_field(
+            "id", "str", "request", "required",
+            f"bounded {name} handler requires exactly one string id",
+        )]
+    add = name.startswith("add")
+    autorec = "Autorec" in name
+    fields: list[dict[str, Any]] = [exact_field(
+        "title" if add else "id",
+        "str",
+        "request",
+        "required",
+        f"bounded {name} handler requires its {'title' if add else 'id'} string",
+    )]
+    fields.append(exact_field(
+        "channelId", "s64", "request", "optional",
+        (
+            f"bounded {name} channel selector uses signed s64 at protocol v25+; "
+            "add handlers retain the older u32 reader below v25"
+            if add
+            else f"bounded {name} channel selector uses signed s64"
+        ),
+        condition=(
+            "omitted add selector means any channel; -1 is the explicit any-channel sentinel at v25+"
+            if add
+            else (
+                "pinned handler comments call omission keep-old, but the shared converter emits an empty "
+                "channel whenever add is false; omitted and -1 therefore both clear to any channel"
+            )
+        ),
+    ))
+    family = list(AUTOREC_REQUEST_FIELDS) if autorec else [("start", "u32"), ("stop", "u32")]
+    if autorec:
+        if add:
+            family.extend((
+                ("approxTime", "s32"),
+                ("start", "s32"),
+                ("startWindow", "s32"),
+            ))
+        else:
+            family.extend((("start", "s32"), ("startWindow", "s32")))
+    common = [field for field in RECORDING_RULE_COMMON_REQUEST_FIELDS if not (add and field[0] == "title")]
+    for field_name, wire_type in family + common:
+        fields.append(exact_field(
+            field_name, wire_type, "request", "optional",
+            f"bounded htsp_serierec_convert {'autorec' if autorec else 'timerec'} branch reads {field_name}",
+        ))
+    return fields
+
+
+def recording_rule_reply_fields(name: str) -> list[dict[str, Any]]:
+    if name.startswith("add"):
+        return [
+            exact_field(
+                "id", "str", "reply", "conditional",
+                f"bounded {name} successful-create branch emits the created UUID",
+                condition="present exactly when success equals 1",
+            ),
+            exact_field(
+                "success", "u32", "reply", "required",
+                f"bounded {name} emits 1 for creation success and 0 for creation failure",
+            ),
+            exact_field(
+                "error", "str", "reply", "conditional",
+                f"bounded {name} failed-create branch emits its fixed error text",
+                condition="present exactly when success equals 0",
+            ),
+        ]
+    return [exact_field(
+        "success", "u32", "reply", "required",
+        f"bounded {name} returns the standard success helper after mutation",
+    )]
+
+
+def _getter_inventory(body: str) -> Counter[tuple[str, str]]:
+    return Counter(
+        (GET_TYPE_MAP.get(type_token, "unknown"), field_name)
+        for type_token, field_name in re.findall(
+            r'htsmsg_get_([a-z0-9]+)(?:_or_default)?\(\s*in\s*,\s*"([^"]+)"',
+            strip_c_comments(body),
+        )
+    )
+
+
+def _balanced_block_end(text: str, open_index: int) -> int:
+    depth = 0
+    for index in range(open_index, len(text)):
+        if text[index] == "{":
+            depth += 1
+        elif text[index] == "}":
+            depth -= 1
+            if depth == 0:
+                return index + 1
+    raise ValueError("unbalanced recording-rule branch")
+
+
+def _compact_recording_rule_source(text: str) -> str:
+    compact: list[str] = []
+    state = "code"
+    escaped = False
+    for char in strip_c_comments(text):
+        if state == "code":
+            if char.isspace():
+                continue
+            compact.append(char)
+            if char == '"':
+                state = "string"
+                escaped = False
+            elif char == "'":
+                state = "character"
+                escaped = False
+        else:
+            compact.append(char)
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif (state == "string" and char == '"') or (
+                state == "character" and char == "'"
+            ):
+                state = "code"
+    return "".join(compact)
+
+
+def _require_recording_rule_fragment(
+    body: str,
+    expected: str,
+    diagnostic: str,
+) -> None:
+    count = _compact_recording_rule_source(body).count(
+        _compact_recording_rule_source(expected)
+    )
+    if count != 1:
+        raise ValueError(diagnostic)
+
+
+def _recording_rule_if_else_bodies(
+    body: str,
+    condition: str,
+    diagnostic: str,
+) -> tuple[str, str]:
+    clean = strip_c_comments(body)
+    match = re.search(rf"\bif\s*\(\s*{condition}\s*\)\s*\{{", clean)
+    if match is None:
+        raise ValueError(diagnostic)
+    first_open = match.end() - 1
+    first_end = _balanced_block_end(clean, first_open)
+    else_match = re.match(r"\s*else\s*\{", clean[first_end:])
+    if else_match is None:
+        raise ValueError(diagnostic)
+    second_open = first_end + else_match.end() - 1
+    second_end = _balanced_block_end(clean, second_open)
+    return (
+        clean[first_open + 1:first_end - 1],
+        clean[second_open + 1:second_end - 1],
+    )
+
+
+def _recording_rule_output_inventory(body: str) -> Counter[tuple[str, str]]:
+    return Counter(
+        (ADD_TYPE_MAP.get(type_token, "unknown"), field_name)
+        for type_token, field_name in re.findall(
+            r'htsmsg_add_([a-z0-9]+)\(\s*conf\s*,\s*"([^"]+)"',
+            strip_c_comments(body),
+        )
+    )
+
+
+def require_recording_rule_source_facts(server_c: str) -> None:
+    """Reject drift in the six bounded recording-rule handlers and shared converter."""
+    methods = {entry["name"]: entry for entry in parse_methods_table(server_c)}
+    for name in RECORDING_RULE_METHODS:
+        if methods.get(name) != {
+            "name": name,
+            "handler": f"htsp_method_{name}",
+            "accessMask": "ACCESS_HTSP_RECORDER",
+        }:
+            raise ValueError(f"bounded {name} recorder dispatch drift")
+    helper = find_function_body(server_c, "htsp_serierec_convert")
+    if helper is None:
+        raise ValueError("htsp_serierec_convert body not found")
+    clean_helper = strip_c_comments(helper)
+    autorec_match = re.search(r'\bif\s*\(\s*autorec\s*\)\s*\{', clean_helper)
+    if autorec_match is None:
+        raise ValueError("htsp_serierec_convert autorec branch not found")
+    autorec_open = autorec_match.end() - 1
+    autorec_end = _balanced_block_end(clean_helper, autorec_open)
+    timerec_match = re.match(r'\s*else\s*\{', clean_helper[autorec_end:])
+    if timerec_match is None:
+        raise ValueError("htsp_serierec_convert timerec branch not found")
+    timerec_open = autorec_end + timerec_match.end() - 1
+    timerec_end = _balanced_block_end(clean_helper, timerec_open)
+    autorec_body = clean_helper[autorec_open + 1:autorec_end - 1]
+    timerec_body = clean_helper[timerec_open + 1:timerec_end - 1]
+    common_body = clean_helper[timerec_end:]
+
+    expected_autorec = Counter(
+        [(wire_type, name) for name, wire_type in AUTOREC_REQUEST_FIELDS]
+        + [("s32", "approxTime"), ("s32", "start"), ("s32", "startWindow")]
+        + [("s32", "start"), ("s32", "startWindow")]
+    )
+    expected_timerec = Counter({("u32", "start"): 1, ("u32", "stop"): 1})
+    expected_common = Counter(
+        [(wire_type, name) for name, wire_type in RECORDING_RULE_COMMON_REQUEST_FIELDS]
+        + [("str", "configName")]
+    )
+    for label, actual, expected in (
+        ("autorec", _getter_inventory(autorec_body), expected_autorec),
+        ("timerec", _getter_inventory(timerec_body), expected_timerec),
+        ("common", _getter_inventory(common_body), expected_common),
+    ):
+        if actual != expected:
+            raise ValueError(f"htsp_serierec_convert {label} getter inventory drift: {actual!r}")
+
+    numeric_mappings = (
+        ("minduration", "u32", "u32", "minduration", "u32", "!retval ? u32 : 0"),
+        ("maxduration", "u32", "u32", "maxduration", "u32", "!retval ? u32 : 0"),
+        ("fulltext", "u32", "u32", "fulltext", "u32", "!retval ? u32 : 0"),
+        ("mergetext", "u32", "u32", "mergetext", "u32", "!retval ? u32 : 0"),
+        ("dupDetect", "u32", "u32", "record", "u32", "!retval ? u32 : DVR_AUTOREC_RECORD_ALL"),
+        ("maxCount", "u32", "u32", "maxcount", "u32", "!retval ? u32 : 0"),
+        ("broadcastType", "u32", "u32", "btype", "u32", "!retval ? u32 : 0"),
+        ("startExtra", "s64", "s64", "start_extra", "s64", "!retval ? (s64 < 0 ? 0 : s64) : 0"),
+        ("stopExtra", "s64", "s64", "stop_extra", "s64", "!retval ? (s64 < 0 ? 0 : s64) : 0"),
+    )
+    for input_name, getter_type, variable, output_name, output_type, expression in numeric_mappings:
+        _require_recording_rule_fragment(
+            autorec_body,
+            f"""
+            if (!(retval = htsmsg_get_{getter_type}(in, "{input_name}", &{variable})) || add)
+              htsmsg_add_{output_type}(conf, "{output_name}", {expression});
+            """,
+            f"htsp_serierec_convert autorec {input_name} mapping/default drift",
+        )
+    _require_recording_rule_fragment(
+        autorec_body,
+        """
+        if ((str = htsmsg_get_str(in, "serieslinkUri")) || add)
+          htsmsg_add_str(conf, "serieslink", str ?: "");
+        """,
+        "htsp_serierec_convert autorec serieslinkUri mapping/default drift",
+    )
+    add_schedule, update_schedule = _recording_rule_if_else_bodies(
+        autorec_body,
+        "add",
+        "htsp_serierec_convert autorec add/update schedule mapping/default drift",
+    )
+    expected_add_schedule = """
+      if (htsmsg_get_s32(in, "approxTime", &approx_time))
+        approx_time = -1;
+      if (htsmsg_get_s32(in, "start", &start))
+        start = -1;
+      if (htsmsg_get_s32(in, "startWindow", &start_window))
+        start_window = -1;
+      if (start < 0 || start_window < 0)
+        start = start_window = -1;
+      if (start < 0 && approx_time >= 0) {
+        start = approx_time - 15;
+        if (start < 0)
+          start += 24 * 60;
+        start_window = start + 30;
+        if (start_window >= 24 * 60)
+          start_window -= 24 * 60;
+      }
+      htsmsg_add_s32(conf, "start", start >= 0 ? start : -1);
+      htsmsg_add_s32(conf, "start_window", start_window >= 0 ? start_window : -1);
+    """
+    expected_update_schedule = """
+      if (!htsmsg_get_s32(in, "start", &s32))
+        htsmsg_add_s32(conf, "start", s32 >= 0 ? s32 : -1);
+      if (!htsmsg_get_s32(in, "startWindow", &s32))
+        htsmsg_add_s32(conf, "start_window", s32 >= 0 ? s32 : -1);
+    """
+    if _compact_recording_rule_source(add_schedule) != _compact_recording_rule_source(
+        expected_add_schedule
+    ):
+        raise ValueError("htsp_serierec_convert autorec add schedule mapping/default drift")
+    if _compact_recording_rule_source(update_schedule) != _compact_recording_rule_source(
+        expected_update_schedule
+    ):
+        raise ValueError("htsp_serierec_convert autorec update schedule mapping/default drift")
+
+    for input_name in ("start", "stop"):
+        _require_recording_rule_fragment(
+            timerec_body,
+            f"""
+            if (!(retval = htsmsg_get_u32(in, "{input_name}", &u32)) || add)
+              htsmsg_add_u32(conf, "{input_name}", !retval ? u32 : 0);
+            """,
+            f"htsp_serierec_convert timerec {input_name} mapping/default drift",
+        )
+
+    common_numeric_mappings = (
+        ("enabled", "enabled", "!retval ? (u32 > 0 ? 1 : 0) : 1"),
+        ("retention", "retention", "!retval ? u32 : DVR_RET_REM_DVRCONFIG"),
+        ("removal", "removal", "!retval ? u32 : DVR_RET_REM_DVRCONFIG"),
+        ("priority", "pri", "!retval ? u32 : DVR_PRIO_DEFAULT"),
+    )
+    for input_name, output_name, expression in common_numeric_mappings:
+        _require_recording_rule_fragment(
+            common_body,
+            f"""
+            if (!(retval = htsmsg_get_u32(in, "{input_name}", &u32)) || add)
+              htsmsg_add_u32(conf, "{output_name}", {expression});
+            """,
+            f"htsp_serierec_convert common {input_name} mapping/default drift",
+        )
+    for field_name in ("name", "comment", "directory", "title"):
+        _require_recording_rule_fragment(
+            common_body,
+            f"""
+            if ((str = htsmsg_get_str(in, "{field_name}")) || add)
+              htsmsg_add_str(conf, "{field_name}", str ?: "");
+            """,
+            f"htsp_serierec_convert common {field_name} mapping/default drift",
+        )
+    _require_recording_rule_fragment(
+        common_body,
+        """
+        if (add) {
+          str = htsp_dvr_config_name(htsp, htsmsg_get_str(in, "configName"));
+          htsmsg_add_str(conf, "config_name", str ?: "");
+          htsmsg_add_str2(conf, "owner", htsp->htsp_granted_access->aa_username);
+          htsmsg_add_str2(conf, "creator", htsp->htsp_granted_access->aa_representative);
+        } else {
+          str = htsmsg_get_str(in, "configName");
+          if (str) {
+            str = htsp_dvr_config_name(htsp, str);
+            htsmsg_add_str(conf, "config_name", str ?: "");
+          }
+        }
+        """,
+        "htsp_serierec_convert common configName mapping/default drift",
+    )
+    _require_recording_rule_fragment(
+        common_body,
+        """
+        if (!(retval = htsmsg_get_u32(in, "daysOfWeek", &u32))) {
+          days = htsmsg_create_list();
+          int i;
+          for (i = 0; i < 7; i++)
+            if (u32 & (1 << i))
+              htsmsg_add_u32(days, NULL, i + 1);
+          htsmsg_add_msg(conf, "weekdays", days);
+        }
+        """,
+        "htsp_serierec_convert common daysOfWeek mapping/default drift",
+    )
+    _require_recording_rule_fragment(
+        common_body,
+        "if (ch || !add) {",
+        "htsp_serierec_convert channel guard drift",
+    )
+    _require_recording_rule_fragment(
+        common_body,
+        """
+        if (ch || !add) {
+          htsmsg_add_str(conf, "channel", ch ? idnode_uuid_as_str(&ch->ch_id, ubuf) : "");
+        }
+        """,
+        "htsp_serierec_convert channel output drift",
+    )
+
+    expected_autorec_outputs = Counter(
+        {
+            ("u32", "minduration"): 1,
+            ("u32", "maxduration"): 1,
+            ("u32", "fulltext"): 1,
+            ("u32", "mergetext"): 1,
+            ("u32", "record"): 1,
+            ("u32", "maxcount"): 1,
+            ("u32", "btype"): 1,
+            ("s64", "start_extra"): 1,
+            ("s64", "stop_extra"): 1,
+            ("str", "serieslink"): 1,
+            ("s32", "start"): 2,
+            ("s32", "start_window"): 2,
+        }
+    )
+    expected_common_outputs = Counter(
+        {
+            ("u32", "enabled"): 1,
+            ("u32", "retention"): 1,
+            ("u32", "removal"): 1,
+            ("u32", "pri"): 1,
+            ("str", "name"): 1,
+            ("str", "comment"): 1,
+            ("str", "directory"): 1,
+            ("str", "title"): 1,
+            ("str", "config_name"): 2,
+            ("str", "owner"): 1,
+            ("str", "creator"): 1,
+            ("msg", "weekdays"): 1,
+            ("str", "channel"): 1,
+        }
+    )
+    for label, body, expected in (
+        ("autorec", autorec_body, expected_autorec_outputs),
+        ("timerec", timerec_body, Counter({("u32", "start"): 1, ("u32", "stop"): 1})),
+        ("common", common_body, expected_common_outputs),
+    ):
+        if _recording_rule_output_inventory(body) != expected:
+            raise ValueError(f"htsp_serierec_convert {label} output inventory drift")
+
+    handler_specs = {
+        "addAutorecEntry": (Counter({("str", "title"): 1, ("s64", "channelId"): 1, ("u32", "channelId"): 1}), "1, 1", "dvr_autorec_create_htsp"),
+        "updateAutorecEntry": (Counter({("str", "id"): 1, ("s64", "channelId"): 1}), "1, 0", "dvr_autorec_update_htsp"),
+        "deleteAutorecEntry": (Counter({("str", "id"): 1}), None, "autorec_destroy_by_id"),
+        "addTimerecEntry": (Counter({("str", "title"): 1, ("s64", "channelId"): 1, ("u32", "channelId"): 1}), "0, 1", "dvr_timerec_create_htsp"),
+        "updateTimerecEntry": (Counter({("str", "id"): 1, ("s64", "channelId"): 1}), "0, 0", "dvr_timerec_update_htsp"),
+        "deleteTimerecEntry": (Counter({("str", "id"): 1}), None, "timerec_destroy_by_id"),
+    }
+    for name, (expected_getters, convert_flags, mutation) in handler_specs.items():
+        body = find_function_body(server_c, f"htsp_method_{name}")
+        if body is None:
+            raise ValueError(f"bounded {name} handler not found")
+        clean = strip_c_comments(body)
+        if _getter_inventory(clean) != expected_getters:
+            raise ValueError(f"bounded {name} getter inventory drift")
+        if clean.count(f"{mutation}(") != 1:
+            raise ValueError(f"bounded {name} mutation topology drift")
+        if convert_flags is not None and clean.count("htsp_serierec_convert(") != 1:
+            raise ValueError(f"bounded {name} shared converter call topology drift")
+        required = "title" if name.startswith("add") else "id"
+        autorec = "Autorec" in name
+        family = "autorec" if autorec else "timerec"
+        entry_var = "dae" if autorec else "dte"
+        id_var = "daeId" if autorec else "dteId"
+        required_var = "str" if name.startswith("add") else id_var
+        _require_recording_rule_fragment(
+            clean,
+            f"""
+            if (!({required_var} = htsmsg_get_str(in, "{required}")))
+              return htsp_error(htsp, N_("Invalid arguments"));
+            """,
+            f"bounded {name} required {required} guard drift",
+        )
+        if convert_flags is not None:
+            flag_pattern = convert_flags.replace(",", r"\s*,")
+            if re.search(
+                rf'htsp_serierec_convert\(\s*htsp\s*,\s*in\s*,\s*ch\s*,\s*{flag_pattern}\s*\)',
+                clean,
+            ) is None:
+                raise ValueError(f"bounded {name} family/add converter flags drift")
+        if name.startswith("add"):
+            _require_recording_rule_fragment(
+                clean,
+                """
+                if (htsp->htsp_version > 24) {
+                  if (!htsmsg_get_s64(in, "channelId", &s64)) {
+                    if (s64 >= 0)
+                      ch = channel_find_by_id((uint32_t)s64);
+                  }
+                } else {
+                  if (!htsmsg_get_u32(in, "channelId", &u32))
+                    ch = channel_find_by_id(u32);
+                }
+                if (ch && !htsp_user_access_channel(htsp, ch))
+                  return htsp_error(htsp, N_("User does not have access"));
+                """,
+                f"bounded {name} dual-version channel selector drift",
+            )
+            _require_recording_rule_fragment(
+                clean,
+                f"""
+                {entry_var} = dvr_{family}_create_htsp(
+                  htsp_serierec_convert(htsp, in, ch, {1 if autorec else 0}, 1)
+                );
+                """,
+                f"bounded {name} create/converter association drift",
+            )
+            add_inventory = Counter(
+                (ADD_TYPE_MAP.get(type_token, "unknown"), field_name)
+                for type_token, field_name in re.findall(
+                    r'htsmsg_add_([a-z0-9]+)\(\s*out\s*,\s*"([^"]+)"', clean,
+                )
+            )
+            if add_inventory != Counter({("str", "id"): 1, ("u32", "success"): 2, ("str", "error"): 1}):
+                raise ValueError(f"bounded {name} finite add reply topology drift")
+            reply_diagnostic = f"bounded {name} branch-correlated add reply drift"
+            success_branch, failure_branch = _recording_rule_if_else_bodies(
+                clean,
+                entry_var,
+                reply_diagnostic,
+            )
+            id_member = "dae_id" if autorec else "dte_id"
+            expected_success_branch = f"""
+              htsmsg_add_str(out, "id", idnode_uuid_as_str(&{entry_var}->{id_member}, ubuf));
+              htsmsg_add_u32(out, "success", 1);
+            """
+            expected_error = (
+                "Could not add autorec entry"
+                if autorec
+                else "Could not add timerec entry"
+            )
+            expected_failure_branch = f"""
+              htsmsg_add_str(out, "error", "{expected_error}");
+              htsmsg_add_u32(out, "success", 0);
+            """
+            if (
+                _compact_recording_rule_source(success_branch)
+                != _compact_recording_rule_source(expected_success_branch)
+                or _compact_recording_rule_source(failure_branch)
+                != _compact_recording_rule_source(expected_failure_branch)
+                or _compact_recording_rule_source(clean).count("out=htsmsg_create_map();") != 1
+                or _compact_recording_rule_source(clean).count("returnout;") != 1
+            ):
+                raise ValueError(reply_diagnostic)
+        elif name.startswith("update"):
+            _require_recording_rule_fragment(
+                clean,
+                """
+                if (!htsmsg_get_s64(in, "channelId", &s64)) {
+                  if (s64 >= 0)
+                    ch = channel_find_by_id((uint32_t)s64);
+                  if (ch && !htsp_user_access_channel(htsp, ch))
+                    return htsp_error(htsp, N_("User does not have access"));
+                }
+                """,
+                f"bounded {name} signed channel selector drift",
+            )
+            _require_recording_rule_fragment(
+                clean,
+                f"""
+                dvr_{family}_update_htsp(
+                  {entry_var},
+                  htsp_serierec_convert(htsp, in, ch, {1 if autorec else 0}, 0)
+                );
+                return htsp_success();
+                """,
+                f"bounded {name} standard-success path drift",
+            )
+        else:
+            _require_recording_rule_fragment(
+                clean,
+                f"""
+                {family}_destroy_by_id({id_var}, 1);
+                return htsp_success();
+                """,
+                f"bounded {name} standard-success path drift",
+            )
+
+    success = find_function_body(server_c, "htsp_success") or ""
+    if _getter_inventory(success) or len(extract_add_fields(success, ("r", "out", "rep"))) != 1 or re.search(
+        r'htsmsg_add_u32\(\s*(?:r|out|rep)\s*,\s*"success"\s*,\s*1\s*\)', success,
+    ) is None:
+        raise ValueError("recording-rule standard success helper drift")
 
 
 EVENT_FIELD_CATALOG: tuple[
@@ -3118,10 +3728,10 @@ def helper_bodies(server_c: str, names: tuple[str, ...]) -> list[str]:
 def derive_client_methods(server_c: str) -> list[dict[str, Any]]:
     table = parse_methods_table(server_c)
     methods: list[dict[str, Any]] = []
-    serie_body = find_function_body(server_c, "htsp_serierec_convert") or ""
     file_open_helper = find_function_body(server_c, "htsp_file_open") or ""
     find_dvr_body = find_function_body(server_c, "htsp_findDvrEntry") or ""
     success_body = find_function_body(server_c, "htsp_success") or ""
+    require_recording_rule_source_facts(server_c)
 
     for entry in table:
         name = entry["name"]
@@ -3144,17 +3754,9 @@ def derive_client_methods(server_c: str) -> list[dict[str, Any]]:
                 reply_fields,
                 extract_add_fields(success_body, ("r", "out", "rep")),
             )
-        if name in {
-            "addAutorecEntry",
-            "updateAutorecEntry",
-            "addTimerecEntry",
-            "updateTimerecEntry",
-        }:
-            request_fields = merge_field_lists(
-                request_fields,
-                extract_get_fields(serie_body, "in"),
-            )
-            # id is read in the update handlers themselves.
+        if name in RECORDING_RULE_METHODS:
+            request_fields = recording_rule_request_fields(name)
+            reply_fields = recording_rule_reply_fields(name)
         if name in {"fileOpen"}:
             reply_fields = merge_field_lists(
                 reply_fields,
@@ -3462,6 +4064,30 @@ def derive_client_methods(server_c: str) -> list[dict[str, Any]]:
                     "and gmtoffset as method-specific reply fields"
                 ),
             }
+        if name in RECORDING_RULE_METHODS:
+            method["requestShape"] = {
+                "kind": "fields",
+                "completeness": "complete",
+                "evidence": (
+                    f"bounded {handler} accepts exactly required string id"
+                    if name.startswith("delete")
+                    else f"bounded {handler} plus exact family branch of htsp_serierec_convert"
+                ),
+            }
+            method["replyShape"] = {
+                "kind": "alternative" if name.startswith("add") else "fields",
+                "completeness": "complete",
+                "evidence": (
+                    f"bounded {handler} emits finite success/failure creation alternatives"
+                    if name.startswith("add")
+                    else f"bounded {handler} returns only the standard success acknowledgement"
+                ),
+            }
+            if name.startswith("add"):
+                method["replyShape"]["alternatives"] = [
+                    "success=1 with required string id",
+                    "success=0 with required fixed error string",
+                ]
         if name == "getChannel":
             method["requestShape"] = {
                 "kind": "fields",
@@ -3589,6 +4215,29 @@ def derive_client_methods(server_c: str) -> list[dict[str, Any]]:
                 "Wire cred is an unconstrained copied message and remains an explicitly opaque shape deliberately omitted from the public response model.",
                 "Pinned time_t updated/start/stop/first_aired members are serialized as signed s64; the SDK exposes unchanged Unix-second values under its EPG time convention.",
             ]
+        elif name in RECORDING_RULE_METHODS:
+            notes = [
+                "Dispatch requires ACCESS_HTSP_RECORDER; handler errors use the global error reply rather than the method-specific success shape.",
+            ]
+            if name.startswith("add"):
+                notes.append("Optional shared fields receive pinned source defaults when omitted on add.")
+                notes.append(
+                    "Creation failure is a method-specific success=0 plus fixed error string; success is exactly success=1 plus string id."
+                )
+            elif name.startswith("update"):
+                notes.append(
+                    "Optional shared fields are left unchanged when omitted on update, except for the pinned channel behavior described on channelId."
+                )
+                notes.append("Successful mutation is exactly the standard success=1 acknowledgement.")
+            else:
+                notes.append("The required string id selects one rule for deletion; success is exactly the standard success=1 acknowledgement.")
+            if "Autorec" in name and not name.startswith("delete"):
+                notes.append(
+                    "Autorec uses lowercase minduration/maxduration source keys; approxTime is add-only and start/startWindow are signed s32."
+                )
+            elif "Timerec" in name and not name.startswith("delete"):
+                notes.append("Timerec start/stop request values are read as unsigned u32.")
+            method["notes"] = notes
         elif name == "epgQuery":
             method["replyShape"] = {
                 "kind": "alternative",
@@ -4516,6 +5165,102 @@ def _minimal_server_c(
     )
     handlers = []
     for name, handler, _access in methods:
+        if name in RECORDING_RULE_METHODS:
+            autorec = "Autorec" in name
+            add = name.startswith("add")
+            update = name.startswith("update")
+            family = "autorec" if autorec else "timerec"
+            if add:
+                entry_type = "dvr_autorec_entry_t" if autorec else "dvr_timerec_entry_t"
+                entry_var = "dae" if autorec else "dte"
+                id_member = "dae_id" if autorec else "dte_id"
+                error_text = (
+                    "Could not add autorec entry"
+                    if autorec
+                    else "Could not add timerec entry"
+                )
+                handlers.append(
+                    f"""
+static htsmsg_t *
+{handler}(htsp_connection_t *htsp, htsmsg_t *in)
+{{
+  htsmsg_t *out;
+  {entry_type} *{entry_var};
+  const char *str;
+  int64_t s64;
+  uint32_t u32;
+  void *ch = NULL;
+  char ubuf[UUID_HEX_SIZE];
+  if (!(str = htsmsg_get_str(in, "title")))
+    return htsp_error(htsp, N_("Invalid arguments"));
+  if (htsp->htsp_version > 24) {{
+    if (!htsmsg_get_s64(in, "channelId", &s64)) {{
+      if (s64 >= 0) ch = channel_find_by_id((uint32_t)s64);
+    }}
+  }} else {{
+    if (!htsmsg_get_u32(in, "channelId", &u32)) ch = channel_find_by_id(u32);
+  }}
+  if (ch && !htsp_user_access_channel(htsp, ch))
+    return htsp_error(htsp, N_("User does not have access"));
+  {entry_var} = dvr_{family}_create_htsp(htsp_serierec_convert(htsp, in, ch, {1 if autorec else 0}, 1));
+  out = htsmsg_create_map();
+  if ({entry_var}) {{
+    htsmsg_add_str(out, "id", idnode_uuid_as_str(&{entry_var}->{id_member}, ubuf));
+    htsmsg_add_u32(out, "success", 1);
+  }} else {{
+    htsmsg_add_str(out, "error", "{error_text}");
+    htsmsg_add_u32(out, "success", 0);
+  }}
+  return out;
+}}
+"""
+                )
+            elif update:
+                entry_type = "dvr_autorec_entry_t" if autorec else "dvr_timerec_entry_t"
+                entry_var = "dae" if autorec else "dte"
+                id_var = "daeId" if autorec else "dteId"
+                handlers.append(
+                    f"""
+static htsmsg_t *
+{handler}(htsp_connection_t *htsp, htsmsg_t *in)
+{{
+  const char *{id_var};
+  {entry_type} *{entry_var};
+  int64_t s64;
+  void *ch = NULL;
+  if (!({id_var} = htsmsg_get_str(in, "id")))
+    return htsp_error(htsp, N_("Invalid arguments"));
+  {entry_var} = dvr_{family}_find_by_uuid({id_var});
+  if (!htsmsg_get_s64(in, "channelId", &s64)) {{
+    if (s64 >= 0) ch = channel_find_by_id((uint32_t)s64);
+    if (ch && !htsp_user_access_channel(htsp, ch))
+      return htsp_error(htsp, N_("User does not have access"));
+  }}
+  dvr_{family}_update_htsp({entry_var}, htsp_serierec_convert(htsp, in, ch, {1 if autorec else 0}, 0));
+  return htsp_success();
+}}
+"""
+                )
+            else:
+                entry_type = "dvr_autorec_entry_t" if autorec else "dvr_timerec_entry_t"
+                entry_var = "dae" if autorec else "dte"
+                id_var = "daeId" if autorec else "dteId"
+                handlers.append(
+                    f"""
+static htsmsg_t *
+{handler}(htsp_connection_t *htsp, htsmsg_t *in)
+{{
+  const char *{id_var};
+  {entry_type} *{entry_var};
+  if (!({id_var} = htsmsg_get_str(in, "id")))
+    return htsp_error(htsp, N_("Invalid arguments"));
+  {entry_var} = dvr_{family}_find_by_uuid({id_var});
+  {family}_destroy_by_id({id_var}, 1);
+  return htsp_success();
+}}
+"""
+                )
+            continue
         if name == "stopDvrEntry":
             handlers.append(
                 f"""
@@ -4812,6 +5557,110 @@ htsp_enable_stream(htsp_subscription_t *hs, unsigned int id)
 {
   if (id < NUM_FILTERED_STREAMS)
     hs->hs_filtered_streams[id / 64] &= ~(1 << (id & 63));
+}
+static htsmsg_t *
+htsp_serierec_convert(htsp_connection_t *htsp, htsmsg_t *in, void *ch, int autorec, int add)
+{
+  htsmsg_t *conf, *days;
+  uint32_t u32;
+  int64_t s64;
+  int32_t approx_time, start, start_window, s32;
+  int retval;
+  const char *str;
+  char ubuf[UUID_HEX_SIZE];
+  conf = htsmsg_create_map();
+  if (autorec) {
+    if (!(retval = htsmsg_get_u32(in, "minduration", &u32)) || add)
+      htsmsg_add_u32(conf, "minduration", !retval ? u32 : 0);
+    if (!(retval = htsmsg_get_u32(in, "maxduration", &u32)) || add)
+      htsmsg_add_u32(conf, "maxduration", !retval ? u32 : 0);
+    if (!(retval = htsmsg_get_u32(in, "fulltext", &u32)) || add)
+      htsmsg_add_u32(conf, "fulltext", !retval ? u32 : 0);
+    if (!(retval = htsmsg_get_u32(in, "mergetext", &u32)) || add)
+      htsmsg_add_u32(conf, "mergetext", !retval ? u32 : 0);
+    if (!(retval = htsmsg_get_u32(in, "dupDetect", &u32)) || add)
+      htsmsg_add_u32(conf, "record", !retval ? u32 : DVR_AUTOREC_RECORD_ALL);
+    if (!(retval = htsmsg_get_u32(in, "maxCount", &u32)) || add)
+      htsmsg_add_u32(conf, "maxcount", !retval ? u32 : 0);
+    if (!(retval = htsmsg_get_u32(in, "broadcastType", &u32)) || add)
+      htsmsg_add_u32(conf, "btype", !retval ? u32 : 0);
+    if (!(retval = htsmsg_get_s64(in, "startExtra", &s64)) || add)
+      htsmsg_add_s64(conf, "start_extra", !retval ? (s64 < 0 ? 0 : s64) : 0);
+    if (!(retval = htsmsg_get_s64(in, "stopExtra", &s64)) || add)
+      htsmsg_add_s64(conf, "stop_extra", !retval ? (s64 < 0 ? 0 : s64) : 0);
+    if ((str = htsmsg_get_str(in, "serieslinkUri")) || add)
+      htsmsg_add_str(conf, "serieslink", str ?: "");
+    if (add) {
+      if (htsmsg_get_s32(in, "approxTime", &approx_time))
+        approx_time = -1;
+      if (htsmsg_get_s32(in, "start", &start))
+        start = -1;
+      if (htsmsg_get_s32(in, "startWindow", &start_window))
+        start_window = -1;
+      if (start < 0 || start_window < 0)
+        start = start_window = -1;
+      if (start < 0 && approx_time >= 0) {
+        start = approx_time - 15;
+        if (start < 0)
+          start += 24 * 60;
+        start_window = start + 30;
+        if (start_window >= 24 * 60)
+          start_window -= 24 * 60;
+      }
+      htsmsg_add_s32(conf, "start", start >= 0 ? start : -1);
+      htsmsg_add_s32(conf, "start_window", start_window >= 0 ? start_window : -1);
+    } else {
+      if (!htsmsg_get_s32(in, "start", &s32))
+        htsmsg_add_s32(conf, "start", s32 >= 0 ? s32 : -1);
+      if (!htsmsg_get_s32(in, "startWindow", &s32))
+        htsmsg_add_s32(conf, "start_window", s32 >= 0 ? s32 : -1);
+    }
+  } else {
+    if (!(retval = htsmsg_get_u32(in, "start", &u32)) || add)
+      htsmsg_add_u32(conf, "start", !retval ? u32 : 0);
+    if (!(retval = htsmsg_get_u32(in, "stop", &u32)) || add)
+      htsmsg_add_u32(conf, "stop", !retval ? u32 : 0);
+  }
+  if (!(retval = htsmsg_get_u32(in, "enabled", &u32)) || add)
+    htsmsg_add_u32(conf, "enabled", !retval ? (u32 > 0 ? 1 : 0) : 1);
+  if (!(retval = htsmsg_get_u32(in, "retention", &u32)) || add)
+    htsmsg_add_u32(conf, "retention", !retval ? u32 : DVR_RET_REM_DVRCONFIG);
+  if (!(retval = htsmsg_get_u32(in, "removal", &u32)) || add)
+    htsmsg_add_u32(conf, "removal", !retval ? u32 : DVR_RET_REM_DVRCONFIG);
+  if (!(retval = htsmsg_get_u32(in, "priority", &u32)) || add)
+    htsmsg_add_u32(conf, "pri", !retval ? u32 : DVR_PRIO_DEFAULT);
+  if ((str = htsmsg_get_str(in, "name")) || add)
+    htsmsg_add_str(conf, "name", str ?: "");
+  if ((str = htsmsg_get_str(in, "comment")) || add)
+    htsmsg_add_str(conf, "comment", str ?: "");
+  if ((str = htsmsg_get_str(in, "directory")) || add)
+    htsmsg_add_str(conf, "directory", str ?: "");
+  if ((str = htsmsg_get_str(in, "title")) || add)
+    htsmsg_add_str(conf, "title", str ?: "");
+  if (add) {
+    str = htsp_dvr_config_name(htsp, htsmsg_get_str(in, "configName"));
+    htsmsg_add_str(conf, "config_name", str ?: "");
+    htsmsg_add_str2(conf, "owner", htsp->htsp_granted_access->aa_username);
+    htsmsg_add_str2(conf, "creator", htsp->htsp_granted_access->aa_representative);
+  } else {
+    str = htsmsg_get_str(in, "configName");
+    if (str) {
+      str = htsp_dvr_config_name(htsp, str);
+      htsmsg_add_str(conf, "config_name", str ?: "");
+    }
+  }
+  if (!(retval = htsmsg_get_u32(in, "daysOfWeek", &u32))) {
+    days = htsmsg_create_list();
+    int i;
+    for (i = 0; i < 7; i++)
+      if (u32 & (1 << i))
+        htsmsg_add_u32(days, NULL, i + 1);
+    htsmsg_add_msg(conf, "weekdays", days);
+  }
+  if (ch || !add) {
+    htsmsg_add_str(conf, "channel", ch ? idnode_uuid_as_str(&ch->ch_id, ubuf) : "");
+  }
+  return conf;
 }
 static htsmsg_t *
 htsp_findDvrEntry(htsp_connection_t *htsp, htsmsg_t *in,
@@ -5410,7 +6259,7 @@ def self_test() -> None:
             live_coverage["serverMessages"]["handledCount"],
             live_coverage["typedClientRequests"]["count"],
             live_coverage["typedServerMessages"]["count"],
-        ) == (31, 30, 27, 23, 26)
+        ) == (37, 36, 27, 29, 26)
         and "getEpgObject" in live_coverage["clientMethods"]["referenced"]
         and "getEpgObject" in live_coverage["clientMethods"]["outgoingRequests"]
         and "epgQuery" in live_coverage["clientMethods"]["referenced"]
@@ -5465,7 +6314,7 @@ def self_test() -> None:
             live_coverage["clientMethods"]["referencedCount"],
             live_coverage["clientMethods"]["outgoingRequestCount"],
             live_coverage["serverMessages"]["handledCount"],
-        ) == (31, 30, 27)
+        ) == (37, 36, 27)
         and "getChannel" in live_coverage["clientMethods"]["referenced"]
         and "getChannel" in live_coverage["clientMethods"]["outgoingRequests"],
         str(live_coverage.get("metrics")),
@@ -5518,7 +6367,7 @@ def self_test() -> None:
             live_coverage["clientMethods"]["referencedCount"],
             live_coverage["clientMethods"]["outgoingRequestCount"],
             live_coverage["serverMessages"]["handledCount"],
-        ) == (31, 30, 27)
+        ) == (37, 36, 27)
         and "getEvents" in live_coverage["clientMethods"]["referenced"]
         and "getEvents" in live_coverage["clientMethods"]["outgoingRequests"],
     )
@@ -5662,11 +6511,14 @@ def self_test() -> None:
                 else "htsp_method_filter_stream"
                 if name == "subscriptionFilterStream"
                 else f"htsp_method_{name}"
-                if name in {"getEvent", "getEvents", "getEpgObject", "epgQuery", "stopDvrEntry", "getDvrCutpoints"}
+                if name in {
+                    "getEvent", "getEvents", "getEpgObject", "epgQuery", "stopDvrEntry",
+                    "getDvrCutpoints", *RECORDING_RULE_METHODS,
+                }
                 else f"htsp_method_{idx}"
             ),
             "ACCESS_HTSP_RECORDER"
-            if name in {"stopDvrEntry", "getDvrCutpoints"}
+            if name in {"stopDvrEntry", "getDvrCutpoints", *RECORDING_RULE_METHODS}
             else "ACCESS_HTSP_STREAMING"
             if name in {
                 "epgQuery", "getEpgObject", "subscriptionChangeWeight", "subscriptionLive", "subscriptionFilterStream",
@@ -5679,6 +6531,341 @@ def self_test() -> None:
     server_h = "/* header fixture */\nvoid htsp_init(const char *bindaddr);\n"
     htsp_py = "HTSP_PROTO_VERSION = 33\nclass HTSPClient(object):\n    def hello(self):\n        self.send('hello')\n"
     epg_c, epg_h, lang_str_c, string_list_c = _minimal_epg_sources()
+
+    try:
+        require_recording_rule_source_facts(server_c)
+        check("recording-rule-source-positive-fixture", True)
+    except ValueError as exc:
+        check("recording-rule-source-positive-fixture", False, str(exc))
+
+    def mutate_recording_rule_function(
+        label: str,
+        function_name: str,
+        old: str,
+        new: str,
+    ) -> str:
+        pattern = re.compile(
+            rf"\b{re.escape(function_name)}\s*\([^;]*?\)\s*\{{",
+            re.S,
+        )
+        match = pattern.search(server_c)
+        check(f"recording-rule-specific-target-{label}", match is not None)
+        if match is None:
+            return server_c
+        open_index = match.end() - 1
+        close_index = _balanced_block_end(server_c, open_index)
+        body = server_c[open_index + 1:close_index - 1]
+        count = body.count(old)
+        check(f"recording-rule-specific-target-{label}", count == 1, f"got {count}")
+        if count != 1:
+            return server_c
+        mutated_body = body.replace(old, new, 1)
+        return server_c[:open_index + 1] + mutated_body + server_c[close_index - 1:]
+
+    def expect_recording_rule_specific_rejection(
+        label: str,
+        expected_diagnostic: str,
+        function_name: str,
+        old: str,
+        new: str,
+    ) -> None:
+        mutated = mutate_recording_rule_function(label, function_name, old, new)
+        if mutated == server_c:
+            return
+        try:
+            require_recording_rule_source_facts(mutated)
+            check(f"reject-recording-rule-specific-{label}", False, "mutation accepted")
+        except ValueError as exc:
+            check(
+                f"reject-recording-rule-specific-{label}",
+                str(exc) == expected_diagnostic,
+                str(exc),
+            )
+
+    for label, expected_diagnostic, function_name, old, new in (
+        (
+            "autorec-field-type",
+            "htsp_serierec_convert autorec getter inventory drift: "
+            "Counter({('s32', 'start'): 2, ('s32', 'startWindow'): 2, "
+            "('s64', 'minduration'): 1, ('u32', 'maxduration'): 1, "
+            "('u32', 'fulltext'): 1, ('u32', 'mergetext'): 1, "
+            "('u32', 'dupDetect'): 1, ('u32', 'maxCount'): 1, "
+            "('u32', 'broadcastType'): 1, ('s64', 'startExtra'): 1, "
+            "('s64', 'stopExtra'): 1, ('str', 'serieslinkUri'): 1, "
+            "('s32', 'approxTime'): 1})",
+            "htsp_serierec_convert",
+            'htsmsg_get_u32(in, "minduration", &u32)',
+            'htsmsg_get_s64(in, "minduration", &s64)',
+        ),
+        (
+            "timerec-family-leak",
+            "htsp_serierec_convert timerec getter inventory drift: "
+            "Counter({('u32', 'start'): 1, ('u32', 'stop'): 1, "
+            "('u32', 'fulltext'): 1})",
+            "htsp_serierec_convert",
+            'htsmsg_get_u32(in, "stop", &u32)',
+            'htsmsg_get_u32(in, "stop", &u32) || htsmsg_get_u32(in, "fulltext", &u32)',
+        ),
+        (
+            "add-autorec-flags",
+            "bounded addAutorecEntry family/add converter flags drift",
+            "htsp_method_addAutorecEntry",
+            "htsp_serierec_convert(htsp, in, ch, 1, 1)",
+            "htsp_serierec_convert(htsp, in, ch, 0, 1)",
+        ),
+        (
+            "update-autorec-flags",
+            "bounded updateAutorecEntry family/add converter flags drift",
+            "htsp_method_updateAutorecEntry",
+            "htsp_serierec_convert(htsp, in, ch, 1, 0)",
+            "htsp_serierec_convert(htsp, in, ch, 1, 1)",
+        ),
+        (
+            "delete-autorec-action",
+            "bounded deleteAutorecEntry mutation topology drift",
+            "htsp_method_deleteAutorecEntry",
+            "autorec_destroy_by_id(daeId, 1);",
+            "timerec_destroy_by_id(daeId, 1);",
+        ),
+        (
+            "add-timerec-flags",
+            "bounded addTimerecEntry family/add converter flags drift",
+            "htsp_method_addTimerecEntry",
+            "htsp_serierec_convert(htsp, in, ch, 0, 1)",
+            "htsp_serierec_convert(htsp, in, ch, 1, 1)",
+        ),
+        (
+            "update-timerec-flags",
+            "bounded updateTimerecEntry family/add converter flags drift",
+            "htsp_method_updateTimerecEntry",
+            "htsp_serierec_convert(htsp, in, ch, 0, 0)",
+            "htsp_serierec_convert(htsp, in, ch, 0, 1)",
+        ),
+        (
+            "delete-timerec-action",
+            "bounded deleteTimerecEntry mutation topology drift",
+            "htsp_method_deleteTimerecEntry",
+            "timerec_destroy_by_id(dteId, 1);",
+            "autorec_destroy_by_id(dteId, 1);",
+        ),
+        (
+            "add-channel-version-branch",
+            "bounded addAutorecEntry dual-version channel selector drift",
+            "htsp_method_addAutorecEntry",
+            "htsp->htsp_version > 24",
+            "htsp->htsp_version > 25",
+        ),
+        (
+            "add-success-discriminator",
+            "bounded addAutorecEntry branch-correlated add reply drift",
+            "htsp_method_addAutorecEntry",
+            'htsmsg_add_u32(out, "success", 1);',
+            'htsmsg_add_u32(out, "success", 2);',
+        ),
+        (
+            "update-success-shape",
+            "bounded updateAutorecEntry standard-success path drift",
+            "htsp_method_updateAutorecEntry",
+            "dvr_autorec_update_htsp(dae, htsp_serierec_convert(htsp, in, ch, 1, 0));\n  return htsp_success();",
+            "dvr_autorec_update_htsp(dae, htsp_serierec_convert(htsp, in, ch, 1, 0));\n  return htsmsg_create_map();",
+        ),
+    ):
+        expect_recording_rule_specific_rejection(
+            label,
+            expected_diagnostic,
+            function_name,
+            old,
+            new,
+        )
+
+    for label, method_name in (
+        ("autorec-recorder-dispatch", "addAutorecEntry"),
+        ("timerec-recorder-dispatch", "addTimerecEntry"),
+    ):
+        old = (
+            f'{{ "{method_name}", htsp_method_{method_name}, '
+            "ACCESS_HTSP_RECORDER}"
+        )
+        new = old.replace("ACCESS_HTSP_RECORDER", "ACCESS_ANONYMOUS")
+        count = server_c.count(old)
+        check(f"recording-rule-specific-target-{label}", count == 1, f"got {count}")
+        if count == 1:
+            try:
+                require_recording_rule_source_facts(server_c.replace(old, new, 1))
+                check(f"reject-recording-rule-specific-{label}", False, "mutation accepted")
+            except ValueError as exc:
+                expected = f"bounded {method_name} recorder dispatch drift"
+                check(
+                    f"reject-recording-rule-specific-{label}",
+                    str(exc) == expected,
+                    str(exc),
+                )
+
+    for label, expected_diagnostic, function_name, old, new in (
+        (
+            "autorec-assignment-swap",
+            "htsp_serierec_convert autorec minduration mapping/default drift",
+            "htsp_serierec_convert",
+            'htsmsg_add_u32(conf, "minduration", !retval ? u32 : 0);',
+            'htsmsg_add_u32(conf, "maxduration", !retval ? u32 : 0);',
+        ),
+        (
+            "timerec-assignment-swap",
+            "htsp_serierec_convert timerec start mapping/default drift",
+            "htsp_serierec_convert",
+            'htsmsg_add_u32(conf, "start", !retval ? u32 : 0);',
+            'htsmsg_add_u32(conf, "stop", !retval ? u32 : 0);',
+        ),
+        (
+            "autorec-default-expression",
+            "htsp_serierec_convert autorec dupDetect mapping/default drift",
+            "htsp_serierec_convert",
+            'htsmsg_add_u32(conf, "record", !retval ? u32 : DVR_AUTOREC_RECORD_ALL);',
+            'htsmsg_add_u32(conf, "record", !retval ? u32 : 0);',
+        ),
+        (
+            "timerec-default-expression",
+            "htsp_serierec_convert timerec stop mapping/default drift",
+            "htsp_serierec_convert",
+            'htsmsg_add_u32(conf, "stop", !retval ? u32 : 0);',
+            'htsmsg_add_u32(conf, "stop", !retval ? u32 : 1);',
+        ),
+        (
+            "autorec-omission-guard-polarity",
+            "htsp_serierec_convert autorec maxduration mapping/default drift",
+            "htsp_serierec_convert",
+            'if (!(retval = htsmsg_get_u32(in, "maxduration", &u32)) || add)',
+            'if (!(retval = htsmsg_get_u32(in, "maxduration", &u32)) && add)',
+        ),
+        (
+            "timerec-omission-guard-placement",
+            "htsp_serierec_convert timerec stop mapping/default drift",
+            "htsp_serierec_convert",
+            'if (!(retval = htsmsg_get_u32(in, "stop", &u32)) || add)',
+            'if (!(retval = htsmsg_get_u32(in, "stop", &u32)))',
+        ),
+        (
+            "autorec-update-omission-polarity",
+            "htsp_serierec_convert autorec update schedule mapping/default drift",
+            "htsp_serierec_convert",
+            'if (!htsmsg_get_s32(in, "start", &s32))',
+            'if (htsmsg_get_s32(in, "start", &s32))',
+        ),
+        (
+            "channel-guard-polarity",
+            "htsp_serierec_convert channel guard drift",
+            "htsp_serierec_convert",
+            "if (ch || !add) {",
+            "if (ch || add) {",
+        ),
+        (
+            "channel-output-field",
+            "htsp_serierec_convert channel output drift",
+            "htsp_serierec_convert",
+            'htsmsg_add_str(conf, "channel", ch ? idnode_uuid_as_str(&ch->ch_id, ubuf) : "");',
+            'htsmsg_add_str(conf, "channelId", ch ? idnode_uuid_as_str(&ch->ch_id, ubuf) : "");',
+        ),
+        (
+            "channel-output-value",
+            "htsp_serierec_convert channel output drift",
+            "htsp_serierec_convert",
+            'ch ? idnode_uuid_as_str(&ch->ch_id, ubuf) : ""',
+            'ch ? "fixture-channel" : ""',
+        ),
+        (
+            "add-autorec-title-guard-polarity",
+            "bounded addAutorecEntry required title guard drift",
+            "htsp_method_addAutorecEntry",
+            'if (!(str = htsmsg_get_str(in, "title")))',
+            'if ((str = htsmsg_get_str(in, "title")))',
+        ),
+        (
+            "add-timerec-title-guard-polarity",
+            "bounded addTimerecEntry required title guard drift",
+            "htsp_method_addTimerecEntry",
+            'if (!(str = htsmsg_get_str(in, "title")))',
+            'if ((str = htsmsg_get_str(in, "title")))',
+        ),
+        (
+            "update-autorec-id-guard-polarity",
+            "bounded updateAutorecEntry required id guard drift",
+            "htsp_method_updateAutorecEntry",
+            'if (!(daeId = htsmsg_get_str(in, "id")))',
+            'if ((daeId = htsmsg_get_str(in, "id")))',
+        ),
+        (
+            "delete-timerec-id-guard-polarity",
+            "bounded deleteTimerecEntry required id guard drift",
+            "htsp_method_deleteTimerecEntry",
+            'if (!(dteId = htsmsg_get_str(in, "id")))',
+            'if ((dteId = htsmsg_get_str(in, "id")))',
+        ),
+        (
+            "add-autorec-success-error-branch-swap",
+            "bounded addAutorecEntry branch-correlated add reply drift",
+            "htsp_method_addAutorecEntry",
+            "if (dae) {",
+            "if (!dae) {",
+        ),
+        (
+            "add-timerec-success-error-branch-swap",
+            "bounded addTimerecEntry branch-correlated add reply drift",
+            "htsp_method_addTimerecEntry",
+            "if (dte) {",
+            "if (!dte) {",
+        ),
+        (
+            "add-autorec-created-id-association",
+            "bounded addAutorecEntry branch-correlated add reply drift",
+            "htsp_method_addAutorecEntry",
+            "idnode_uuid_as_str(&dae->dae_id, ubuf)",
+            "idnode_uuid_as_str(&dae->dae_parent_id, ubuf)",
+        ),
+        (
+            "add-timerec-created-id-association",
+            "bounded addTimerecEntry branch-correlated add reply drift",
+            "htsp_method_addTimerecEntry",
+            "idnode_uuid_as_str(&dte->dte_id, ubuf)",
+            "idnode_uuid_as_str(&dte->dte_parent_id, ubuf)",
+        ),
+        (
+            "add-autorec-error-association",
+            "bounded addAutorecEntry branch-correlated add reply drift",
+            "htsp_method_addAutorecEntry",
+            'htsmsg_add_str(out, "error", "Could not add autorec entry");',
+            'htsmsg_add_str(out, "error", "Could not add timerec entry");',
+        ),
+        (
+            "add-timerec-error-association",
+            "bounded addTimerecEntry branch-correlated add reply drift",
+            "htsp_method_addTimerecEntry",
+            'htsmsg_add_str(out, "error", "Could not add timerec entry");',
+            'htsmsg_add_str(out, "error", "Could not add autorec entry");',
+        ),
+        (
+            "add-autorec-shared-converter-duplicate",
+            "bounded addAutorecEntry shared converter call topology drift",
+            "htsp_method_addAutorecEntry",
+            "dae = dvr_autorec_create_htsp(htsp_serierec_convert(htsp, in, ch, 1, 1));",
+            "dae = dvr_autorec_create_htsp(htsp_serierec_convert(htsp, in, ch, 1, 1));\n"
+            "  (void)htsp_serierec_convert(htsp, in, ch, 1, 1);",
+        ),
+        (
+            "update-timerec-shared-converter-duplicate",
+            "bounded updateTimerecEntry shared converter call topology drift",
+            "htsp_method_updateTimerecEntry",
+            "dvr_timerec_update_htsp(dte, htsp_serierec_convert(htsp, in, ch, 0, 0));",
+            "dvr_timerec_update_htsp(dte, htsp_serierec_convert(htsp, in, ch, 0, 0));\n"
+            "  (void)htsp_serierec_convert(htsp, in, ch, 0, 0);",
+        ),
+    ):
+        expect_recording_rule_specific_rejection(
+            label,
+            expected_diagnostic,
+            function_name,
+            old,
+            new,
+        )
 
     def expect_epg_semantic_rejection(
         label: str,

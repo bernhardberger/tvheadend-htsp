@@ -76,6 +76,12 @@ EXPECTED_TYPED_CLIENT_REQUESTS: tuple[tuple[str, str, int | None], ...] = (
     ("stopDvrEntry", "ACCESS_HTSP_RECORDER", None),
     ("cancelDvrEntry", "ACCESS_HTSP_RECORDER", 5),
     ("deleteDvrEntry", "ACCESS_HTSP_RECORDER", 4),
+    ("addAutorecEntry", "ACCESS_HTSP_RECORDER", 13),
+    ("updateAutorecEntry", "ACCESS_HTSP_RECORDER", 25),
+    ("deleteAutorecEntry", "ACCESS_HTSP_RECORDER", 13),
+    ("addTimerecEntry", "ACCESS_HTSP_RECORDER", 18),
+    ("updateTimerecEntry", "ACCESS_HTSP_RECORDER", 25),
+    ("deleteTimerecEntry", "ACCESS_HTSP_RECORDER", 18),
     ("getDvrCutpoints", "ACCESS_HTSP_RECORDER", 12),
     ("subscribe", "ACCESS_HTSP_STREAMING", None),
     ("unsubscribe", "ACCESS_HTSP_STREAMING", None),
@@ -271,6 +277,101 @@ TIMEREC_LIMITATION_SUMMARY = (
     "as source/docs evidence and do not imply outbound time-rule RPC support or a "
     "public removal-field contract."
 )
+RECORDING_RULE_METHOD_MINIMUMS = {
+    "addAutorecEntry": 13,
+    "updateAutorecEntry": 25,
+    "deleteAutorecEntry": 13,
+    "addTimerecEntry": 18,
+    "updateTimerecEntry": 25,
+    "deleteTimerecEntry": 18,
+}
+RECORDING_RULE_COMMON_FIELDS = (
+    ("enabled", "u32", 19),
+    ("retention", "u32", None),
+    ("removal", "u32", None),
+    ("priority", "u32", None),
+    ("name", "str", 18),
+    ("comment", "str", 42),
+    ("directory", "str", 19),
+    ("title", "str", None),
+    ("configName", "str", None),
+    ("daysOfWeek", "u32", None),
+)
+RECORDING_RULE_AUTOREC_FIELDS = (
+    ("minduration", "u32", None),
+    ("maxduration", "u32", None),
+    ("fulltext", "u32", 20),
+    ("mergetext", "u32", None),
+    ("dupDetect", "u32", 20),
+    ("maxCount", "u32", None),
+    ("broadcastType", "u32", 39),
+    ("startExtra", "s64", None),
+    ("stopExtra", "s64", None),
+    ("serieslinkUri", "str", None),
+)
+
+
+def recording_rule_request_contract(name: str) -> tuple[tuple[str, str, str, int | None], ...]:
+    if name.startswith("delete"):
+        return (("id", "str", "required", None),)
+    add = name.startswith("add")
+    fields: list[tuple[str, str, str, int | None]] = [
+        ("title" if add else "id", "str", "required", None),
+        ("channelId", "s64", "optional", None),
+    ]
+    if "Autorec" in name:
+        fields.extend((field, wire, "optional", minimum) for field, wire, minimum in RECORDING_RULE_AUTOREC_FIELDS)
+        if add:
+            fields.append(("approxTime", "s32", "optional", None))
+        fields.extend((
+            ("start", "s32", "optional", 18),
+            ("startWindow", "s32", "optional", 18),
+        ))
+    else:
+        fields.extend((
+            ("start", "u32", "optional", None),
+            ("stop", "u32", "optional", None),
+        ))
+    fields.extend(
+        (
+            field,
+            wire,
+            "optional",
+            None if "Timerec" in name and field == "name" else minimum,
+        )
+        for field, wire, minimum in RECORDING_RULE_COMMON_FIELDS
+        if not (add and field == "title")
+    )
+    return tuple(fields)
+
+
+def recording_rule_notes(name: str) -> list[str]:
+    notes = [
+        "Dispatch requires ACCESS_HTSP_RECORDER; handler errors use the global error reply rather than the method-specific success shape.",
+    ]
+    if name.startswith("add"):
+        notes.extend((
+            "Optional shared fields receive pinned source defaults when omitted on add.",
+            "Creation failure is a method-specific success=0 plus fixed error string; success is exactly success=1 plus string id.",
+        ))
+    elif name.startswith("update"):
+        notes.extend((
+            "Optional shared fields are left unchanged when omitted on update, except for the pinned channel behavior described on channelId.",
+            "Successful mutation is exactly the standard success=1 acknowledgement.",
+        ))
+    else:
+        notes.append(
+            "The required string id selects one rule for deletion; success is exactly the standard success=1 acknowledgement."
+        )
+    if "Autorec" in name and not name.startswith("delete"):
+        notes.append(
+            "Autorec uses lowercase minduration/maxduration source keys; approxTime is add-only and start/startWindow are signed s32."
+        )
+    elif "Timerec" in name and not name.startswith("delete"):
+        notes.append("Timerec start/stop request values are read as unsigned u32.")
+    return notes
+
+
 EVENT_FIELD_CONTRACT: tuple[tuple[str, str, str, str | None], ...] = (
     ("eventId", "u32", "required", None),
     ("channelId", "u32", "conditional", None),
@@ -1335,6 +1436,66 @@ def validate_spec(spec: dict[str, Any], upstream: dict[str, Any] | None = None) 
     if string_shape.get("kind") != "scalar" or string_shape.get("wireType") != "str" or string_shape.get("completeness") != "complete":
         errors.append("str must remain the exact event list-element scalar shape")
 
+    for name, minimum in RECORDING_RULE_METHOD_MINIMUMS.items():
+        method = method_map.get(name, {})
+        if (
+            method.get("handler") != f"htsp_method_{name}"
+            or method.get("accessMask") != "ACCESS_HTSP_RECORDER"
+            or method.get("minVersion") != minimum
+            or method.get("minVersionConfidence") != "annotated"
+        ):
+            errors.append(f"{name} must preserve exact handler, recorder access, and method minimum")
+        request_contract = [
+            (field.get("name"), field.get("type"), field.get("presence"), field.get("minVersion"))
+            for field in method.get("requestFields", [])
+        ]
+        if request_contract != list(recording_rule_request_contract(name)):
+            errors.append(f"{name} request must preserve its exact complete family field contract")
+        request_shape = method.get("requestShape", {})
+        if request_shape.get("kind") != "fields" or request_shape.get("completeness") != "complete":
+            errors.append(f"{name} request shape must remain fields/complete")
+        reply_contract = [
+            (field.get("name"), field.get("type"), field.get("presence"), field.get("condition"))
+            for field in method.get("replyFields", [])
+        ]
+        expected_reply = (
+            [
+                ("id", "str", "conditional", "present exactly when success equals 1"),
+                ("success", "u32", "required", None),
+                ("error", "str", "conditional", "present exactly when success equals 0"),
+            ]
+            if name.startswith("add")
+            else [("success", "u32", "required", None)]
+        )
+        if reply_contract != expected_reply:
+            errors.append(f"{name} reply must preserve its strict finite success topology")
+        reply_shape = method.get("replyShape", {})
+        if (
+            reply_shape.get("kind") != ("alternative" if name.startswith("add") else "fields")
+            or reply_shape.get("completeness") != "complete"
+            or (
+                name.startswith("add")
+                and reply_shape.get("alternatives") != [
+                    "success=1 with required string id",
+                    "success=0 with required fixed error string",
+                ]
+            )
+        ):
+            errors.append(f"{name} reply shape must preserve its complete finite topology")
+        if method.get("notes") != recording_rule_notes(name):
+            errors.append(f"{name} notes must preserve source defaults, errors, and family semantics")
+        if not name.startswith("delete"):
+            channel = next(
+                (field for field in method.get("requestFields", []) if field.get("name") == "channelId"),
+                {},
+            )
+            condition = channel.get("condition", "")
+            if name.startswith("add"):
+                if "omitted add selector means any channel" not in condition or "-1" not in condition:
+                    errors.append(f"{name} channel selector must preserve omitted/explicit-any semantics")
+            elif not all(token in condition for token in ("omission keep-old", "omitted and -1", "clear")):
+                errors.append(f"{name} channel selector must preserve pinned omission/clear contradiction")
+
     coverage = spec.get("coverage") or {}
     client_cov = coverage.get("clientMethods") or {}
     typed_cov = coverage.get("typedClientRequests") or {}
@@ -1368,8 +1529,8 @@ def validate_spec(spec: dict[str, Any], upstream: dict[str, Any] | None = None) 
             errors.append(f"{name}: typed catalog access mask disagrees with pinned method")
         if method.get("minVersion") != method_min_version:
             errors.append(f"{name}: typed catalog method minimum disagrees with pinned method")
-    if typed_count != len(typed_methods) or typed_count != 23:
-        errors.append("coverage typedClientRequests.count must match exactly 23 methods")
+    if typed_count != len(typed_methods) or typed_count != 29:
+        errors.append("coverage typedClientRequests.count must match exactly 29 methods")
     if typed_cov.get("catalog") != "docs/htsp-protocol/generate_typed_requests.py":
         errors.append("coverage typedClientRequests.catalog must name the reviewed generator")
     if typed_cov.get("meaning") != (
@@ -1446,13 +1607,13 @@ def validate_spec(spec: dict[str, Any], upstream: dict[str, Any] | None = None) 
         errors.append("outgoingRequestCount cannot exceed referencedCount")
 
     # Current repository acceptance targets (exact-literal metric).
-    if ref_count not in (None, 31):
+    if ref_count not in (None, 37):
         errors.append(
-            f"expected referenced client methods == 31 under current metric, got {ref_count}"
+            f"expected referenced client methods == 37 under current metric, got {ref_count}"
         )
-    if out_count not in (None, 30):
+    if out_count not in (None, 36):
         errors.append(
-            f"expected outgoing client methods == 30 under current metric, got {out_count}"
+            f"expected outgoing client methods == 36 under current metric, got {out_count}"
         )
     if handled_count not in (None, 27):
         errors.append(
@@ -1498,6 +1659,14 @@ def validate_spec(spec: dict[str, Any], upstream: dict[str, Any] | None = None) 
         errors.append(
             "subscriptionFilterStream must be fresh referenced and outgoing production coverage"
         )
+    for recording_rule_method in (
+        "addAutorecEntry", "updateAutorecEntry", "deleteAutorecEntry",
+        "addTimerecEntry", "updateTimerecEntry", "deleteTimerecEntry",
+    ):
+        if recording_rule_method not in referenced_list or recording_rule_method not in outgoing_list:
+            errors.append(
+                f"{recording_rule_method} must be fresh referenced and outgoing production coverage"
+            )
 
     # sdk flags must match coverage lists
     ref_set = set(client_cov.get("referenced") or [])
@@ -2204,10 +2373,15 @@ def _derive_fresh_self_test_spec(fresh_mutator: Any = None) -> dict[str, Any]:
             else "htsp_method_filter_stream"
             if name == "subscriptionFilterStream"
             else f"htsp_method_{name}"
-            if name in {"getEvent", "getEvents", "getEpgObject", "epgQuery", "stopDvrEntry", "getDvrCutpoints"}
+            if name in {
+                "getEvent", "getEvents", "getEpgObject", "epgQuery", "stopDvrEntry",
+                "getDvrCutpoints", *derive_module.RECORDING_RULE_METHODS,
+            }
             else f"htsp_method_{index}",
             "ACCESS_HTSP_RECORDER"
-            if name in {"stopDvrEntry", "getDvrCutpoints"}
+            if name in {
+                "stopDvrEntry", "getDvrCutpoints", *derive_module.RECORDING_RULE_METHODS,
+            }
             else "ACCESS_HTSP_STREAMING"
             if name in {
                 "getEvents", "epgQuery", "getEpgObject", "subscriptionChangeWeight", "subscriptionLive",
@@ -2264,8 +2438,8 @@ def _derive_fresh_self_test_spec(fresh_mutator: Any = None) -> dict[str, Any]:
             fresh_mutator(fresh)
 
     # Report validation owns schema/policy, not fixture-byte pin verification.
-    # Evaluate freshly derived getEvents/epgQuery/getEpgObject/event/stopDvrEntry/getDvrCutpoints/
-    # subscriptionChangeWeight/subscriptionLive/subscriptionFilterStream evidence
+    # Evaluate freshly derived getEvents/epgQuery/getEpgObject/event/stopDvrEntry/getDvrCutpoints,
+    # six recording-rule methods, and subscription control evidence
     # inside the complete committed-schema baseline; unrelated minimal fixture
     # handlers deliberately do not pretend to model every pinned method.
     upstream = load_json(UPSTREAM_PATH)
@@ -2276,6 +2450,8 @@ def _derive_fresh_self_test_spec(fresh_mutator: Any = None) -> dict[str, Any]:
         fresh_methods[item["name"]]
         if item["name"] in {
             "getEvents", "epgQuery", "getEpgObject", "stopDvrEntry", "getDvrCutpoints",
+            "addAutorecEntry", "updateAutorecEntry", "deleteAutorecEntry",
+            "addTimerecEntry", "updateTimerecEntry", "deleteTimerecEntry",
             "subscriptionChangeWeight", "subscriptionLive",
             "subscriptionFilterStream",
         }
@@ -2435,6 +2611,63 @@ def self_test() -> None:
     errors = validate_spec(good_spec)
     check("good-spec", errors == [], str(errors))
 
+    fresh_recording_rules = {
+        method["name"]: method
+        for method in good_spec["clientMethods"]
+        if method["name"] in RECORDING_RULE_METHOD_MINIMUMS
+    }
+    check(
+        "recording-rules-fresh-complete-contracts",
+        set(fresh_recording_rules) == set(RECORDING_RULE_METHOD_MINIMUMS)
+        and all(
+            method.get("requestShape", {}).get("completeness") == "complete"
+            and method.get("replyShape", {}).get("completeness") == "complete"
+            and method.get("sdk") == {
+                "referenced": True,
+                "outgoingRequest": True,
+                "typedRequest": True,
+            }
+            for method in fresh_recording_rules.values()
+        ),
+    )
+    recording_rule_mutations = (
+        (
+            "addAutorecEntry",
+            lambda method: method["requestFields"][2].update({"type": "s64"}),
+        ),
+        (
+            "updateAutorecEntry",
+            lambda method: method["requestFields"].pop(
+                next(i for i, field in enumerate(method["requestFields"]) if field["name"] == "title")
+            ),
+        ),
+        (
+            "deleteAutorecEntry",
+            lambda method: method["requestFields"][0].update({"type": "u32"}),
+        ),
+        (
+            "addTimerecEntry",
+            lambda method: method["requestFields"][2].update({"type": "s32"}),
+        ),
+        (
+            "updateTimerecEntry",
+            lambda method: method["replyFields"][0].update({"presence": "optional"}),
+        ),
+        (
+            "deleteTimerecEntry",
+            lambda method: method.update({"accessMask": "ACCESS_ANONYMOUS"}),
+        ),
+    )
+    for name, mutate in recording_rule_mutations:
+        mutated = json.loads(json.dumps(good_spec))
+        mutate(next(method for method in mutated["clientMethods"] if method["name"] == name))
+        mutation_errors = validate_spec(mutated)
+        check(
+            f"{name}-fresh-contract-mutation-rejected",
+            any(name in error for error in mutation_errors),
+            str(mutation_errors),
+        )
+
     get_channel = next(m for m in good_spec["clientMethods"] if m["name"] == "getChannel")
     check(
         "getChannel-fresh-shape",
@@ -2445,8 +2678,8 @@ def self_test() -> None:
     )
     check(
         "getChannel-fresh-coverage",
-        good_spec["coverage"]["clientMethods"]["referencedCount"] == 31
-        and good_spec["coverage"]["clientMethods"]["outgoingRequestCount"] == 30
+        good_spec["coverage"]["clientMethods"]["referencedCount"] == 37
+        and good_spec["coverage"]["clientMethods"]["outgoingRequestCount"] == 36
         and "getChannel" in good_spec["coverage"]["clientMethods"]["outgoingRequests"],
     )
 
@@ -2480,8 +2713,8 @@ def self_test() -> None:
     )
     check(
         "getEvents-fresh-unchanged-coverage",
-        good_spec["coverage"]["clientMethods"]["referencedCount"] == 31
-        and good_spec["coverage"]["clientMethods"]["outgoingRequestCount"] == 30
+        good_spec["coverage"]["clientMethods"]["referencedCount"] == 37
+        and good_spec["coverage"]["clientMethods"]["outgoingRequestCount"] == 36
         and good_spec["coverage"]["serverMessages"]["handledCount"] == 27
         and "getEvents" in good_spec["coverage"]["clientMethods"]["outgoingRequests"],
     )
@@ -3637,7 +3870,7 @@ def self_test() -> None:
     err = validate_spec(bad)
     check(
         "reject-false-all-called",
-        any("outgoing client methods == 30" in e for e in err),
+        any("outgoing client methods == 36" in e for e in err),
         str(err),
     )
 

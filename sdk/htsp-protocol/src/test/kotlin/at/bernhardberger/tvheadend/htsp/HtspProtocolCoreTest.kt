@@ -41,6 +41,12 @@ class HtspProtocolCoreTest {
                 "stopDvrEntry",
                 "cancelDvrEntry",
                 "deleteDvrEntry",
+                "addAutorecEntry",
+                "updateAutorecEntry",
+                "deleteAutorecEntry",
+                "addTimerecEntry",
+                "updateTimerecEntry",
+                "deleteTimerecEntry",
                 "getDvrCutpoints",
                 "subscribe",
                 "unsubscribe",
@@ -63,6 +69,12 @@ class HtspProtocolCoreTest {
                 HtspAccess.ACCESS_HTSP_STREAMING,
                 HtspAccess.ACCESS_HTSP_STREAMING,
                 HtspAccess.ACCESS_HTSP_STREAMING,
+                HtspAccess.ACCESS_HTSP_RECORDER,
+                HtspAccess.ACCESS_HTSP_RECORDER,
+                HtspAccess.ACCESS_HTSP_RECORDER,
+                HtspAccess.ACCESS_HTSP_RECORDER,
+                HtspAccess.ACCESS_HTSP_RECORDER,
+                HtspAccess.ACCESS_HTSP_RECORDER,
                 HtspAccess.ACCESS_HTSP_RECORDER,
                 HtspAccess.ACCESS_HTSP_RECORDER,
                 HtspAccess.ACCESS_HTSP_RECORDER,
@@ -96,6 +108,12 @@ class HtspProtocolCoreTest {
             StopDvrEntryRequest(0L),
             CancelDvrEntryRequest(0L),
             DeleteDvrEntryRequest(0L),
+            AddAutorecEntryRequest(""),
+            UpdateAutorecEntryRequest(""),
+            DeleteAutorecEntryRequest(""),
+            AddTimerecEntryRequest(""),
+            UpdateTimerecEntryRequest(""),
+            DeleteTimerecEntryRequest(""),
             GetDvrCutpointsRequest(0L),
             SubscribeRequest(0L, SubscribeChannel.Id(0L)),
             UnsubscribeRequest(0L),
@@ -270,6 +288,210 @@ class HtspProtocolCoreTest {
             transport.reply = HtspWireReply(fields)
             assertSame(HtspResult.ServerError, connection.call(request))
         }
+    }
+
+    @Test
+    fun recordingRuleRequestsPreserveExactFamilyShapesSelectorsVersionsAndRanges() {
+        assertEquals(
+            linkedMapOf("title" to ""),
+            HtspRequestCodecs.encode(AddAutorecEntryRequest(title = "")),
+        )
+        assertEquals(
+            linkedMapOf("id" to "", "title" to "updated"),
+            HtspRequestCodecs.encode(UpdateAutorecEntryRequest(id = "", title = "updated")),
+        )
+        assertEquals(
+            linkedMapOf("id" to ""),
+            HtspRequestCodecs.encode(DeleteAutorecEntryRequest(id = "")),
+        )
+        assertEquals(
+            linkedMapOf("title" to ""),
+            HtspRequestCodecs.encode(AddTimerecEntryRequest(title = "")),
+        )
+        assertEquals(
+            linkedMapOf("id" to "", "title" to "updated"),
+            HtspRequestCodecs.encode(UpdateTimerecEntryRequest(id = "", title = "updated")),
+        )
+        assertEquals(
+            linkedMapOf("id" to ""),
+            HtspRequestCodecs.encode(DeleteTimerecEntryRequest(id = "")),
+        )
+
+        val autorec = AddAutorecEntryRequest(
+            title = "title",
+            channel = HtspRecordingRuleChannel.Id(0xffff_ffffL),
+            minDurationSeconds = 0L,
+            maxDurationSeconds = 0xffff_ffffL,
+            fullText = 0xffff_ffffL,
+            mergeText = 0L,
+            duplicateDetection = 0xffff_ffffL,
+            maximumRecordingCount = 0L,
+            broadcastType = 0xffff_ffffL,
+            startExtraMinutes = Long.MIN_VALUE,
+            stopExtraMinutes = Long.MAX_VALUE,
+            seriesLinkUri = "",
+            approximateStartMinutesSinceMidnight = Int.MIN_VALUE,
+            startMinutesSinceMidnight = -1,
+            startWindowEndMinutesSinceMidnight = Int.MAX_VALUE,
+            enabled = false,
+            retentionDays = 0L,
+            removalDays = 0xffff_ffffL,
+            priority = 0xffff_ffffL,
+            name = "",
+            comment = "",
+            directory = "",
+            configName = "",
+            daysOfWeekMask = 0xffff_ffffL,
+        )
+        assertEquals(
+            linkedMapOf(
+                "title" to "title",
+                "channelId" to 0xffff_ffffL,
+                "minduration" to 0L,
+                "maxduration" to 0xffff_ffffL,
+                "fulltext" to 0xffff_ffffL,
+                "mergetext" to 0L,
+                "dupDetect" to 0xffff_ffffL,
+                "maxCount" to 0L,
+                "broadcastType" to 0xffff_ffffL,
+                "startExtra" to Long.MIN_VALUE,
+                "stopExtra" to Long.MAX_VALUE,
+                "serieslinkUri" to "",
+                "approxTime" to Int.MIN_VALUE,
+                "start" to -1,
+                "startWindow" to Int.MAX_VALUE,
+                "enabled" to 0L,
+                "retention" to 0L,
+                "removal" to 0xffff_ffffL,
+                "priority" to 0xffff_ffffL,
+                "name" to "",
+                "comment" to "",
+                "directory" to "",
+                "configName" to "",
+                "daysOfWeek" to 0xffff_ffffL,
+            ),
+            HtspRequestCodecs.encode(autorec),
+        )
+        assertEquals(42, autorec.minimumProtocolVersion)
+        assertEquals(25, AddAutorecEntryRequest("x", HtspRecordingRuleChannel.Any).minimumProtocolVersion)
+        assertEquals(13, AddAutorecEntryRequest("x", HtspRecordingRuleChannel.Id(1L)).minimumProtocolVersion)
+        assertEquals(18, AddAutorecEntryRequest("x", name = "").minimumProtocolVersion)
+        assertEquals(19, AddAutorecEntryRequest("x", enabled = true).minimumProtocolVersion)
+        assertEquals(20, AddAutorecEntryRequest("x", fullText = 0L).minimumProtocolVersion)
+        assertEquals(39, UpdateAutorecEntryRequest("x", broadcastType = 0L).minimumProtocolVersion)
+        assertEquals(42, UpdateAutorecEntryRequest("x", comment = "").minimumProtocolVersion)
+
+        assertEquals(
+            linkedMapOf(
+                "title" to "timed",
+                "channelId" to -1L,
+                "start" to 0xffff_ffffL,
+                "stop" to 0L,
+                "enabled" to 1L,
+                "retention" to 0xffff_ffffL,
+                "removal" to 0L,
+                "priority" to 0xffff_ffffL,
+                "name" to "",
+                "comment" to "",
+                "directory" to "",
+                "configName" to "",
+                "daysOfWeek" to 0xffff_ffffL,
+            ),
+            HtspRequestCodecs.encode(
+                AddTimerecEntryRequest(
+                    title = "timed",
+                    channel = HtspRecordingRuleChannel.Any,
+                    startMinutesSinceMidnight = 0xffff_ffffL,
+                    stopMinutesSinceMidnight = 0L,
+                    enabled = true,
+                    retentionDays = 0xffff_ffffL,
+                    removalDays = 0L,
+                    priority = 0xffff_ffffL,
+                    name = "",
+                    comment = "",
+                    directory = "",
+                    configName = "",
+                    daysOfWeekMask = 0xffff_ffffL,
+                ),
+            ),
+        )
+        assertEquals(18, AddTimerecEntryRequest("x").minimumProtocolVersion)
+        assertEquals(19, AddTimerecEntryRequest("x", directory = "").minimumProtocolVersion)
+        assertEquals(25, UpdateTimerecEntryRequest("x").minimumProtocolVersion)
+        assertEquals(42, UpdateTimerecEntryRequest("x", comment = "").minimumProtocolVersion)
+
+        listOf<() -> Unit>(
+            { HtspRecordingRuleChannel.Id(-1L) },
+            { HtspRecordingRuleChannel.Id(0x1_0000_0000L) },
+            { AddAutorecEntryRequest("x", minDurationSeconds = -1L) },
+            { AddAutorecEntryRequest("x", maxDurationSeconds = 0x1_0000_0000L) },
+            { AddAutorecEntryRequest("x", fullText = -1L) },
+            { AddAutorecEntryRequest("x", mergeText = 0x1_0000_0000L) },
+            { AddAutorecEntryRequest("x", duplicateDetection = -1L) },
+            { AddAutorecEntryRequest("x", maximumRecordingCount = 0x1_0000_0000L) },
+            { AddAutorecEntryRequest("x", broadcastType = -1L) },
+            { AddAutorecEntryRequest("x", retentionDays = 0x1_0000_0000L) },
+            { AddAutorecEntryRequest("x", removalDays = -1L) },
+            { AddAutorecEntryRequest("x", priority = 0x1_0000_0000L) },
+            { AddAutorecEntryRequest("x", daysOfWeekMask = -1L) },
+            { AddTimerecEntryRequest("x", startMinutesSinceMidnight = -1L) },
+            { AddTimerecEntryRequest("x", stopMinutesSinceMidnight = 0x1_0000_0000L) },
+        ).forEach(::assertIllegalArgument)
+    }
+
+    @Test
+    fun recordingRuleRepliesAreStrictFinitePayloadFreeOutcomes() = runTest {
+        val transport = FakeProtocolTransport(version = 44)
+        val connection = HtspTypedRequestCaller(transport)
+
+        transport.reply = HtspWireReply(linkedMapOf("success" to 1L, "id" to "autorec-id"))
+        assertEquals(
+            HtspResult.Ok(AddAutorecEntryResponse("autorec-id")),
+            connection.call(AddAutorecEntryRequest("")),
+        )
+        transport.reply = HtspWireReply(linkedMapOf("success" to 1L, "id" to "timerec-id"))
+        assertEquals(
+            HtspResult.Ok(AddTimerecEntryResponse("timerec-id")),
+            connection.call(AddTimerecEntryRequest("")),
+        )
+        val acknowledgements = listOf(
+            UpdateAutorecEntryRequest("") to UpdateAutorecEntryResponse,
+            DeleteAutorecEntryRequest("") to DeleteAutorecEntryResponse,
+            UpdateTimerecEntryRequest("") to UpdateTimerecEntryResponse,
+            DeleteTimerecEntryRequest("") to DeleteTimerecEntryResponse,
+        )
+        acknowledgements.forEach { (request, response) ->
+            transport.reply = HtspWireReply(linkedMapOf("success" to 1L))
+            assertEquals(HtspResult.Ok(response), connection.call(request))
+        }
+
+        val malformedAdds = listOf(
+            linkedMapOf<String, Any?>(),
+            linkedMapOf("success" to 0L, "id" to "id"),
+            linkedMapOf("success" to 2L, "id" to "id"),
+            linkedMapOf("success" to 1, "id" to "id"),
+            linkedMapOf<String, Any?>("success" to 1L),
+            linkedMapOf("success" to 1L, "id" to 1L),
+        )
+        malformedAdds.forEach { fields ->
+            transport.reply = HtspWireReply(fields)
+            assertSame(HtspResult.ServerError, connection.call(AddAutorecEntryRequest("x")))
+        }
+        listOf<Any?>(null, 0L, 2L, 1).forEach { success ->
+            transport.reply = if (success == null) {
+                HtspWireReply(linkedMapOf())
+            } else {
+                HtspWireReply(linkedMapOf("success" to success))
+            }
+            assertSame(HtspResult.ServerError, connection.call(DeleteTimerecEntryRequest("x")))
+        }
+        transport.reply = HtspWireReply(linkedMapOf("error" to "private server detail", "success" to 0L))
+        assertSame(HtspResult.ServerError, connection.call(AddTimerecEntryRequest("x")))
+
+        transport.version = 24
+        val before = transport.dispatches
+        assertSame(HtspResult.NotSupported, connection.call(UpdateAutorecEntryRequest("x")))
+        assertEquals(before, transport.dispatches)
     }
 
     @Test
@@ -828,6 +1050,12 @@ class HtspProtocolCoreTest {
             StopDvrEntryRequest::class.java,
             CancelDvrEntryRequest::class.java,
             DeleteDvrEntryRequest::class.java,
+            AddAutorecEntryRequest::class.java,
+            UpdateAutorecEntryRequest::class.java,
+            DeleteAutorecEntryRequest::class.java,
+            AddTimerecEntryRequest::class.java,
+            UpdateTimerecEntryRequest::class.java,
+            DeleteTimerecEntryRequest::class.java,
             GetDvrCutpointsRequest::class.java,
             SubscribeRequest::class.java,
             UnsubscribeRequest::class.java,

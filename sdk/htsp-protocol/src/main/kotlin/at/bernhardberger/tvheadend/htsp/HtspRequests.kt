@@ -213,6 +213,32 @@ public data class DeleteDvrEntryResponse(
     override val error: String?,
 ) : HtspDvrMutationResponse
 
+/** Channel mutation selected for one autorec or timerec rule request. */
+public sealed interface HtspRecordingRuleChannel {
+    /** Select one channel by its complete unsigned HTSP channel ID. */
+    @JvmInline
+    public value class Id(public val channelId: Long) : HtspRecordingRuleChannel {
+        init {
+            requireU32("channelId", channelId)
+        }
+    }
+
+    /**
+     * Emit the v25 signed `-1` any-channel sentinel.
+     *
+     * Pinned update source also clears to any channel when `channel` is omitted;
+     * this selector makes that intent explicit. Add support requires HTSP v25.
+     */
+    public data object Any : HtspRecordingRuleChannel
+}
+
+public data class AddAutorecEntryResponse(public val id: String)
+public data object UpdateAutorecEntryResponse
+public data object DeleteAutorecEntryResponse
+public data class AddTimerecEntryResponse(public val id: String)
+public data object UpdateTimerecEntryResponse
+public data object DeleteTimerecEntryResponse
+
 public data class GetDvrCutpointsResponse(public val cutpoints: List<HtspDvrCutpoint>?)
 
 public data class SubscribeResponse(
@@ -478,6 +504,156 @@ public data class DeleteDvrEntryRequest(public val entryId: Long) : HtspRequest<
     }
 }
 
+public data class AddAutorecEntryRequest(
+    public val title: String,
+    public val channel: HtspRecordingRuleChannel? = null,
+    public val minDurationSeconds: Long? = null,
+    public val maxDurationSeconds: Long? = null,
+    public val fullText: Long? = null,
+    public val mergeText: Long? = null,
+    public val duplicateDetection: Long? = null,
+    public val maximumRecordingCount: Long? = null,
+    public val broadcastType: Long? = null,
+    public val startExtraMinutes: Long? = null,
+    public val stopExtraMinutes: Long? = null,
+    public val seriesLinkUri: String? = null,
+    public val approximateStartMinutesSinceMidnight: Int? = null,
+    public val startMinutesSinceMidnight: Int? = null,
+    public val startWindowEndMinutesSinceMidnight: Int? = null,
+    public val enabled: Boolean? = null,
+    public val retentionDays: Long? = null,
+    public val removalDays: Long? = null,
+    public val priority: Long? = null,
+    public val name: String? = null,
+    public val comment: String? = null,
+    public val directory: String? = null,
+    public val configName: String? = null,
+    public val daysOfWeekMask: Long? = null,
+) : HtspRequest<AddAutorecEntryResponse>(
+    method = "addAutorecEntry",
+    access = HtspAccess.ACCESS_HTSP_RECORDER,
+    minimumProtocolVersion = maxVersion(
+        13,
+        25.takeIf { channel is HtspRecordingRuleChannel.Any },
+        18.takeIf {
+            name != null || startMinutesSinceMidnight != null || startWindowEndMinutesSinceMidnight != null
+        },
+        19.takeIf { enabled != null || directory != null },
+        20.takeIf { fullText != null || duplicateDetection != null },
+        39.takeIf { broadcastType != null },
+        42.takeIf { comment != null },
+    ),
+) {
+    init {
+        validateAutorecU32Fields()
+    }
+}
+
+public data class UpdateAutorecEntryRequest(
+    public val id: String,
+    public val channel: HtspRecordingRuleChannel? = null,
+    public val minDurationSeconds: Long? = null,
+    public val maxDurationSeconds: Long? = null,
+    public val fullText: Long? = null,
+    public val mergeText: Long? = null,
+    public val duplicateDetection: Long? = null,
+    public val maximumRecordingCount: Long? = null,
+    public val broadcastType: Long? = null,
+    public val startExtraMinutes: Long? = null,
+    public val stopExtraMinutes: Long? = null,
+    public val seriesLinkUri: String? = null,
+    public val startMinutesSinceMidnight: Int? = null,
+    public val startWindowEndMinutesSinceMidnight: Int? = null,
+    public val enabled: Boolean? = null,
+    public val retentionDays: Long? = null,
+    public val removalDays: Long? = null,
+    public val priority: Long? = null,
+    public val name: String? = null,
+    public val comment: String? = null,
+    public val directory: String? = null,
+    public val title: String? = null,
+    public val configName: String? = null,
+    public val daysOfWeekMask: Long? = null,
+) : HtspRequest<UpdateAutorecEntryResponse>(
+    method = "updateAutorecEntry",
+    access = HtspAccess.ACCESS_HTSP_RECORDER,
+    minimumProtocolVersion = maxVersion(
+        25,
+        39.takeIf { broadcastType != null },
+        42.takeIf { comment != null },
+    ),
+) {
+    init {
+        validateAutorecU32Fields()
+    }
+}
+
+public data class DeleteAutorecEntryRequest(public val id: String) : HtspRequest<DeleteAutorecEntryResponse>(
+    method = "deleteAutorecEntry",
+    access = HtspAccess.ACCESS_HTSP_RECORDER,
+    minimumProtocolVersion = 13,
+)
+
+public data class AddTimerecEntryRequest(
+    public val title: String,
+    public val channel: HtspRecordingRuleChannel? = null,
+    public val startMinutesSinceMidnight: Long? = null,
+    public val stopMinutesSinceMidnight: Long? = null,
+    public val enabled: Boolean? = null,
+    public val retentionDays: Long? = null,
+    public val removalDays: Long? = null,
+    public val priority: Long? = null,
+    public val name: String? = null,
+    public val comment: String? = null,
+    public val directory: String? = null,
+    public val configName: String? = null,
+    public val daysOfWeekMask: Long? = null,
+) : HtspRequest<AddTimerecEntryResponse>(
+    method = "addTimerecEntry",
+    access = HtspAccess.ACCESS_HTSP_RECORDER,
+    minimumProtocolVersion = maxVersion(
+        18,
+        25.takeIf { channel is HtspRecordingRuleChannel.Any },
+        19.takeIf { enabled != null || directory != null },
+        42.takeIf { comment != null },
+    ),
+) {
+    init {
+        validateTimerecU32Fields()
+    }
+}
+
+public data class UpdateTimerecEntryRequest(
+    public val id: String,
+    public val channel: HtspRecordingRuleChannel? = null,
+    public val startMinutesSinceMidnight: Long? = null,
+    public val stopMinutesSinceMidnight: Long? = null,
+    public val enabled: Boolean? = null,
+    public val retentionDays: Long? = null,
+    public val removalDays: Long? = null,
+    public val priority: Long? = null,
+    public val name: String? = null,
+    public val comment: String? = null,
+    public val directory: String? = null,
+    public val title: String? = null,
+    public val configName: String? = null,
+    public val daysOfWeekMask: Long? = null,
+) : HtspRequest<UpdateTimerecEntryResponse>(
+    method = "updateTimerecEntry",
+    access = HtspAccess.ACCESS_HTSP_RECORDER,
+    minimumProtocolVersion = maxVersion(25, 42.takeIf { comment != null }),
+) {
+    init {
+        validateTimerecU32Fields()
+    }
+}
+
+public data class DeleteTimerecEntryRequest(public val id: String) : HtspRequest<DeleteTimerecEntryResponse>(
+    method = "deleteTimerecEntry",
+    access = HtspAccess.ACCESS_HTSP_RECORDER,
+    minimumProtocolVersion = 18,
+)
+
 public data class GetDvrCutpointsRequest(public val entryId: Long) : HtspRequest<GetDvrCutpointsResponse>(
     method = "getDvrCutpoints",
     access = HtspAccess.ACCESS_HTSP_RECORDER,
@@ -717,6 +893,87 @@ internal object `HtspRequestCodecs-internal` {
         is StopDvrEntryRequest -> linkedMapOf("id" to request.entryId)
         is CancelDvrEntryRequest -> linkedMapOf("id" to request.entryId)
         is DeleteDvrEntryRequest -> linkedMapOf("id" to request.entryId)
+        is AddAutorecEntryRequest -> linkedMapOf<String, Any?>("title" to request.title)
+            .putRecordingRuleChannel(request.channel)
+            .putIfNotNull("minduration", request.minDurationSeconds)
+            .putIfNotNull("maxduration", request.maxDurationSeconds)
+            .putIfNotNull("fulltext", request.fullText)
+            .putIfNotNull("mergetext", request.mergeText)
+            .putIfNotNull("dupDetect", request.duplicateDetection)
+            .putIfNotNull("maxCount", request.maximumRecordingCount)
+            .putIfNotNull("broadcastType", request.broadcastType)
+            .putIfNotNull("startExtra", request.startExtraMinutes)
+            .putIfNotNull("stopExtra", request.stopExtraMinutes)
+            .putIfNotNull("serieslinkUri", request.seriesLinkUri)
+            .putIfNotNull("approxTime", request.approximateStartMinutesSinceMidnight)
+            .putIfNotNull("start", request.startMinutesSinceMidnight)
+            .putIfNotNull("startWindow", request.startWindowEndMinutesSinceMidnight)
+            .putIfNotNull("enabled", request.enabled?.toWireFlag())
+            .putIfNotNull("retention", request.retentionDays)
+            .putIfNotNull("removal", request.removalDays)
+            .putIfNotNull("priority", request.priority)
+            .putIfNotNull("name", request.name)
+            .putIfNotNull("comment", request.comment)
+            .putIfNotNull("directory", request.directory)
+            .putIfNotNull("configName", request.configName)
+            .putIfNotNull("daysOfWeek", request.daysOfWeekMask)
+
+        is UpdateAutorecEntryRequest -> linkedMapOf<String, Any?>("id" to request.id)
+            .putRecordingRuleChannel(request.channel)
+            .putIfNotNull("minduration", request.minDurationSeconds)
+            .putIfNotNull("maxduration", request.maxDurationSeconds)
+            .putIfNotNull("fulltext", request.fullText)
+            .putIfNotNull("mergetext", request.mergeText)
+            .putIfNotNull("dupDetect", request.duplicateDetection)
+            .putIfNotNull("maxCount", request.maximumRecordingCount)
+            .putIfNotNull("broadcastType", request.broadcastType)
+            .putIfNotNull("startExtra", request.startExtraMinutes)
+            .putIfNotNull("stopExtra", request.stopExtraMinutes)
+            .putIfNotNull("serieslinkUri", request.seriesLinkUri)
+            .putIfNotNull("start", request.startMinutesSinceMidnight)
+            .putIfNotNull("startWindow", request.startWindowEndMinutesSinceMidnight)
+            .putIfNotNull("enabled", request.enabled?.toWireFlag())
+            .putIfNotNull("retention", request.retentionDays)
+            .putIfNotNull("removal", request.removalDays)
+            .putIfNotNull("priority", request.priority)
+            .putIfNotNull("name", request.name)
+            .putIfNotNull("comment", request.comment)
+            .putIfNotNull("directory", request.directory)
+            .putIfNotNull("title", request.title)
+            .putIfNotNull("configName", request.configName)
+            .putIfNotNull("daysOfWeek", request.daysOfWeekMask)
+
+        is DeleteAutorecEntryRequest -> linkedMapOf("id" to request.id)
+        is AddTimerecEntryRequest -> linkedMapOf<String, Any?>("title" to request.title)
+            .putRecordingRuleChannel(request.channel)
+            .putIfNotNull("start", request.startMinutesSinceMidnight)
+            .putIfNotNull("stop", request.stopMinutesSinceMidnight)
+            .putIfNotNull("enabled", request.enabled?.toWireFlag())
+            .putIfNotNull("retention", request.retentionDays)
+            .putIfNotNull("removal", request.removalDays)
+            .putIfNotNull("priority", request.priority)
+            .putIfNotNull("name", request.name)
+            .putIfNotNull("comment", request.comment)
+            .putIfNotNull("directory", request.directory)
+            .putIfNotNull("configName", request.configName)
+            .putIfNotNull("daysOfWeek", request.daysOfWeekMask)
+
+        is UpdateTimerecEntryRequest -> linkedMapOf<String, Any?>("id" to request.id)
+            .putRecordingRuleChannel(request.channel)
+            .putIfNotNull("start", request.startMinutesSinceMidnight)
+            .putIfNotNull("stop", request.stopMinutesSinceMidnight)
+            .putIfNotNull("enabled", request.enabled?.toWireFlag())
+            .putIfNotNull("retention", request.retentionDays)
+            .putIfNotNull("removal", request.removalDays)
+            .putIfNotNull("priority", request.priority)
+            .putIfNotNull("name", request.name)
+            .putIfNotNull("comment", request.comment)
+            .putIfNotNull("directory", request.directory)
+            .putIfNotNull("title", request.title)
+            .putIfNotNull("configName", request.configName)
+            .putIfNotNull("daysOfWeek", request.daysOfWeekMask)
+
+        is DeleteTimerecEntryRequest -> linkedMapOf("id" to request.id)
         is GetDvrCutpointsRequest -> linkedMapOf("id" to request.entryId)
         is SubscribeRequest -> linkedMapOf<String, Any?>(
             "subscriptionId" to request.subscriptionId,
@@ -808,6 +1065,12 @@ internal object `HtspRequestCodecs-internal` {
         is StopDvrEntryRequest -> decodeDvrMutation(fields, ::StopDvrEntryResponse)
         is CancelDvrEntryRequest -> decodeDvrMutation(fields, ::CancelDvrEntryResponse)
         is DeleteDvrEntryRequest -> decodeDvrMutation(fields, ::DeleteDvrEntryResponse)
+        is AddAutorecEntryRequest -> decodeRecordingRuleAdd(fields, ::AddAutorecEntryResponse)
+        is UpdateAutorecEntryRequest -> decodeRecordingRuleAcknowledgement(fields, UpdateAutorecEntryResponse)
+        is DeleteAutorecEntryRequest -> decodeRecordingRuleAcknowledgement(fields, DeleteAutorecEntryResponse)
+        is AddTimerecEntryRequest -> decodeRecordingRuleAdd(fields, ::AddTimerecEntryResponse)
+        is UpdateTimerecEntryRequest -> decodeRecordingRuleAcknowledgement(fields, UpdateTimerecEntryResponse)
+        is DeleteTimerecEntryRequest -> decodeRecordingRuleAcknowledgement(fields, DeleteTimerecEntryResponse)
         is GetDvrCutpointsRequest -> GetDvrCutpointsResponse(
             fields.optionalObjectList("cutpoints") { cutpoint ->
                 HtspDvrCutpoint(
@@ -894,6 +1157,16 @@ internal object `HtspRequestCodecs-internal` {
         if (success == null && error == null) malformedReply()
         return response(success, error)
     }
+
+    private fun <R> decodeRecordingRuleAdd(fields: Map<String, Any?>, response: (String) -> R): R {
+        fields.requireStrictSuccess()
+        return response(fields.requiredString("id"))
+    }
+
+    private fun <R> decodeRecordingRuleAcknowledgement(fields: Map<String, Any?>, response: R): R {
+        fields.requireStrictSuccess()
+        return response
+    }
 }
 
 internal typealias HtspRequestCodecs = `HtspRequestCodecs-internal`
@@ -910,6 +1183,90 @@ private fun <V> LinkedHashMap<String, Any?>.putIfNotNull(
     value: V?,
 ): LinkedHashMap<String, Any?> = apply {
     if (value != null) put(name, value)
+}
+
+private fun LinkedHashMap<String, Any?>.putRecordingRuleChannel(
+    channel: HtspRecordingRuleChannel?,
+): LinkedHashMap<String, Any?> = apply {
+    when (channel) {
+        null -> Unit
+        is HtspRecordingRuleChannel.Id -> put("channelId", channel.channelId)
+        HtspRecordingRuleChannel.Any -> put("channelId", -1L)
+    }
+}
+
+private fun Boolean.toWireFlag(): Long = if (this) 1L else 0L
+
+private fun AddAutorecEntryRequest.validateAutorecU32Fields() {
+    validateAutorecU32Fields(
+        minDurationSeconds, maxDurationSeconds, fullText, mergeText, duplicateDetection,
+        maximumRecordingCount, broadcastType, retentionDays, removalDays, priority, daysOfWeekMask,
+    )
+}
+
+private fun UpdateAutorecEntryRequest.validateAutorecU32Fields() {
+    validateAutorecU32Fields(
+        minDurationSeconds, maxDurationSeconds, fullText, mergeText, duplicateDetection,
+        maximumRecordingCount, broadcastType, retentionDays, removalDays, priority, daysOfWeekMask,
+    )
+}
+
+private fun validateAutorecU32Fields(
+    minDurationSeconds: Long?,
+    maxDurationSeconds: Long?,
+    fullText: Long?,
+    mergeText: Long?,
+    duplicateDetection: Long?,
+    maximumRecordingCount: Long?,
+    broadcastType: Long?,
+    retentionDays: Long?,
+    removalDays: Long?,
+    priority: Long?,
+    daysOfWeekMask: Long?,
+) {
+    minDurationSeconds?.let { requireU32("minduration", it) }
+    maxDurationSeconds?.let { requireU32("maxduration", it) }
+    fullText?.let { requireU32("fulltext", it) }
+    mergeText?.let { requireU32("mergetext", it) }
+    duplicateDetection?.let { requireU32("dupDetect", it) }
+    maximumRecordingCount?.let { requireU32("maxCount", it) }
+    broadcastType?.let { requireU32("broadcastType", it) }
+    retentionDays?.let { requireU32("retention", it) }
+    removalDays?.let { requireU32("removal", it) }
+    priority?.let { requireU32("priority", it) }
+    daysOfWeekMask?.let { requireU32("daysOfWeek", it) }
+}
+
+private fun AddTimerecEntryRequest.validateTimerecU32Fields() {
+    validateTimerecU32Fields(
+        startMinutesSinceMidnight, stopMinutesSinceMidnight, retentionDays, removalDays, priority, daysOfWeekMask,
+    )
+}
+
+private fun UpdateTimerecEntryRequest.validateTimerecU32Fields() {
+    validateTimerecU32Fields(
+        startMinutesSinceMidnight, stopMinutesSinceMidnight, retentionDays, removalDays, priority, daysOfWeekMask,
+    )
+}
+
+private fun validateTimerecU32Fields(
+    startMinutesSinceMidnight: Long?,
+    stopMinutesSinceMidnight: Long?,
+    retentionDays: Long?,
+    removalDays: Long?,
+    priority: Long?,
+    daysOfWeekMask: Long?,
+) {
+    startMinutesSinceMidnight?.let { requireU32("start", it) }
+    stopMinutesSinceMidnight?.let { requireU32("stop", it) }
+    retentionDays?.let { requireU32("retention", it) }
+    removalDays?.let { requireU32("removal", it) }
+    priority?.let { requireU32("priority", it) }
+    daysOfWeekMask?.let { requireU32("daysOfWeek", it) }
+}
+
+private fun Map<*, *>.requireStrictSuccess() {
+    if (requiredU32("success") != 1L) malformedReply()
 }
 
 private fun Map<*, *>.requiredS64(name: String): Long =

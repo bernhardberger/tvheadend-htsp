@@ -3107,9 +3107,9 @@
           "name": "title",
           "type": "str",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_str",
-          "confidence": "mechanical",
+          "presence": "required",
+          "evidence": "bounded addAutorecEntry handler requires its title string",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 1
         },
@@ -3117,19 +3117,20 @@
           "name": "channelId",
           "type": "s64",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_s64",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "bounded addAutorecEntry channel selector uses signed s64 at protocol v25+; add handlers retain the older u32 reader below v25",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
+          "condition": "omitted add selector means any channel; -1 is the explicit any-channel sentinel at v25+",
           "order": 2
         },
         {
           "name": "minduration",
           "type": "u32",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_u32",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "bounded htsp_serierec_convert autorec branch reads minduration",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 3
         },
@@ -3137,9 +3138,9 @@
           "name": "maxduration",
           "type": "u32",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_u32",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "bounded htsp_serierec_convert autorec branch reads maxduration",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 4
         },
@@ -3147,19 +3148,22 @@
           "name": "fulltext",
           "type": "u32",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_u32",
-          "confidence": "mechanical",
-          "minVersion": null,
+          "presence": "optional",
+          "evidence": "bounded htsp_serierec_convert autorec branch reads fulltext",
+          "confidence": "mechanical+annotated",
+          "minVersion": 20,
+          "notes": [
+            "minVersion from annotated catalog"
+          ],
           "order": 5
         },
         {
           "name": "mergetext",
           "type": "u32",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_u32",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "bounded htsp_serierec_convert autorec branch reads mergetext",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 6
         },
@@ -3167,19 +3171,22 @@
           "name": "dupDetect",
           "type": "u32",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_u32",
-          "confidence": "mechanical",
-          "minVersion": null,
+          "presence": "optional",
+          "evidence": "bounded htsp_serierec_convert autorec branch reads dupDetect",
+          "confidence": "mechanical+annotated",
+          "minVersion": 20,
+          "notes": [
+            "minVersion from annotated catalog"
+          ],
           "order": 7
         },
         {
           "name": "maxCount",
           "type": "u32",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_u32",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "bounded htsp_serierec_convert autorec branch reads maxCount",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 8
         },
@@ -3187,19 +3194,22 @@
           "name": "broadcastType",
           "type": "u32",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_u32",
-          "confidence": "mechanical",
-          "minVersion": null,
+          "presence": "optional",
+          "evidence": "bounded htsp_serierec_convert autorec branch reads broadcastType",
+          "confidence": "mechanical+annotated",
+          "minVersion": 39,
+          "notes": [
+            "minVersion from annotated catalog"
+          ],
           "order": 9
         },
         {
           "name": "startExtra",
           "type": "s64",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_s64",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "bounded htsp_serierec_convert autorec branch reads startExtra",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 10
         },
@@ -3207,9 +3217,9 @@
           "name": "stopExtra",
           "type": "s64",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_s64",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "bounded htsp_serierec_convert autorec branch reads stopExtra",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 11
         },
@@ -3217,9 +3227,9 @@
           "name": "serieslinkUri",
           "type": "str",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_str",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "bounded htsp_serierec_convert autorec branch reads serieslinkUri",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 12
         },
@@ -3227,9 +3237,9 @@
           "name": "approxTime",
           "type": "s32",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_s32",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "bounded htsp_serierec_convert autorec branch reads approxTime",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 13
         },
@@ -3237,121 +3247,129 @@
           "name": "start",
           "type": "s32",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_s32",
-          "confidence": "mechanical",
-          "minVersion": null,
+          "presence": "optional",
+          "evidence": "bounded htsp_serierec_convert autorec branch reads start",
+          "confidence": "mechanical+annotated",
+          "minVersion": 18,
+          "notes": [
+            "minVersion from annotated catalog"
+          ],
           "order": 14
         },
         {
           "name": "startWindow",
           "type": "s32",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_s32",
-          "confidence": "mechanical",
-          "minVersion": null,
+          "presence": "optional",
+          "evidence": "bounded htsp_serierec_convert autorec branch reads startWindow",
+          "confidence": "mechanical+annotated",
+          "minVersion": 18,
+          "notes": [
+            "minVersion from annotated catalog"
+          ],
           "order": 15
-        },
-        {
-          "name": "stop",
-          "type": "u32",
-          "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_u32",
-          "confidence": "mechanical",
-          "minVersion": null,
-          "order": 16
         },
         {
           "name": "enabled",
           "type": "u32",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_u32",
-          "confidence": "mechanical",
-          "minVersion": null,
-          "order": 17
+          "presence": "optional",
+          "evidence": "bounded htsp_serierec_convert autorec branch reads enabled",
+          "confidence": "mechanical+annotated",
+          "minVersion": 19,
+          "notes": [
+            "minVersion from annotated catalog"
+          ],
+          "order": 16
         },
         {
           "name": "retention",
           "type": "u32",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_u32",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "bounded htsp_serierec_convert autorec branch reads retention",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
-          "order": 18
+          "order": 17
         },
         {
           "name": "removal",
           "type": "u32",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_u32",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "bounded htsp_serierec_convert autorec branch reads removal",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
-          "order": 19
+          "order": 18
         },
         {
           "name": "priority",
           "type": "u32",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_u32",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "bounded htsp_serierec_convert autorec branch reads priority",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
-          "order": 20
+          "order": 19
         },
         {
           "name": "name",
           "type": "str",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_str",
-          "confidence": "mechanical",
-          "minVersion": null,
-          "order": 21
+          "presence": "optional",
+          "evidence": "bounded htsp_serierec_convert autorec branch reads name",
+          "confidence": "mechanical+annotated",
+          "minVersion": 18,
+          "notes": [
+            "minVersion from annotated catalog"
+          ],
+          "order": 20
         },
         {
           "name": "comment",
           "type": "str",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_str",
-          "confidence": "mechanical",
-          "minVersion": null,
-          "order": 22
+          "presence": "optional",
+          "evidence": "bounded htsp_serierec_convert autorec branch reads comment",
+          "confidence": "mechanical+annotated",
+          "minVersion": 42,
+          "notes": [
+            "minVersion from annotated catalog"
+          ],
+          "order": 21
         },
         {
           "name": "directory",
           "type": "str",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_str",
-          "confidence": "mechanical",
-          "minVersion": null,
-          "order": 23
+          "presence": "optional",
+          "evidence": "bounded htsp_serierec_convert autorec branch reads directory",
+          "confidence": "mechanical+annotated",
+          "minVersion": 19,
+          "notes": [
+            "minVersion from annotated catalog"
+          ],
+          "order": 22
         },
         {
           "name": "configName",
           "type": "str",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_str",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "bounded htsp_serierec_convert autorec branch reads configName",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
-          "order": 24
+          "order": 23
         },
         {
           "name": "daysOfWeek",
           "type": "u32",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_u32",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "bounded htsp_serierec_convert autorec branch reads daysOfWeek",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
-          "order": 25
+          "order": 24
         }
       ],
       "replyFields": [
@@ -3359,19 +3377,20 @@
           "name": "id",
           "type": "str",
           "direction": "reply",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_str",
-          "confidence": "mechanical",
+          "presence": "conditional",
+          "evidence": "bounded addAutorecEntry successful-create branch emits the created UUID",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
+          "condition": "present exactly when success equals 1",
           "order": 1
         },
         {
           "name": "success",
           "type": "u32",
           "direction": "reply",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_u32",
-          "confidence": "mechanical",
+          "presence": "required",
+          "evidence": "bounded addAutorecEntry emits 1 for creation success and 0 for creation failure",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 2
         },
@@ -3379,27 +3398,38 @@
           "name": "error",
           "type": "str",
           "direction": "reply",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_str",
-          "confidence": "mechanical",
+          "presence": "conditional",
+          "evidence": "bounded addAutorecEntry failed-create branch emits its fixed error text",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
+          "condition": "present exactly when success equals 0",
           "order": 3
         }
       ],
       "requestShape": {
         "kind": "fields",
-        "completeness": "partial",
-        "evidence": "bounded handler/helper extraction plus exact-pin annotations"
+        "completeness": "complete",
+        "evidence": "bounded htsp_method_addAutorecEntry plus exact family branch of htsp_serierec_convert"
       },
       "replyShape": {
-        "kind": "fields",
-        "completeness": "partial",
-        "evidence": "bounded handler/helper extraction plus exact-pin annotations"
+        "kind": "alternative",
+        "completeness": "complete",
+        "evidence": "bounded htsp_method_addAutorecEntry emits finite success/failure creation alternatives",
+        "alternatives": [
+          "success=1 with required string id",
+          "success=0 with required fixed error string"
+        ]
       },
+      "notes": [
+        "Dispatch requires ACCESS_HTSP_RECORDER; handler errors use the global error reply rather than the method-specific success shape.",
+        "Optional shared fields receive pinned source defaults when omitted on add.",
+        "Creation failure is a method-specific success=0 plus fixed error string; success is exactly success=1 plus string id.",
+        "Autorec uses lowercase minduration/maxduration source keys; approxTime is add-only and start/startWindow are signed s32."
+      ],
       "sdk": {
-        "referenced": false,
-        "outgoingRequest": false,
-        "typedRequest": false
+        "referenced": true,
+        "outgoingRequest": true,
+        "typedRequest": true
       }
     },
     {
@@ -3413,9 +3443,9 @@
           "name": "id",
           "type": "str",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_str",
-          "confidence": "mechanical",
+          "presence": "required",
+          "evidence": "bounded updateAutorecEntry handler requires its id string",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 1
         },
@@ -3423,19 +3453,20 @@
           "name": "channelId",
           "type": "s64",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_s64",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "bounded updateAutorecEntry channel selector uses signed s64",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
+          "condition": "pinned handler comments call omission keep-old, but the shared converter emits an empty channel whenever add is false; omitted and -1 therefore both clear to any channel",
           "order": 2
         },
         {
           "name": "minduration",
           "type": "u32",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_u32",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "bounded htsp_serierec_convert autorec branch reads minduration",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 3
         },
@@ -3443,9 +3474,9 @@
           "name": "maxduration",
           "type": "u32",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_u32",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "bounded htsp_serierec_convert autorec branch reads maxduration",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 4
         },
@@ -3453,19 +3484,22 @@
           "name": "fulltext",
           "type": "u32",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_u32",
-          "confidence": "mechanical",
-          "minVersion": null,
+          "presence": "optional",
+          "evidence": "bounded htsp_serierec_convert autorec branch reads fulltext",
+          "confidence": "mechanical+annotated",
+          "minVersion": 20,
+          "notes": [
+            "minVersion from annotated catalog"
+          ],
           "order": 5
         },
         {
           "name": "mergetext",
           "type": "u32",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_u32",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "bounded htsp_serierec_convert autorec branch reads mergetext",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 6
         },
@@ -3473,19 +3507,22 @@
           "name": "dupDetect",
           "type": "u32",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_u32",
-          "confidence": "mechanical",
-          "minVersion": null,
+          "presence": "optional",
+          "evidence": "bounded htsp_serierec_convert autorec branch reads dupDetect",
+          "confidence": "mechanical+annotated",
+          "minVersion": 20,
+          "notes": [
+            "minVersion from annotated catalog"
+          ],
           "order": 7
         },
         {
           "name": "maxCount",
           "type": "u32",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_u32",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "bounded htsp_serierec_convert autorec branch reads maxCount",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 8
         },
@@ -3493,19 +3530,22 @@
           "name": "broadcastType",
           "type": "u32",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_u32",
-          "confidence": "mechanical",
-          "minVersion": null,
+          "presence": "optional",
+          "evidence": "bounded htsp_serierec_convert autorec branch reads broadcastType",
+          "confidence": "mechanical+annotated",
+          "minVersion": 39,
+          "notes": [
+            "minVersion from annotated catalog"
+          ],
           "order": 9
         },
         {
           "name": "startExtra",
           "type": "s64",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_s64",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "bounded htsp_serierec_convert autorec branch reads startExtra",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 10
         },
@@ -3513,9 +3553,9 @@
           "name": "stopExtra",
           "type": "s64",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_s64",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "bounded htsp_serierec_convert autorec branch reads stopExtra",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 11
         },
@@ -3523,151 +3563,149 @@
           "name": "serieslinkUri",
           "type": "str",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_str",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "bounded htsp_serierec_convert autorec branch reads serieslinkUri",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 12
-        },
-        {
-          "name": "approxTime",
-          "type": "s32",
-          "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_s32",
-          "confidence": "mechanical",
-          "minVersion": null,
-          "order": 13
         },
         {
           "name": "start",
           "type": "s32",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_s32",
-          "confidence": "mechanical",
-          "minVersion": null,
-          "order": 14
+          "presence": "optional",
+          "evidence": "bounded htsp_serierec_convert autorec branch reads start",
+          "confidence": "mechanical+annotated",
+          "minVersion": 18,
+          "notes": [
+            "minVersion from annotated catalog"
+          ],
+          "order": 13
         },
         {
           "name": "startWindow",
           "type": "s32",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_s32",
-          "confidence": "mechanical",
-          "minVersion": null,
-          "order": 15
-        },
-        {
-          "name": "stop",
-          "type": "u32",
-          "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_u32",
-          "confidence": "mechanical",
-          "minVersion": null,
-          "order": 16
+          "presence": "optional",
+          "evidence": "bounded htsp_serierec_convert autorec branch reads startWindow",
+          "confidence": "mechanical+annotated",
+          "minVersion": 18,
+          "notes": [
+            "minVersion from annotated catalog"
+          ],
+          "order": 14
         },
         {
           "name": "enabled",
           "type": "u32",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_u32",
-          "confidence": "mechanical",
-          "minVersion": null,
-          "order": 17
+          "presence": "optional",
+          "evidence": "bounded htsp_serierec_convert autorec branch reads enabled",
+          "confidence": "mechanical+annotated",
+          "minVersion": 19,
+          "notes": [
+            "minVersion from annotated catalog"
+          ],
+          "order": 15
         },
         {
           "name": "retention",
           "type": "u32",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_u32",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "bounded htsp_serierec_convert autorec branch reads retention",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
-          "order": 18
+          "order": 16
         },
         {
           "name": "removal",
           "type": "u32",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_u32",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "bounded htsp_serierec_convert autorec branch reads removal",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
-          "order": 19
+          "order": 17
         },
         {
           "name": "priority",
           "type": "u32",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_u32",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "bounded htsp_serierec_convert autorec branch reads priority",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
-          "order": 20
+          "order": 18
         },
         {
           "name": "name",
           "type": "str",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_str",
-          "confidence": "mechanical",
-          "minVersion": null,
-          "order": 21
+          "presence": "optional",
+          "evidence": "bounded htsp_serierec_convert autorec branch reads name",
+          "confidence": "mechanical+annotated",
+          "minVersion": 18,
+          "notes": [
+            "minVersion from annotated catalog"
+          ],
+          "order": 19
         },
         {
           "name": "comment",
           "type": "str",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_str",
-          "confidence": "mechanical",
-          "minVersion": null,
-          "order": 22
+          "presence": "optional",
+          "evidence": "bounded htsp_serierec_convert autorec branch reads comment",
+          "confidence": "mechanical+annotated",
+          "minVersion": 42,
+          "notes": [
+            "minVersion from annotated catalog"
+          ],
+          "order": 20
         },
         {
           "name": "directory",
           "type": "str",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_str",
-          "confidence": "mechanical",
-          "minVersion": null,
-          "order": 23
+          "presence": "optional",
+          "evidence": "bounded htsp_serierec_convert autorec branch reads directory",
+          "confidence": "mechanical+annotated",
+          "minVersion": 19,
+          "notes": [
+            "minVersion from annotated catalog"
+          ],
+          "order": 21
         },
         {
           "name": "title",
           "type": "str",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_str",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "bounded htsp_serierec_convert autorec branch reads title",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
-          "order": 24
+          "order": 22
         },
         {
           "name": "configName",
           "type": "str",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_str",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "bounded htsp_serierec_convert autorec branch reads configName",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
-          "order": 25
+          "order": 23
         },
         {
           "name": "daysOfWeek",
           "type": "u32",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_u32",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "bounded htsp_serierec_convert autorec branch reads daysOfWeek",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
-          "order": 26
+          "order": 24
         }
       ],
       "replyFields": [
@@ -3675,27 +3713,33 @@
           "name": "success",
           "type": "u32",
           "direction": "reply",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_u32",
-          "confidence": "mechanical",
+          "presence": "required",
+          "evidence": "bounded updateAutorecEntry returns the standard success helper after mutation",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 1
         }
       ],
       "requestShape": {
         "kind": "fields",
-        "completeness": "partial",
-        "evidence": "bounded handler/helper extraction plus exact-pin annotations"
+        "completeness": "complete",
+        "evidence": "bounded htsp_method_updateAutorecEntry plus exact family branch of htsp_serierec_convert"
       },
       "replyShape": {
         "kind": "fields",
-        "completeness": "partial",
-        "evidence": "bounded handler/helper extraction plus exact-pin annotations"
+        "completeness": "complete",
+        "evidence": "bounded htsp_method_updateAutorecEntry returns only the standard success acknowledgement"
       },
+      "notes": [
+        "Dispatch requires ACCESS_HTSP_RECORDER; handler errors use the global error reply rather than the method-specific success shape.",
+        "Optional shared fields are left unchanged when omitted on update, except for the pinned channel behavior described on channelId.",
+        "Successful mutation is exactly the standard success=1 acknowledgement.",
+        "Autorec uses lowercase minduration/maxduration source keys; approxTime is add-only and start/startWindow are signed s32."
+      ],
       "sdk": {
-        "referenced": false,
-        "outgoingRequest": false,
-        "typedRequest": false
+        "referenced": true,
+        "outgoingRequest": true,
+        "typedRequest": true
       }
     },
     {
@@ -3709,9 +3753,9 @@
           "name": "id",
           "type": "str",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_str",
-          "confidence": "mechanical",
+          "presence": "required",
+          "evidence": "bounded deleteAutorecEntry handler requires exactly one string id",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 1
         }
@@ -3721,27 +3765,31 @@
           "name": "success",
           "type": "u32",
           "direction": "reply",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_u32",
-          "confidence": "mechanical",
+          "presence": "required",
+          "evidence": "bounded deleteAutorecEntry returns the standard success helper after mutation",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 1
         }
       ],
       "requestShape": {
         "kind": "fields",
-        "completeness": "partial",
-        "evidence": "bounded handler/helper extraction plus exact-pin annotations"
+        "completeness": "complete",
+        "evidence": "bounded htsp_method_deleteAutorecEntry accepts exactly required string id"
       },
       "replyShape": {
         "kind": "fields",
-        "completeness": "partial",
-        "evidence": "bounded handler/helper extraction plus exact-pin annotations"
+        "completeness": "complete",
+        "evidence": "bounded htsp_method_deleteAutorecEntry returns only the standard success acknowledgement"
       },
+      "notes": [
+        "Dispatch requires ACCESS_HTSP_RECORDER; handler errors use the global error reply rather than the method-specific success shape.",
+        "The required string id selects one rule for deletion; success is exactly the standard success=1 acknowledgement."
+      ],
       "sdk": {
-        "referenced": false,
-        "outgoingRequest": false,
-        "typedRequest": false
+        "referenced": true,
+        "outgoingRequest": true,
+        "typedRequest": true
       }
     },
     {
@@ -3755,9 +3803,9 @@
           "name": "title",
           "type": "str",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_str",
-          "confidence": "mechanical",
+          "presence": "required",
+          "evidence": "bounded addTimerecEntry handler requires its title string",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 1
         },
@@ -3765,241 +3813,131 @@
           "name": "channelId",
           "type": "s64",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_s64",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "bounded addTimerecEntry channel selector uses signed s64 at protocol v25+; add handlers retain the older u32 reader below v25",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
+          "condition": "omitted add selector means any channel; -1 is the explicit any-channel sentinel at v25+",
           "order": 2
         },
         {
-          "name": "minduration",
+          "name": "start",
           "type": "u32",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_u32",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "bounded htsp_serierec_convert timerec branch reads start",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 3
-        },
-        {
-          "name": "maxduration",
-          "type": "u32",
-          "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_u32",
-          "confidence": "mechanical",
-          "minVersion": null,
-          "order": 4
-        },
-        {
-          "name": "fulltext",
-          "type": "u32",
-          "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_u32",
-          "confidence": "mechanical",
-          "minVersion": null,
-          "order": 5
-        },
-        {
-          "name": "mergetext",
-          "type": "u32",
-          "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_u32",
-          "confidence": "mechanical",
-          "minVersion": null,
-          "order": 6
-        },
-        {
-          "name": "dupDetect",
-          "type": "u32",
-          "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_u32",
-          "confidence": "mechanical",
-          "minVersion": null,
-          "order": 7
-        },
-        {
-          "name": "maxCount",
-          "type": "u32",
-          "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_u32",
-          "confidence": "mechanical",
-          "minVersion": null,
-          "order": 8
-        },
-        {
-          "name": "broadcastType",
-          "type": "u32",
-          "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_u32",
-          "confidence": "mechanical",
-          "minVersion": null,
-          "order": 9
-        },
-        {
-          "name": "startExtra",
-          "type": "s64",
-          "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_s64",
-          "confidence": "mechanical",
-          "minVersion": null,
-          "order": 10
-        },
-        {
-          "name": "stopExtra",
-          "type": "s64",
-          "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_s64",
-          "confidence": "mechanical",
-          "minVersion": null,
-          "order": 11
-        },
-        {
-          "name": "serieslinkUri",
-          "type": "str",
-          "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_str",
-          "confidence": "mechanical",
-          "minVersion": null,
-          "order": 12
-        },
-        {
-          "name": "approxTime",
-          "type": "s32",
-          "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_s32",
-          "confidence": "mechanical",
-          "minVersion": null,
-          "order": 13
-        },
-        {
-          "name": "start",
-          "type": "s32",
-          "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_s32",
-          "confidence": "mechanical",
-          "minVersion": null,
-          "order": 14
-        },
-        {
-          "name": "startWindow",
-          "type": "s32",
-          "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_s32",
-          "confidence": "mechanical",
-          "minVersion": null,
-          "order": 15
         },
         {
           "name": "stop",
           "type": "u32",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_u32",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "bounded htsp_serierec_convert timerec branch reads stop",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
-          "order": 16
+          "order": 4
         },
         {
           "name": "enabled",
           "type": "u32",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_u32",
-          "confidence": "mechanical",
-          "minVersion": null,
-          "order": 17
+          "presence": "optional",
+          "evidence": "bounded htsp_serierec_convert timerec branch reads enabled",
+          "confidence": "mechanical+annotated",
+          "minVersion": 19,
+          "notes": [
+            "minVersion from annotated catalog"
+          ],
+          "order": 5
         },
         {
           "name": "retention",
           "type": "u32",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_u32",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "bounded htsp_serierec_convert timerec branch reads retention",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
-          "order": 18
+          "order": 6
         },
         {
           "name": "removal",
           "type": "u32",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_u32",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "bounded htsp_serierec_convert timerec branch reads removal",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
-          "order": 19
+          "order": 7
         },
         {
           "name": "priority",
           "type": "u32",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_u32",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "bounded htsp_serierec_convert timerec branch reads priority",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
-          "order": 20
+          "order": 8
         },
         {
           "name": "name",
           "type": "str",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_str",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "bounded htsp_serierec_convert timerec branch reads name",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
-          "order": 21
+          "order": 9
         },
         {
           "name": "comment",
           "type": "str",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_str",
-          "confidence": "mechanical",
-          "minVersion": null,
-          "order": 22
+          "presence": "optional",
+          "evidence": "bounded htsp_serierec_convert timerec branch reads comment",
+          "confidence": "mechanical+annotated",
+          "minVersion": 42,
+          "notes": [
+            "minVersion from annotated catalog"
+          ],
+          "order": 10
         },
         {
           "name": "directory",
           "type": "str",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_str",
-          "confidence": "mechanical",
-          "minVersion": null,
-          "order": 23
+          "presence": "optional",
+          "evidence": "bounded htsp_serierec_convert timerec branch reads directory",
+          "confidence": "mechanical+annotated",
+          "minVersion": 19,
+          "notes": [
+            "minVersion from annotated catalog"
+          ],
+          "order": 11
         },
         {
           "name": "configName",
           "type": "str",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_str",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "bounded htsp_serierec_convert timerec branch reads configName",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
-          "order": 24
+          "order": 12
         },
         {
           "name": "daysOfWeek",
           "type": "u32",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_u32",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "bounded htsp_serierec_convert timerec branch reads daysOfWeek",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
-          "order": 25
+          "order": 13
         }
       ],
       "replyFields": [
@@ -4007,19 +3945,20 @@
           "name": "id",
           "type": "str",
           "direction": "reply",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_str",
-          "confidence": "mechanical",
+          "presence": "conditional",
+          "evidence": "bounded addTimerecEntry successful-create branch emits the created UUID",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
+          "condition": "present exactly when success equals 1",
           "order": 1
         },
         {
           "name": "success",
           "type": "u32",
           "direction": "reply",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_u32",
-          "confidence": "mechanical",
+          "presence": "required",
+          "evidence": "bounded addTimerecEntry emits 1 for creation success and 0 for creation failure",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 2
         },
@@ -4027,27 +3966,38 @@
           "name": "error",
           "type": "str",
           "direction": "reply",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_str",
-          "confidence": "mechanical",
+          "presence": "conditional",
+          "evidence": "bounded addTimerecEntry failed-create branch emits its fixed error text",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
+          "condition": "present exactly when success equals 0",
           "order": 3
         }
       ],
       "requestShape": {
         "kind": "fields",
-        "completeness": "partial",
-        "evidence": "bounded handler/helper extraction plus exact-pin annotations"
+        "completeness": "complete",
+        "evidence": "bounded htsp_method_addTimerecEntry plus exact family branch of htsp_serierec_convert"
       },
       "replyShape": {
-        "kind": "fields",
-        "completeness": "partial",
-        "evidence": "bounded handler/helper extraction plus exact-pin annotations"
+        "kind": "alternative",
+        "completeness": "complete",
+        "evidence": "bounded htsp_method_addTimerecEntry emits finite success/failure creation alternatives",
+        "alternatives": [
+          "success=1 with required string id",
+          "success=0 with required fixed error string"
+        ]
       },
+      "notes": [
+        "Dispatch requires ACCESS_HTSP_RECORDER; handler errors use the global error reply rather than the method-specific success shape.",
+        "Optional shared fields receive pinned source defaults when omitted on add.",
+        "Creation failure is a method-specific success=0 plus fixed error string; success is exactly success=1 plus string id.",
+        "Timerec start/stop request values are read as unsigned u32."
+      ],
       "sdk": {
-        "referenced": false,
-        "outgoingRequest": false,
-        "typedRequest": false
+        "referenced": true,
+        "outgoingRequest": true,
+        "typedRequest": true
       }
     },
     {
@@ -4061,9 +4011,9 @@
           "name": "id",
           "type": "str",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_str",
-          "confidence": "mechanical",
+          "presence": "required",
+          "evidence": "bounded updateTimerecEntry handler requires its id string",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 1
         },
@@ -4071,251 +4021,141 @@
           "name": "channelId",
           "type": "s64",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_s64",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "bounded updateTimerecEntry channel selector uses signed s64",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
+          "condition": "pinned handler comments call omission keep-old, but the shared converter emits an empty channel whenever add is false; omitted and -1 therefore both clear to any channel",
           "order": 2
         },
         {
-          "name": "minduration",
+          "name": "start",
           "type": "u32",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_u32",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "bounded htsp_serierec_convert timerec branch reads start",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 3
-        },
-        {
-          "name": "maxduration",
-          "type": "u32",
-          "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_u32",
-          "confidence": "mechanical",
-          "minVersion": null,
-          "order": 4
-        },
-        {
-          "name": "fulltext",
-          "type": "u32",
-          "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_u32",
-          "confidence": "mechanical",
-          "minVersion": null,
-          "order": 5
-        },
-        {
-          "name": "mergetext",
-          "type": "u32",
-          "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_u32",
-          "confidence": "mechanical",
-          "minVersion": null,
-          "order": 6
-        },
-        {
-          "name": "dupDetect",
-          "type": "u32",
-          "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_u32",
-          "confidence": "mechanical",
-          "minVersion": null,
-          "order": 7
-        },
-        {
-          "name": "maxCount",
-          "type": "u32",
-          "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_u32",
-          "confidence": "mechanical",
-          "minVersion": null,
-          "order": 8
-        },
-        {
-          "name": "broadcastType",
-          "type": "u32",
-          "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_u32",
-          "confidence": "mechanical",
-          "minVersion": null,
-          "order": 9
-        },
-        {
-          "name": "startExtra",
-          "type": "s64",
-          "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_s64",
-          "confidence": "mechanical",
-          "minVersion": null,
-          "order": 10
-        },
-        {
-          "name": "stopExtra",
-          "type": "s64",
-          "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_s64",
-          "confidence": "mechanical",
-          "minVersion": null,
-          "order": 11
-        },
-        {
-          "name": "serieslinkUri",
-          "type": "str",
-          "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_str",
-          "confidence": "mechanical",
-          "minVersion": null,
-          "order": 12
-        },
-        {
-          "name": "approxTime",
-          "type": "s32",
-          "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_s32",
-          "confidence": "mechanical",
-          "minVersion": null,
-          "order": 13
-        },
-        {
-          "name": "start",
-          "type": "s32",
-          "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_s32",
-          "confidence": "mechanical",
-          "minVersion": null,
-          "order": 14
-        },
-        {
-          "name": "startWindow",
-          "type": "s32",
-          "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_s32",
-          "confidence": "mechanical",
-          "minVersion": null,
-          "order": 15
         },
         {
           "name": "stop",
           "type": "u32",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_u32",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "bounded htsp_serierec_convert timerec branch reads stop",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
-          "order": 16
+          "order": 4
         },
         {
           "name": "enabled",
           "type": "u32",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_u32",
-          "confidence": "mechanical",
-          "minVersion": null,
-          "order": 17
+          "presence": "optional",
+          "evidence": "bounded htsp_serierec_convert timerec branch reads enabled",
+          "confidence": "mechanical+annotated",
+          "minVersion": 19,
+          "notes": [
+            "minVersion from annotated catalog"
+          ],
+          "order": 5
         },
         {
           "name": "retention",
           "type": "u32",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_u32",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "bounded htsp_serierec_convert timerec branch reads retention",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
-          "order": 18
+          "order": 6
         },
         {
           "name": "removal",
           "type": "u32",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_u32",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "bounded htsp_serierec_convert timerec branch reads removal",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
-          "order": 19
+          "order": 7
         },
         {
           "name": "priority",
           "type": "u32",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_u32",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "bounded htsp_serierec_convert timerec branch reads priority",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
-          "order": 20
+          "order": 8
         },
         {
           "name": "name",
           "type": "str",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_str",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "bounded htsp_serierec_convert timerec branch reads name",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
-          "order": 21
+          "order": 9
         },
         {
           "name": "comment",
           "type": "str",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_str",
-          "confidence": "mechanical",
-          "minVersion": null,
-          "order": 22
+          "presence": "optional",
+          "evidence": "bounded htsp_serierec_convert timerec branch reads comment",
+          "confidence": "mechanical+annotated",
+          "minVersion": 42,
+          "notes": [
+            "minVersion from annotated catalog"
+          ],
+          "order": 10
         },
         {
           "name": "directory",
           "type": "str",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_str",
-          "confidence": "mechanical",
-          "minVersion": null,
-          "order": 23
+          "presence": "optional",
+          "evidence": "bounded htsp_serierec_convert timerec branch reads directory",
+          "confidence": "mechanical+annotated",
+          "minVersion": 19,
+          "notes": [
+            "minVersion from annotated catalog"
+          ],
+          "order": 11
         },
         {
           "name": "title",
           "type": "str",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_str",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "bounded htsp_serierec_convert timerec branch reads title",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
-          "order": 24
+          "order": 12
         },
         {
           "name": "configName",
           "type": "str",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_str",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "bounded htsp_serierec_convert timerec branch reads configName",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
-          "order": 25
+          "order": 13
         },
         {
           "name": "daysOfWeek",
           "type": "u32",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_u32",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "bounded htsp_serierec_convert timerec branch reads daysOfWeek",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
-          "order": 26
+          "order": 14
         }
       ],
       "replyFields": [
@@ -4323,27 +4163,33 @@
           "name": "success",
           "type": "u32",
           "direction": "reply",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_u32",
-          "confidence": "mechanical",
+          "presence": "required",
+          "evidence": "bounded updateTimerecEntry returns the standard success helper after mutation",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 1
         }
       ],
       "requestShape": {
         "kind": "fields",
-        "completeness": "partial",
-        "evidence": "bounded handler/helper extraction plus exact-pin annotations"
+        "completeness": "complete",
+        "evidence": "bounded htsp_method_updateTimerecEntry plus exact family branch of htsp_serierec_convert"
       },
       "replyShape": {
         "kind": "fields",
-        "completeness": "partial",
-        "evidence": "bounded handler/helper extraction plus exact-pin annotations"
+        "completeness": "complete",
+        "evidence": "bounded htsp_method_updateTimerecEntry returns only the standard success acknowledgement"
       },
+      "notes": [
+        "Dispatch requires ACCESS_HTSP_RECORDER; handler errors use the global error reply rather than the method-specific success shape.",
+        "Optional shared fields are left unchanged when omitted on update, except for the pinned channel behavior described on channelId.",
+        "Successful mutation is exactly the standard success=1 acknowledgement.",
+        "Timerec start/stop request values are read as unsigned u32."
+      ],
       "sdk": {
-        "referenced": false,
-        "outgoingRequest": false,
-        "typedRequest": false
+        "referenced": true,
+        "outgoingRequest": true,
+        "typedRequest": true
       }
     },
     {
@@ -4357,9 +4203,9 @@
           "name": "id",
           "type": "str",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_str",
-          "confidence": "mechanical",
+          "presence": "required",
+          "evidence": "bounded deleteTimerecEntry handler requires exactly one string id",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 1
         }
@@ -4369,27 +4215,31 @@
           "name": "success",
           "type": "u32",
           "direction": "reply",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_u32",
-          "confidence": "mechanical",
+          "presence": "required",
+          "evidence": "bounded deleteTimerecEntry returns the standard success helper after mutation",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 1
         }
       ],
       "requestShape": {
         "kind": "fields",
-        "completeness": "partial",
-        "evidence": "bounded handler/helper extraction plus exact-pin annotations"
+        "completeness": "complete",
+        "evidence": "bounded htsp_method_deleteTimerecEntry accepts exactly required string id"
       },
       "replyShape": {
         "kind": "fields",
-        "completeness": "partial",
-        "evidence": "bounded handler/helper extraction plus exact-pin annotations"
+        "completeness": "complete",
+        "evidence": "bounded htsp_method_deleteTimerecEntry returns only the standard success acknowledgement"
       },
+      "notes": [
+        "Dispatch requires ACCESS_HTSP_RECORDER; handler errors use the global error reply rather than the method-specific success shape.",
+        "The required string id selects one rule for deletion; success is exactly the standard success=1 acknowledgement."
+      ],
       "sdk": {
-        "referenced": false,
-        "outgoingRequest": false,
-        "typedRequest": false
+        "referenced": true,
+        "outgoingRequest": true,
+        "typedRequest": true
       }
     },
     {
@@ -9439,10 +9289,14 @@
     "clientMethods": {
       "total": 39,
       "referenced": [
+        "addAutorecEntry",
         "addDvrEntry",
+        "addTimerecEntry",
         "authenticate",
         "cancelDvrEntry",
+        "deleteAutorecEntry",
         "deleteDvrEntry",
+        "deleteTimerecEntry",
         "enableAsyncMetadata",
         "epgQuery",
         "fileClose",
@@ -9469,14 +9323,20 @@
         "subscriptionSkip",
         "subscriptionSpeed",
         "unsubscribe",
-        "updateDvrEntry"
+        "updateAutorecEntry",
+        "updateDvrEntry",
+        "updateTimerecEntry"
       ],
-      "referencedCount": 31,
+      "referencedCount": 37,
       "outgoingRequests": [
+        "addAutorecEntry",
         "addDvrEntry",
+        "addTimerecEntry",
         "authenticate",
         "cancelDvrEntry",
+        "deleteAutorecEntry",
         "deleteDvrEntry",
+        "deleteTimerecEntry",
         "enableAsyncMetadata",
         "epgQuery",
         "fileClose",
@@ -9502,23 +9362,19 @@
         "subscriptionSeek",
         "subscriptionSpeed",
         "unsubscribe",
-        "updateDvrEntry"
+        "updateAutorecEntry",
+        "updateDvrEntry",
+        "updateTimerecEntry"
       ],
-      "outgoingRequestCount": 30,
+      "outgoingRequestCount": 36,
       "unreferenced": [
         "api",
-        "addAutorecEntry",
-        "updateAutorecEntry",
-        "deleteAutorecEntry",
-        "addTimerecEntry",
-        "updateTimerecEntry",
-        "deleteTimerecEntry",
         "getTicket"
       ]
     },
     "typedClientRequests": {
       "catalog": "docs/htsp-protocol/generate_typed_requests.py",
-      "count": 23,
+      "count": 29,
       "methods": [
         {
           "name": "getProfiles",
@@ -9594,6 +9450,36 @@
           "name": "deleteDvrEntry",
           "accessMask": "ACCESS_HTSP_RECORDER",
           "methodMinVersion": 4
+        },
+        {
+          "name": "addAutorecEntry",
+          "accessMask": "ACCESS_HTSP_RECORDER",
+          "methodMinVersion": 13
+        },
+        {
+          "name": "updateAutorecEntry",
+          "accessMask": "ACCESS_HTSP_RECORDER",
+          "methodMinVersion": 25
+        },
+        {
+          "name": "deleteAutorecEntry",
+          "accessMask": "ACCESS_HTSP_RECORDER",
+          "methodMinVersion": 13
+        },
+        {
+          "name": "addTimerecEntry",
+          "accessMask": "ACCESS_HTSP_RECORDER",
+          "methodMinVersion": 18
+        },
+        {
+          "name": "updateTimerecEntry",
+          "accessMask": "ACCESS_HTSP_RECORDER",
+          "methodMinVersion": 25
+        },
+        {
+          "name": "deleteTimerecEntry",
+          "accessMask": "ACCESS_HTSP_RECORDER",
+          "methodMinVersion": 18
         },
         {
           "name": "getDvrCutpoints",
@@ -9814,10 +9700,10 @@
       ]
     },
     "metrics": {
-      "referencedClientMethods": 31,
-      "outgoingClientMethods": 30,
+      "referencedClientMethods": 37,
+      "outgoingClientMethods": 36,
       "handledServerMessages": 27,
-      "typedClientRequests": 23,
+      "typedClientRequests": 29,
       "typedServerMessages": 26,
       "notes": [
         "referenced counts exact string literals in SDK production main sources",
