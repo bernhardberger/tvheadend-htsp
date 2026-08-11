@@ -45,6 +45,7 @@ internal val typedHtspRequestCatalog: List<TypedHtspRequestCatalogEntry> = listO
     TypedHtspRequestCatalogEntry("subscriptionSpeed", "SubscriptionSpeedRequest", "HtspEmptyResponse", HtspAccess.ACCESS_HTSP_STREAMING, 9),
     TypedHtspRequestCatalogEntry("subscriptionLive", "SubscriptionLiveRequest", "HtspEmptyResponse", HtspAccess.ACCESS_HTSP_STREAMING, 9),
     TypedHtspRequestCatalogEntry("subscriptionFilterStream", "SubscriptionFilterStreamRequest", "HtspEmptyResponse", HtspAccess.ACCESS_HTSP_STREAMING, 12),
+    TypedHtspRequestCatalogEntry("fileStat", "FileStatRequest", "FileStatResponse", HtspAccess.ACCESS_HTSP_RECORDER, 8),
 )
 
 public suspend fun HtspConnection.getProfiles(
@@ -840,6 +841,19 @@ public suspend fun HtspConnection.subscriptionFilterStream(
             subscriptionId = subscriptionId,
             enable = enable,
             disable = disable,
+        ),
+        timeoutMs = timeoutMs,
+        expectedGeneration = expectedGeneration,
+    )
+
+public suspend fun HtspConnection.fileStat(
+    id: Long,
+    timeoutMs: Long = 5_000L,
+    expectedGeneration: HtspConnectionGeneration? = null,
+): HtspResult<FileStatResponse> =
+    call(
+        request = FileStatRequest(
+            id = id,
         ),
         timeoutMs = timeoutMs,
         expectedGeneration = expectedGeneration,

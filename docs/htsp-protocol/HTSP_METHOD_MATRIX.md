@@ -24,7 +24,7 @@ Primary authority is the pinned TVHeadend server source. Official HTSP documenta
 - Client→server methods referenced in production sources: **38 / 39**
 - Distinct outgoing request names: **37 / 39**
 - Server→client messages handled (exact literal): **27 / 30**
-- Public typed client requests from the reviewed catalog: **30 / 39**
+- Public typed client requests from the reviewed catalog: **31 / 39**
 - Public typed server messages from the separate reviewed catalog: **26 / 30**
 - Distinguish **referenced** from **outgoing**: a name can appear because an inbound handler mentions it (for example `subscriptionSkip`) while the client sends a synonym (`subscriptionSeek`).
 - Never claim methods are implemented/called merely because they are referenced.
@@ -87,7 +87,7 @@ These fields are protocol-wide and are **not** method-specific success fields.
 | 35 | `fileOpen` | `ACCESS_HTSP_RECORDER` | 8 (annotated) | yes | yes |  | `file`:str [unknown] — fields/partial | `id`:u32 [unknown], `size`:s64 [unknown], `mtime`:s64 [unknown] — fields/partial |
 | 36 | `fileRead` | `ACCESS_HTSP_RECORDER` | 8 (annotated) | yes | yes |  | `id`:u32 [required], `size`:s64 [unknown], `offset`:s64 [unknown] — fields/partial | `data`:bin [required] — fields/partial |
 | 37 | `fileClose` | `ACCESS_HTSP_RECORDER` | 8 (annotated) | yes | yes |  | `id`:u32 [required], `playposition`:u32 [unknown], `playcount`:u32 [unknown] — fields/partial | _knownEmpty/complete_ |
-| 38 | `fileStat` | `ACCESS_HTSP_RECORDER` | 8 (annotated) | yes | yes |  | `id`:u32 [required] — fields/partial | `size`:s64 [unknown], `mtime`:s64 [unknown] — fields/partial |
+| 38 | `fileStat` | `ACCESS_HTSP_RECORDER` | 8 (annotated) | yes | yes | yes | `id`:u32 [required] — fields/complete | `size`:s64 [conditional], `mtime`:s64 [conditional] — alternative/complete |
 | 39 | `fileSeek` | `ACCESS_HTSP_RECORDER` | 8 (annotated) | yes | yes |  | `id`:u32 [required], `offset`:s64 [unknown], `whence`:str [unknown] — fields/partial | `offset`:s64 [unknown] — fields/partial |
 
 ## Server → client messages
@@ -167,6 +167,13 @@ The official Client-to-Server RPC methods page does not define the millisecond c
 The official Client-to-Server RPC methods page marks channelId and dvrId optional and the path/ticket reply fields required, but does not state that at least one selector must decode or that channelId wins when both decode. Pinned current source establishes that either/or and channel-first behavior.
 
 - Authority: src/htsp_server.c htsp_method_getTicket
+- Docs URL: https://docs.tvheadend.org/documentation/development/htsp/client-to-server-rpc-methods
+
+### `fileStat-reply-source-doc-mismatch`
+
+Official docs describe independently optional u64 size and mtime fields, while pinned source emits signed-s64 size then mtime together only when fstat succeeds and otherwise returns a successful empty map. Official docs also omit the mtime unit and epoch.
+
+- Authority: src/htsp_server.c htsp_file_find and htsp_method_file_stat
 - Docs URL: https://docs.tvheadend.org/documentation/development/htsp/client-to-server-rpc-methods
 
 ### `subscriptionChangeWeight-default-ack-order-underdocumented`

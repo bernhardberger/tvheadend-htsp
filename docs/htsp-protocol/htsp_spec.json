@@ -5130,7 +5130,7 @@
           "type": "u32",
           "direction": "request",
           "presence": "required",
-          "evidence": "htsp_file_find helper reads the file-handle id",
+          "evidence": "bounded htsp_file_find reads id with zero default and searches only this connection's handles",
           "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 1
@@ -5141,37 +5141,50 @@
           "name": "size",
           "type": "s64",
           "direction": "reply",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_s64",
-          "confidence": "mechanical",
+          "presence": "conditional",
+          "evidence": "bounded handler emits st.st_size first only when fstat(fd, &st) succeeds",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
+          "condition": "present together with mtime when fstat(fd, &st) returns zero",
           "order": 1
         },
         {
           "name": "mtime",
           "type": "s64",
           "direction": "reply",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_s64",
-          "confidence": "mechanical",
+          "presence": "conditional",
+          "evidence": "bounded handler emits unchanged st.st_mtime second only when fstat(fd, &st) succeeds",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
+          "condition": "present together with size when fstat(fd, &st) returns zero",
           "order": 2
         }
       ],
       "requestShape": {
         "kind": "fields",
-        "completeness": "partial",
-        "evidence": "bounded handler/helper extraction plus exact-pin annotations"
+        "completeness": "complete",
+        "evidence": "bounded helper accepts exactly one default-zero u32 id and searches only the current connection file list"
       },
       "replyShape": {
-        "kind": "fields",
-        "completeness": "partial",
-        "evidence": "bounded handler/helper extraction plus exact-pin annotations"
+        "kind": "alternative",
+        "completeness": "complete",
+        "evidence": "bounded handler creates a fresh map before fstat, emits ordered signed-s64 size and mtime together on success, and returns the empty map on failure",
+        "alternatives": [
+          "signed-s64 size followed by unchanged signed-s64 mtime when fstat succeeds",
+          "successful empty map when fstat fails"
+        ]
       },
+      "notes": [
+        "The id is a u32 handle lookup key; zero is not rejected before the owned-handle lookup.",
+        "A handle is meaningful only in the HTSP connection that created it.",
+        "size and mtime are coupled: both signed-s64 fields are emitted in that order, or neither is emitted.",
+        "mtime is the unchanged POSIX st_mtime value serialized by pinned source; official docs omit its unit and epoch.",
+        "A successful empty map is the pinned fstat-failure behavior."
+      ],
       "sdk": {
         "referenced": true,
         "outgoingRequest": true,
-        "typedRequest": false
+        "typedRequest": true
       }
     },
     {
@@ -9392,7 +9405,7 @@
     },
     "typedClientRequests": {
       "catalog": "docs/htsp-protocol/generate_typed_requests.py",
-      "count": 30,
+      "count": 31,
       "methods": [
         {
           "name": "getProfiles",
@@ -9543,6 +9556,11 @@
           "name": "subscriptionFilterStream",
           "accessMask": "ACCESS_HTSP_STREAMING",
           "methodMinVersion": 12
+        },
+        {
+          "name": "fileStat",
+          "accessMask": "ACCESS_HTSP_RECORDER",
+          "methodMinVersion": 8
         }
       ],
       "meaning": "Public typed HtspRequest models and generated HtspConnection extensions; not a support or completeness claim"
@@ -9726,7 +9744,7 @@
       "referencedClientMethods": 38,
       "outgoingClientMethods": 37,
       "handledServerMessages": 27,
-      "typedClientRequests": 30,
+      "typedClientRequests": 31,
       "typedServerMessages": 26,
       "notes": [
         "referenced counts exact string literals in SDK production main sources",
@@ -9773,6 +9791,12 @@
       "id": "getTicket-selector-precedence-underdocumented",
       "summary": "The official Client-to-Server RPC methods page marks channelId and dvrId optional and the path/ticket reply fields required, but does not state that at least one selector must decode or that channelId wins when both decode. Pinned current source establishes that either/or and channel-first behavior.",
       "authority": "src/htsp_server.c htsp_method_getTicket",
+      "docsUrl": "https://docs.tvheadend.org/documentation/development/htsp/client-to-server-rpc-methods"
+    },
+    {
+      "id": "fileStat-reply-source-doc-mismatch",
+      "summary": "Official docs describe independently optional u64 size and mtime fields, while pinned source emits signed-s64 size then mtime together only when fstat succeeds and otherwise returns a successful empty map. Official docs also omit the mtime unit and epoch.",
+      "authority": "src/htsp_server.c htsp_file_find and htsp_method_file_stat",
       "docsUrl": "https://docs.tvheadend.org/documentation/development/htsp/client-to-server-rpc-methods"
     },
     {

@@ -91,6 +91,7 @@ EXPECTED_TYPED_CLIENT_REQUESTS: tuple[tuple[str, str, int | None], ...] = (
     ("subscriptionSpeed", "ACCESS_HTSP_STREAMING", 9),
     ("subscriptionLive", "ACCESS_HTSP_STREAMING", 9),
     ("subscriptionFilterStream", "ACCESS_HTSP_STREAMING", 12),
+    ("fileStat", "ACCESS_HTSP_RECORDER", 8),
 )
 
 EXPECTED_SERVER_MESSAGES: tuple[str, ...] = (
@@ -598,6 +599,59 @@ GET_TICKET_NOTES = [
     "Pinned source accepts channelId only, dvrId only, or both selectors with channelId precedence; the neither-present state takes the invalid-arguments path. The stricter typed SDK models exactly one selector.",
     "Channel selection verifies channel lookup and access before creating /stream/channelid/%d; DVR selection verifies entry lookup and its channel access before creating /dvrfile/%d.",
     "Successful source output creates one map and adds required string path then required string ticket; both values are untrusted and diagnostic-sensitive, and ticket is credential-bearing.",
+]
+FILE_STAT_LIMITATION_ID = "fileStat-reply-source-doc-mismatch"
+FILE_STAT_DOCS_URL = GET_TICKET_DOCS_URL
+FILE_STAT_LIMITATION_SUMMARY = (
+    "Official docs describe independently optional u64 size and mtime fields, while "
+    "pinned source emits signed-s64 size then mtime together only when fstat succeeds "
+    "and otherwise returns a successful empty map. Official docs also omit the mtime "
+    "unit and epoch."
+)
+FILE_STAT_REQUEST_CONTRACT = (
+    (
+        "id", "u32", "required",
+        "bounded htsp_file_find reads id with zero default and searches only this connection's handles",
+    ),
+)
+FILE_STAT_REPLY_CONTRACT = (
+    (
+        "size", "s64", "conditional",
+        "present together with mtime when fstat(fd, &st) returns zero",
+        "bounded handler emits st.st_size first only when fstat(fd, &st) succeeds",
+    ),
+    (
+        "mtime", "s64", "conditional",
+        "present together with size when fstat(fd, &st) returns zero",
+        "bounded handler emits unchanged st.st_mtime second only when fstat(fd, &st) succeeds",
+    ),
+)
+FILE_STAT_REQUEST_SHAPE = {
+    "kind": "fields",
+    "completeness": "complete",
+    "evidence": (
+        "bounded helper accepts exactly one default-zero u32 id and searches only "
+        "the current connection file list"
+    ),
+}
+FILE_STAT_REPLY_SHAPE = {
+    "kind": "alternative",
+    "completeness": "complete",
+    "evidence": (
+        "bounded handler creates a fresh map before fstat, emits ordered signed-s64 "
+        "size and mtime together on success, and returns the empty map on failure"
+    ),
+    "alternatives": [
+        "signed-s64 size followed by unchanged signed-s64 mtime when fstat succeeds",
+        "successful empty map when fstat fails",
+    ],
+}
+FILE_STAT_NOTES = [
+    "The id is a u32 handle lookup key; zero is not rejected before the owned-handle lookup.",
+    "A handle is meaningful only in the HTSP connection that created it.",
+    "size and mtime are coupled: both signed-s64 fields are emitted in that order, or neither is emitted.",
+    "mtime is the unchanged POSIX st_mtime value serialized by pinned source; official docs omit its unit and epoch.",
+    "A successful empty map is the pinned fstat-failure behavior.",
 ]
 GET_DVR_CUTPOINTS_LIMITATION_ID = (
     "getDvrCutpoints-coordinate-order-semantics-underdocumented"
@@ -1308,6 +1362,33 @@ def validate_spec(spec: dict[str, Any], upstream: dict[str, Any] | None = None) 
         errors.append("getTicket must preserve the official selector-documentation gap status")
     if get_ticket.get("notes") != GET_TICKET_NOTES:
         errors.append("getTicket notes must preserve selector, branch, path, output, and credential facts")
+    file_stat = method_map.get("fileStat", {})
+    if (
+        file_stat.get("handler") != "htsp_method_file_stat"
+        or file_stat.get("accessMask") != "ACCESS_HTSP_RECORDER"
+        or file_stat.get("minVersion") != 8
+        or file_stat.get("minVersionConfidence") != "annotated"
+    ):
+        errors.append("fileStat must preserve exact handler, recorder access, and annotated minimum v8")
+    if [
+        (field.get("name"), field.get("type"), field.get("presence"), field.get("evidence"))
+        for field in file_stat.get("requestFields", [])
+    ] != list(FILE_STAT_REQUEST_CONTRACT):
+        errors.append("fileStat request must preserve exact owned-handle default-zero u32 id contract")
+    if [
+        (
+            field.get("name"), field.get("type"), field.get("presence"),
+            field.get("condition"), field.get("evidence"),
+        )
+        for field in file_stat.get("replyFields", [])
+    ] != list(FILE_STAT_REPLY_CONTRACT):
+        errors.append("fileStat reply must preserve exact coupled ordered signed-s64 size and mtime contract")
+    if file_stat.get("requestShape") != FILE_STAT_REQUEST_SHAPE:
+        errors.append("fileStat request shape must preserve complete same-connection handle evidence")
+    if file_stat.get("replyShape") != FILE_STAT_REPLY_SHAPE:
+        errors.append("fileStat reply shape must preserve complete fields-or-empty success evidence")
+    if file_stat.get("notes") != FILE_STAT_NOTES:
+        errors.append("fileStat notes must preserve zero, ownership, coupling, mtime, and empty-success facts")
     language_shape = shapes.get("epgLanguageStrings") or {}
     if (
         language_shape.get("kind") != "stringMap"
@@ -1622,8 +1703,8 @@ def validate_spec(spec: dict[str, Any], upstream: dict[str, Any] | None = None) 
             errors.append(f"{name}: typed catalog access mask disagrees with pinned method")
         if method.get("minVersion") != method_min_version:
             errors.append(f"{name}: typed catalog method minimum disagrees with pinned method")
-    if typed_count != len(typed_methods) or typed_count != 30:
-        errors.append("coverage typedClientRequests.count must match exactly 30 methods")
+    if typed_count != len(typed_methods) or typed_count != 31:
+        errors.append("coverage typedClientRequests.count must match exactly 31 methods")
     if typed_cov.get("catalog") != "docs/htsp-protocol/generate_typed_requests.py":
         errors.append("coverage typedClientRequests.catalog must name the reviewed generator")
     if typed_cov.get("meaning") != (
@@ -1747,6 +1828,8 @@ def validate_spec(spec: dict[str, Any], upstream: dict[str, Any] | None = None) 
         errors.append("subscriptionLive must be fresh referenced and outgoing production coverage")
     if "getTicket" not in referenced_list or "getTicket" not in outgoing_list:
         errors.append("getTicket must be fresh referenced and outgoing production coverage")
+    if "fileStat" not in referenced_list or "fileStat" not in outgoing_list:
+        errors.append("fileStat must remain referenced and outgoing production coverage")
     if (
         "subscriptionFilterStream" not in referenced_list
         or "subscriptionFilterStream" not in outgoing_list
@@ -1911,6 +1994,22 @@ def validate_spec(spec: dict[str, Any], upstream: dict[str, Any] | None = None) 
         ):
             errors.append(
                 "getTicket limitation must preserve exact selector requirement, precedence gap, and pinned authority"
+            )
+        file_stat_limitation = next(
+            (
+                item for item in limitations
+                if isinstance(item, dict) and item.get("id") == FILE_STAT_LIMITATION_ID
+            ),
+            None,
+        )
+        if not file_stat_limitation or (
+            file_stat_limitation.get("summary") != FILE_STAT_LIMITATION_SUMMARY
+            or file_stat_limitation.get("authority")
+            != "src/htsp_server.c htsp_file_find and htsp_method_file_stat"
+            or file_stat_limitation.get("docsUrl") != FILE_STAT_DOCS_URL
+        ):
+            errors.append(
+                "fileStat limitation must preserve exact signed/coupled/empty-success source-doc mismatch"
             )
         stop_dvr_entry_limitation = next(
             (
@@ -2493,6 +2592,8 @@ def _derive_fresh_self_test_spec(fresh_mutator: Any = None) -> dict[str, Any]:
             name,
             "htsp_method_change_weight"
             if name == "subscriptionChangeWeight"
+            else "htsp_method_file_stat"
+            if name == "fileStat"
             else "htsp_method_live"
             if name == "subscriptionLive"
             else "htsp_method_filter_stream"
@@ -2500,12 +2601,12 @@ def _derive_fresh_self_test_spec(fresh_mutator: Any = None) -> dict[str, Any]:
             else f"htsp_method_{name}"
             if name in {
                 "getEvent", "getEvents", "getEpgObject", "epgQuery", "stopDvrEntry",
-                "getDvrCutpoints", "getTicket", *derive_module.RECORDING_RULE_METHODS,
+                "getDvrCutpoints", "getTicket", "fileStat", *derive_module.RECORDING_RULE_METHODS,
             }
             else f"htsp_method_{index}",
             "ACCESS_HTSP_RECORDER"
             if name in {
-                "stopDvrEntry", "getDvrCutpoints", *derive_module.RECORDING_RULE_METHODS,
+                "stopDvrEntry", "getDvrCutpoints", "fileStat", *derive_module.RECORDING_RULE_METHODS,
             }
             else "ACCESS_HTSP_STREAMING"
             if name in {
@@ -2563,7 +2664,7 @@ def _derive_fresh_self_test_spec(fresh_mutator: Any = None) -> dict[str, Any]:
             fresh_mutator(fresh)
 
     # Report validation owns schema/policy, not fixture-byte pin verification.
-    # Evaluate freshly derived getEvents/epgQuery/getEpgObject/getTicket/event/stopDvrEntry/getDvrCutpoints,
+    # Evaluate freshly derived getEvents/epgQuery/getEpgObject/getTicket/fileStat/event/stopDvrEntry/getDvrCutpoints,
     # six recording-rule methods, and subscription control evidence
     # inside the complete committed-schema baseline; unrelated minimal fixture
     # handlers deliberately do not pretend to model every pinned method.
@@ -2574,7 +2675,7 @@ def _derive_fresh_self_test_spec(fresh_mutator: Any = None) -> dict[str, Any]:
     candidate["clientMethods"] = [
         fresh_methods[item["name"]]
         if item["name"] in {
-            "getEvents", "epgQuery", "getEpgObject", "getTicket", "stopDvrEntry", "getDvrCutpoints",
+            "getEvents", "epgQuery", "getEpgObject", "getTicket", "fileStat", "stopDvrEntry", "getDvrCutpoints",
             "addAutorecEntry", "updateAutorecEntry", "deleteAutorecEntry",
             "addTimerecEntry", "updateTimerecEntry", "deleteTimerecEntry",
             "subscriptionChangeWeight", "subscriptionLive",
@@ -3048,6 +3149,242 @@ def self_test() -> None:
         check(
             f"reject-getTicket-limitation-{label}",
             any("getTicket limitation" in error for error in err),
+            str(err),
+        )
+
+    file_stat = next(
+        method for method in good_spec["clientMethods"] if method["name"] == "fileStat"
+    )
+    check(
+        "fileStat-fresh-complete-contract",
+        file_stat.get("handler") == "htsp_method_file_stat"
+        and file_stat.get("accessMask") == "ACCESS_HTSP_RECORDER"
+        and file_stat.get("minVersion") == 8
+        and file_stat.get("minVersionConfidence") == "annotated"
+        and [
+            (field["name"], field["type"], field["presence"], field["evidence"])
+            for field in file_stat["requestFields"]
+        ] == list(FILE_STAT_REQUEST_CONTRACT)
+        and [
+            (
+                field["name"], field["type"], field["presence"],
+                field["condition"], field["evidence"],
+            )
+            for field in file_stat["replyFields"]
+        ] == list(FILE_STAT_REPLY_CONTRACT)
+        and file_stat.get("requestShape") == FILE_STAT_REQUEST_SHAPE
+        and file_stat.get("replyShape") == FILE_STAT_REPLY_SHAPE
+        and file_stat.get("notes") == FILE_STAT_NOTES
+        and file_stat.get("sdk") == {
+            "referenced": True,
+            "outgoingRequest": True,
+            "typedRequest": True,
+        },
+        str(file_stat),
+    )
+    mutated_fresh_file_stat = _derive_fresh_self_test_spec(
+        lambda fresh: next(
+            method for method in fresh["clientMethods"] if method["name"] == "fileStat"
+        )["replyShape"]["alternatives"].pop(),
+    )
+    mutated_fresh_file_stat_errors = validate_spec(mutated_fresh_file_stat)
+    check(
+        "fileStat-fresh-contract-mutation-exact-diagnostic",
+        mutated_fresh_file_stat_errors
+        == ["fileStat reply shape must preserve complete fields-or-empty success evidence"],
+        str(mutated_fresh_file_stat_errors),
+    )
+
+    def reverse_file_stat_reply(method: dict[str, Any]) -> None:
+        method["replyFields"].reverse()
+        for order, field in enumerate(method["replyFields"], start=1):
+            field["order"] = order
+
+    file_stat_mutations = (
+        (
+            "handler", "handler",
+            lambda method: method.update({"handler": "htsp_method_file_stat_alias"}),
+            "fileStat must preserve exact handler, recorder access, and annotated minimum v8",
+        ),
+        (
+            "access", "accessMask",
+            lambda method: method.update({"accessMask": "ACCESS_ANONYMOUS"}),
+            [
+                "fileStat must preserve exact handler, recorder access, and annotated minimum v8",
+                "fileStat: typed catalog access mask disagrees with pinned method",
+            ],
+        ),
+        (
+            "minimum", "minVersion",
+            lambda method: method.update({"minVersion": 9}),
+            [
+                "fileStat must preserve exact handler, recorder access, and annotated minimum v8",
+                "fileStat: typed catalog method minimum disagrees with pinned method",
+            ],
+        ),
+        (
+            "minimum-confidence", "minVersionConfidence",
+            lambda method: method.update({"minVersionConfidence": "unknown"}),
+            [
+                "fileStat: evidenced minVersion requires annotated confidence",
+                "fileStat must preserve exact handler, recorder access, and annotated minimum v8",
+            ],
+        ),
+        (
+            "request-name", "requestFields",
+            lambda method: method["requestFields"][0].update({"name": "handle"}),
+            [
+                "fileStat: helper-derived id request field is required",
+                "fileStat request must preserve exact owned-handle default-zero u32 id contract",
+            ],
+        ),
+        (
+            "request-type", "requestFields",
+            lambda method: method["requestFields"][0].update({"type": "s64"}),
+            "fileStat request must preserve exact owned-handle default-zero u32 id contract",
+        ),
+        (
+            "request-presence", "requestFields",
+            lambda method: method["requestFields"][0].update({"presence": "optional"}),
+            "fileStat request must preserve exact owned-handle default-zero u32 id contract",
+        ),
+        (
+            "request-evidence", "requestFields",
+            lambda method: method["requestFields"][0].update({"evidence": "generic helper"}),
+            "fileStat request must preserve exact owned-handle default-zero u32 id contract",
+        ),
+        (
+            "size-expression-evidence", "replyFields",
+            lambda method: method["replyFields"][0].update({"evidence": "generic s64 output"}),
+            "fileStat reply must preserve exact coupled ordered signed-s64 size and mtime contract",
+        ),
+        (
+            "size-condition", "replyFields",
+            lambda method: method["replyFields"][0].update({"condition": "independent"}),
+            "fileStat reply must preserve exact coupled ordered signed-s64 size and mtime contract",
+        ),
+        (
+            "mtime-type", "replyFields",
+            lambda method: method["replyFields"][1].update({"type": "u64"}),
+            [
+                "fileStat.replyFields.mtime: type 'u64' is not allowlisted",
+                "fileStat reply must preserve exact coupled ordered signed-s64 size and mtime contract",
+            ],
+        ),
+        (
+            "mtime-expression-evidence", "replyFields",
+            lambda method: method["replyFields"][1].update({"evidence": "converted timestamp"}),
+            "fileStat reply must preserve exact coupled ordered signed-s64 size and mtime contract",
+        ),
+        (
+            "reply-order", "replyFields", reverse_file_stat_reply,
+            "fileStat reply must preserve exact coupled ordered signed-s64 size and mtime contract",
+        ),
+        (
+            "request-shape-completeness", "requestShape",
+            lambda method: method["requestShape"].update({"completeness": "partial"}),
+            "fileStat request shape must preserve complete same-connection handle evidence",
+        ),
+        (
+            "request-shape-evidence", "requestShape",
+            lambda method: method["requestShape"].update({"evidence": "generic getter"}),
+            "fileStat request shape must preserve complete same-connection handle evidence",
+        ),
+        (
+            "reply-shape-kind", "replyShape",
+            lambda method: method["replyShape"].update({"kind": "fields"}),
+            "fileStat reply shape must preserve complete fields-or-empty success evidence",
+        ),
+        (
+            "reply-shape-completeness", "replyShape",
+            lambda method: method["replyShape"].update({"completeness": "partial"}),
+            "fileStat reply shape must preserve complete fields-or-empty success evidence",
+        ),
+        (
+            "reply-shape-evidence", "replyShape",
+            lambda method: method["replyShape"].update({"evidence": "generic outputs"}),
+            "fileStat reply shape must preserve complete fields-or-empty success evidence",
+        ),
+        (
+            "reply-shape-no-empty", "replyShape",
+            lambda method: method["replyShape"]["alternatives"].pop(),
+            "fileStat reply shape must preserve complete fields-or-empty success evidence",
+        ),
+        (
+            "reply-shape-uncoupled", "replyShape",
+            lambda method: method["replyShape"]["alternatives"].__setitem__(0, "independent fields"),
+            "fileStat reply shape must preserve complete fields-or-empty success evidence",
+        ),
+        (
+            "zero-note", "notes",
+            lambda method: method["notes"].__setitem__(0, "zero is rejected"),
+            "fileStat notes must preserve zero, ownership, coupling, mtime, and empty-success facts",
+        ),
+        (
+            "ownership-note", "notes",
+            lambda method: method["notes"].__setitem__(1, "handles are global"),
+            "fileStat notes must preserve zero, ownership, coupling, mtime, and empty-success facts",
+        ),
+        (
+            "coupling-note", "notes",
+            lambda method: method["notes"].__setitem__(2, "fields are independent"),
+            "fileStat notes must preserve zero, ownership, coupling, mtime, and empty-success facts",
+        ),
+        (
+            "mtime-note", "notes",
+            lambda method: method["notes"].__setitem__(3, "mtime is converted"),
+            "fileStat notes must preserve zero, ownership, coupling, mtime, and empty-success facts",
+        ),
+        (
+            "empty-success-note", "notes",
+            lambda method: method["notes"].__setitem__(4, "empty is malformed"),
+            "fileStat notes must preserve zero, ownership, coupling, mtime, and empty-success facts",
+        ),
+    )
+    for label, changed_key, mutate, expected_diagnostic in file_stat_mutations:
+        bad = json.loads(json.dumps(good_spec))
+        method = next(item for item in bad["clientMethods"] if item["name"] == "fileStat")
+        original = json.loads(json.dumps(method))
+        mutate(method)
+        check(
+            f"fileStat-report-mutation-exact-target-{label}",
+            [key for key in method if method[key] != original[key]] == [changed_key],
+            str(method),
+        )
+        err = validate_spec(bad)
+        expected_errors = (
+            expected_diagnostic
+            if isinstance(expected_diagnostic, list)
+            else [expected_diagnostic]
+        )
+        check(
+            f"fileStat-report-mutation-exact-diagnostic-{label}",
+            err == expected_errors,
+            str(err),
+        )
+
+    for label, key, replacement in (
+        ("summary", "summary", "official and source agree"),
+        ("authority", "authority", "src/htsp_server.c decoy"),
+        ("docs-url", "docsUrl", "https://example.invalid/file-stat"),
+    ):
+        bad = json.loads(json.dumps(good_spec))
+        limitation = next(
+            item for item in bad["docLimitations"] if item["id"] == FILE_STAT_LIMITATION_ID
+        )
+        original = json.loads(json.dumps(limitation))
+        limitation[key] = replacement
+        check(
+            f"fileStat-limitation-mutation-exact-target-{label}",
+            [item_key for item_key in limitation if limitation[item_key] != original[item_key]] == [key],
+            str(limitation),
+        )
+        err = validate_spec(bad)
+        check(
+            f"fileStat-limitation-mutation-exact-diagnostic-{label}",
+            err == [
+                "fileStat limitation must preserve exact signed/coupled/empty-success source-doc mismatch"
+            ],
             str(err),
         )
 

@@ -396,6 +396,30 @@ public final class at/bernhardberger/tvheadend/htsp/EpgQueryResponse$Events : at
 	public fun toString ()Ljava/lang/String;
 }
 
+public final class at/bernhardberger/tvheadend/htsp/FileStatRequest : at/bernhardberger/tvheadend/htsp/HtspRequest {
+	public fun <init> (J)V
+	public final fun component1 ()J
+	public final fun copy (J)Lat/bernhardberger/tvheadend/htsp/FileStatRequest;
+	public static synthetic fun copy$default (Lat/bernhardberger/tvheadend/htsp/FileStatRequest;JILjava/lang/Object;)Lat/bernhardberger/tvheadend/htsp/FileStatRequest;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getId ()J
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class at/bernhardberger/tvheadend/htsp/FileStatResponse {
+	public fun <init> (Ljava/lang/Long;Ljava/lang/Long;)V
+	public final fun component1 ()Ljava/lang/Long;
+	public final fun component2 ()Ljava/lang/Long;
+	public final fun copy (Ljava/lang/Long;Ljava/lang/Long;)Lat/bernhardberger/tvheadend/htsp/FileStatResponse;
+	public static synthetic fun copy$default (Lat/bernhardberger/tvheadend/htsp/FileStatResponse;Ljava/lang/Long;Ljava/lang/Long;ILjava/lang/Object;)Lat/bernhardberger/tvheadend/htsp/FileStatResponse;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getModifiedAtUnixSeconds ()Ljava/lang/Long;
+	public final fun getSizeBytes ()Ljava/lang/Long;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
 public final class at/bernhardberger/tvheadend/htsp/GeneratedHtspExtensionsKt {
 	public static final fun addAutorecEntry (Lat/bernhardberger/tvheadend/htsp/HtspConnection;Ljava/lang/String;Lat/bernhardberger/tvheadend/htsp/HtspRecordingRuleChannel;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/String;Ljava/lang/Integer;Ljava/lang/Integer;Ljava/lang/Integer;Ljava/lang/Boolean;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;JLat/bernhardberger/tvheadend/htsp/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public static synthetic fun addAutorecEntry$default (Lat/bernhardberger/tvheadend/htsp/HtspConnection;Ljava/lang/String;Lat/bernhardberger/tvheadend/htsp/HtspRecordingRuleChannel;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/String;Ljava/lang/Integer;Ljava/lang/Integer;Ljava/lang/Integer;Ljava/lang/Boolean;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;JLat/bernhardberger/tvheadend/htsp/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
@@ -419,6 +443,8 @@ public final class at/bernhardberger/tvheadend/htsp/GeneratedHtspExtensionsKt {
 	public static synthetic fun enableAsyncMetadata$default (Lat/bernhardberger/tvheadend/htsp/HtspConnection;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/String;JLat/bernhardberger/tvheadend/htsp/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
 	public static final fun epgQuery (Lat/bernhardberger/tvheadend/htsp/HtspConnection;Ljava/lang/String;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/String;Ljava/lang/Boolean;Ljava/lang/Boolean;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;JLat/bernhardberger/tvheadend/htsp/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public static synthetic fun epgQuery$default (Lat/bernhardberger/tvheadend/htsp/HtspConnection;Ljava/lang/String;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/String;Ljava/lang/Boolean;Ljava/lang/Boolean;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;JLat/bernhardberger/tvheadend/htsp/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+	public static final fun fileStat (Lat/bernhardberger/tvheadend/htsp/HtspConnection;JJLat/bernhardberger/tvheadend/htsp/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static synthetic fun fileStat$default (Lat/bernhardberger/tvheadend/htsp/HtspConnection;JJLat/bernhardberger/tvheadend/htsp/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
 	public static final fun getChannel (Lat/bernhardberger/tvheadend/htsp/HtspConnection;JJLat/bernhardberger/tvheadend/htsp/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public static synthetic fun getChannel$default (Lat/bernhardberger/tvheadend/htsp/HtspConnection;JJLat/bernhardberger/tvheadend/htsp/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
 	public static final fun getDiskSpace (Lat/bernhardberger/tvheadend/htsp/HtspConnection;JLat/bernhardberger/tvheadend/htsp/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;

@@ -452,6 +452,20 @@ DOC_LIMITATIONS = [
         ),
     },
     {
+        "id": "fileStat-reply-source-doc-mismatch",
+        "summary": (
+            "Official docs describe independently optional u64 size and mtime fields, while "
+            "pinned source emits signed-s64 size then mtime together only when fstat succeeds "
+            "and otherwise returns a successful empty map. Official docs also omit the mtime "
+            "unit and epoch."
+        ),
+        "authority": "src/htsp_server.c htsp_file_find and htsp_method_file_stat",
+        "docsUrl": (
+            "https://docs.tvheadend.org/documentation/development/htsp/"
+            "client-to-server-rpc-methods"
+        ),
+    },
+    {
         "id": "subscriptionChangeWeight-default-ack-order-underdocumented",
         "summary": (
             "The official Client-to-Server RPC methods page leaves the optional "
@@ -3123,6 +3137,99 @@ def require_get_ticket_source_facts(
         )
 
 
+def require_file_stat_source_facts(
+    server_c: str,
+    method_min_versions: dict[str, int | None] = METHOD_MIN_VERSION,
+) -> None:
+    """Validate the exact bounded fileStat helper, dispatch, and reply topology."""
+    if method_min_versions.get("fileStat") != 8:
+        raise ValueError("fileStat annotated minimum must remain exactly 8")
+
+    source = strip_c_comments(server_c)
+    try:
+        dispatch = [entry for entry in parse_methods_table(source) if entry["name"] == "fileStat"]
+    except ValueError as exc:
+        raise ValueError(
+            "fileStat dispatch must use htsp_method_file_stat with recorder access exactly once"
+        ) from exc
+    if dispatch != [{
+        "name": "fileStat",
+        "handler": "htsp_method_file_stat",
+        "accessMask": "ACCESS_HTSP_RECORDER",
+    }]:
+        raise ValueError(
+            "fileStat dispatch must use htsp_method_file_stat with recorder access exactly once"
+        )
+
+    helper = find_function_body(source, "htsp_file_find")
+    if helper is None:
+        raise ValueError("htsp_file_find body not found")
+    helper_compact = re.sub(r"\s+", " ", helper).strip()
+    default_id = (
+        r'int\s+id\s*=\s*htsmsg_get_u32_or_default\('
+        r'\s*in\s*,\s*"id"\s*,\s*0\s*\)\s*;'
+    )
+    if len(re.findall(default_id, helper_compact)) != 1:
+        raise ValueError("htsp_file_find must read id exactly once as u32 with zero default")
+    owner_lookup = (
+        r'LIST_FOREACH\(\s*hf\s*,\s*&htsp->htsp_files\s*,\s*hf_link\s*\)\s*\{\s*'
+        r'if\s*\(\s*hf->hf_id\s*==\s*id\s*\)\s*return\s+hf\s*;\s*\}\s*'
+        r'return\s+NULL\s*;'
+    )
+    if len(re.findall(owner_lookup, helper_compact)) != 1:
+        raise ValueError("htsp_file_find must search only the current connection file list by id")
+    expected_helper = r'htsp_file_t\s*\*\s*hf\s*;\s*' + default_id + r'\s*' + owner_lookup
+    if re.fullmatch(expected_helper, helper_compact) is None:
+        raise ValueError("htsp_file_find contains unmodeled input, lookup, alias, or return topology")
+
+    handler = find_function_body(source, "htsp_method_file_stat")
+    if handler is None:
+        raise ValueError("htsp_method_file_stat body not found")
+    compact = re.sub(r"\s+", " ", handler).strip()
+    association = (
+        r'if\s*\(\s*hf\s*==\s*NULL\s*\)\s*return\s+htsp_error\('
+        r'\s*htsp\s*,\s*N_\(\s*"Invalid file"\s*\)\s*\)\s*;'
+    )
+    if len(re.findall(association, compact)) != 1:
+        raise ValueError("htsp_method_file_stat must reject failed owned-handle lookup as Invalid file")
+    fd_capture = r'fd\s*=\s*hf->hf_fd\s*;'
+    if len(re.findall(fd_capture, compact)) != 1:
+        raise ValueError("htsp_method_file_stat must capture exactly the owned handle fd")
+    if sorted((field["name"], field["type"]) for field in extract_add_fields(handler)) != [
+        ("mtime", "s64"),
+        ("size", "s64"),
+    ]:
+        raise ValueError("htsp_method_file_stat must have no method-specific outputs beyond size and mtime")
+    output = (
+        r'if\s*\(\s*!\s*fstat\(\s*fd\s*,\s*&st\s*\)\s*\)\s*\{\s*'
+        r'htsmsg_add_s64\(\s*rep\s*,\s*"size"\s*,\s*st\.st_size\s*\)\s*;\s*'
+        r'htsmsg_add_s64\(\s*rep\s*,\s*"mtime"\s*,\s*st\.st_mtime\s*\)\s*;\s*\}'
+    )
+    if len(re.findall(output, compact)) != 1:
+        raise ValueError(
+            "htsp_method_file_stat must emit exact signed size then mtime together on fstat success"
+        )
+    unlocked_io = (
+        association + r'\s*' + fd_capture + r'\s*'
+        r'tvh_mutex_unlock\(\s*&global_lock\s*\)\s*;\s*'
+        r'rep\s*=\s*htsmsg_create_map\(\s*\)\s*;\s*' + output + r'\s*'
+        r'tvh_mutex_lock\(\s*&global_lock\s*\)\s*;\s*return\s+rep\s*;'
+    )
+    if len(re.findall(unlocked_io, compact)) != 1:
+        raise ValueError(
+            "htsp_method_file_stat must create a fresh map before unlocked fstat and relock before return"
+        )
+    expected_handler = (
+        r'htsp_file_t\s*\*\s*hf\s*=\s*htsp_file_find\(\s*htsp\s*,\s*in\s*\)\s*;\s*'
+        r'htsmsg_t\s*\*\s*rep\s*;\s*'
+        r'struct\s+stat\s+st\s*;\s*int\s+fd\s*;\s*' + unlocked_io
+    )
+    if re.fullmatch(expected_handler, compact) is None:
+        raise ValueError(
+            "htsp_method_file_stat contains unmodeled input, output, alias, call, or return topology"
+        )
+
+
 def require_subscription_change_weight_source_facts(server_c: str) -> None:
     """Validate the exact bounded subscriptionChangeWeight handler topology."""
     source = strip_c_comments(server_c)
@@ -4101,6 +4208,24 @@ def derive_client_methods(server_c: str) -> list[dict[str, Any]]:
                     "bounded successful getTicket output adds exact string ticket second",
                 ),
             ]
+        elif name == "fileStat":
+            require_file_stat_source_facts(server_c)
+            request_fields = [exact_field(
+                "id", "u32", "request", "required",
+                "bounded htsp_file_find reads id with zero default and searches only this connection's handles",
+            )]
+            reply_fields = [
+                exact_field(
+                    "size", "s64", "reply", "conditional",
+                    "bounded handler emits st.st_size first only when fstat(fd, &st) succeeds",
+                    condition="present together with mtime when fstat(fd, &st) returns zero",
+                ),
+                exact_field(
+                    "mtime", "s64", "reply", "conditional",
+                    "bounded handler emits unchanged st.st_mtime second only when fstat(fd, &st) succeeds",
+                    condition="present together with size when fstat(fd, &st) returns zero",
+                ),
+            ]
         elif name == "stopDvrEntry":
             require_stop_dvr_entry_source_facts(server_c)
             request_fields = [exact_field(
@@ -4310,6 +4435,27 @@ def derive_client_methods(server_c: str) -> list[dict[str, Any]]:
                     "bounded successful handler emits exactly ordered required string path and ticket"
                 ),
             }
+        if name == "fileStat":
+            method["requestShape"] = {
+                "kind": "fields",
+                "completeness": "complete",
+                "evidence": (
+                    "bounded helper accepts exactly one default-zero u32 id and searches only "
+                    "the current connection file list"
+                ),
+            }
+            method["replyShape"] = {
+                "kind": "alternative",
+                "completeness": "complete",
+                "evidence": (
+                    "bounded handler creates a fresh map before fstat, emits ordered signed-s64 "
+                    "size and mtime together on success, and returns the empty map on failure"
+                ),
+                "alternatives": [
+                    "signed-s64 size followed by unchanged signed-s64 mtime when fstat succeeds",
+                    "successful empty map when fstat fails",
+                ],
+            }
         if name == "stopDvrEntry":
             method["requestShape"] = {
                 "kind": "fields",
@@ -4375,6 +4521,14 @@ def derive_client_methods(server_c: str) -> list[dict[str, Any]]:
                 "EPG_UNDEF=0 and EPG_BROADCAST=1 are the complete pinned object-type vocabulary; only broadcast has a serializer.",
                 "Wire cred is an unconstrained copied message and remains an explicitly opaque shape deliberately omitted from the public response model.",
                 "Pinned time_t updated/start/stop/first_aired members are serialized as signed s64; the SDK exposes unchanged Unix-second values under its EPG time convention.",
+            ]
+        if name == "fileStat":
+            method["notes"] = [
+                "The id is a u32 handle lookup key; zero is not rejected before the owned-handle lookup.",
+                "A handle is meaningful only in the HTSP connection that created it.",
+                "size and mtime are coupled: both signed-s64 fields are emitted in that order, or neither is emitted.",
+                "mtime is the unchanged POSIX st_mtime value serialized by pinned source; official docs omit its unit and epoch.",
+                "A successful empty map is the pinned fstat-failure behavior.",
             ]
         elif name in RECORDING_RULE_METHODS:
             notes = [
@@ -5334,6 +5488,31 @@ def _minimal_server_c(
     )
     handlers = []
     for name, handler, _access in methods:
+        if name == "fileStat":
+            handlers.append(
+                f"""
+static htsmsg_t *
+{handler}(htsp_connection_t *htsp, htsmsg_t *in)
+{{
+  htsp_file_t *hf = htsp_file_find(htsp, in);
+  htsmsg_t *rep;
+  struct stat st;
+  int fd;
+  if (hf == NULL)
+    return htsp_error(htsp, N_("Invalid file"));
+  fd = hf->hf_fd;
+  tvh_mutex_unlock(&global_lock);
+  rep = htsmsg_create_map();
+  if (!fstat(fd, &st)) {{
+    htsmsg_add_s64(rep, "size", st.st_size);
+    htsmsg_add_s64(rep, "mtime", st.st_mtime);
+  }}
+  tvh_mutex_lock(&global_lock);
+  return rep;
+}}
+"""
+            )
+            continue
         if name in RECORDING_RULE_METHODS:
             autorec = "Autorec" in name
             add = name.startswith("add")
@@ -5758,6 +5937,17 @@ static htsmsg_t *
     # Server message emitters for expected inventory subset used in unit tests.
     dvr_helpers = """
 #define NUM_FILTERED_STREAMS (64*8)
+static htsp_file_t *
+htsp_file_find(htsp_connection_t *htsp, htsmsg_t *in)
+{
+  htsp_file_t *hf;
+  int id = htsmsg_get_u32_or_default(in, "id", 0);
+  LIST_FOREACH(hf, &htsp->htsp_files, hf_link) {
+    if (hf->hf_id == id)
+      return hf;
+  }
+  return NULL;
+}
 static void
 htsp_disable_stream(htsp_subscription_t *hs, unsigned int id)
 {
@@ -6239,6 +6429,30 @@ def self_test() -> None:
     for method_name in ("fileRead", "fileClose", "fileStat", "fileSeek"):
         request_names = {f["name"] for f in methods_by_name[method_name]["requestFields"]}
         check(f"{method_name}-helper-id", "id" in request_names)
+    file_stat = methods_by_name["fileStat"]
+    check(
+        "fileStat-committed-exact-contract",
+        file_stat.get("handler") == "htsp_method_file_stat"
+        and file_stat.get("accessMask") == "ACCESS_HTSP_RECORDER"
+        and file_stat.get("minVersion") == 8
+        and file_stat.get("minVersionConfidence") == "annotated"
+        and [
+            (field["name"], field["type"], field["presence"])
+            for field in file_stat["requestFields"]
+        ] == [("id", "u32", "required")]
+        and file_stat.get("requestShape", {}).get("completeness") == "complete"
+        and [
+            (field["name"], field["type"], field["presence"])
+            for field in file_stat["replyFields"]
+        ] == [("size", "s64", "conditional"), ("mtime", "s64", "conditional")]
+        and file_stat.get("replyShape", {}).get("kind") == "alternative"
+        and file_stat.get("replyShape", {}).get("completeness") == "complete"
+        and file_stat.get("sdk") == {
+            "referenced": True,
+            "outgoingRequest": True,
+            "typedRequest": True,
+        },
+    )
     file_read_reply = {f["name"]: f for f in methods_by_name["fileRead"]["replyFields"]}
     check("fileRead-binary-data", file_read_reply.get("data", {}).get("type") == "bin")
     for message_name, identifier in (
@@ -6347,6 +6561,10 @@ def self_test() -> None:
         system_time.get("replyShape", {}).get("completeness") == "complete",
     )
     limitation_ids = {item.get("id") for item in committed.get("docLimitations", [])}
+    check(
+        "fileStat-source-doc-mismatch-limitation",
+        "fileStat-reply-source-doc-mismatch" in limitation_ids,
+    )
     check(
         "getSysTime-source-doc-mismatch-limitation",
         "getSysTime-time-type-source-doc-mismatch" in limitation_ids,
@@ -6471,7 +6689,7 @@ def self_test() -> None:
             live_coverage["serverMessages"]["handledCount"],
             live_coverage["typedClientRequests"]["count"],
             live_coverage["typedServerMessages"]["count"],
-        ) == (38, 37, 27, 30, 26)
+        ) == (38, 37, 27, 31, 26)
         and "getEpgObject" in live_coverage["clientMethods"]["referenced"]
         and "getEpgObject" in live_coverage["clientMethods"]["outgoingRequests"]
         and "epgQuery" in live_coverage["clientMethods"]["referenced"]
@@ -6718,6 +6936,8 @@ def self_test() -> None:
             (
                 "htsp_method_change_weight"
                 if name == "subscriptionChangeWeight"
+                else "htsp_method_file_stat"
+                if name == "fileStat"
                 else "htsp_method_live"
                 if name == "subscriptionLive"
                 else "htsp_method_filter_stream"
@@ -6725,12 +6945,12 @@ def self_test() -> None:
                 else f"htsp_method_{name}"
                 if name in {
                     "getEvent", "getEvents", "getEpgObject", "epgQuery", "stopDvrEntry",
-                    "getDvrCutpoints", "getTicket", *RECORDING_RULE_METHODS,
+                    "getDvrCutpoints", "getTicket", "fileStat", *RECORDING_RULE_METHODS,
                 }
                 else f"htsp_method_{idx}"
             ),
             "ACCESS_HTSP_RECORDER"
-            if name in {"stopDvrEntry", "getDvrCutpoints", *RECORDING_RULE_METHODS}
+            if name in {"stopDvrEntry", "getDvrCutpoints", "fileStat", *RECORDING_RULE_METHODS}
             else "ACCESS_HTSP_STREAMING"
             if name in {
                 "epgQuery", "getEpgObject", "getTicket", "subscriptionChangeWeight", "subscriptionLive", "subscriptionFilterStream",
@@ -8075,6 +8295,209 @@ def self_test() -> None:
             require_get_ticket_source_facts(ticket_decoy_source)
         except ValueError as exc:
             check("accept-getTicket-comment-string-decoys", False, str(exc))
+
+        fresh_file_stat = next(item for item in spec["clientMethods"] if item["name"] == "fileStat")
+        check(
+            "fileStat-fresh-exact-contract",
+            fresh_file_stat.get("accessMask") == "ACCESS_HTSP_RECORDER"
+            and fresh_file_stat.get("minVersion") == 8
+            and [(f["name"], f["type"], f["presence"]) for f in fresh_file_stat["requestFields"]]
+            == [("id", "u32", "required")]
+            and fresh_file_stat.get("requestShape", {}).get("completeness") == "complete"
+            and [(f["name"], f["type"], f["presence"]) for f in fresh_file_stat["replyFields"]]
+            == [("size", "s64", "conditional"), ("mtime", "s64", "conditional")]
+            and fresh_file_stat.get("replyShape", {}).get("kind") == "alternative"
+            and fresh_file_stat.get("replyShape", {}).get("completeness") == "complete",
+        )
+
+        changed_file_stat_minima = dict(METHOD_MIN_VERSION)
+        changed_file_stat_minima["fileStat"] = 9
+        try:
+            require_file_stat_source_facts(server_c, changed_file_stat_minima)
+        except ValueError as exc:
+            check(
+                "fileStat-minimum-mutation-exact-diagnostic",
+                str(exc) == "fileStat annotated minimum must remain exactly 8",
+                str(exc),
+            )
+        else:
+            check("reject-fileStat-minimum-mutation", False)
+
+        def mutate_file_stat_function(label: str, function_name: str, old: str, new: str) -> str:
+            marker = f"{function_name}(htsp_connection_t *htsp, htsmsg_t *in)"
+            start = server_c.index(marker)
+            open_brace = server_c.index("{", start)
+            end = _balanced_block_end(server_c, open_brace)
+            function_source = server_c[start:end]
+            count = function_source.count(old)
+            check(f"fileStat-mutation-exact-target-{label}", count == 1, str(count))
+            changed_function = function_source.replace(old, new, 1)
+            check(f"fileStat-mutation-changed-{label}", changed_function != function_source)
+            return server_c[:start] + changed_function + server_c[end:]
+
+        def mutate_file_stat_dispatch(label: str, old: str, new: str) -> str:
+            count = server_c.count(old)
+            check(f"fileStat-mutation-exact-target-{label}", count == 1, str(count))
+            changed = server_c.replace(old, new, 1)
+            check(f"fileStat-mutation-changed-{label}", changed != server_c)
+            return changed
+
+        file_stat_dispatch = '{ "fileStat", htsp_method_file_stat, ACCESS_HTSP_RECORDER}'
+        file_stat_mutations = (
+            (
+                "dispatch-handler",
+                mutate_file_stat_dispatch(
+                    "dispatch-handler", file_stat_dispatch,
+                    '{ "fileStat", htsp_method_file_stat_alias, ACCESS_HTSP_RECORDER}',
+                ),
+                "fileStat dispatch must use htsp_method_file_stat with recorder access exactly once",
+            ),
+            (
+                "dispatch-access",
+                mutate_file_stat_dispatch(
+                    "dispatch-access", file_stat_dispatch,
+                    '{ "fileStat", htsp_method_file_stat, ACCESS_ANONYMOUS}',
+                ),
+                "fileStat dispatch must use htsp_method_file_stat with recorder access exactly once",
+            ),
+            (
+                "helper-id-default",
+                mutate_file_stat_function(
+                    "helper-id-default", "htsp_file_find",
+                    'htsmsg_get_u32_or_default(in, "id", 0)',
+                    'htsmsg_get_u32_or_default(in, "id", 1)',
+                ),
+                "htsp_file_find must read id exactly once as u32 with zero default",
+            ),
+            (
+                "helper-owner-list",
+                mutate_file_stat_function(
+                    "helper-owner-list", "htsp_file_find",
+                    '&htsp->htsp_files', '&global_files',
+                ),
+                "htsp_file_find must search only the current connection file list by id",
+            ),
+            (
+                "helper-id-match",
+                mutate_file_stat_function(
+                    "helper-id-match", "htsp_file_find", 'hf->hf_id == id', 'hf->hf_id != id',
+                ),
+                "htsp_file_find must search only the current connection file list by id",
+            ),
+            (
+                "helper-not-found",
+                mutate_file_stat_function(
+                    "helper-not-found", "htsp_file_find", '  return NULL;', '  return hf;',
+                ),
+                "htsp_file_find must search only the current connection file list by id",
+            ),
+            (
+                "invalid-file-error",
+                mutate_file_stat_function(
+                    "invalid-file-error", "htsp_method_file_stat",
+                    'N_("Invalid file")', 'N_("Missing file")',
+                ),
+                "htsp_method_file_stat must reject failed owned-handle lookup as Invalid file",
+            ),
+            (
+                "fd-owner",
+                mutate_file_stat_function(
+                    "fd-owner", "htsp_method_file_stat", 'fd = hf->hf_fd;', 'fd = -1;',
+                ),
+                "htsp_method_file_stat must capture exactly the owned handle fd",
+            ),
+            (
+                "map-before-fstat",
+                mutate_file_stat_function(
+                    "map-before-fstat", "htsp_method_file_stat",
+                    '  rep = htsmsg_create_map();\n'
+                    '  if (!fstat(fd, &st)) {\n'
+                    '    htsmsg_add_s64(rep, "size", st.st_size);\n'
+                    '    htsmsg_add_s64(rep, "mtime", st.st_mtime);\n'
+                    '  }',
+                    '  if (!fstat(fd, &st)) {\n'
+                    '    htsmsg_add_s64(rep, "size", st.st_size);\n'
+                    '    htsmsg_add_s64(rep, "mtime", st.st_mtime);\n'
+                    '  }\n'
+                    '  rep = htsmsg_create_map();',
+                ),
+                "htsp_method_file_stat must create a fresh map before unlocked fstat and relock before return",
+            ),
+            (
+                "fstat-success",
+                mutate_file_stat_function(
+                    "fstat-success", "htsp_method_file_stat", 'if (!fstat(fd, &st))', 'if (fstat(fd, &st))',
+                ),
+                "htsp_method_file_stat must emit exact signed size then mtime together on fstat success",
+            ),
+            (
+                "size-expression",
+                mutate_file_stat_function(
+                    "size-expression", "htsp_method_file_stat", '"size", st.st_size', '"size", 0',
+                ),
+                "htsp_method_file_stat must emit exact signed size then mtime together on fstat success",
+            ),
+            (
+                "mtime-expression",
+                mutate_file_stat_function(
+                    "mtime-expression", "htsp_method_file_stat", '"mtime", st.st_mtime', '"mtime", 0',
+                ),
+                "htsp_method_file_stat must emit exact signed size then mtime together on fstat success",
+            ),
+            (
+                "output-order",
+                mutate_file_stat_function(
+                    "output-order", "htsp_method_file_stat",
+                    '    htsmsg_add_s64(rep, "size", st.st_size);\n    htsmsg_add_s64(rep, "mtime", st.st_mtime);',
+                    '    htsmsg_add_s64(rep, "mtime", st.st_mtime);\n    htsmsg_add_s64(rep, "size", st.st_size);',
+                ),
+                "htsp_method_file_stat must emit exact signed size then mtime together on fstat success",
+            ),
+            (
+                "extra-output",
+                mutate_file_stat_function(
+                    "extra-output", "htsp_method_file_stat",
+                    '    htsmsg_add_s64(rep, "mtime", st.st_mtime);',
+                    '    htsmsg_add_s64(rep, "mtime", st.st_mtime);\n    htsmsg_add_s64(rep, "extra", 0);',
+                ),
+                "htsp_method_file_stat must have no method-specific outputs beyond size and mtime",
+            ),
+            (
+                "unlock",
+                mutate_file_stat_function(
+                    "unlock", "htsp_method_file_stat",
+                    'tvh_mutex_unlock(&global_lock)', 'tvh_mutex_lock(&global_lock)',
+                ),
+                "htsp_method_file_stat must create a fresh map before unlocked fstat and relock before return",
+            ),
+            (
+                "relock",
+                mutate_file_stat_function(
+                    "relock", "htsp_method_file_stat",
+                    '  tvh_mutex_lock(&global_lock);\n  return rep;', '  return rep;',
+                ),
+                "htsp_method_file_stat must create a fresh map before unlocked fstat and relock before return",
+            ),
+            (
+                "unmodeled-alias",
+                mutate_file_stat_function(
+                    "unmodeled-alias", "htsp_method_file_stat",
+                    '  int fd;', '  int fd;\n  int alias;',
+                ),
+                "htsp_method_file_stat contains unmodeled input, output, alias, call, or return topology",
+            ),
+        )
+        for label, mutated_source, expected_diagnostic in file_stat_mutations:
+            try:
+                require_file_stat_source_facts(mutated_source)
+            except ValueError as exc:
+                check(
+                    f"fileStat-source-mutation-exact-diagnostic-{label}",
+                    str(exc) == expected_diagnostic,
+                    str(exc),
+                )
+                continue
+            check(f"reject-fileStat-source-{label}", False)
 
         weight_method = next(
             item for item in spec["clientMethods"]

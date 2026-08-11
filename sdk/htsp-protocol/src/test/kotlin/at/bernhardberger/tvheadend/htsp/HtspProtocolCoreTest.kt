@@ -14,6 +14,74 @@ import java.lang.reflect.Modifier
 
 class HtspProtocolCoreTest {
     @Test
+    fun fileStatPreservesFiniteSourceReplyAndAttemptContracts() = runTest {
+        val disconnected = createHtspConnection(Dispatchers.Unconfined)
+        try {
+            assertSame(HtspResult.TransportUnavailable, disconnected.fileStat(id = 0L))
+        } finally {
+            disconnected.close()
+        }
+
+        assertEquals(
+            linkedMapOf("id" to 0xffff_ffffL),
+            HtspRequestCodecs.encode(FileStatRequest(0xffff_ffffL)),
+        )
+        assertIllegalArgument { FileStatRequest(-1L) }
+        assertIllegalArgument { FileStatRequest(0x1_0000_0000L) }
+
+        val transport = FakeProtocolTransport(version = 7)
+        val connection = HtspTypedRequestCaller(transport)
+        val request = FileStatRequest(0L)
+        assertSame(HtspResult.NotSupported, connection.call(request))
+        assertEquals(0, transport.dispatches)
+
+        transport.version = 8
+        transport.reply = HtspWireReply(
+            linkedMapOf(
+                "size" to 123L,
+                "mtime" to -456L,
+            ),
+        )
+        assertEquals(
+            HtspResult.Ok(FileStatResponse(sizeBytes = 123L, modifiedAtUnixSeconds = -456L)),
+            connection.call(request),
+        )
+        assertEquals("fileStat", transport.lastMethod)
+        assertEquals(linkedMapOf("id" to 0L), transport.lastFields)
+
+        transport.reply = HtspWireReply(linkedMapOf())
+        assertEquals(
+            HtspResult.Ok(FileStatResponse(sizeBytes = null, modifiedAtUnixSeconds = null)),
+            connection.call(request),
+        )
+
+        listOf(
+            linkedMapOf<String, Any?>("size" to 1L),
+            linkedMapOf<String, Any?>("mtime" to 2L),
+            linkedMapOf<String, Any?>("size" to 1, "mtime" to 2L),
+            linkedMapOf<String, Any?>("size" to 1L, "mtime" to 2),
+            linkedMapOf<String, Any?>("size" to -1L, "mtime" to Long.MIN_VALUE),
+        ).forEach { fields ->
+            transport.reply = HtspWireReply(fields)
+            assertSame(HtspResult.ServerError, connection.call(request))
+        }
+
+        val staleGeneration = connection.generation
+        transport.replace()
+        val dispatchesBeforeStaleCall = transport.dispatches
+        val staleFailure = runCatching {
+            connection.call(request, expectedGeneration = staleGeneration)
+        }.exceptionOrNull()
+        assertTrue(staleFailure is CancellationException)
+        assertEquals(dispatchesBeforeStaleCall, transport.dispatches)
+
+        val cancellation = CancellationException("synthetic fileStat cancellation")
+        transport.failure = cancellation
+        val cancellationFailure = runCatching { connection.call(request) }.exceptionOrNull()
+        assertSame(cancellation, cancellationFailure)
+    }
+
+    @Test
     fun getTicketUsesOneStrictSelectorAndRedactsCredentialBearingSuccess() = runTest {
         val channelSelector = GetTicketSelector.Channel(0L)
         val dvrSelector = GetTicketSelector.Dvr(0xffff_ffffL)
@@ -125,6 +193,7 @@ class HtspProtocolCoreTest {
                 "subscriptionSpeed",
                 "subscriptionLive",
                 "subscriptionFilterStream",
+                "fileStat",
             ),
             typedHtspRequestCatalog.map { it.method },
         )
@@ -160,6 +229,7 @@ class HtspProtocolCoreTest {
                 HtspAccess.ACCESS_HTSP_STREAMING,
                 HtspAccess.ACCESS_HTSP_STREAMING,
                 HtspAccess.ACCESS_HTSP_STREAMING,
+                HtspAccess.ACCESS_HTSP_RECORDER,
             ),
             typedHtspRequestCatalog.map { it.access },
         )
@@ -194,6 +264,7 @@ class HtspProtocolCoreTest {
             SubscriptionSpeedRequest(0L, 0),
             SubscriptionLiveRequest(0L),
             SubscriptionFilterStreamRequest(0L),
+            FileStatRequest(0L),
         )
         assertEquals(
             typedHtspRequestCatalog.map { Triple(it.method, it.access, it.minimumProtocolVersion) },
@@ -1136,6 +1207,7 @@ class HtspProtocolCoreTest {
             SubscriptionSpeedRequest::class.java,
             SubscriptionLiveRequest::class.java,
             SubscriptionFilterStreamRequest::class.java,
+            FileStatRequest::class.java,
         )
 
         val leakedMethods = requestClasses.flatMap { requestClass ->

@@ -275,6 +275,12 @@ public class GetTicketResponse(
         "GetTicketResponse(path=<redacted>, ticket=<redacted>)"
 }
 
+/** Finite successful `fileStat` reply; both values are absent when pinned `fstat` fails. */
+public data class FileStatResponse(
+    public val sizeBytes: Long?,
+    public val modifiedAtUnixSeconds: Long?,
+)
+
 public data class SubscribeResponse(
     public val ninetyKhz: Long?,
     public val normalizedTimestamps: Long?,
@@ -842,6 +848,16 @@ public class SubscriptionFilterStreamRequest(
 
 }
 
+public data class FileStatRequest(public val id: Long) : HtspRequest<FileStatResponse>(
+    method = "fileStat",
+    access = HtspAccess.ACCESS_HTSP_RECORDER,
+    minimumProtocolVersion = 8,
+) {
+    init {
+        requireU32("id", id)
+    }
+}
+
 internal object `HtspRequestCodecs-internal` {
     @JvmSynthetic
     internal fun encode(request: HtspRequest<*>): LinkedHashMap<String, Any?> = when (request) {
@@ -1060,6 +1076,7 @@ internal object `HtspRequestCodecs-internal` {
             "subscriptionId" to request.subscriptionId,
         ).putIfNotNull("enable", request.enable)
             .putIfNotNull("disable", request.disable)
+        is FileStatRequest -> linkedMapOf("id" to request.id)
 
         else -> malformedReply()
     }
@@ -1132,6 +1149,8 @@ internal object `HtspRequestCodecs-internal` {
             ticket = fields.requiredString("ticket"),
         )
 
+        is FileStatRequest -> decodeFileStat(fields)
+
         is SubscribeRequest -> SubscribeResponse(
             ninetyKhz = fields.optionalU32("90khz"),
             normalizedTimestamps = fields.optionalU32("normts"),
@@ -1196,6 +1215,19 @@ internal object `HtspRequestCodecs-internal` {
             } else {
                 emptyList()
             },
+        )
+    }
+
+    private fun decodeFileStat(fields: Map<String, Any?>): FileStatResponse {
+        val hasSize = fields.containsKey("size")
+        val hasModifiedAt = fields.containsKey("mtime")
+        if (!hasSize && !hasModifiedAt) return FileStatResponse(null, null)
+        if (!hasSize || !hasModifiedAt) malformedReply()
+        val sizeBytes = fields.requiredS64("size")
+        if (sizeBytes < 0L) malformedReply()
+        return FileStatResponse(
+            sizeBytes = sizeBytes,
+            modifiedAtUnixSeconds = fields.requiredS64("mtime"),
         )
     }
 
