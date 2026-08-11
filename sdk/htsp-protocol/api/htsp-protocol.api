@@ -1211,6 +1211,15 @@ public final class at/bernhardberger/tvheadend/htsp/HtspResult$TransportUnavaila
 	public fun toString ()Ljava/lang/String;
 }
 
+public final class at/bernhardberger/tvheadend/htsp/HtspResultKt {
+	public static final fun fold (Lat/bernhardberger/tvheadend/htsp/HtspResult;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function1;)Ljava/lang/Object;
+	public static final fun getOrElse (Lat/bernhardberger/tvheadend/htsp/HtspResult;Lkotlin/jvm/functions/Function1;)Ljava/lang/Object;
+	public static final fun getOrNull (Lat/bernhardberger/tvheadend/htsp/HtspResult;)Ljava/lang/Object;
+	public static final fun map (Lat/bernhardberger/tvheadend/htsp/HtspResult;Lkotlin/jvm/functions/Function1;)Lat/bernhardberger/tvheadend/htsp/HtspResult;
+	public static final fun onFailure (Lat/bernhardberger/tvheadend/htsp/HtspResult;Lkotlin/jvm/functions/Function1;)Lat/bernhardberger/tvheadend/htsp/HtspResult;
+	public static final fun onOk (Lat/bernhardberger/tvheadend/htsp/HtspResult;Lkotlin/jvm/functions/Function1;)Lat/bernhardberger/tvheadend/htsp/HtspResult;
+}
+
 public final class at/bernhardberger/tvheadend/htsp/HtspServerFacts {
 	public fun <init> ()V
 	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/List;Ljava/lang/Integer;Ljava/lang/Boolean;Ljava/lang/Boolean;Ljava/lang/Boolean;Ljava/lang/Boolean;Ljava/lang/Boolean;Ljava/lang/Integer;Ljava/lang/Integer;Ljava/lang/Integer;Ljava/lang/Integer;Ljava/lang/String;)V
