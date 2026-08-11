@@ -487,43 +487,6 @@ public final class at/bernhardberger/tvheadend/htsp/HtspClientIdentity$Companion
 	public final fun getDefault ()Lat/bernhardberger/tvheadend/htsp/HtspClientIdentity;
 }
 
-public abstract interface class at/bernhardberger/tvheadend/htsp/HtspClientTransport {
-	public abstract fun call (Lat/bernhardberger/tvheadend/htsp/HtspRequest;JLat/bernhardberger/tvheadend/htsp/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
-	public static synthetic fun call$default (Lat/bernhardberger/tvheadend/htsp/HtspClientTransport;Lat/bernhardberger/tvheadend/htsp/HtspRequest;JLat/bernhardberger/tvheadend/htsp/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
-	public abstract fun close (Lat/bernhardberger/tvheadend/htsp/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
-	public static synthetic fun close$default (Lat/bernhardberger/tvheadend/htsp/HtspClientTransport;Lat/bernhardberger/tvheadend/htsp/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
-	public abstract fun commitIfCurrent (Lat/bernhardberger/tvheadend/htsp/HtspConnectionGeneration;Lkotlin/jvm/functions/Function0;)Ljava/lang/Object;
-	public abstract fun connect (Lat/bernhardberger/tvheadend/htsp/HtspEndpoint;Lat/bernhardberger/tvheadend/htsp/HtspConnectOptions;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
-	public static synthetic fun connect$default (Lat/bernhardberger/tvheadend/htsp/HtspClientTransport;Lat/bernhardberger/tvheadend/htsp/HtspEndpoint;Lat/bernhardberger/tvheadend/htsp/HtspConnectOptions;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
-	public abstract fun disconnect (Lat/bernhardberger/tvheadend/htsp/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
-	public static synthetic fun disconnect$default (Lat/bernhardberger/tvheadend/htsp/HtspClientTransport;Lat/bernhardberger/tvheadend/htsp/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
-	public abstract fun executeDvrMutation (Lat/bernhardberger/tvheadend/htsp/HtspDvrMutationRequest;JLat/bernhardberger/tvheadend/htsp/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
-	public static synthetic fun executeDvrMutation$default (Lat/bernhardberger/tvheadend/htsp/HtspClientTransport;Lat/bernhardberger/tvheadend/htsp/HtspDvrMutationRequest;JLat/bernhardberger/tvheadend/htsp/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
-	public abstract fun getDvrConfigurations (JLat/bernhardberger/tvheadend/htsp/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
-	public static synthetic fun getDvrConfigurations$default (Lat/bernhardberger/tvheadend/htsp/HtspClientTransport;JLat/bernhardberger/tvheadend/htsp/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
-	public abstract fun getEvents ()Lkotlinx/coroutines/flow/Flow;
-	public abstract fun getLiveConnection ()Lkotlinx/coroutines/flow/StateFlow;
-	public abstract fun getPlaybackTransport ()Lat/bernhardberger/tvheadend/htsp/PlaybackHtspTransport;
-	public abstract fun isCurrent (Lat/bernhardberger/tvheadend/htsp/HtspConnectionGeneration;)Z
-	public abstract fun synchronizeMetadata (JLkotlin/coroutines/Continuation;)Ljava/lang/Object;
-	public static synthetic fun synchronizeMetadata$default (Lat/bernhardberger/tvheadend/htsp/HtspClientTransport;JLkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
-}
-
-public final class at/bernhardberger/tvheadend/htsp/HtspClientTransport$DefaultImpls {
-	public static synthetic fun call$default (Lat/bernhardberger/tvheadend/htsp/HtspClientTransport;Lat/bernhardberger/tvheadend/htsp/HtspRequest;JLat/bernhardberger/tvheadend/htsp/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
-	public static synthetic fun close$default (Lat/bernhardberger/tvheadend/htsp/HtspClientTransport;Lat/bernhardberger/tvheadend/htsp/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
-	public static synthetic fun connect$default (Lat/bernhardberger/tvheadend/htsp/HtspClientTransport;Lat/bernhardberger/tvheadend/htsp/HtspEndpoint;Lat/bernhardberger/tvheadend/htsp/HtspConnectOptions;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
-	public static synthetic fun disconnect$default (Lat/bernhardberger/tvheadend/htsp/HtspClientTransport;Lat/bernhardberger/tvheadend/htsp/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
-	public static synthetic fun executeDvrMutation$default (Lat/bernhardberger/tvheadend/htsp/HtspClientTransport;Lat/bernhardberger/tvheadend/htsp/HtspDvrMutationRequest;JLat/bernhardberger/tvheadend/htsp/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
-	public static synthetic fun getDvrConfigurations$default (Lat/bernhardberger/tvheadend/htsp/HtspClientTransport;JLat/bernhardberger/tvheadend/htsp/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
-	public static synthetic fun synchronizeMetadata$default (Lat/bernhardberger/tvheadend/htsp/HtspClientTransport;JLkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
-}
-
-public final class at/bernhardberger/tvheadend/htsp/HtspClientTransportKt {
-	public static final fun createHtspClientTransport (Lkotlinx/coroutines/CoroutineDispatcher;Lat/bernhardberger/tvheadend/htsp/HtspClientIdentity;Lat/bernhardberger/tvheadend/htsp/HtspLogger;)Lat/bernhardberger/tvheadend/htsp/HtspClientTransport;
-	public static synthetic fun createHtspClientTransport$default (Lkotlinx/coroutines/CoroutineDispatcher;Lat/bernhardberger/tvheadend/htsp/HtspClientIdentity;Lat/bernhardberger/tvheadend/htsp/HtspLogger;ILjava/lang/Object;)Lat/bernhardberger/tvheadend/htsp/HtspClientTransport;
-}
-
 public final class at/bernhardberger/tvheadend/htsp/HtspConnectOptions {
 	public fun <init> ()V
 	public fun <init> (IJIIIZ)V
@@ -572,11 +535,36 @@ public final class at/bernhardberger/tvheadend/htsp/HtspConnectOutcome$Failed : 
 	public fun toString ()Ljava/lang/String;
 }
 
-public final class at/bernhardberger/tvheadend/htsp/HtspConnection {
-	public final fun call (Lat/bernhardberger/tvheadend/htsp/HtspRequest;JLat/bernhardberger/tvheadend/htsp/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
-	public final fun call (Lat/bernhardberger/tvheadend/htsp/HtspRequest;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+public abstract interface class at/bernhardberger/tvheadend/htsp/HtspConnection {
+	public abstract fun call (Lat/bernhardberger/tvheadend/htsp/HtspRequest;JLat/bernhardberger/tvheadend/htsp/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public static synthetic fun call$default (Lat/bernhardberger/tvheadend/htsp/HtspConnection;Lat/bernhardberger/tvheadend/htsp/HtspRequest;JLat/bernhardberger/tvheadend/htsp/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
-	public final fun getGeneration ()Lat/bernhardberger/tvheadend/htsp/HtspConnectionGeneration;
+	public abstract fun close (Lat/bernhardberger/tvheadend/htsp/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static synthetic fun close$default (Lat/bernhardberger/tvheadend/htsp/HtspConnection;Lat/bernhardberger/tvheadend/htsp/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+	public abstract fun commitIfCurrent (Lat/bernhardberger/tvheadend/htsp/HtspConnectionGeneration;Lkotlin/jvm/functions/Function0;)Ljava/lang/Object;
+	public abstract fun connect (Lat/bernhardberger/tvheadend/htsp/HtspEndpoint;Lat/bernhardberger/tvheadend/htsp/HtspConnectOptions;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static synthetic fun connect$default (Lat/bernhardberger/tvheadend/htsp/HtspConnection;Lat/bernhardberger/tvheadend/htsp/HtspEndpoint;Lat/bernhardberger/tvheadend/htsp/HtspConnectOptions;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+	public abstract fun disconnect (Lat/bernhardberger/tvheadend/htsp/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static synthetic fun disconnect$default (Lat/bernhardberger/tvheadend/htsp/HtspConnection;Lat/bernhardberger/tvheadend/htsp/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+	public abstract fun executeDvrMutation (Lat/bernhardberger/tvheadend/htsp/HtspDvrMutationRequest;JLat/bernhardberger/tvheadend/htsp/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static synthetic fun executeDvrMutation$default (Lat/bernhardberger/tvheadend/htsp/HtspConnection;Lat/bernhardberger/tvheadend/htsp/HtspDvrMutationRequest;JLat/bernhardberger/tvheadend/htsp/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+	public abstract fun getDvrConfigurations (JLat/bernhardberger/tvheadend/htsp/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static synthetic fun getDvrConfigurations$default (Lat/bernhardberger/tvheadend/htsp/HtspConnection;JLat/bernhardberger/tvheadend/htsp/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+	public abstract fun getEvents ()Lkotlinx/coroutines/flow/Flow;
+	public abstract fun getLiveConnection ()Lkotlinx/coroutines/flow/StateFlow;
+	public abstract fun getPlaybackTransport ()Lat/bernhardberger/tvheadend/htsp/PlaybackHtspTransport;
+	public abstract fun isCurrent (Lat/bernhardberger/tvheadend/htsp/HtspConnectionGeneration;)Z
+	public abstract fun synchronizeMetadata (JLkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static synthetic fun synchronizeMetadata$default (Lat/bernhardberger/tvheadend/htsp/HtspConnection;JLkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+}
+
+public final class at/bernhardberger/tvheadend/htsp/HtspConnection$DefaultImpls {
+	public static synthetic fun call$default (Lat/bernhardberger/tvheadend/htsp/HtspConnection;Lat/bernhardberger/tvheadend/htsp/HtspRequest;JLat/bernhardberger/tvheadend/htsp/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+	public static synthetic fun close$default (Lat/bernhardberger/tvheadend/htsp/HtspConnection;Lat/bernhardberger/tvheadend/htsp/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+	public static synthetic fun connect$default (Lat/bernhardberger/tvheadend/htsp/HtspConnection;Lat/bernhardberger/tvheadend/htsp/HtspEndpoint;Lat/bernhardberger/tvheadend/htsp/HtspConnectOptions;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+	public static synthetic fun disconnect$default (Lat/bernhardberger/tvheadend/htsp/HtspConnection;Lat/bernhardberger/tvheadend/htsp/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+	public static synthetic fun executeDvrMutation$default (Lat/bernhardberger/tvheadend/htsp/HtspConnection;Lat/bernhardberger/tvheadend/htsp/HtspDvrMutationRequest;JLat/bernhardberger/tvheadend/htsp/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+	public static synthetic fun getDvrConfigurations$default (Lat/bernhardberger/tvheadend/htsp/HtspConnection;JLat/bernhardberger/tvheadend/htsp/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+	public static synthetic fun synchronizeMetadata$default (Lat/bernhardberger/tvheadend/htsp/HtspConnection;JLkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
 }
 
 public final class at/bernhardberger/tvheadend/htsp/HtspConnectionAttemptStatus : java/lang/Enum {
@@ -586,6 +574,11 @@ public final class at/bernhardberger/tvheadend/htsp/HtspConnectionAttemptStatus 
 	public static fun getEntries ()Lkotlin/enums/EnumEntries;
 	public static fun valueOf (Ljava/lang/String;)Lat/bernhardberger/tvheadend/htsp/HtspConnectionAttemptStatus;
 	public static fun values ()[Lat/bernhardberger/tvheadend/htsp/HtspConnectionAttemptStatus;
+}
+
+public final class at/bernhardberger/tvheadend/htsp/HtspConnectionFactoryKt {
+	public static final fun createHtspConnection (Lkotlinx/coroutines/CoroutineDispatcher;Lat/bernhardberger/tvheadend/htsp/HtspClientIdentity;Lat/bernhardberger/tvheadend/htsp/HtspLogger;)Lat/bernhardberger/tvheadend/htsp/HtspConnection;
+	public static synthetic fun createHtspConnection$default (Lkotlinx/coroutines/CoroutineDispatcher;Lat/bernhardberger/tvheadend/htsp/HtspClientIdentity;Lat/bernhardberger/tvheadend/htsp/HtspLogger;ILjava/lang/Object;)Lat/bernhardberger/tvheadend/htsp/HtspConnection;
 }
 
 public final class at/bernhardberger/tvheadend/htsp/HtspConnectionGeneration {

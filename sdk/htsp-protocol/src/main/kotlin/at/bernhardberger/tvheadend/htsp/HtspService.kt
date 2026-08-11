@@ -6,6 +6,7 @@ import at.bernhardberger.tvheadend.htsp.HtspCapturedGeneration
 import at.bernhardberger.tvheadend.htsp.HtspConnection
 import at.bernhardberger.tvheadend.htsp.HtspConnectionGeneration
 import at.bernhardberger.tvheadend.htsp.HtspRequestTransport
+import at.bernhardberger.tvheadend.htsp.HtspTypedRequestCaller
 import at.bernhardberger.tvheadend.htsp.HtspWireReply
 import at.bernhardberger.tvheadend.htsp.MetadataPermissionDeniedException
 import kotlinx.coroutines.CancellationException
@@ -88,7 +89,7 @@ internal open class `HtspService-internal`(
     private val logger: HtspLogger = HtspLogger.None,
     private val socketFactory: () -> Socket = ::Socket,
     private val afterTeardownAdmission: suspend () -> Unit = {},
-) : PlaybackHtspTransport, HtspRequestTransport, HtspClientTransport {
+) : PlaybackHtspTransport, HtspRequestTransport, HtspConnection {
     private val _state = MutableStateFlow<ConnectionState>(ConnectionState.Disconnected)
     override val state: StateFlow<ConnectionState> = _state
 
@@ -140,7 +141,7 @@ internal open class `HtspService-internal`(
 
     private var protocolGeneration: ServiceProtocolGeneration? = null
 
-    internal val typedConnection: HtspConnection = HtspConnection.create(this)
+    private val typedRequestCaller = HtspTypedRequestCaller(this)
 
     private var liveServerFacts: HtspServerFacts? = null
 
@@ -441,7 +442,7 @@ internal open class `HtspService-internal`(
         request: HtspRequest<R>,
         timeoutMs: Long,
         expectedGeneration: HtspConnectionGeneration?,
-    ): HtspResult<R> = typedConnection.call(request, timeoutMs, expectedGeneration)
+    ): HtspResult<R> = typedRequestCaller.call(request, timeoutMs, expectedGeneration)
 
     override suspend fun executeDvrMutation(
         request: HtspDvrMutationRequest,
@@ -553,7 +554,7 @@ internal open class `HtspService-internal`(
     }
 
     override fun isCurrent(generation: HtspConnectionGeneration): Boolean =
-        typedConnection.generation === generation
+        typedRequestCaller.generation === generation
 
     override fun <T> commitIfCurrent(
         generation: HtspConnectionGeneration,

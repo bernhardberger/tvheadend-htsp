@@ -3,6 +3,8 @@ package at.bernhardberger.tvheadend.htsp
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.StateFlow
 
 /** Opaque identity of one live HTSP transport generation. */
 public class HtspConnectionGeneration private constructor() {
@@ -34,32 +36,78 @@ internal object `HtspRequestConstructorMarker-internal`
 internal typealias HtspRequestConstructorMarker =
     `HtspRequestConstructorMarker-internal`
 
-/** Typed protocol request entry point for one underlying HTSP transport owner. */
-public class HtspConnection private constructor() {
-    private lateinit var transport: HtspRequestTransport
+/**
+ * Small typed connection seam. Raw maps, wire messages, sequences, numeric attempt IDs,
+ * decoder outcomes, and implementation exceptions are intentionally absent.
+ */
+public interface HtspConnection {
+    public val liveConnection: StateFlow<HtspLiveConnection?>
+    public val events: Flow<HtspTransportEvent>
 
-    internal companion object {
-        @JvmSynthetic
-        internal fun create(transport: HtspRequestTransport): HtspConnection =
-            HtspConnection().also { connection -> connection.transport = transport }
-    }
+    /** The separately opted-in raw playback SPI backed by this connection owner. */
+    @PlaybackIntegrationApi
+    public val playbackTransport: PlaybackHtspTransport
 
-    /** The current live generation, or null when no typed request can be admitted. */
-    public val generation: HtspConnectionGeneration?
-        get() = transport.captureGeneration()?.token
+    public suspend fun connect(
+        endpoint: HtspEndpoint,
+        options: HtspConnectOptions = HtspConnectOptions(),
+    ): HtspConnectOutcome
+
+    public suspend fun synchronizeMetadata(timeoutMs: Long = 30_000L): HtspResult<Unit>
 
     /**
      * Executes exactly one request against one captured live generation.
      * Cancellation, including generation replacement, is never converted to [HtspResult].
      */
-    public suspend fun <R> call(request: HtspRequest<R>): HtspResult<R> {
-        return call(request, timeoutMs = 5_000L, expectedGeneration = null)
-    }
-
-    /** Executes one request with an explicit timeout and optional generation pin. */
     public suspend fun <R> call(
         request: HtspRequest<R>,
-        timeoutMs: Long,
+        timeoutMs: Long = 5_000L,
+        expectedGeneration: HtspConnectionGeneration? = null,
+    ): HtspResult<R>
+
+    /** Executes one DVR mutation without exposing the server's raw diagnostic reply. */
+    public suspend fun executeDvrMutation(
+        request: HtspDvrMutationRequest,
+        timeoutMs: Long = 5_000L,
+        expectedGeneration: HtspConnectionGeneration? = null,
+    ): HtspDvrMutationOutcome
+
+    /** Reads DVR configurations while preserving connection-limit versus access denial. */
+    public suspend fun getDvrConfigurations(
+        timeoutMs: Long = 5_000L,
+        expectedGeneration: HtspConnectionGeneration? = null,
+    ): HtspDvrConfigurationsOutcome
+
+    public fun isCurrent(generation: HtspConnectionGeneration): Boolean
+
+    public fun <T> commitIfCurrent(
+        generation: HtspConnectionGeneration,
+        block: () -> T,
+    ): T?
+
+    /**
+     * Disconnects the expected live generation, or performs owner-global cleanup when null.
+     * A stale non-null generation propagates [CancellationException] without mutating transport state.
+     */
+    public suspend fun disconnect(expectedGeneration: HtspConnectionGeneration? = null)
+
+    /**
+     * Terminally closes the expected live generation, or performs owner-global close when null.
+     * A stale non-null generation propagates [CancellationException] without closing the owner.
+     */
+    public suspend fun close(expectedGeneration: HtspConnectionGeneration? = null)
+}
+
+/** ABI-hidden owner of the preserved typed request primitive. */
+internal class `HtspTypedRequestCaller-internal`(
+    private val transport: HtspRequestTransport,
+) {
+    val generation: HtspConnectionGeneration?
+        get() = transport.captureGeneration()?.token
+
+    suspend fun <R> call(
+        request: HtspRequest<R>,
+        timeoutMs: Long = 5_000L,
         expectedGeneration: HtspConnectionGeneration? = null,
     ): HtspResult<R> {
         require(timeoutMs > 0L) { "timeoutMs must be positive" }
@@ -134,6 +182,8 @@ public class HtspConnection private constructor() {
         HtspResult.ServerError
     }
 }
+
+internal typealias HtspTypedRequestCaller = `HtspTypedRequestCaller-internal`
 
 /** HTSP credential-field admission; the authenticate request itself is always sent. */
 internal object `HtspAuthenticationPolicy-internal` {

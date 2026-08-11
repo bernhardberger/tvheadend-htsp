@@ -10,7 +10,7 @@ facts, and opt-in
 package; this module does not declare `at.bernhardberger.tvheadend.client`.
 
 Ordinary `client-htsp` consumes this artifact only through public API; there is
-no Gradle friend wiring. `HtspClientTransport`, its factory/options, opaque
+no Gradle friend wiring. `HtspConnection`, its factory/options, opaque
 generation, typed events/failures/outcomes, and generation-fenced lifecycle are
 the ordinary transport boundary. `HtspService`, `HtspCodec`, raw per-message
 mappers, and the catalog helper remain internal. The public 26-message finite

@@ -104,7 +104,7 @@ class HtspProtocolCoreTest {
     @Test
     fun primitivePreflightsVersionAndClassifiesReplies() = runTest {
         val transport = FakeProtocolTransport(version = 13)
-        val connection = HtspConnection.create(transport)
+        val connection = HtspTypedRequestCaller(transport)
 
         assertSame(HtspResult.NotSupported, connection.call(GetChannelRequest(channelId = 7L)))
         assertEquals(0, transport.dispatches)
@@ -133,7 +133,7 @@ class HtspProtocolCoreTest {
     @Test
     fun serverErrorIsPayloadFreeAndDoesNotRetainReplyText() = runTest {
         val transport = FakeProtocolTransport(version = 44)
-        val connection = HtspConnection.create(transport)
+        val connection = HtspTypedRequestCaller(transport)
 
         transport.reply = HtspWireReply(linkedMapOf("error" to "first server detail"))
         val first = connection.call(GetChannelRequest(channelId = 7L))
@@ -164,7 +164,7 @@ class HtspProtocolCoreTest {
     @Test
     fun primitiveMapsSuccessTimeoutTransportAndAbsentGeneration() = runTest {
         val transport = FakeProtocolTransport(version = null)
-        val connection = HtspConnection.create(transport)
+        val connection = HtspTypedRequestCaller(transport)
         transport.reply = HtspWireReply(
             linkedMapOf("eventId" to 0xffff_ffffL, "start" to Long.MIN_VALUE, "stop" to Long.MAX_VALUE),
         )
@@ -230,7 +230,7 @@ class HtspProtocolCoreTest {
     @Test
     fun primitivePreservesCancellationIdentityAndOpaqueGeneration() = runTest {
         val transport = FakeProtocolTransport(version = 44)
-        val connection = HtspConnection.create(transport)
+        val connection = HtspTypedRequestCaller(transport)
         val firstGeneration = connection.generation
         assertEquals("HtspConnectionGeneration", firstGeneration.toString())
 
@@ -274,7 +274,7 @@ class HtspProtocolCoreTest {
     @Test
     fun primitiveRejectsAReplacedGenerationAsCancellation() = runTest {
         val transport = FakeProtocolTransport(version = 44)
-        val connection = HtspConnection.create(transport)
+        val connection = HtspTypedRequestCaller(transport)
         transport.replaceAfterDispatch = true
 
         val failure = runCatching {
@@ -293,7 +293,7 @@ class HtspProtocolCoreTest {
         }
 
         val failure = runCatching {
-            HtspConnection.create(transport).call(GetProfilesRequest())
+            HtspTypedRequestCaller(transport).call(GetProfilesRequest())
         }.exceptionOrNull()
 
         assertTrue(failure is CancellationException)
@@ -308,7 +308,7 @@ class HtspProtocolCoreTest {
         }
 
         val failure = runCatching {
-            HtspConnection.create(transport).call(GetProfilesRequest())
+            HtspTypedRequestCaller(transport).call(GetProfilesRequest())
         }.exceptionOrNull()
 
         assertTrue(failure is CancellationException)
@@ -422,11 +422,11 @@ class HtspProtocolCoreTest {
         val transport = FakeProtocolTransport(version = 5)
         assertSame(
             HtspResult.NotSupported,
-            HtspConnection.create(transport).call(GetEventRequest(eventId = 1L, language = "")),
+            HtspTypedRequestCaller(transport).call(GetEventRequest(eventId = 1L, language = "")),
         )
         assertEquals(0, transport.dispatches)
         transport.reply = HtspWireReply(linkedMapOf("success" to 1L))
-        val result = HtspConnection.create(transport).call(
+        val result = HtspTypedRequestCaller(transport).call(
             AddDvrEntryRequest(
                 selector = AddDvrEntrySelector.ExplicitChannelTime(1L, 2L, 3L),
             ),

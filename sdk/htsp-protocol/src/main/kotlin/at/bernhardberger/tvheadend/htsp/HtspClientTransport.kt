@@ -1,3 +1,5 @@
+@file:JvmName("HtspConnectionFactoryKt")
+
 package at.bernhardberger.tvheadend.htsp
 
 import java.net.ConnectException
@@ -6,8 +8,6 @@ import java.net.SocketTimeoutException
 import java.net.UnknownHostException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.StateFlow
 
 /** Network endpoint used by the typed HTSP transport. Credentials are never rendered. */
 public class HtspEndpoint(
@@ -83,69 +83,11 @@ public sealed interface HtspTransportEvent {
     ) : HtspTransportEvent
 }
 
-/**
- * Small typed client transport seam. Raw maps, wire messages, sequences, numeric attempt IDs,
- * decoder outcomes, and implementation exceptions are intentionally absent.
- */
-public interface HtspClientTransport {
-    public val liveConnection: StateFlow<HtspLiveConnection?>
-    public val events: Flow<HtspTransportEvent>
-
-    /** The separately opted-in raw playback SPI backed by this transport owner. */
-    @PlaybackIntegrationApi
-    public val playbackTransport: PlaybackHtspTransport
-
-    public suspend fun connect(
-        endpoint: HtspEndpoint,
-        options: HtspConnectOptions = HtspConnectOptions(),
-    ): HtspConnectOutcome
-
-    public suspend fun synchronizeMetadata(timeoutMs: Long = 30_000L): HtspResult<Unit>
-
-    public suspend fun <R> call(
-        request: HtspRequest<R>,
-        timeoutMs: Long = 5_000L,
-        expectedGeneration: HtspConnectionGeneration? = null,
-    ): HtspResult<R>
-
-    /** Executes one DVR mutation without exposing the server's raw diagnostic reply. */
-    public suspend fun executeDvrMutation(
-        request: HtspDvrMutationRequest,
-        timeoutMs: Long = 5_000L,
-        expectedGeneration: HtspConnectionGeneration? = null,
-    ): HtspDvrMutationOutcome
-
-    /** Reads DVR configurations while preserving connection-limit versus access denial. */
-    public suspend fun getDvrConfigurations(
-        timeoutMs: Long = 5_000L,
-        expectedGeneration: HtspConnectionGeneration? = null,
-    ): HtspDvrConfigurationsOutcome
-
-    public fun isCurrent(generation: HtspConnectionGeneration): Boolean
-
-    public fun <T> commitIfCurrent(
-        generation: HtspConnectionGeneration,
-        block: () -> T,
-    ): T?
-
-    /**
-     * Disconnects the expected live generation, or performs owner-global cleanup when null.
-     * A stale non-null generation propagates [CancellationException] without mutating transport state.
-     */
-    public suspend fun disconnect(expectedGeneration: HtspConnectionGeneration? = null)
-
-    /**
-     * Terminally closes the expected live generation, or performs owner-global close when null.
-     * A stale non-null generation propagates [CancellationException] without closing the owner.
-     */
-    public suspend fun close(expectedGeneration: HtspConnectionGeneration? = null)
-}
-
-public fun createHtspClientTransport(
+public fun createHtspConnection(
     ioDispatcher: CoroutineDispatcher,
     clientIdentity: HtspClientIdentity = HtspClientIdentity.Default,
     logger: HtspLogger = HtspLogger.None,
-): HtspClientTransport = HtspService(
+): HtspConnection = HtspService(
     ioDispatcher = ioDispatcher,
     clientIdentity = clientIdentity,
     logger = logger,
