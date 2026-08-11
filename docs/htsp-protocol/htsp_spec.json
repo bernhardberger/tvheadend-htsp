@@ -6751,9 +6751,9 @@
           "name": "id",
           "type": "str",
           "direction": "message",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_str",
-          "confidence": "mechanical",
+          "presence": "required",
+          "evidence": "bounded pinned htsp_build_autorecentry emitter topology",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 1
         },
@@ -6761,9 +6761,9 @@
           "name": "enabled",
           "type": "u32",
           "direction": "message",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_u32",
-          "confidence": "mechanical",
+          "presence": "required",
+          "evidence": "bounded pinned htsp_build_autorecentry emitter topology",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 2
         },
@@ -6771,9 +6771,9 @@
           "name": "maxDuration",
           "type": "u32",
           "direction": "message",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_u32",
-          "confidence": "mechanical",
+          "presence": "required",
+          "evidence": "bounded pinned htsp_build_autorecentry emitter topology",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 3
         },
@@ -6781,9 +6781,9 @@
           "name": "minDuration",
           "type": "u32",
           "direction": "message",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_u32",
-          "confidence": "mechanical",
+          "presence": "required",
+          "evidence": "bounded pinned htsp_build_autorecentry emitter topology",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 4
         },
@@ -6791,9 +6791,9 @@
           "name": "retention",
           "type": "u32",
           "direction": "message",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_u32",
-          "confidence": "mechanical",
+          "presence": "required",
+          "evidence": "bounded pinned htsp_build_autorecentry emitter topology",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 5
         },
@@ -6801,9 +6801,9 @@
           "name": "removal",
           "type": "u32",
           "direction": "message",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_u32",
-          "confidence": "mechanical",
+          "presence": "required",
+          "evidence": "bounded pinned htsp_build_autorecentry emitter topology",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 6
         },
@@ -6811,9 +6811,9 @@
           "name": "daysOfWeek",
           "type": "u32",
           "direction": "message",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_u32",
-          "confidence": "mechanical",
+          "presence": "required",
+          "evidence": "bounded pinned htsp_build_autorecentry emitter topology",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 7
         },
@@ -6821,9 +6821,9 @@
           "name": "approxTime",
           "type": "s32",
           "direction": "message",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_s32",
-          "confidence": "mechanical",
+          "presence": "required",
+          "evidence": "bounded pinned htsp_build_autorecentry emitter topology",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 8
         },
@@ -6831,9 +6831,9 @@
           "name": "start",
           "type": "s32",
           "direction": "message",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_s32",
-          "confidence": "mechanical",
+          "presence": "required",
+          "evidence": "bounded pinned htsp_build_autorecentry emitter topology",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 9
         },
@@ -6841,9 +6841,9 @@
           "name": "startWindow",
           "type": "s32",
           "direction": "message",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_s32",
-          "confidence": "mechanical",
+          "presence": "required",
+          "evidence": "bounded pinned htsp_build_autorecentry emitter topology",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 10
         },
@@ -6851,9 +6851,9 @@
           "name": "priority",
           "type": "u32",
           "direction": "message",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_u32",
-          "confidence": "mechanical",
+          "presence": "required",
+          "evidence": "bounded pinned htsp_build_autorecentry emitter topology",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 11
         },
@@ -6861,9 +6861,9 @@
           "name": "startExtra",
           "type": "s64",
           "direction": "message",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_s64",
-          "confidence": "mechanical",
+          "presence": "required",
+          "evidence": "bounded pinned htsp_build_autorecentry emitter topology",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 12
         },
@@ -6871,9 +6871,9 @@
           "name": "stopExtra",
           "type": "s64",
           "direction": "message",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_s64",
-          "confidence": "mechanical",
+          "presence": "required",
+          "evidence": "bounded pinned htsp_build_autorecentry emitter topology",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 13
         },
@@ -6881,9 +6881,9 @@
           "name": "dupDetect",
           "type": "u32",
           "direction": "message",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_u32",
-          "confidence": "mechanical",
+          "presence": "required",
+          "evidence": "bounded pinned htsp_build_autorecentry emitter topology",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 14
         },
@@ -6891,9 +6891,9 @@
           "name": "maxCount",
           "type": "u32",
           "direction": "message",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_u32",
-          "confidence": "mechanical",
+          "presence": "required",
+          "evidence": "bounded pinned htsp_build_autorecentry emitter topology",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 15
         },
@@ -6901,9 +6901,9 @@
           "name": "broadcastType",
           "type": "u32",
           "direction": "message",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_u32",
-          "confidence": "mechanical",
+          "presence": "required",
+          "evidence": "bounded pinned htsp_build_autorecentry emitter topology",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 16
         },
@@ -6911,9 +6911,9 @@
           "name": "comment",
           "type": "str",
           "direction": "message",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_str2",
-          "confidence": "mechanical",
+          "presence": "required",
+          "evidence": "bounded pinned htsp_build_autorecentry emitter topology",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 17
         },
@@ -6921,9 +6921,9 @@
           "name": "title",
           "type": "str",
           "direction": "message",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_str",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "bounded pinned htsp_build_autorecentry emitter topology",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 18
         },
@@ -6931,9 +6931,9 @@
           "name": "fulltext",
           "type": "u32",
           "direction": "message",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_u32",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "bounded pinned htsp_build_autorecentry emitter topology",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 19
         },
@@ -6941,9 +6941,9 @@
           "name": "mergetext",
           "type": "u32",
           "direction": "message",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_u32",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "bounded pinned htsp_build_autorecentry emitter topology",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 20
         },
@@ -6951,9 +6951,9 @@
           "name": "name",
           "type": "str",
           "direction": "message",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_str2",
-          "confidence": "mechanical",
+          "presence": "required",
+          "evidence": "bounded pinned htsp_build_autorecentry emitter topology",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 21
         },
@@ -6961,9 +6961,9 @@
           "name": "directory",
           "type": "str",
           "direction": "message",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_str",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "bounded pinned htsp_build_autorecentry emitter topology",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 22
         },
@@ -6971,9 +6971,9 @@
           "name": "owner",
           "type": "str",
           "direction": "message",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_str2",
-          "confidence": "mechanical",
+          "presence": "required",
+          "evidence": "bounded pinned htsp_build_autorecentry emitter topology",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 23
         },
@@ -6981,9 +6981,9 @@
           "name": "creator",
           "type": "str",
           "direction": "message",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_str2",
-          "confidence": "mechanical",
+          "presence": "required",
+          "evidence": "bounded pinned htsp_build_autorecentry emitter topology",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 24
         },
@@ -6991,9 +6991,9 @@
           "name": "channel",
           "type": "u32",
           "direction": "message",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_u32",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "bounded pinned htsp_build_autorecentry emitter topology",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 25
         },
@@ -7001,9 +7001,9 @@
           "name": "serieslinkUri",
           "type": "str",
           "direction": "message",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_str",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "bounded pinned htsp_build_autorecentry emitter topology",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 26
         },
@@ -7011,21 +7011,21 @@
           "name": "configId",
           "type": "str",
           "direction": "message",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_str",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "bounded pinned htsp_build_autorecentry emitter topology",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 27
         }
       ],
       "messageShape": {
         "kind": "fields",
-        "completeness": "partial",
-        "evidence": "bounded handler/helper extraction plus exact-pin annotations"
+        "completeness": "complete",
+        "evidence": "bounded pinned htsp_build_autorecentry field and presence topology"
       },
       "sdk": {
-        "handled": false,
-        "typedServerMessage": false
+        "handled": true,
+        "typedServerMessage": true
       }
     },
     {
@@ -7037,9 +7037,9 @@
           "name": "id",
           "type": "str",
           "direction": "message",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_str",
-          "confidence": "mechanical",
+          "presence": "required",
+          "evidence": "bounded pinned htsp_build_autorecentry emitter topology",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 1
         },
@@ -7047,9 +7047,9 @@
           "name": "enabled",
           "type": "u32",
           "direction": "message",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_u32",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "bounded pinned htsp_build_autorecentry emitter topology",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 2
         },
@@ -7057,9 +7057,9 @@
           "name": "maxDuration",
           "type": "u32",
           "direction": "message",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_u32",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "bounded pinned htsp_build_autorecentry emitter topology",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 3
         },
@@ -7067,9 +7067,9 @@
           "name": "minDuration",
           "type": "u32",
           "direction": "message",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_u32",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "bounded pinned htsp_build_autorecentry emitter topology",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 4
         },
@@ -7077,9 +7077,9 @@
           "name": "retention",
           "type": "u32",
           "direction": "message",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_u32",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "bounded pinned htsp_build_autorecentry emitter topology",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 5
         },
@@ -7087,9 +7087,9 @@
           "name": "removal",
           "type": "u32",
           "direction": "message",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_u32",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "bounded pinned htsp_build_autorecentry emitter topology",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 6
         },
@@ -7097,9 +7097,9 @@
           "name": "daysOfWeek",
           "type": "u32",
           "direction": "message",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_u32",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "bounded pinned htsp_build_autorecentry emitter topology",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 7
         },
@@ -7107,9 +7107,9 @@
           "name": "approxTime",
           "type": "s32",
           "direction": "message",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_s32",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "bounded pinned htsp_build_autorecentry emitter topology",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 8
         },
@@ -7117,9 +7117,9 @@
           "name": "start",
           "type": "s32",
           "direction": "message",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_s32",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "bounded pinned htsp_build_autorecentry emitter topology",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 9
         },
@@ -7127,9 +7127,9 @@
           "name": "startWindow",
           "type": "s32",
           "direction": "message",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_s32",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "bounded pinned htsp_build_autorecentry emitter topology",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 10
         },
@@ -7137,9 +7137,9 @@
           "name": "priority",
           "type": "u32",
           "direction": "message",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_u32",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "bounded pinned htsp_build_autorecentry emitter topology",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 11
         },
@@ -7147,9 +7147,9 @@
           "name": "startExtra",
           "type": "s64",
           "direction": "message",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_s64",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "bounded pinned htsp_build_autorecentry emitter topology",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 12
         },
@@ -7157,9 +7157,9 @@
           "name": "stopExtra",
           "type": "s64",
           "direction": "message",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_s64",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "bounded pinned htsp_build_autorecentry emitter topology",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 13
         },
@@ -7167,9 +7167,9 @@
           "name": "dupDetect",
           "type": "u32",
           "direction": "message",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_u32",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "bounded pinned htsp_build_autorecentry emitter topology",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 14
         },
@@ -7177,9 +7177,9 @@
           "name": "maxCount",
           "type": "u32",
           "direction": "message",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_u32",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "bounded pinned htsp_build_autorecentry emitter topology",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 15
         },
@@ -7187,9 +7187,9 @@
           "name": "broadcastType",
           "type": "u32",
           "direction": "message",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_u32",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "bounded pinned htsp_build_autorecentry emitter topology",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 16
         },
@@ -7197,9 +7197,9 @@
           "name": "comment",
           "type": "str",
           "direction": "message",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_str2",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "bounded pinned htsp_build_autorecentry emitter topology",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 17
         },
@@ -7207,9 +7207,9 @@
           "name": "title",
           "type": "str",
           "direction": "message",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_str",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "bounded pinned htsp_build_autorecentry emitter topology",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 18
         },
@@ -7217,9 +7217,9 @@
           "name": "fulltext",
           "type": "u32",
           "direction": "message",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_u32",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "bounded pinned htsp_build_autorecentry emitter topology",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 19
         },
@@ -7227,9 +7227,9 @@
           "name": "mergetext",
           "type": "u32",
           "direction": "message",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_u32",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "bounded pinned htsp_build_autorecentry emitter topology",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 20
         },
@@ -7237,9 +7237,9 @@
           "name": "name",
           "type": "str",
           "direction": "message",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_str2",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "bounded pinned htsp_build_autorecentry emitter topology",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 21
         },
@@ -7247,9 +7247,9 @@
           "name": "directory",
           "type": "str",
           "direction": "message",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_str",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "bounded pinned htsp_build_autorecentry emitter topology",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 22
         },
@@ -7257,9 +7257,9 @@
           "name": "owner",
           "type": "str",
           "direction": "message",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_str2",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "bounded pinned htsp_build_autorecentry emitter topology",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 23
         },
@@ -7267,9 +7267,9 @@
           "name": "creator",
           "type": "str",
           "direction": "message",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_str2",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "bounded pinned htsp_build_autorecentry emitter topology",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 24
         },
@@ -7277,9 +7277,9 @@
           "name": "channel",
           "type": "u32",
           "direction": "message",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_u32",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "bounded pinned htsp_build_autorecentry emitter topology",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 25
         },
@@ -7287,9 +7287,9 @@
           "name": "serieslinkUri",
           "type": "str",
           "direction": "message",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_str",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "bounded pinned htsp_build_autorecentry emitter topology",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 26
         },
@@ -7297,9 +7297,9 @@
           "name": "configId",
           "type": "str",
           "direction": "message",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_str",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "bounded pinned htsp_build_autorecentry emitter topology",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 27
         }
@@ -7307,14 +7307,14 @@
       "messageShape": {
         "kind": "fields",
         "completeness": "partial",
-        "evidence": "bounded handler/helper extraction plus exact-pin annotations"
+        "evidence": "pinned current autorecEntryUpdate uses the shared complete htsp_build_autorecentry snapshot; compatibility remains partial by string id"
       },
       "notes": [
         "Update messages reuse Add builders; non-key fields are effectively optional."
       ],
       "sdk": {
-        "handled": false,
-        "typedServerMessage": false
+        "handled": true,
+        "typedServerMessage": true
       }
     },
     {
@@ -7339,8 +7339,8 @@
         "evidence": "bounded handler/helper extraction plus exact-pin annotations"
       },
       "sdk": {
-        "handled": false,
-        "typedServerMessage": false
+        "handled": true,
+        "typedServerMessage": true
       }
     },
     {
@@ -9567,7 +9567,7 @@
     },
     "typedServerMessages": {
       "catalog": "docs/htsp-protocol/generate_typed_server_messages.py",
-      "count": 26,
+      "count": 29,
       "messages": [
         {
           "name": "channelAdd",
@@ -9613,6 +9613,21 @@
           "name": "dvrEntryDelete",
           "messageType": "HtspDvrEntryDeleteMessage",
           "minVersion": 4
+        },
+        {
+          "name": "autorecEntryAdd",
+          "messageType": "HtspAutorecEntryAddMessage",
+          "minVersion": 13
+        },
+        {
+          "name": "autorecEntryUpdate",
+          "messageType": "HtspAutorecEntryUpdateMessage",
+          "minVersion": 13
+        },
+        {
+          "name": "autorecEntryDelete",
+          "messageType": "HtspAutorecEntryDeleteMessage",
+          "minVersion": 13
         },
         {
           "name": "timerecEntryAdd",
@@ -9700,11 +9715,14 @@
           "minVersion": 9
         }
       ],
-      "meaning": "Public typed asynchronous HtspServerMessage models with an ABI-hidden finite decoder; not runtime wiring, support, or a completeness claim"
+      "meaning": "Public typed asynchronous HtspServerMessage models with a public finite decoder; not runtime wiring, support, or a completeness claim"
     },
     "serverMessages": {
       "total": 30,
       "handled": [
+        "autorecEntryAdd",
+        "autorecEntryDelete",
+        "autorecEntryUpdate",
         "channelAdd",
         "channelDelete",
         "channelUpdate",
@@ -9733,19 +9751,15 @@
         "timerecEntryUpdate",
         "timeshiftStatus"
       ],
-      "handledCount": 27,
-      "unhandled": [
-        "autorecEntryAdd",
-        "autorecEntryUpdate",
-        "autorecEntryDelete"
-      ]
+      "handledCount": 30,
+      "unhandled": []
     },
     "metrics": {
       "referencedClientMethods": 38,
       "outgoingClientMethods": 37,
-      "handledServerMessages": 27,
+      "handledServerMessages": 30,
       "typedClientRequests": 31,
-      "typedServerMessages": 26,
+      "typedServerMessages": 29,
       "notes": [
         "referenced counts exact string literals in SDK production main sources",
         "outgoing counts method = \"...\" / method = CONST assignments only",

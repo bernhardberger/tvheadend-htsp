@@ -21,6 +21,9 @@ class HtspServerMessageTest {
                 "dvrEntryAdd",
                 "dvrEntryUpdate",
                 "dvrEntryDelete",
+                "autorecEntryAdd",
+                "autorecEntryUpdate",
+                "autorecEntryDelete",
                 "timerecEntryAdd",
                 "timerecEntryUpdate",
                 "timerecEntryDelete",
@@ -41,7 +44,7 @@ class HtspServerMessageTest {
             ),
             typedHtspServerMessageCatalogForTest().map { it.first },
         )
-        assertEquals(26, typedHtspServerMessageCatalogForTest().map { it.second }.toSet().size)
+        assertEquals(29, typedHtspServerMessageCatalogForTest().map { it.second }.toSet().size)
     }
 
     @Test
@@ -158,6 +161,134 @@ class HtspServerMessageTest {
         assertEquals(null, update.priority)
         assertEquals(null, update.retentionDays)
         assertEquals("kept", update.directory)
+    }
+
+    @Test
+    fun autorecMessagesDecodeRequiredAddPartialUpdateAndExactDeleteStrictly() {
+        val addFields = linkedMapOf<String, Any?>(
+            "method" to "autorecEntryAdd",
+            "id" to "",
+            "enabled" to 0L,
+            "maxDuration" to 0xffff_ffffL,
+            "minDuration" to 0L,
+            "retention" to 0xffff_ffffL,
+            "removal" to 0L,
+            "daysOfWeek" to 0xffff_ffffL,
+            "approxTime" to Int.MIN_VALUE.toLong(),
+            "start" to -1L,
+            "startWindow" to Int.MAX_VALUE.toLong(),
+            "priority" to 0xffff_ffffL,
+            "startExtra" to Long.MIN_VALUE,
+            "stopExtra" to Long.MAX_VALUE,
+            "dupDetect" to 0xffff_ffffL,
+            "maxCount" to 0L,
+            "broadcastType" to 0xffff_ffffL,
+            "comment" to "",
+            "name" to "",
+            "owner" to "",
+            "creator" to "",
+            "title" to "",
+            "fulltext" to 0L,
+            "mergetext" to 1L,
+            "directory" to "",
+            "channel" to 0xffff_ffffL,
+            "serieslinkUri" to "",
+            "configId" to "",
+        )
+        val add = decodeMessage(addFields) as HtspAutorecEntryAddMessage
+        assertEquals(
+            HtspAutorecEntryAddMessage(
+                id = "",
+                enabled = false,
+                maxDurationSeconds = 0xffff_ffffL,
+                minDurationSeconds = 0L,
+                retentionDays = 0xffff_ffffL,
+                removalDays = 0L,
+                daysOfWeekMask = 0xffff_ffffL,
+                approximateStartMinutesSinceMidnight = Int.MIN_VALUE,
+                startMinutesSinceMidnight = -1,
+                startWindowEndMinutesSinceMidnight = Int.MAX_VALUE,
+                priority = 0xffff_ffffL,
+                startExtraMinutes = Long.MIN_VALUE,
+                stopExtraMinutes = Long.MAX_VALUE,
+                duplicateDetection = 0xffff_ffffL,
+                maximumRecordingCount = 0L,
+                broadcastType = 0xffff_ffffL,
+                comment = "",
+                title = "",
+                fullText = false,
+                mergeText = true,
+                name = "",
+                directory = "",
+                owner = "",
+                creator = "",
+                channelId = 0xffff_ffffL,
+                seriesLinkUri = "",
+                configId = "",
+            ),
+            add,
+        )
+
+        val requiredAddFields = listOf(
+            "id", "enabled", "maxDuration", "minDuration", "retention", "removal",
+            "daysOfWeek", "approxTime", "start", "startWindow", "priority",
+            "startExtra", "stopExtra", "dupDetect", "maxCount", "broadcastType",
+            "comment", "name", "owner", "creator",
+        )
+        requiredAddFields.forEach { requiredName ->
+            assertMalformed(addFields - requiredName)
+        }
+
+        val update = decodeMessage(
+            mapOf(
+                "method" to "autorecEntryUpdate",
+                "id" to "rule",
+                "minDuration" to 0L,
+                "approxTime" to Int.MIN_VALUE.toLong(),
+                "start" to Int.MAX_VALUE.toLong(),
+                "startExtra" to Long.MIN_VALUE,
+                "channel" to 0xffff_ffffL,
+                "title" to "",
+            ),
+        ) as HtspAutorecEntryUpdateMessage
+        assertEquals(
+            HtspAutorecEntryUpdateMessage(
+                id = "rule",
+                minDurationSeconds = 0L,
+                approximateStartMinutesSinceMidnight = Int.MIN_VALUE,
+                startMinutesSinceMidnight = Int.MAX_VALUE,
+                startExtraMinutes = Long.MIN_VALUE,
+                channelId = 0xffff_ffffL,
+                title = "",
+            ),
+            update,
+        )
+
+        assertEquals(
+            HtspAutorecEntryDeleteMessage(""),
+            decodeMessage(mapOf("method" to "autorecEntryDelete", "id" to "")),
+        )
+
+        listOf(
+            addFields + ("enabled" to 2L),
+            addFields + ("maxDuration" to 0x1_0000_0000L),
+            addFields + ("start" to (Int.MAX_VALUE.toLong() + 1L)),
+            addFields + ("stopExtra" to 1),
+            addFields + ("title" to null),
+            addFields + ("fulltext" to 2L),
+            mapOf("method" to "autorecEntryUpdate"),
+            mapOf("method" to "autorecEntryUpdate", "id" to 1L),
+            mapOf("method" to "autorecEntryUpdate", "id" to "rule", "channel" to -1L),
+            mapOf("method" to "autorecEntryUpdate", "id" to "rule", "startWindow" to Long.MIN_VALUE),
+            mapOf("method" to "autorecEntryUpdate", "id" to "rule", "comment" to listOf("bad")),
+            mapOf("method" to "autorecEntryUpdate", "id" to "rule", "mergetext" to 2L),
+            mapOf("method" to "autorecEntryDelete"),
+            mapOf("method" to "autorecEntryDelete", "id" to 1L),
+        ).forEach(::assertMalformed)
+
+        assertTrue(
+            decodeHtspServerMessage(addFields + ("seq" to 1L)) is HtspServerMessageUnknownMethod,
+        )
     }
 
     @Test
@@ -700,6 +831,9 @@ class HtspServerMessageTest {
             HtspServerMessage::class.java,
             HtspChannelAddMessage::class.java,
             HtspDvrEntryUpdateMessage::class.java,
+            HtspAutorecEntryAddMessage::class.java,
+            HtspAutorecEntryUpdateMessage::class.java,
+            HtspAutorecEntryDeleteMessage::class.java,
             HtspMuxPacketMessage::class.java,
             HtspSubscriptionStartMessage::class.java,
         )
@@ -777,6 +911,31 @@ class HtspServerMessageTest {
         )
         "dvrEntryUpdate" -> mapOf("method" to method, "id" to 1L)
         "dvrEntryDelete" -> mapOf("method" to method, "id" to 1L)
+        "autorecEntryAdd" -> mapOf(
+            "method" to method,
+            "id" to "rule",
+            "enabled" to 1L,
+            "maxDuration" to 0L,
+            "minDuration" to 0L,
+            "retention" to 0L,
+            "removal" to 0L,
+            "daysOfWeek" to 0L,
+            "approxTime" to -1L,
+            "start" to -1L,
+            "startWindow" to -1L,
+            "priority" to 0L,
+            "startExtra" to 0L,
+            "stopExtra" to 0L,
+            "dupDetect" to 0L,
+            "maxCount" to 0L,
+            "broadcastType" to 0L,
+            "comment" to "",
+            "name" to "",
+            "owner" to "",
+            "creator" to "",
+        )
+        "autorecEntryUpdate" -> mapOf("method" to method, "id" to "rule")
+        "autorecEntryDelete" -> mapOf("method" to method, "id" to "rule")
         "timerecEntryAdd" -> mapOf(
             "method" to method,
             "id" to "rule",

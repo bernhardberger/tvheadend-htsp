@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate the reviewed 26-message finite HTSP server-message dispatch."""
+"""Generate the reviewed 29-message finite HTSP server-message dispatch."""
 
 from __future__ import annotations
 
@@ -34,6 +34,9 @@ CATALOG: tuple[Entry, ...] = (
     Entry("dvrEntryAdd", "HtspDvrEntryAddMessage", "decodeDvrEntryAdd", 4),
     Entry("dvrEntryUpdate", "HtspDvrEntryUpdateMessage", "decodeDvrEntryUpdate", 4),
     Entry("dvrEntryDelete", "HtspDvrEntryDeleteMessage", "decodeDvrEntryDelete", 4),
+    Entry("autorecEntryAdd", "HtspAutorecEntryAddMessage", "decodeAutorecEntryAdd", 13),
+    Entry("autorecEntryUpdate", "HtspAutorecEntryUpdateMessage", "decodeAutorecEntryUpdate", 13),
+    Entry("autorecEntryDelete", "HtspAutorecEntryDeleteMessage", "decodeAutorecEntryDelete", 13),
     Entry("timerecEntryAdd", "HtspTimerecEntryAddMessage", "decodeTimerecEntryAdd", 18),
     Entry("timerecEntryUpdate", "HtspTimerecEntryUpdateMessage", "decodeTimerecEntryUpdate", 18),
     Entry("timerecEntryDelete", "HtspTimerecEntryDeleteMessage", "decodeTimerecEntryDelete", 18),
@@ -55,22 +58,19 @@ CATALOG: tuple[Entry, ...] = (
 
 EXPECTED_METHODS = tuple(entry.method for entry in CATALOG)
 EXCLUDED_METHODS = {
-    "autorecEntryAdd",
-    "autorecEntryUpdate",
-    "autorecEntryDelete",
     "descrambleInfo",
 }
 
 
 def validate_catalog(catalog: tuple[Entry, ...] = CATALOG) -> None:
     methods = tuple(entry.method for entry in catalog)
-    if methods != EXPECTED_METHODS or len(methods) != 26 or len(set(methods)) != 26:
-        raise ValueError("typed server-message catalog must contain exactly the reviewed 26 methods")
+    if methods != EXPECTED_METHODS or len(methods) != 29 or len(set(methods)) != 29:
+        raise ValueError("typed server-message catalog must contain exactly the reviewed 29 methods")
     if EXCLUDED_METHODS.intersection(methods):
         raise ValueError("typed server-message catalog contains an excluded method")
     types = tuple(entry.message_type for entry in catalog)
     decoders = tuple(entry.decoder for entry in catalog)
-    if len(set(types)) != 26 or len(set(decoders)) != 26:
+    if len(set(types)) != 29 or len(set(decoders)) != 29:
         raise ValueError("typed server-message types and decoders must be one-to-one")
 
 
@@ -144,8 +144,8 @@ def self_test() -> None:
     first = render()
     if first != render():
         raise AssertionError("generator output is not deterministic")
-    if first.count(" -> decodeKnownServerMessage {") != 26:
-        raise AssertionError("generated dispatch must contain exactly 26 finite branches")
+    if first.count(" -> decodeKnownServerMessage {") != 29:
+        raise AssertionError("generated dispatch must contain exactly 29 finite branches")
     public_declarations = (
         "public sealed interface HtspServerMessageDecodeResult",
         "public data class HtspServerMessageDecoded(",

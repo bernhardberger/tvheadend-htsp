@@ -320,6 +320,100 @@ public data class HtspDvrEntryDeleteMessage(public val entryId: Long) : HtspServ
     }
 }
 
+/** A complete automatic DVR rule announced during asynchronous metadata sync. */
+public data class HtspAutorecEntryAddMessage(
+    public val id: String,
+    public val enabled: Boolean,
+    public val maxDurationSeconds: Long,
+    public val minDurationSeconds: Long,
+    public val retentionDays: Long,
+    public val removalDays: Long,
+    public val daysOfWeekMask: Long,
+    public val approximateStartMinutesSinceMidnight: Int,
+    public val startMinutesSinceMidnight: Int,
+    public val startWindowEndMinutesSinceMidnight: Int,
+    public val priority: Long,
+    public val startExtraMinutes: Long,
+    public val stopExtraMinutes: Long,
+    public val duplicateDetection: Long,
+    public val maximumRecordingCount: Long,
+    public val broadcastType: Long,
+    public val comment: String,
+    public val title: String? = null,
+    public val fullText: Boolean? = null,
+    public val mergeText: Boolean? = null,
+    public val name: String,
+    public val directory: String? = null,
+    public val owner: String,
+    public val creator: String,
+    public val channelId: Long? = null,
+    public val seriesLinkUri: String? = null,
+    public val configId: String? = null,
+) : HtspServerMessage {
+    init {
+        listOf(
+            "maxDurationSeconds" to maxDurationSeconds,
+            "minDurationSeconds" to minDurationSeconds,
+            "retentionDays" to retentionDays,
+            "removalDays" to removalDays,
+            "daysOfWeekMask" to daysOfWeekMask,
+            "priority" to priority,
+            "duplicateDetection" to duplicateDetection,
+            "maximumRecordingCount" to maximumRecordingCount,
+            "broadcastType" to broadcastType,
+        ).forEach { (field, value) -> requireServerU32(field, value) }
+        channelId?.let { requireServerU32("channelId", it) }
+    }
+}
+
+/** A partial automatic DVR rule update. Null properties were absent on the wire. */
+public data class HtspAutorecEntryUpdateMessage(
+    public val id: String,
+    public val enabled: Boolean? = null,
+    public val maxDurationSeconds: Long? = null,
+    public val minDurationSeconds: Long? = null,
+    public val retentionDays: Long? = null,
+    public val removalDays: Long? = null,
+    public val daysOfWeekMask: Long? = null,
+    public val approximateStartMinutesSinceMidnight: Int? = null,
+    public val startMinutesSinceMidnight: Int? = null,
+    public val startWindowEndMinutesSinceMidnight: Int? = null,
+    public val priority: Long? = null,
+    public val startExtraMinutes: Long? = null,
+    public val stopExtraMinutes: Long? = null,
+    public val duplicateDetection: Long? = null,
+    public val maximumRecordingCount: Long? = null,
+    public val broadcastType: Long? = null,
+    public val comment: String? = null,
+    public val title: String? = null,
+    public val fullText: Boolean? = null,
+    public val mergeText: Boolean? = null,
+    public val name: String? = null,
+    public val directory: String? = null,
+    public val owner: String? = null,
+    public val creator: String? = null,
+    public val channelId: Long? = null,
+    public val seriesLinkUri: String? = null,
+    public val configId: String? = null,
+) : HtspServerMessage {
+    init {
+        listOf(
+            "maxDurationSeconds" to maxDurationSeconds,
+            "minDurationSeconds" to minDurationSeconds,
+            "retentionDays" to retentionDays,
+            "removalDays" to removalDays,
+            "daysOfWeekMask" to daysOfWeekMask,
+            "priority" to priority,
+            "duplicateDetection" to duplicateDetection,
+            "maximumRecordingCount" to maximumRecordingCount,
+            "broadcastType" to broadcastType,
+            "channelId" to channelId,
+        ).forEach { (field, value) -> value?.let { requireServerU32(field, it) } }
+    }
+}
+
+public data class HtspAutorecEntryDeleteMessage(public val id: String) : HtspServerMessage
+
 /** A complete time-based DVR rule announced during asynchronous metadata sync. */
 public data class HtspTimerecEntryAddMessage(
     public val id: String,
@@ -838,6 +932,74 @@ internal fun decodeDvrEntryDelete(fields: Map<String, Any?>): HtspServerMessage 
     HtspDvrEntryDeleteMessage(fields.requiredServerAliasU32(DVR_ID_KEYS))
 
 @JvmSynthetic
+internal fun decodeAutorecEntryAdd(fields: Map<String, Any?>): HtspServerMessage =
+    HtspAutorecEntryAddMessage(
+        id = fields.requiredServerString("id"),
+        enabled = fields.requiredServerFlag("enabled"),
+        maxDurationSeconds = fields.requiredServerU32("maxDuration"),
+        minDurationSeconds = fields.requiredServerU32("minDuration"),
+        retentionDays = fields.requiredServerU32("retention"),
+        removalDays = fields.requiredServerU32("removal"),
+        daysOfWeekMask = fields.requiredServerU32("daysOfWeek"),
+        approximateStartMinutesSinceMidnight = fields.requiredServerS32("approxTime"),
+        startMinutesSinceMidnight = fields.requiredServerS32("start"),
+        startWindowEndMinutesSinceMidnight = fields.requiredServerS32("startWindow"),
+        priority = fields.requiredServerU32("priority"),
+        startExtraMinutes = fields.requiredServerS64("startExtra"),
+        stopExtraMinutes = fields.requiredServerS64("stopExtra"),
+        duplicateDetection = fields.requiredServerU32("dupDetect"),
+        maximumRecordingCount = fields.requiredServerU32("maxCount"),
+        broadcastType = fields.requiredServerU32("broadcastType"),
+        comment = fields.requiredServerString("comment"),
+        title = fields.optionalServerString("title"),
+        fullText = fields.optionalServerFlag("fulltext"),
+        mergeText = fields.optionalServerFlag("mergetext"),
+        name = fields.requiredServerString("name"),
+        directory = fields.optionalServerString("directory"),
+        owner = fields.requiredServerString("owner"),
+        creator = fields.requiredServerString("creator"),
+        channelId = fields.optionalServerU32("channel"),
+        seriesLinkUri = fields.optionalServerString("serieslinkUri"),
+        configId = fields.optionalServerString("configId"),
+    )
+
+@JvmSynthetic
+internal fun decodeAutorecEntryUpdate(fields: Map<String, Any?>): HtspServerMessage =
+    HtspAutorecEntryUpdateMessage(
+        id = fields.requiredServerString("id"),
+        enabled = fields.optionalServerFlag("enabled"),
+        maxDurationSeconds = fields.optionalServerU32("maxDuration"),
+        minDurationSeconds = fields.optionalServerU32("minDuration"),
+        retentionDays = fields.optionalServerU32("retention"),
+        removalDays = fields.optionalServerU32("removal"),
+        daysOfWeekMask = fields.optionalServerU32("daysOfWeek"),
+        approximateStartMinutesSinceMidnight = fields.optionalServerS32("approxTime"),
+        startMinutesSinceMidnight = fields.optionalServerS32("start"),
+        startWindowEndMinutesSinceMidnight = fields.optionalServerS32("startWindow"),
+        priority = fields.optionalServerU32("priority"),
+        startExtraMinutes = fields.optionalServerS64("startExtra"),
+        stopExtraMinutes = fields.optionalServerS64("stopExtra"),
+        duplicateDetection = fields.optionalServerU32("dupDetect"),
+        maximumRecordingCount = fields.optionalServerU32("maxCount"),
+        broadcastType = fields.optionalServerU32("broadcastType"),
+        comment = fields.optionalServerString("comment"),
+        title = fields.optionalServerString("title"),
+        fullText = fields.optionalServerFlag("fulltext"),
+        mergeText = fields.optionalServerFlag("mergetext"),
+        name = fields.optionalServerString("name"),
+        directory = fields.optionalServerString("directory"),
+        owner = fields.optionalServerString("owner"),
+        creator = fields.optionalServerString("creator"),
+        channelId = fields.optionalServerU32("channel"),
+        seriesLinkUri = fields.optionalServerString("serieslinkUri"),
+        configId = fields.optionalServerString("configId"),
+    )
+
+@JvmSynthetic
+internal fun decodeAutorecEntryDelete(fields: Map<String, Any?>): HtspServerMessage =
+    HtspAutorecEntryDeleteMessage(fields.requiredServerString("id"))
+
+@JvmSynthetic
 internal fun decodeTimerecEntryAdd(fields: Map<String, Any?>): HtspServerMessage =
     HtspTimerecEntryAddMessage(
         id = fields.requiredServerString("id"),
@@ -1204,6 +1366,9 @@ private fun Map<*, *>.requiredServerS32(name: String): Int {
     }
     return value.toInt()
 }
+
+private fun Map<*, *>.optionalServerS32(name: String): Int? =
+    if (containsKey(name)) requiredServerS32(name) else null
 
 private fun Map<*, *>.requiredServerBoundedInt(name: String, range: IntRange): Int {
     val value = requiredServerS64(name)

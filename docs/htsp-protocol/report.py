@@ -137,6 +137,9 @@ EXPECTED_TYPED_SERVER_MESSAGES: tuple[tuple[str, str, int | None], ...] = (
     ("dvrEntryAdd", "HtspDvrEntryAddMessage", 4),
     ("dvrEntryUpdate", "HtspDvrEntryUpdateMessage", 4),
     ("dvrEntryDelete", "HtspDvrEntryDeleteMessage", 4),
+    ("autorecEntryAdd", "HtspAutorecEntryAddMessage", 13),
+    ("autorecEntryUpdate", "HtspAutorecEntryUpdateMessage", 13),
+    ("autorecEntryDelete", "HtspAutorecEntryDeleteMessage", 13),
     ("timerecEntryAdd", "HtspTimerecEntryAddMessage", 18),
     ("timerecEntryUpdate", "HtspTimerecEntryUpdateMessage", 18),
     ("timerecEntryDelete", "HtspTimerecEntryDeleteMessage", 18),
@@ -156,10 +159,36 @@ EXPECTED_TYPED_SERVER_MESSAGES: tuple[tuple[str, str, int | None], ...] = (
     ("subscriptionSkip", "HtspSubscriptionSkipMessage", 9),
 )
 
-EXPECTED_UNHANDLED_MESSAGES = (
-    "autorecEntryAdd",
-    "autorecEntryUpdate",
-    "autorecEntryDelete",
+EXPECTED_UNHANDLED_MESSAGES: tuple[str, ...] = ()
+
+AUTOREC_SERVER_MESSAGE_CONTRACT: tuple[tuple[str, str, str], ...] = (
+    ("id", "str", "required"),
+    ("enabled", "u32", "required"),
+    ("maxDuration", "u32", "required"),
+    ("minDuration", "u32", "required"),
+    ("retention", "u32", "required"),
+    ("removal", "u32", "required"),
+    ("daysOfWeek", "u32", "required"),
+    ("approxTime", "s32", "required"),
+    ("start", "s32", "required"),
+    ("startWindow", "s32", "required"),
+    ("priority", "u32", "required"),
+    ("startExtra", "s64", "required"),
+    ("stopExtra", "s64", "required"),
+    ("dupDetect", "u32", "required"),
+    ("maxCount", "u32", "required"),
+    ("broadcastType", "u32", "required"),
+    ("comment", "str", "required"),
+    ("title", "str", "optional"),
+    ("fulltext", "u32", "optional"),
+    ("mergetext", "u32", "optional"),
+    ("name", "str", "required"),
+    ("directory", "str", "optional"),
+    ("owner", "str", "required"),
+    ("creator", "str", "required"),
+    ("channel", "u32", "optional"),
+    ("serieslinkUri", "str", "optional"),
+    ("configId", "str", "optional"),
 )
 
 EXPECTED_FIELD_SHAPE_REFS: tuple[tuple[str, str, str, str, str], ...] = (
@@ -1083,6 +1112,46 @@ def validate_spec(spec: dict[str, Any], upstream: dict[str, Any] | None = None) 
         names = {f.get("name") for f in message_map.get(message_name, {}).get("fields", [])}
         if names != {identifier}:
             errors.append(f"{message_name}: delete shape must contain only {identifier}")
+    autorec_add = message_map.get("autorecEntryAdd", {})
+    autorec_add_contract = [
+        (field.get("name"), field.get("type"), field.get("presence"))
+        for field in autorec_add.get("fields", [])
+    ]
+    if autorec_add_contract != list(AUTOREC_SERVER_MESSAGE_CONTRACT):
+        errors.append("autorecEntryAdd must preserve exact pinned field order, types, and requiredness")
+    if (
+        autorec_add.get("messageShape", {}).get("kind") != "fields"
+        or autorec_add.get("messageShape", {}).get("completeness") != "complete"
+    ):
+        errors.append("autorecEntryAdd must preserve the complete bounded builder shape")
+    autorec_update = message_map.get("autorecEntryUpdate", {})
+    autorec_update_contract = [
+        (field.get("name"), field.get("type"), field.get("presence"))
+        for field in autorec_update.get("fields", [])
+    ]
+    expected_autorec_update = [
+        (name, wire_type, "required" if name == "id" else "optional")
+        for name, wire_type, _presence in AUTOREC_SERVER_MESSAGE_CONTRACT
+    ]
+    if autorec_update_contract != expected_autorec_update:
+        errors.append("autorecEntryUpdate must require exact string id and keep all other fields optional")
+    if (
+        autorec_update.get("messageShape", {}).get("kind") != "fields"
+        or autorec_update.get("messageShape", {}).get("completeness") != "partial"
+    ):
+        errors.append("autorecEntryUpdate must preserve the partial-update shape")
+    autorec_delete = message_map.get("autorecEntryDelete", {})
+    autorec_delete_contract = [
+        (field.get("name"), field.get("type"), field.get("presence"))
+        for field in autorec_delete.get("fields", [])
+    ]
+    if autorec_delete_contract != [("id", "str", "required")]:
+        errors.append("autorecEntryDelete must preserve exactly required string id")
+    if (
+        autorec_delete.get("messageShape", {}).get("kind") != "fields"
+        or autorec_delete.get("messageShape", {}).get("completeness") != "complete"
+    ):
+        errors.append("autorecEntryDelete must preserve the complete delete shape")
     mux = {f.get("name"): f for f in message_map.get("muxpkt", {}).get("fields", [])}
     if mux.get("payload", {}).get("type") != "bin" or ({"packets", "bytes", "Bdrops", "Pdrops", "Idrops"} & set(mux)):
         errors.append("muxpkt must own binary payload and no queue counters")
@@ -1720,12 +1789,12 @@ def validate_spec(spec: dict[str, Any], upstream: dict[str, Any] | None = None) 
     ]
     if typed_server_contract != list(EXPECTED_TYPED_SERVER_MESSAGES):
         errors.append("coverage typedServerMessages must match the exact reviewed catalog")
-    if typed_server_count != len(typed_server_messages) or typed_server_count != 26:
-        errors.append("coverage typedServerMessages.count must match exactly 26 messages")
+    if typed_server_count != len(typed_server_messages) or typed_server_count != 29:
+        errors.append("coverage typedServerMessages.count must match exactly 29 messages")
     if typed_server_cov.get("catalog") != "docs/htsp-protocol/generate_typed_server_messages.py":
         errors.append("coverage typedServerMessages.catalog must name the reviewed generator")
     if typed_server_cov.get("meaning") != (
-        "Public typed asynchronous HtspServerMessage models with an ABI-hidden "
+        "Public typed asynchronous HtspServerMessage models with a public "
         "finite decoder; not runtime wiring, support, or a completeness claim"
     ):
         errors.append("coverage typedServerMessages.meaning must retain its disclaimer")
@@ -1789,9 +1858,9 @@ def validate_spec(spec: dict[str, Any], upstream: dict[str, Any] | None = None) 
         errors.append(
             f"expected outgoing client methods == 37 under current metric, got {out_count}"
         )
-    if handled_count not in (None, 27):
+    if handled_count not in (None, 30):
         errors.append(
-            f"expected handled server messages == 27 under current metric, got {handled_count}"
+            f"expected handled server messages == 30 under current metric, got {handled_count}"
         )
 
     unhandled = list(server_cov.get("unhandled") or [])
@@ -2411,7 +2480,7 @@ def render_matrix(spec: dict[str, Any]) -> str:
         "`HtspConnection` extension. It is not a support, stability, or completeness claim."
     )
     lines.append(
-        "- Typed server-message coverage means public payload models plus an ABI-hidden "
+        "- Typed server-message coverage means public payload models plus a public "
         "finite decoder; the metric alone does not prove support, runtime consumption, "
         "stability, or completeness. Selected client metadata/status consumers use the "
         "decoder while raw transport and playback integration remain unchanged."
@@ -2687,7 +2756,13 @@ def _derive_fresh_self_test_spec(fresh_mutator: Any = None) -> dict[str, Any]:
     fresh_messages = {item["name"]: item for item in fresh["serverMessages"]}
     candidate["serverMessages"] = [
         fresh_messages[item["name"]]
-        if item["name"] in {"eventAdd", "eventUpdate"}
+        if item["name"] in {
+            "autorecEntryAdd",
+            "autorecEntryUpdate",
+            "autorecEntryDelete",
+            "eventAdd",
+            "eventUpdate",
+        }
         else item
         for item in candidate["serverMessages"]
     ]
@@ -2765,13 +2840,13 @@ def self_test() -> None:
             "serverMessages": {
                 "total": 30,
                 "handled": [],
-                "handledCount": 27,
+                "handledCount": 30,
                 "unhandled": list(EXPECTED_UNHANDLED_MESSAGES),
             },
             "metrics": {
                 "referencedClientMethods": 22,
                 "outgoingClientMethods": 21,
-                "handledServerMessages": 27,
+                "handledServerMessages": 30,
             },
         },
         "docLimitations": [{"id": "x", "summary": "y", "authority": "z"}],
@@ -2792,7 +2867,7 @@ def self_test() -> None:
     good_spec["coverage"]["clientMethods"]["outgoingRequests"] = out_names
     good_spec["coverage"]["clientMethods"]["outgoingRequestCount"] = 21
     good_spec["coverage"]["serverMessages"]["handled"] = handled
-    good_spec["coverage"]["serverMessages"]["handledCount"] = 27
+    good_spec["coverage"]["serverMessages"]["handledCount"] = 30
 
     for name in EXPECTED_CLIENT_METHODS:
         good_spec["clientMethods"].append(
@@ -2836,6 +2911,56 @@ def self_test() -> None:
 
     errors = validate_spec(good_spec)
     check("good-spec", errors == [], str(errors))
+
+    fresh_autorec = {
+        message["name"]: message
+        for message in good_spec["serverMessages"]
+        if message["name"] in {
+            "autorecEntryAdd",
+            "autorecEntryUpdate",
+            "autorecEntryDelete",
+        }
+    }
+    check(
+        "autorec-server-messages-fresh-contracts",
+        set(fresh_autorec) == {
+            "autorecEntryAdd",
+            "autorecEntryUpdate",
+            "autorecEntryDelete",
+        }
+        and fresh_autorec["autorecEntryAdd"].get("messageShape", {}).get("completeness") == "complete"
+        and fresh_autorec["autorecEntryUpdate"].get("messageShape", {}).get("completeness") == "partial"
+        and all(
+            message.get("sdk") == {"handled": True, "typedServerMessage": True}
+            for message in fresh_autorec.values()
+        ),
+    )
+    for name, mutate in (
+        (
+            "autorecEntryAdd",
+            lambda message: next(
+                field for field in message["fields"] if field["name"] == "maxDuration"
+            ).update({"presence": "optional"}),
+        ),
+        (
+            "autorecEntryUpdate",
+            lambda message: next(
+                field for field in message["fields"] if field["name"] == "title"
+            ).update({"presence": "required"}),
+        ),
+        (
+            "autorecEntryDelete",
+            lambda message: message["fields"][0].update({"type": "u32"}),
+        ),
+    ):
+        mutated = json.loads(json.dumps(good_spec))
+        mutate(next(message for message in mutated["serverMessages"] if message["name"] == name))
+        mutation_errors = validate_spec(mutated)
+        check(
+            f"{name}-fresh-contract-mutation-rejected",
+            any(name in error for error in mutation_errors),
+            str(mutation_errors),
+        )
 
     fresh_recording_rules = {
         method["name"]: method
@@ -2941,7 +3066,7 @@ def self_test() -> None:
         "getEvents-fresh-unchanged-coverage",
         good_spec["coverage"]["clientMethods"]["referencedCount"] == 38
         and good_spec["coverage"]["clientMethods"]["outgoingRequestCount"] == 37
-        and good_spec["coverage"]["serverMessages"]["handledCount"] == 27
+        and good_spec["coverage"]["serverMessages"]["handledCount"] == 30
         and "getEvents" in good_spec["coverage"]["clientMethods"]["outgoingRequests"],
     )
     epg_query = next(m for m in good_spec["clientMethods"] if m["name"] == "epgQuery")
@@ -4369,9 +4494,9 @@ def self_test() -> None:
     check("reject-wrong-scan-root", any("scanRoots" in e for e in err), str(err))
 
     bad = json.loads(json.dumps(good_spec))
-    bad["coverage"]["serverMessages"]["unhandled"] = list(reversed(EXPECTED_UNHANDLED_MESSAGES))
+    bad["coverage"]["serverMessages"]["unhandled"] = ["autorecEntryAdd"]
     err = validate_spec(bad)
-    check("reject-reordered-unhandled", any("unhandled" in e for e in err), str(err))
+    check("reject-nonempty-unhandled", any("unhandled" in e for e in err), str(err))
 
     bad = json.loads(json.dumps(good_spec))
     bad["shapes"]["event"]["target"] = "serverMessage:notReal"

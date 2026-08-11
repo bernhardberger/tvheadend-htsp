@@ -18,6 +18,9 @@ private val typedHtspServerMessageCatalog: List<TypedHtspServerMessageCatalogEnt
     TypedHtspServerMessageCatalogEntry("dvrEntryAdd", "HtspDvrEntryAddMessage", 4),
     TypedHtspServerMessageCatalogEntry("dvrEntryUpdate", "HtspDvrEntryUpdateMessage", 4),
     TypedHtspServerMessageCatalogEntry("dvrEntryDelete", "HtspDvrEntryDeleteMessage", 4),
+    TypedHtspServerMessageCatalogEntry("autorecEntryAdd", "HtspAutorecEntryAddMessage", 13),
+    TypedHtspServerMessageCatalogEntry("autorecEntryUpdate", "HtspAutorecEntryUpdateMessage", 13),
+    TypedHtspServerMessageCatalogEntry("autorecEntryDelete", "HtspAutorecEntryDeleteMessage", 13),
     TypedHtspServerMessageCatalogEntry("timerecEntryAdd", "HtspTimerecEntryAddMessage", 18),
     TypedHtspServerMessageCatalogEntry("timerecEntryUpdate", "HtspTimerecEntryUpdateMessage", 18),
     TypedHtspServerMessageCatalogEntry("timerecEntryDelete", "HtspTimerecEntryDeleteMessage", 18),
@@ -58,6 +61,9 @@ public fun decodeHtspServerMessage(fields: Map<String, Any?>): HtspServerMessage
         "dvrEntryAdd" -> decodeKnownServerMessage { decodeDvrEntryAdd(fields) }
         "dvrEntryUpdate" -> decodeKnownServerMessage { decodeDvrEntryUpdate(fields) }
         "dvrEntryDelete" -> decodeKnownServerMessage { decodeDvrEntryDelete(fields) }
+        "autorecEntryAdd" -> decodeKnownServerMessage { decodeAutorecEntryAdd(fields) }
+        "autorecEntryUpdate" -> decodeKnownServerMessage { decodeAutorecEntryUpdate(fields) }
+        "autorecEntryDelete" -> decodeKnownServerMessage { decodeAutorecEntryDelete(fields) }
         "timerecEntryAdd" -> decodeKnownServerMessage { decodeTimerecEntryAdd(fields) }
         "timerecEntryUpdate" -> decodeKnownServerMessage { decodeTimerecEntryUpdate(fields) }
         "timerecEntryDelete" -> decodeKnownServerMessage { decodeTimerecEntryDelete(fields) }

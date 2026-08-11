@@ -260,6 +260,39 @@ SERVER_MESSAGE_MIN_VERSION: dict[str, int | None] = {
     "subscriptionSkip": 9,
 }
 
+# Exact field order/type and add presence from pinned htsp_build_autorecentry.
+# The emitter token distinguishes htsmsg_add_str2 from htsmsg_add_str while both
+# remain the same HTSP string wire type.
+AUTOREC_SERVER_MESSAGE_FIELDS: tuple[tuple[str, str, str, str], ...] = (
+    ("id", "str", "str", "required"),
+    ("enabled", "u32", "u32", "required"),
+    ("maxDuration", "u32", "u32", "required"),
+    ("minDuration", "u32", "u32", "required"),
+    ("retention", "u32", "u32", "required"),
+    ("removal", "u32", "u32", "required"),
+    ("daysOfWeek", "u32", "u32", "required"),
+    ("approxTime", "s32", "s32", "required"),
+    ("start", "s32", "s32", "required"),
+    ("startWindow", "s32", "s32", "required"),
+    ("priority", "u32", "u32", "required"),
+    ("startExtra", "s64", "s64", "required"),
+    ("stopExtra", "s64", "s64", "required"),
+    ("dupDetect", "u32", "u32", "required"),
+    ("maxCount", "u32", "u32", "required"),
+    ("broadcastType", "u32", "u32", "required"),
+    ("comment", "str", "str2", "required"),
+    ("title", "str", "str", "optional"),
+    ("fulltext", "u32", "u32", "optional"),
+    ("mergetext", "u32", "u32", "optional"),
+    ("name", "str", "str2", "required"),
+    ("directory", "str", "str", "optional"),
+    ("owner", "str", "str2", "required"),
+    ("creator", "str", "str2", "required"),
+    ("channel", "u32", "u32", "optional"),
+    ("serieslinkUri", "str", "str", "optional"),
+    ("configId", "str", "str", "optional"),
+)
+
 # Field-level version gates that are well-evidenced (annotated, not guessed).
 FIELD_MIN_VERSION: dict[tuple[str, str, str], int] = {
     ("clientMethod", "hello", "servercapability"): 6,
@@ -1172,6 +1205,52 @@ def exact_field(
         name, wire_type, direction, evidence, "mechanical+annotated", presence,
         min_version=min_version, condition=condition, shape_ref=shape_ref,
     )
+
+
+def autorec_server_message_fields(*, partial_update: bool) -> list[dict[str, Any]]:
+    fields: list[dict[str, Any]] = []
+    for name, wire_type, _emitter, add_presence in AUTOREC_SERVER_MESSAGE_FIELDS:
+        presence = "required" if name == "id" else "optional" if partial_update else add_presence
+        fields.append(
+            exact_field(
+                name,
+                wire_type,
+                "message",
+                presence,
+                "bounded pinned htsp_build_autorecentry emitter topology",
+            )
+        )
+    return fields
+
+
+def require_autorec_server_message_source_facts(builder: str) -> None:
+    extracted = extract_add_fields(builder, ("out",))
+    actual = [(field["name"], field["type"]) for field in extracted]
+    expected = [
+        (name, wire_type)
+        for name, wire_type, _emitter, _presence in AUTOREC_SERVER_MESSAGE_FIELDS
+    ]
+    if actual != expected:
+        raise ValueError(f"htsp_build_autorecentry field inventory drift: {actual!r}")
+
+    retention_version_branches = re.search(
+        r'^  if \(htsp->htsp_version > 24\)\n'
+        r'    htsmsg_add_u32\(out, "retention",.*?\);\n'
+        r'  else\n'
+        r'    htsmsg_add_u32\(out, "retention",.*?\);\n(?:[ \t]*\n)?'
+        r'  htsmsg_add_u32\(out, "removal",',
+        builder,
+        re.M | re.S,
+    ) is not None
+    for name, _wire_type, emitter, presence in AUTOREC_SERVER_MESSAGE_FIELDS:
+        top_level = re.search(
+            rf'^  htsmsg_add_{re.escape(emitter)}\(\s*out\s*,\s*"{re.escape(name)}"',
+            builder,
+            re.M,
+        ) is not None
+        required_emitter = top_level or (name == "retention" and retention_version_branches)
+        if required_emitter != (presence == "required"):
+            raise ValueError(f"htsp_build_autorecentry {name} presence topology drift")
 
 
 RECORDING_RULE_METHODS = (
@@ -4787,6 +4866,9 @@ def derive_server_messages(server_c: str) -> list[dict[str, Any]]:
         builder_key = family_builder.get(name)
         if builder_key:
             fields = extract_add_fields(builders[builder_key], ("out", "m"))
+            if name in {"autorecEntryAdd", "autorecEntryUpdate"}:
+                require_autorec_server_message_source_facts(builders[builder_key])
+                fields = autorec_server_message_fields(partial_update=name.endswith("Update"))
             if name.endswith("Update"):
                 for field in fields:
                     if field["name"] in {
@@ -4868,6 +4950,21 @@ def derive_server_messages(server_c: str) -> list[dict[str, Any]]:
                 "kind": "fields",
                 "completeness": "complete",
                 "evidence": "bounded current htsp_build_event field catalog",
+            }
+        if name == "autorecEntryAdd":
+            item["messageShape"] = {
+                "kind": "fields",
+                "completeness": "complete",
+                "evidence": "bounded pinned htsp_build_autorecentry field and presence topology",
+            }
+        if name == "autorecEntryUpdate":
+            item["messageShape"] = {
+                "kind": "fields",
+                "completeness": "partial",
+                "evidence": (
+                    "pinned current autorecEntryUpdate uses the shared complete "
+                    "htsp_build_autorecentry snapshot; compatibility remains partial by string id"
+                ),
             }
         if name == "eventUpdate":
             item["messageShape"] = {
@@ -5002,7 +5099,7 @@ def scan_sdk_coverage(
             "count": len(typed_server_catalog),
             "messages": typed_server_catalog,
             "meaning": (
-                "Public typed asynchronous HtspServerMessage models with an ABI-hidden "
+                "Public typed asynchronous HtspServerMessage models with a public "
                 "finite decoder; not runtime wiring, support, or a completeness claim"
             ),
         },
@@ -6172,6 +6269,41 @@ static htsmsg_t *htsp_build_dvrentry(void *htsp, void *de, const char *method, c
 static htsmsg_t *htsp_build_autorecentry(void *htsp, void *dae, const char *method) {
   htsmsg_t *out = htsmsg_create_map();
   htsmsg_add_str(out, "id", "x");
+  htsmsg_add_u32(out, "enabled", 1);
+  htsmsg_add_u32(out, "maxDuration", 1);
+  htsmsg_add_u32(out, "minDuration", 1);
+  if (htsp->htsp_version > 24)
+    htsmsg_add_u32(out, "retention", 1);
+  else
+    htsmsg_add_u32(out, "retention", 2);
+  htsmsg_add_u32(out, "removal", 1);
+  htsmsg_add_u32(out, "daysOfWeek", 1);
+  htsmsg_add_s32(out, "approxTime", -1);
+  htsmsg_add_s32(out, "start", -1);
+  htsmsg_add_s32(out, "startWindow", -1);
+  htsmsg_add_u32(out, "priority", 1);
+  htsmsg_add_s64(out, "startExtra", 1);
+  htsmsg_add_s64(out, "stopExtra", 1);
+  htsmsg_add_u32(out, "dupDetect", 1);
+  htsmsg_add_u32(out, "maxCount", 1);
+  htsmsg_add_u32(out, "broadcastType", 1);
+  htsmsg_add_str2(out, "comment", "comment");
+  if (has_title(dae)) {
+    htsmsg_add_str(out, "title", "title");
+    htsmsg_add_u32(out, "fulltext", 1);
+    htsmsg_add_u32(out, "mergetext", 1);
+  }
+  htsmsg_add_str2(out, "name", "name");
+  if (has_directory(dae))
+    htsmsg_add_str(out, "directory", "directory");
+  htsmsg_add_str2(out, "owner", "owner");
+  htsmsg_add_str2(out, "creator", "creator");
+  if (has_channel(dae))
+    htsmsg_add_u32(out, "channel", 1);
+  if (has_serieslink(dae))
+    htsmsg_add_str(out, "serieslinkUri", "series");
+  if (has_config(dae))
+    htsmsg_add_str(out, "configId", "config");
   htsmsg_add_str(out, "method", method);
   return out;
 }
@@ -6467,6 +6599,39 @@ def self_test() -> None:
             f"{message_name}-identifier",
             identifier in {f["name"] for f in messages_by_name[message_name]["fields"]},
         )
+    expected_autorec_add = [
+        (name, wire_type, presence)
+        for name, wire_type, _emitter, presence in AUTOREC_SERVER_MESSAGE_FIELDS
+    ]
+    autorec_add = messages_by_name["autorecEntryAdd"]
+    autorec_update = messages_by_name["autorecEntryUpdate"]
+    check(
+        "autorecEntryAdd-committed-exact-contract",
+        [
+            (field["name"], field["type"], field["presence"])
+            for field in autorec_add["fields"]
+        ] == expected_autorec_add
+        and autorec_add.get("messageShape", {}).get("completeness") == "complete"
+        and autorec_add.get("sdk") == {
+            "handled": True,
+            "typedServerMessage": True,
+        },
+    )
+    check(
+        "autorecEntryUpdate-committed-partial-contract",
+        [
+            (field["name"], field["type"], field["presence"])
+            for field in autorec_update["fields"]
+        ] == [
+            (name, wire_type, "required" if name == "id" else "optional")
+            for name, wire_type, _emitter, _presence in AUTOREC_SERVER_MESSAGE_FIELDS
+        ]
+        and autorec_update.get("messageShape", {}).get("completeness") == "partial"
+        and autorec_update.get("sdk") == {
+            "handled": True,
+            "typedServerMessage": True,
+        },
+    )
     mux_fields = {f["name"]: f for f in messages_by_name["muxpkt"]["fields"]}
     queue_fields = {f["name"]: f for f in messages_by_name["queueStatus"]["fields"]}
     check("muxpkt-payload-bin", mux_fields.get("payload", {}).get("type") == "bin")
@@ -6689,7 +6854,7 @@ def self_test() -> None:
             live_coverage["serverMessages"]["handledCount"],
             live_coverage["typedClientRequests"]["count"],
             live_coverage["typedServerMessages"]["count"],
-        ) == (38, 37, 27, 31, 26)
+        ) == (38, 37, 30, 31, 29)
         and "getEpgObject" in live_coverage["clientMethods"]["referenced"]
         and "getEpgObject" in live_coverage["clientMethods"]["outgoingRequests"]
         and "epgQuery" in live_coverage["clientMethods"]["referenced"]
@@ -6706,6 +6871,11 @@ def self_test() -> None:
             "timerecEntryAdd",
             "timerecEntryUpdate",
             "timerecEntryDelete",
+        } <= set(live_coverage["serverMessages"]["handled"])
+        and {
+            "autorecEntryAdd",
+            "autorecEntryUpdate",
+            "autorecEntryDelete",
         } <= set(live_coverage["serverMessages"]["handled"]),
         str(live_coverage.get("metrics")),
     )
@@ -6744,7 +6914,7 @@ def self_test() -> None:
             live_coverage["clientMethods"]["referencedCount"],
             live_coverage["clientMethods"]["outgoingRequestCount"],
             live_coverage["serverMessages"]["handledCount"],
-        ) == (38, 37, 27)
+        ) == (38, 37, 30)
         and "getChannel" in live_coverage["clientMethods"]["referenced"]
         and "getChannel" in live_coverage["clientMethods"]["outgoingRequests"],
         str(live_coverage.get("metrics")),
@@ -6797,7 +6967,7 @@ def self_test() -> None:
             live_coverage["clientMethods"]["referencedCount"],
             live_coverage["clientMethods"]["outgoingRequestCount"],
             live_coverage["serverMessages"]["handledCount"],
-        ) == (38, 37, 27)
+        ) == (38, 37, 30)
         and "getEvents" in live_coverage["clientMethods"]["referenced"]
         and "getEvents" in live_coverage["clientMethods"]["outgoingRequests"],
     )
@@ -6969,6 +7139,45 @@ def self_test() -> None:
         check("recording-rule-source-positive-fixture", True)
     except ValueError as exc:
         check("recording-rule-source-positive-fixture", False, str(exc))
+
+    autorec_builder = find_function_body(server_c, "htsp_build_autorecentry") or ""
+    try:
+        require_autorec_server_message_source_facts(autorec_builder)
+        check("autorec-server-message-source-positive-fixture", True)
+    except ValueError as exc:
+        check("autorec-server-message-source-positive-fixture", False, str(exc))
+    for label, old, new, diagnostic in (
+        (
+            "requiredness",
+            '  htsmsg_add_u32(out, "maxDuration", 1);',
+            '    htsmsg_add_u32(out, "maxDuration", 1);',
+            "htsp_build_autorecentry maxDuration presence topology drift",
+        ),
+        (
+            "wire-type",
+            '  htsmsg_add_s64(out, "startExtra", 1);',
+            '  htsmsg_add_s32(out, "startExtra", 1);',
+            "htsp_build_autorecentry field inventory drift",
+        ),
+        (
+            "version-branch-requiredness",
+            '  else\n    htsmsg_add_u32(out, "retention", 2);',
+            '  else if (has_retention(dae))\n    htsmsg_add_u32(out, "retention", 2);',
+            "htsp_build_autorecentry retention presence topology drift",
+        ),
+    ):
+        mutated = autorec_builder.replace(old, new, 1)
+        check(f"autorec-server-message-{label}-mutation-target", mutated != autorec_builder)
+        if mutated != autorec_builder:
+            try:
+                require_autorec_server_message_source_facts(mutated)
+                check(f"reject-autorec-server-message-{label}-mutation", False, "mutation accepted")
+            except ValueError as exc:
+                check(
+                    f"reject-autorec-server-message-{label}-mutation",
+                    str(exc).startswith(diagnostic),
+                    str(exc),
+                )
 
     def mutate_recording_rule_function(
         label: str,
