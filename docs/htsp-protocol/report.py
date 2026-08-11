@@ -64,6 +64,7 @@ EXPECTED_TYPED_CLIENT_REQUESTS: tuple[tuple[str, str, int | None], ...] = (
     ("getProfiles", "ACCESS_HTSP_STREAMING", 16),
     ("getDiskSpace", "ACCESS_HTSP_STREAMING", 3),
     ("getSysTime", "ACCESS_HTSP_STREAMING", 3),
+    ("enableAsyncMetadata", "ACCESS_HTSP_STREAMING", None),
     ("getChannel", "ACCESS_HTSP_STREAMING", 14),
     ("getEvent", "ACCESS_HTSP_STREAMING", None),
     ("getEvents", "ACCESS_HTSP_STREAMING", 4),
@@ -1181,8 +1182,8 @@ def validate_spec(spec: dict[str, Any], upstream: dict[str, Any] | None = None) 
             errors.append(f"{name}: typed catalog access mask disagrees with pinned method")
         if method.get("minVersion") != method_min_version:
             errors.append(f"{name}: typed catalog method minimum disagrees with pinned method")
-    if typed_count != len(typed_methods) or typed_count != 20:
-        errors.append("coverage typedClientRequests.count must match exactly 20 methods")
+    if typed_count != len(typed_methods) or typed_count != 21:
+        errors.append("coverage typedClientRequests.count must match exactly 21 methods")
     if typed_cov.get("catalog") != "docs/htsp-protocol/generate_typed_requests.py":
         errors.append("coverage typedClientRequests.catalog must name the reviewed generator")
     if typed_cov.get("meaning") != (

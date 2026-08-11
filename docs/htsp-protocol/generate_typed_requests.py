@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate the reviewed 20-request HTSP convenience/catalog surface."""
+"""Generate the reviewed 21-request HTSP convenience/catalog surface."""
 
 from __future__ import annotations
 
@@ -30,6 +30,7 @@ CATALOG: tuple[Entry, ...] = (
     Entry("getProfiles", "GetProfilesRequest", "GetProfilesResponse", "ACCESS_HTSP_STREAMING", 16, True),
     Entry("getDiskSpace", "GetDiskSpaceRequest", "GetDiskSpaceResponse", "ACCESS_HTSP_STREAMING", 3, True),
     Entry("getSysTime", "GetSysTimeRequest", "GetSysTimeResponse", "ACCESS_HTSP_STREAMING", 3, True),
+    Entry("enableAsyncMetadata", "EnableAsyncMetadataRequest", "HtspEmptyResponse", "ACCESS_HTSP_STREAMING", None, True),
     Entry("getChannel", "GetChannelRequest", "GetChannelResponse", "ACCESS_HTSP_STREAMING", 14),
     Entry("getEvent", "GetEventRequest", "GetEventResponse", "ACCESS_HTSP_STREAMING", None),
     Entry("getEvents", "GetEventsRequest", "GetEventsResponse", "ACCESS_HTSP_STREAMING", 4),
@@ -89,16 +90,16 @@ def render() -> str:
 
 def validate_catalog() -> None:
     expected = (
-        "getProfiles", "getDiskSpace", "getSysTime", "getChannel", "getEvent",
+        "getProfiles", "getDiskSpace", "getSysTime", "enableAsyncMetadata", "getChannel", "getEvent",
         "getEvents", "getDvrConfigs", "addDvrEntry", "updateDvrEntry", "stopDvrEntry",
         "cancelDvrEntry", "deleteDvrEntry", "getDvrCutpoints", "subscribe", "unsubscribe",
         "subscriptionChangeWeight", "subscriptionSeek", "subscriptionSpeed",
         "subscriptionLive", "subscriptionFilterStream",
     )
     methods = tuple(entry.method for entry in CATALOG)
-    if methods != expected or len(set(methods)) != 20:
-        raise ValueError("typed request catalog must contain exactly the reviewed 20 methods")
-    forbidden = {"hello", "authenticate", "enableAsyncMetadata", "subscriptionSkip", "fileOpen"}
+    if methods != expected or len(set(methods)) != 21:
+        raise ValueError("typed request catalog must contain exactly the reviewed 21 methods")
+    forbidden = {"hello", "authenticate", "subscriptionSkip", "fileOpen"}
     if forbidden.intersection(methods):
         raise ValueError("typed request catalog contains an excluded method")
 
@@ -110,8 +111,8 @@ def self_test() -> None:
     if first != second:
         raise AssertionError("generator output is not deterministic")
     extension_lines = [line for line in first.splitlines() if line.startswith("public suspend fun")]
-    if len(extension_lines) != 20 or any(" = call(request)" not in line for line in extension_lines):
-        raise AssertionError("generated extensions must be exactly 20 one-line delegations")
+    if len(extension_lines) != 21 or any(" = call(request)" not in line for line in extension_lines):
+        raise AssertionError("generated extensions must be exactly 21 one-line delegations")
     with tempfile.TemporaryDirectory() as directory:
         path = Path(directory) / "generated.kt"
         path.write_text(first, encoding="utf-8")

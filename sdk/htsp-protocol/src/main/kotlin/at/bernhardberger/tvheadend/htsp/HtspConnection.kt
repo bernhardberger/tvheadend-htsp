@@ -53,8 +53,6 @@ public interface HtspConnection {
         options: HtspConnectOptions = HtspConnectOptions(),
     ): HtspConnectOutcome
 
-    public suspend fun synchronizeMetadata(timeoutMs: Long = 30_000L): HtspResult<Unit>
-
     /**
      * Executes exactly one request against one captured live generation.
      * Cancellation, including generation replacement, is never converted to [HtspResult].
@@ -64,19 +62,6 @@ public interface HtspConnection {
         timeoutMs: Long = 5_000L,
         expectedGeneration: HtspConnectionGeneration? = null,
     ): HtspResult<R>
-
-    /** Executes one DVR mutation without exposing the server's raw diagnostic reply. */
-    public suspend fun executeDvrMutation(
-        request: HtspDvrMutationRequest,
-        timeoutMs: Long = 5_000L,
-        expectedGeneration: HtspConnectionGeneration? = null,
-    ): HtspDvrMutationOutcome
-
-    /** Reads DVR configurations while preserving connection-limit versus access denial. */
-    public suspend fun getDvrConfigurations(
-        timeoutMs: Long = 5_000L,
-        expectedGeneration: HtspConnectionGeneration? = null,
-    ): HtspDvrConfigurationsOutcome
 
     public fun isCurrent(generation: HtspConnectionGeneration): Boolean
 
@@ -157,15 +142,28 @@ internal class `HtspTypedRequestCaller-internal`(
         request: HtspRequest<R>,
         protocolVersion: Int,
     ): HtspResult<R> {
-        if (reply.fields.containsKey("error")) {
-            return HtspResult.ServerError
-        }
         if (reply.fields.containsKey("noaccess")) {
-            return when (reply.fields["noaccess"]) {
-                0L -> decodeReply(request, reply.fields, protocolVersion)
-                1L -> HtspResult.AccessDenied
-                else -> HtspResult.ServerError
+            val noAccess = reply.fields["noaccess"]
+            if (noAccess !is Long) return HtspResult.ServerError
+            when (noAccess) {
+                0L -> Unit
+                1L -> {
+                    if (!reply.fields.containsKey("connlimit")) return HtspResult.AccessDenied
+                    val connectionLimit = reply.fields["connlimit"]
+                    if (connectionLimit !is Long) return HtspResult.ServerError
+                    return if (connectionLimit == 1L) {
+                        HtspResult.ConnectionLimit
+                    } else {
+                        HtspResult.AccessDenied
+                    }
+                }
+                else -> return HtspResult.ServerError
             }
+        }
+        if (reply.fields.containsKey("error")) {
+            val error = reply.fields["error"] as? String ?: return HtspResult.ServerError
+            if (error.lowercase().isUnknownMethodError()) return HtspResult.NotSupported
+            if (request !is HtspDvrMutationRequest) return HtspResult.ServerError
         }
         return decodeReply(request, reply.fields, protocolVersion)
     }
@@ -182,6 +180,9 @@ internal class `HtspTypedRequestCaller-internal`(
         HtspResult.ServerError
     }
 }
+
+private fun String.isUnknownMethodError(): Boolean =
+    "method not found" in this || "unknown method" in this
 
 internal typealias HtspTypedRequestCaller = `HtspTypedRequestCaller-internal`
 

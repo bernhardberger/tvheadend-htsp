@@ -28,6 +28,7 @@ class HtspProtocolCoreTest {
                 "getProfiles",
                 "getDiskSpace",
                 "getSysTime",
+                "enableAsyncMetadata",
                 "getChannel",
                 "getEvent",
                 "getEvents",
@@ -56,6 +57,7 @@ class HtspProtocolCoreTest {
                 HtspAccess.ACCESS_HTSP_STREAMING,
                 HtspAccess.ACCESS_HTSP_STREAMING,
                 HtspAccess.ACCESS_HTSP_STREAMING,
+                HtspAccess.ACCESS_HTSP_STREAMING,
                 HtspAccess.ACCESS_HTSP_RECORDER,
                 HtspAccess.ACCESS_HTSP_RECORDER,
                 HtspAccess.ACCESS_HTSP_RECORDER,
@@ -77,6 +79,7 @@ class HtspProtocolCoreTest {
             GetProfilesRequest(),
             GetDiskSpaceRequest(),
             GetSysTimeRequest(),
+            EnableAsyncMetadataRequest(),
             GetChannelRequest(0L),
             GetEventRequest(0L),
             GetEventsRequest(),
@@ -128,6 +131,158 @@ class HtspProtocolCoreTest {
         transport.reply = HtspWireReply(linkedMapOf("noaccess" to 0L))
         assertEquals(HtspResult.ServerError, connection.call(GetChannelRequest(channelId = 7L)))
         assertEquals(4, transport.dispatches)
+    }
+
+    @Test
+    fun globalFailuresClassifyConnectionLimitStrictlyAndRemainPayloadFree() = runTest {
+        val transport = FakeProtocolTransport(version = 44)
+        val connection = HtspTypedRequestCaller(transport)
+
+        transport.reply = HtspWireReply(linkedMapOf("noaccess" to 1L, "connlimit" to 1L))
+        assertSame(HtspResult.ConnectionLimit, connection.call(GetChannelRequest(7L)))
+
+        transport.reply = HtspWireReply(linkedMapOf("noaccess" to 1L))
+        assertSame(HtspResult.AccessDenied, connection.call(GetChannelRequest(7L)))
+
+        transport.reply = HtspWireReply(linkedMapOf("noaccess" to 1L, "connlimit" to "1"))
+        assertSame(HtspResult.ServerError, connection.call(GetChannelRequest(7L)))
+
+        transport.reply = HtspWireReply(linkedMapOf("noaccess" to (1 as Any)))
+        assertSame(HtspResult.ServerError, connection.call(GetChannelRequest(7L)))
+
+        val failures: List<HtspFailure> = listOf(
+            HtspResult.ServerError,
+            HtspResult.AccessDenied,
+            HtspResult.ConnectionLimit,
+            HtspResult.Timeout,
+            HtspResult.TransportUnavailable,
+            HtspResult.NotSupported,
+        )
+        failures.forEach { failure ->
+            assertTrue(
+                "Failure must not retain payload fields: ${failure.javaClass.declaredFields.toList()}",
+                failure.javaClass.declaredFields.all { field -> Modifier.isStatic(field.modifiers) },
+            )
+        }
+        assertTrue(HtspResult::class.java.declaredClasses.none { nested -> nested.simpleName == "Conflict" })
+    }
+
+    @Test
+    fun methodNotFoundIsNotSupportedWhileOrdinaryErrorsRemainServerError() = runTest {
+        val transport = FakeProtocolTransport(version = 44)
+        val connection = HtspTypedRequestCaller(transport)
+
+        transport.reply = HtspWireReply(linkedMapOf("error" to "Unknown method: getChannel"))
+        assertSame(HtspResult.NotSupported, connection.call(GetChannelRequest(7L)))
+
+        transport.reply = HtspWireReply(linkedMapOf("error" to "ordinary server detail"))
+        assertSame(HtspResult.ServerError, connection.call(GetChannelRequest(7L)))
+
+        transport.reply = HtspWireReply(linkedMapOf("error" to 7L))
+        assertSame(HtspResult.ServerError, connection.call(GetChannelRequest(7L)))
+    }
+
+    @Test
+    fun dvrMutationRepliesPreserveOptionalWireErrorsWithoutInventingSuccess() = runTest {
+        val transport = FakeProtocolTransport(version = 44)
+        val connection = HtspTypedRequestCaller(transport)
+
+        transport.reply = HtspWireReply(linkedMapOf("error" to "add exact detail"))
+        assertEquals(
+            HtspResult.Ok(AddDvrEntryResponse(success = null, entryId = null, error = "add exact detail")),
+            connection.call(AddDvrEntryRequest(AddDvrEntrySelector.Event(1L))),
+        )
+        transport.reply = HtspWireReply(linkedMapOf("error" to "update exact detail"))
+        assertEquals(
+            HtspResult.Ok(UpdateDvrEntryResponse(success = null, error = "update exact detail")),
+            connection.call(UpdateDvrEntryRequest(1L)),
+        )
+        transport.reply = HtspWireReply(linkedMapOf("error" to "stop exact detail"))
+        assertEquals(
+            HtspResult.Ok(StopDvrEntryResponse(success = null, error = "stop exact detail")),
+            connection.call(StopDvrEntryRequest(1L)),
+        )
+        transport.reply = HtspWireReply(linkedMapOf("error" to "cancel exact detail"))
+        assertEquals(
+            HtspResult.Ok(CancelDvrEntryResponse(success = null, error = "cancel exact detail")),
+            connection.call(CancelDvrEntryRequest(1L)),
+        )
+        transport.reply = HtspWireReply(linkedMapOf("success" to 1L, "error" to "delete exact detail"))
+        assertEquals(
+            HtspResult.Ok(DeleteDvrEntryResponse(success = 1L, error = "delete exact detail")),
+            connection.call(DeleteDvrEntryRequest(1L)),
+        )
+
+        transport.reply = HtspWireReply(linkedMapOf())
+        assertSame(
+            HtspResult.ServerError,
+            connection.call(DeleteDvrEntryRequest(1L)),
+        )
+        transport.reply = HtspWireReply(linkedMapOf("error" to 1L))
+        assertSame(
+            HtspResult.ServerError,
+            connection.call(DeleteDvrEntryRequest(1L)),
+        )
+    }
+
+    @Test
+    fun addDvrEntryReplyUsesStrictIdThenCompatibilityDvrId() = runTest {
+        val transport = FakeProtocolTransport(version = 44)
+        val connection = HtspTypedRequestCaller(transport)
+        val request = AddDvrEntryRequest(AddDvrEntrySelector.Event(1L))
+
+        listOf(
+            linkedMapOf("success" to 1L, "id" to 11L) to 11L,
+            linkedMapOf("success" to 1L, "dvrId" to 12L) to 12L,
+            linkedMapOf("success" to 1L, "id" to 13L, "dvrId" to 14L) to 13L,
+            linkedMapOf("success" to 1L, "id" to 15L, "dvrId" to "ignored") to 15L,
+        ).forEach { (fields, expectedEntryId) ->
+            transport.reply = HtspWireReply(fields)
+            assertEquals(
+                HtspResult.Ok(AddDvrEntryResponse(1L, expectedEntryId, null)),
+                connection.call(request),
+            )
+        }
+
+        listOf(
+            linkedMapOf("success" to 1L, "id" to "11", "dvrId" to 12L),
+            linkedMapOf("success" to 1L, "dvrId" to -1L),
+            linkedMapOf("success" to 1L, "dvrId" to 0x1_0000_0000L),
+        ).forEach { fields ->
+            transport.reply = HtspWireReply(fields)
+            assertSame(HtspResult.ServerError, connection.call(request))
+        }
+    }
+
+    @Test
+    fun enableAsyncMetadataRequestPreservesFieldsAndOnlySelectedFieldsRequireVersionSix() = runTest {
+        assertEquals(linkedMapOf<String, Any?>(), HtspRequestCodecs.encode(EnableAsyncMetadataRequest()))
+        assertEquals(null, EnableAsyncMetadataRequest().minimumProtocolVersion)
+        assertEquals(
+            linkedMapOf(
+                "epg" to 0xffff_ffffL,
+                "lastUpdate" to Long.MIN_VALUE,
+                "epgMaxTime" to Long.MAX_VALUE,
+                "language" to "",
+            ),
+            HtspRequestCodecs.encode(
+                EnableAsyncMetadataRequest(
+                    epg = 0xffff_ffffL,
+                    lastUpdate = Long.MIN_VALUE,
+                    epgMaxTime = Long.MAX_VALUE,
+                    language = "",
+                ),
+            ),
+        )
+        assertEquals(6, EnableAsyncMetadataRequest(epg = 0L).minimumProtocolVersion)
+
+        val transport = FakeProtocolTransport(version = 5).apply {
+            reply = HtspWireReply(linkedMapOf())
+        }
+        val caller = HtspTypedRequestCaller(transport)
+        assertEquals(HtspResult.Ok(HtspEmptyResponse), caller.call(EnableAsyncMetadataRequest()))
+        assertSame(HtspResult.NotSupported, caller.call(EnableAsyncMetadataRequest(language = "")))
+        assertEquals(1, transport.dispatches)
     }
 
     @Test
@@ -321,6 +476,7 @@ class HtspProtocolCoreTest {
             GetProfilesRequest::class.java,
             GetDiskSpaceRequest::class.java,
             GetSysTimeRequest::class.java,
+            EnableAsyncMetadataRequest::class.java,
             GetChannelRequest::class.java,
             GetEventRequest::class.java,
             GetEventsRequest::class.java,
@@ -431,7 +587,7 @@ class HtspProtocolCoreTest {
                 selector = AddDvrEntrySelector.ExplicitChannelTime(1L, 2L, 3L),
             ),
         )
-        assertEquals(HtspResult.Ok(AddDvrEntryResponse(1L, null)), result)
+        assertEquals(HtspResult.Ok(AddDvrEntryResponse(1L, null, null)), result)
         assertEquals(1, transport.dispatches)
         assertEquals("addDvrEntry", transport.lastMethod)
         assertEquals(linkedMapOf("channelId" to 1L, "start" to 2L, "stop" to 3L), transport.lastFields)

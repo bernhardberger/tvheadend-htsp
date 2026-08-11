@@ -18,6 +18,7 @@ internal val typedHtspRequestCatalog: List<TypedHtspRequestCatalogEntry> = listO
     TypedHtspRequestCatalogEntry("getProfiles", "GetProfilesRequest", "GetProfilesResponse", HtspAccess.ACCESS_HTSP_STREAMING, 16),
     TypedHtspRequestCatalogEntry("getDiskSpace", "GetDiskSpaceRequest", "GetDiskSpaceResponse", HtspAccess.ACCESS_HTSP_STREAMING, 3),
     TypedHtspRequestCatalogEntry("getSysTime", "GetSysTimeRequest", "GetSysTimeResponse", HtspAccess.ACCESS_HTSP_STREAMING, 3),
+    TypedHtspRequestCatalogEntry("enableAsyncMetadata", "EnableAsyncMetadataRequest", "HtspEmptyResponse", HtspAccess.ACCESS_HTSP_STREAMING, null),
     TypedHtspRequestCatalogEntry("getChannel", "GetChannelRequest", "GetChannelResponse", HtspAccess.ACCESS_HTSP_STREAMING, 14),
     TypedHtspRequestCatalogEntry("getEvent", "GetEventRequest", "GetEventResponse", HtspAccess.ACCESS_HTSP_STREAMING, null),
     TypedHtspRequestCatalogEntry("getEvents", "GetEventsRequest", "GetEventsResponse", HtspAccess.ACCESS_HTSP_STREAMING, 4),
@@ -40,6 +41,7 @@ internal val typedHtspRequestCatalog: List<TypedHtspRequestCatalogEntry> = listO
 public suspend fun HtspConnection.getProfiles(request: GetProfilesRequest = GetProfilesRequest()): HtspResult<GetProfilesResponse> = call(request)
 public suspend fun HtspConnection.getDiskSpace(request: GetDiskSpaceRequest = GetDiskSpaceRequest()): HtspResult<GetDiskSpaceResponse> = call(request)
 public suspend fun HtspConnection.getSysTime(request: GetSysTimeRequest = GetSysTimeRequest()): HtspResult<GetSysTimeResponse> = call(request)
+public suspend fun HtspConnection.enableAsyncMetadata(request: EnableAsyncMetadataRequest = EnableAsyncMetadataRequest()): HtspResult<HtspEmptyResponse> = call(request)
 public suspend fun HtspConnection.getChannel(request: GetChannelRequest): HtspResult<GetChannelResponse> = call(request)
 public suspend fun HtspConnection.getEvent(request: GetEventRequest): HtspResult<GetEventResponse> = call(request)
 public suspend fun HtspConnection.getEvents(request: GetEventsRequest): HtspResult<GetEventsResponse> = call(request)

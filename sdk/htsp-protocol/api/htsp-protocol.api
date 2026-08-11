@@ -24,15 +24,17 @@ public final class at/bernhardberger/tvheadend/htsp/AddDvrEntryRequest : at/bern
 	public fun toString ()Ljava/lang/String;
 }
 
-public final class at/bernhardberger/tvheadend/htsp/AddDvrEntryResponse {
-	public fun <init> (JLjava/lang/Long;)V
-	public final fun component1 ()J
+public final class at/bernhardberger/tvheadend/htsp/AddDvrEntryResponse : at/bernhardberger/tvheadend/htsp/HtspDvrMutationResponse {
+	public fun <init> (Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/Long;
 	public final fun component2 ()Ljava/lang/Long;
-	public final fun copy (JLjava/lang/Long;)Lat/bernhardberger/tvheadend/htsp/AddDvrEntryResponse;
-	public static synthetic fun copy$default (Lat/bernhardberger/tvheadend/htsp/AddDvrEntryResponse;JLjava/lang/Long;ILjava/lang/Object;)Lat/bernhardberger/tvheadend/htsp/AddDvrEntryResponse;
+	public final fun component3 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/String;)Lat/bernhardberger/tvheadend/htsp/AddDvrEntryResponse;
+	public static synthetic fun copy$default (Lat/bernhardberger/tvheadend/htsp/AddDvrEntryResponse;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/String;ILjava/lang/Object;)Lat/bernhardberger/tvheadend/htsp/AddDvrEntryResponse;
 	public fun equals (Ljava/lang/Object;)Z
-	public final fun getEntryId ()Ljava/lang/Long;
-	public final fun getSuccess ()J
+	public fun getEntryId ()Ljava/lang/Long;
+	public fun getError ()Ljava/lang/String;
+	public fun getSuccess ()Ljava/lang/Long;
 	public fun hashCode ()I
 	public fun toString ()Ljava/lang/String;
 }
@@ -77,13 +79,16 @@ public final class at/bernhardberger/tvheadend/htsp/CancelDvrEntryRequest : at/b
 	public fun toString ()Ljava/lang/String;
 }
 
-public final class at/bernhardberger/tvheadend/htsp/CancelDvrEntryResponse {
-	public fun <init> (J)V
-	public final fun component1 ()J
-	public final fun copy (J)Lat/bernhardberger/tvheadend/htsp/CancelDvrEntryResponse;
-	public static synthetic fun copy$default (Lat/bernhardberger/tvheadend/htsp/CancelDvrEntryResponse;JILjava/lang/Object;)Lat/bernhardberger/tvheadend/htsp/CancelDvrEntryResponse;
+public final class at/bernhardberger/tvheadend/htsp/CancelDvrEntryResponse : at/bernhardberger/tvheadend/htsp/HtspDvrMutationResponse {
+	public fun <init> (Ljava/lang/Long;Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/Long;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/Long;Ljava/lang/String;)Lat/bernhardberger/tvheadend/htsp/CancelDvrEntryResponse;
+	public static synthetic fun copy$default (Lat/bernhardberger/tvheadend/htsp/CancelDvrEntryResponse;Ljava/lang/Long;Ljava/lang/String;ILjava/lang/Object;)Lat/bernhardberger/tvheadend/htsp/CancelDvrEntryResponse;
 	public fun equals (Ljava/lang/Object;)Z
-	public final fun getSuccess ()J
+	public fun getEntryId ()Ljava/lang/Long;
+	public fun getError ()Ljava/lang/String;
+	public fun getSuccess ()Ljava/lang/Long;
 	public fun hashCode ()I
 	public fun toString ()Ljava/lang/String;
 }
@@ -151,13 +156,35 @@ public final class at/bernhardberger/tvheadend/htsp/DeleteDvrEntryRequest : at/b
 	public fun toString ()Ljava/lang/String;
 }
 
-public final class at/bernhardberger/tvheadend/htsp/DeleteDvrEntryResponse {
-	public fun <init> (J)V
-	public final fun component1 ()J
-	public final fun copy (J)Lat/bernhardberger/tvheadend/htsp/DeleteDvrEntryResponse;
-	public static synthetic fun copy$default (Lat/bernhardberger/tvheadend/htsp/DeleteDvrEntryResponse;JILjava/lang/Object;)Lat/bernhardberger/tvheadend/htsp/DeleteDvrEntryResponse;
+public final class at/bernhardberger/tvheadend/htsp/DeleteDvrEntryResponse : at/bernhardberger/tvheadend/htsp/HtspDvrMutationResponse {
+	public fun <init> (Ljava/lang/Long;Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/Long;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/Long;Ljava/lang/String;)Lat/bernhardberger/tvheadend/htsp/DeleteDvrEntryResponse;
+	public static synthetic fun copy$default (Lat/bernhardberger/tvheadend/htsp/DeleteDvrEntryResponse;Ljava/lang/Long;Ljava/lang/String;ILjava/lang/Object;)Lat/bernhardberger/tvheadend/htsp/DeleteDvrEntryResponse;
 	public fun equals (Ljava/lang/Object;)Z
-	public final fun getSuccess ()J
+	public fun getEntryId ()Ljava/lang/Long;
+	public fun getError ()Ljava/lang/String;
+	public fun getSuccess ()Ljava/lang/Long;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class at/bernhardberger/tvheadend/htsp/EnableAsyncMetadataRequest : at/bernhardberger/tvheadend/htsp/HtspRequest {
+	public fun <init> ()V
+	public fun <init> (Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/String;)V
+	public synthetic fun <init> (Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/Long;
+	public final fun component2 ()Ljava/lang/Long;
+	public final fun component3 ()Ljava/lang/Long;
+	public final fun component4 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/String;)Lat/bernhardberger/tvheadend/htsp/EnableAsyncMetadataRequest;
+	public static synthetic fun copy$default (Lat/bernhardberger/tvheadend/htsp/EnableAsyncMetadataRequest;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/String;ILjava/lang/Object;)Lat/bernhardberger/tvheadend/htsp/EnableAsyncMetadataRequest;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getEpg ()Ljava/lang/Long;
+	public final fun getEpgMaxTime ()Ljava/lang/Long;
+	public final fun getLanguage ()Ljava/lang/String;
+	public final fun getLastUpdate ()Ljava/lang/Long;
 	public fun hashCode ()I
 	public fun toString ()Ljava/lang/String;
 }
@@ -166,6 +193,8 @@ public final class at/bernhardberger/tvheadend/htsp/GeneratedHtspExtensionsKt {
 	public static final fun addDvrEntry (Lat/bernhardberger/tvheadend/htsp/HtspConnection;Lat/bernhardberger/tvheadend/htsp/AddDvrEntryRequest;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public static final fun cancelDvrEntry (Lat/bernhardberger/tvheadend/htsp/HtspConnection;Lat/bernhardberger/tvheadend/htsp/CancelDvrEntryRequest;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public static final fun deleteDvrEntry (Lat/bernhardberger/tvheadend/htsp/HtspConnection;Lat/bernhardberger/tvheadend/htsp/DeleteDvrEntryRequest;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static final fun enableAsyncMetadata (Lat/bernhardberger/tvheadend/htsp/HtspConnection;Lat/bernhardberger/tvheadend/htsp/EnableAsyncMetadataRequest;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static synthetic fun enableAsyncMetadata$default (Lat/bernhardberger/tvheadend/htsp/HtspConnection;Lat/bernhardberger/tvheadend/htsp/EnableAsyncMetadataRequest;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
 	public static final fun getChannel (Lat/bernhardberger/tvheadend/htsp/HtspConnection;Lat/bernhardberger/tvheadend/htsp/GetChannelRequest;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public static final fun getDiskSpace (Lat/bernhardberger/tvheadend/htsp/HtspConnection;Lat/bernhardberger/tvheadend/htsp/GetDiskSpaceRequest;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public static synthetic fun getDiskSpace$default (Lat/bernhardberger/tvheadend/htsp/HtspConnection;Lat/bernhardberger/tvheadend/htsp/GetDiskSpaceRequest;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
@@ -545,16 +574,10 @@ public abstract interface class at/bernhardberger/tvheadend/htsp/HtspConnection 
 	public static synthetic fun connect$default (Lat/bernhardberger/tvheadend/htsp/HtspConnection;Lat/bernhardberger/tvheadend/htsp/HtspEndpoint;Lat/bernhardberger/tvheadend/htsp/HtspConnectOptions;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
 	public abstract fun disconnect (Lat/bernhardberger/tvheadend/htsp/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public static synthetic fun disconnect$default (Lat/bernhardberger/tvheadend/htsp/HtspConnection;Lat/bernhardberger/tvheadend/htsp/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
-	public abstract fun executeDvrMutation (Lat/bernhardberger/tvheadend/htsp/HtspDvrMutationRequest;JLat/bernhardberger/tvheadend/htsp/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
-	public static synthetic fun executeDvrMutation$default (Lat/bernhardberger/tvheadend/htsp/HtspConnection;Lat/bernhardberger/tvheadend/htsp/HtspDvrMutationRequest;JLat/bernhardberger/tvheadend/htsp/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
-	public abstract fun getDvrConfigurations (JLat/bernhardberger/tvheadend/htsp/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
-	public static synthetic fun getDvrConfigurations$default (Lat/bernhardberger/tvheadend/htsp/HtspConnection;JLat/bernhardberger/tvheadend/htsp/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
 	public abstract fun getEvents ()Lkotlinx/coroutines/flow/Flow;
 	public abstract fun getLiveConnection ()Lkotlinx/coroutines/flow/StateFlow;
 	public abstract fun getPlaybackTransport ()Lat/bernhardberger/tvheadend/htsp/PlaybackHtspTransport;
 	public abstract fun isCurrent (Lat/bernhardberger/tvheadend/htsp/HtspConnectionGeneration;)Z
-	public abstract fun synchronizeMetadata (JLkotlin/coroutines/Continuation;)Ljava/lang/Object;
-	public static synthetic fun synchronizeMetadata$default (Lat/bernhardberger/tvheadend/htsp/HtspConnection;JLkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
 }
 
 public final class at/bernhardberger/tvheadend/htsp/HtspConnection$DefaultImpls {
@@ -562,9 +585,6 @@ public final class at/bernhardberger/tvheadend/htsp/HtspConnection$DefaultImpls 
 	public static synthetic fun close$default (Lat/bernhardberger/tvheadend/htsp/HtspConnection;Lat/bernhardberger/tvheadend/htsp/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
 	public static synthetic fun connect$default (Lat/bernhardberger/tvheadend/htsp/HtspConnection;Lat/bernhardberger/tvheadend/htsp/HtspEndpoint;Lat/bernhardberger/tvheadend/htsp/HtspConnectOptions;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
 	public static synthetic fun disconnect$default (Lat/bernhardberger/tvheadend/htsp/HtspConnection;Lat/bernhardberger/tvheadend/htsp/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
-	public static synthetic fun executeDvrMutation$default (Lat/bernhardberger/tvheadend/htsp/HtspConnection;Lat/bernhardberger/tvheadend/htsp/HtspDvrMutationRequest;JLat/bernhardberger/tvheadend/htsp/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
-	public static synthetic fun getDvrConfigurations$default (Lat/bernhardberger/tvheadend/htsp/HtspConnection;JLat/bernhardberger/tvheadend/htsp/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
-	public static synthetic fun synchronizeMetadata$default (Lat/bernhardberger/tvheadend/htsp/HtspConnection;JLkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
 }
 
 public final class at/bernhardberger/tvheadend/htsp/HtspConnectionAttemptStatus : java/lang/Enum {
@@ -636,62 +656,6 @@ public final class at/bernhardberger/tvheadend/htsp/HtspDvrConfig {
 	public final fun getComment ()Ljava/lang/String;
 	public final fun getDvrConfigUuid ()Ljava/lang/String;
 	public final fun getName ()Ljava/lang/String;
-	public fun hashCode ()I
-	public fun toString ()Ljava/lang/String;
-}
-
-public abstract interface class at/bernhardberger/tvheadend/htsp/HtspDvrConfigurationsOutcome {
-}
-
-public final class at/bernhardberger/tvheadend/htsp/HtspDvrConfigurationsOutcome$ConnectionLimit : at/bernhardberger/tvheadend/htsp/HtspDvrConfigurationsOutcome {
-	public static final field INSTANCE Lat/bernhardberger/tvheadend/htsp/HtspDvrConfigurationsOutcome$ConnectionLimit;
-	public fun equals (Ljava/lang/Object;)Z
-	public fun hashCode ()I
-	public fun toString ()Ljava/lang/String;
-}
-
-public final class at/bernhardberger/tvheadend/htsp/HtspDvrConfigurationsOutcome$NotSupported : at/bernhardberger/tvheadend/htsp/HtspDvrConfigurationsOutcome {
-	public static final field INSTANCE Lat/bernhardberger/tvheadend/htsp/HtspDvrConfigurationsOutcome$NotSupported;
-	public fun equals (Ljava/lang/Object;)Z
-	public fun hashCode ()I
-	public fun toString ()Ljava/lang/String;
-}
-
-public final class at/bernhardberger/tvheadend/htsp/HtspDvrConfigurationsOutcome$PermissionDenied : at/bernhardberger/tvheadend/htsp/HtspDvrConfigurationsOutcome {
-	public static final field INSTANCE Lat/bernhardberger/tvheadend/htsp/HtspDvrConfigurationsOutcome$PermissionDenied;
-	public fun equals (Ljava/lang/Object;)Z
-	public fun hashCode ()I
-	public fun toString ()Ljava/lang/String;
-}
-
-public final class at/bernhardberger/tvheadend/htsp/HtspDvrConfigurationsOutcome$Rejected : at/bernhardberger/tvheadend/htsp/HtspDvrConfigurationsOutcome {
-	public static final field INSTANCE Lat/bernhardberger/tvheadend/htsp/HtspDvrConfigurationsOutcome$Rejected;
-	public fun equals (Ljava/lang/Object;)Z
-	public fun hashCode ()I
-	public fun toString ()Ljava/lang/String;
-}
-
-public final class at/bernhardberger/tvheadend/htsp/HtspDvrConfigurationsOutcome$Success : at/bernhardberger/tvheadend/htsp/HtspDvrConfigurationsOutcome {
-	public fun <init> (Ljava/util/List;)V
-	public final fun component1 ()Ljava/util/List;
-	public final fun copy (Ljava/util/List;)Lat/bernhardberger/tvheadend/htsp/HtspDvrConfigurationsOutcome$Success;
-	public static synthetic fun copy$default (Lat/bernhardberger/tvheadend/htsp/HtspDvrConfigurationsOutcome$Success;Ljava/util/List;ILjava/lang/Object;)Lat/bernhardberger/tvheadend/htsp/HtspDvrConfigurationsOutcome$Success;
-	public fun equals (Ljava/lang/Object;)Z
-	public final fun getConfigurations ()Ljava/util/List;
-	public fun hashCode ()I
-	public fun toString ()Ljava/lang/String;
-}
-
-public final class at/bernhardberger/tvheadend/htsp/HtspDvrConfigurationsOutcome$Timeout : at/bernhardberger/tvheadend/htsp/HtspDvrConfigurationsOutcome {
-	public static final field INSTANCE Lat/bernhardberger/tvheadend/htsp/HtspDvrConfigurationsOutcome$Timeout;
-	public fun equals (Ljava/lang/Object;)Z
-	public fun hashCode ()I
-	public fun toString ()Ljava/lang/String;
-}
-
-public final class at/bernhardberger/tvheadend/htsp/HtspDvrConfigurationsOutcome$TransportUnavailable : at/bernhardberger/tvheadend/htsp/HtspDvrConfigurationsOutcome {
-	public static final field INSTANCE Lat/bernhardberger/tvheadend/htsp/HtspDvrConfigurationsOutcome$TransportUnavailable;
-	public fun equals (Ljava/lang/Object;)Z
 	public fun hashCode ()I
 	public fun toString ()Ljava/lang/String;
 }
@@ -828,72 +792,17 @@ public final class at/bernhardberger/tvheadend/htsp/HtspDvrEntryUpdateMessage : 
 	public final fun getTitle ()Ljava/lang/String;
 }
 
-public abstract interface class at/bernhardberger/tvheadend/htsp/HtspDvrMutationOutcome {
-}
-
-public final class at/bernhardberger/tvheadend/htsp/HtspDvrMutationOutcome$Accepted : at/bernhardberger/tvheadend/htsp/HtspDvrMutationOutcome {
-	public fun <init> ()V
-	public fun <init> (Ljava/lang/Long;)V
-	public synthetic fun <init> (Ljava/lang/Long;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
-	public final fun component1 ()Ljava/lang/Long;
-	public final fun copy (Ljava/lang/Long;)Lat/bernhardberger/tvheadend/htsp/HtspDvrMutationOutcome$Accepted;
-	public static synthetic fun copy$default (Lat/bernhardberger/tvheadend/htsp/HtspDvrMutationOutcome$Accepted;Ljava/lang/Long;ILjava/lang/Object;)Lat/bernhardberger/tvheadend/htsp/HtspDvrMutationOutcome$Accepted;
-	public fun equals (Ljava/lang/Object;)Z
-	public final fun getEntryId ()Ljava/lang/Long;
-	public fun hashCode ()I
-	public fun toString ()Ljava/lang/String;
-}
-
-public final class at/bernhardberger/tvheadend/htsp/HtspDvrMutationOutcome$Conflict : at/bernhardberger/tvheadend/htsp/HtspDvrMutationOutcome {
-	public static final field INSTANCE Lat/bernhardberger/tvheadend/htsp/HtspDvrMutationOutcome$Conflict;
-	public fun equals (Ljava/lang/Object;)Z
-	public fun hashCode ()I
-	public fun toString ()Ljava/lang/String;
-}
-
-public final class at/bernhardberger/tvheadend/htsp/HtspDvrMutationOutcome$ConnectionLimit : at/bernhardberger/tvheadend/htsp/HtspDvrMutationOutcome {
-	public static final field INSTANCE Lat/bernhardberger/tvheadend/htsp/HtspDvrMutationOutcome$ConnectionLimit;
-	public fun equals (Ljava/lang/Object;)Z
-	public fun hashCode ()I
-	public fun toString ()Ljava/lang/String;
-}
-
-public final class at/bernhardberger/tvheadend/htsp/HtspDvrMutationOutcome$NotSupported : at/bernhardberger/tvheadend/htsp/HtspDvrMutationOutcome {
-	public static final field INSTANCE Lat/bernhardberger/tvheadend/htsp/HtspDvrMutationOutcome$NotSupported;
-	public fun equals (Ljava/lang/Object;)Z
-	public fun hashCode ()I
-	public fun toString ()Ljava/lang/String;
-}
-
-public final class at/bernhardberger/tvheadend/htsp/HtspDvrMutationOutcome$PermissionDenied : at/bernhardberger/tvheadend/htsp/HtspDvrMutationOutcome {
-	public static final field INSTANCE Lat/bernhardberger/tvheadend/htsp/HtspDvrMutationOutcome$PermissionDenied;
-	public fun equals (Ljava/lang/Object;)Z
-	public fun hashCode ()I
-	public fun toString ()Ljava/lang/String;
-}
-
-public final class at/bernhardberger/tvheadend/htsp/HtspDvrMutationOutcome$Rejected : at/bernhardberger/tvheadend/htsp/HtspDvrMutationOutcome {
-	public static final field INSTANCE Lat/bernhardberger/tvheadend/htsp/HtspDvrMutationOutcome$Rejected;
-	public fun equals (Ljava/lang/Object;)Z
-	public fun hashCode ()I
-	public fun toString ()Ljava/lang/String;
-}
-
-public final class at/bernhardberger/tvheadend/htsp/HtspDvrMutationOutcome$Timeout : at/bernhardberger/tvheadend/htsp/HtspDvrMutationOutcome {
-	public static final field INSTANCE Lat/bernhardberger/tvheadend/htsp/HtspDvrMutationOutcome$Timeout;
-	public fun equals (Ljava/lang/Object;)Z
-	public fun hashCode ()I
-	public fun toString ()Ljava/lang/String;
-}
-
-public final class at/bernhardberger/tvheadend/htsp/HtspDvrMutationOutcome$TransportUnavailable : at/bernhardberger/tvheadend/htsp/HtspDvrMutationOutcome {
-	public static final field INSTANCE Lat/bernhardberger/tvheadend/htsp/HtspDvrMutationOutcome$TransportUnavailable;
-	public fun equals (Ljava/lang/Object;)Z
-	public fun hashCode ()I
-	public fun toString ()Ljava/lang/String;
-}
-
 public abstract interface class at/bernhardberger/tvheadend/htsp/HtspDvrMutationRequest {
+}
+
+public abstract interface class at/bernhardberger/tvheadend/htsp/HtspDvrMutationResponse {
+	public fun getEntryId ()Ljava/lang/Long;
+	public abstract fun getError ()Ljava/lang/String;
+	public abstract fun getSuccess ()Ljava/lang/Long;
+}
+
+public final class at/bernhardberger/tvheadend/htsp/HtspDvrMutationResponse$DefaultImpls {
+	public static fun getEntryId (Lat/bernhardberger/tvheadend/htsp/HtspDvrMutationResponse;)Ljava/lang/Long;
 }
 
 public final class at/bernhardberger/tvheadend/htsp/HtspDvrRecordingFile {
@@ -1063,6 +972,9 @@ public final class at/bernhardberger/tvheadend/htsp/HtspEventUpdateMessage : at/
 	public final fun getSummary ()Ljava/lang/String;
 	public final fun getTitle ()Ljava/lang/String;
 	public final fun isNew ()Ljava/lang/Long;
+}
+
+public abstract interface class at/bernhardberger/tvheadend/htsp/HtspFailure : at/bernhardberger/tvheadend/htsp/HtspResult {
 }
 
 public final class at/bernhardberger/tvheadend/htsp/HtspInitialSyncCompletedMessage : at/bernhardberger/tvheadend/htsp/HtspServerMessage {
@@ -1246,14 +1158,21 @@ public abstract class at/bernhardberger/tvheadend/htsp/HtspRequest {
 public abstract interface class at/bernhardberger/tvheadend/htsp/HtspResult {
 }
 
-public final class at/bernhardberger/tvheadend/htsp/HtspResult$AccessDenied : at/bernhardberger/tvheadend/htsp/HtspResult {
+public final class at/bernhardberger/tvheadend/htsp/HtspResult$AccessDenied : at/bernhardberger/tvheadend/htsp/HtspFailure {
 	public static final field INSTANCE Lat/bernhardberger/tvheadend/htsp/HtspResult$AccessDenied;
 	public fun equals (Ljava/lang/Object;)Z
 	public fun hashCode ()I
 	public fun toString ()Ljava/lang/String;
 }
 
-public final class at/bernhardberger/tvheadend/htsp/HtspResult$NotSupported : at/bernhardberger/tvheadend/htsp/HtspResult {
+public final class at/bernhardberger/tvheadend/htsp/HtspResult$ConnectionLimit : at/bernhardberger/tvheadend/htsp/HtspFailure {
+	public static final field INSTANCE Lat/bernhardberger/tvheadend/htsp/HtspResult$ConnectionLimit;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class at/bernhardberger/tvheadend/htsp/HtspResult$NotSupported : at/bernhardberger/tvheadend/htsp/HtspFailure {
 	public static final field INSTANCE Lat/bernhardberger/tvheadend/htsp/HtspResult$NotSupported;
 	public fun equals (Ljava/lang/Object;)Z
 	public fun hashCode ()I
@@ -1271,21 +1190,21 @@ public final class at/bernhardberger/tvheadend/htsp/HtspResult$Ok : at/bernhardb
 	public fun toString ()Ljava/lang/String;
 }
 
-public final class at/bernhardberger/tvheadend/htsp/HtspResult$ServerError : at/bernhardberger/tvheadend/htsp/HtspResult {
+public final class at/bernhardberger/tvheadend/htsp/HtspResult$ServerError : at/bernhardberger/tvheadend/htsp/HtspFailure {
 	public static final field INSTANCE Lat/bernhardberger/tvheadend/htsp/HtspResult$ServerError;
 	public fun equals (Ljava/lang/Object;)Z
 	public fun hashCode ()I
 	public fun toString ()Ljava/lang/String;
 }
 
-public final class at/bernhardberger/tvheadend/htsp/HtspResult$Timeout : at/bernhardberger/tvheadend/htsp/HtspResult {
+public final class at/bernhardberger/tvheadend/htsp/HtspResult$Timeout : at/bernhardberger/tvheadend/htsp/HtspFailure {
 	public static final field INSTANCE Lat/bernhardberger/tvheadend/htsp/HtspResult$Timeout;
 	public fun equals (Ljava/lang/Object;)Z
 	public fun hashCode ()I
 	public fun toString ()Ljava/lang/String;
 }
 
-public final class at/bernhardberger/tvheadend/htsp/HtspResult$TransportUnavailable : at/bernhardberger/tvheadend/htsp/HtspResult {
+public final class at/bernhardberger/tvheadend/htsp/HtspResult$TransportUnavailable : at/bernhardberger/tvheadend/htsp/HtspFailure {
 	public static final field INSTANCE Lat/bernhardberger/tvheadend/htsp/HtspResult$TransportUnavailable;
 	public fun equals (Ljava/lang/Object;)Z
 	public fun hashCode ()I
@@ -1813,13 +1732,16 @@ public final class at/bernhardberger/tvheadend/htsp/StopDvrEntryRequest : at/ber
 	public fun toString ()Ljava/lang/String;
 }
 
-public final class at/bernhardberger/tvheadend/htsp/StopDvrEntryResponse {
-	public fun <init> (J)V
-	public final fun component1 ()J
-	public final fun copy (J)Lat/bernhardberger/tvheadend/htsp/StopDvrEntryResponse;
-	public static synthetic fun copy$default (Lat/bernhardberger/tvheadend/htsp/StopDvrEntryResponse;JILjava/lang/Object;)Lat/bernhardberger/tvheadend/htsp/StopDvrEntryResponse;
+public final class at/bernhardberger/tvheadend/htsp/StopDvrEntryResponse : at/bernhardberger/tvheadend/htsp/HtspDvrMutationResponse {
+	public fun <init> (Ljava/lang/Long;Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/Long;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/Long;Ljava/lang/String;)Lat/bernhardberger/tvheadend/htsp/StopDvrEntryResponse;
+	public static synthetic fun copy$default (Lat/bernhardberger/tvheadend/htsp/StopDvrEntryResponse;Ljava/lang/Long;Ljava/lang/String;ILjava/lang/Object;)Lat/bernhardberger/tvheadend/htsp/StopDvrEntryResponse;
 	public fun equals (Ljava/lang/Object;)Z
-	public final fun getSuccess ()J
+	public fun getEntryId ()Ljava/lang/Long;
+	public fun getError ()Ljava/lang/String;
+	public fun getSuccess ()Ljava/lang/Long;
 	public fun hashCode ()I
 	public fun toString ()Ljava/lang/String;
 }
@@ -2051,13 +1973,16 @@ public final class at/bernhardberger/tvheadend/htsp/UpdateDvrEntryRequest : at/b
 	public fun toString ()Ljava/lang/String;
 }
 
-public final class at/bernhardberger/tvheadend/htsp/UpdateDvrEntryResponse {
-	public fun <init> (J)V
-	public final fun component1 ()J
-	public final fun copy (J)Lat/bernhardberger/tvheadend/htsp/UpdateDvrEntryResponse;
-	public static synthetic fun copy$default (Lat/bernhardberger/tvheadend/htsp/UpdateDvrEntryResponse;JILjava/lang/Object;)Lat/bernhardberger/tvheadend/htsp/UpdateDvrEntryResponse;
+public final class at/bernhardberger/tvheadend/htsp/UpdateDvrEntryResponse : at/bernhardberger/tvheadend/htsp/HtspDvrMutationResponse {
+	public fun <init> (Ljava/lang/Long;Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/Long;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/Long;Ljava/lang/String;)Lat/bernhardberger/tvheadend/htsp/UpdateDvrEntryResponse;
+	public static synthetic fun copy$default (Lat/bernhardberger/tvheadend/htsp/UpdateDvrEntryResponse;Ljava/lang/Long;Ljava/lang/String;ILjava/lang/Object;)Lat/bernhardberger/tvheadend/htsp/UpdateDvrEntryResponse;
 	public fun equals (Ljava/lang/Object;)Z
-	public final fun getSuccess ()J
+	public fun getEntryId ()Ljava/lang/Long;
+	public fun getError ()Ljava/lang/String;
+	public fun getSuccess ()Ljava/lang/Long;
 	public fun hashCode ()I
 	public fun toString ()Ljava/lang/String;
 }

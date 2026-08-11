@@ -110,47 +110,42 @@ public data class GetEventsResponse(public val events: List<HtspEvent>)
 
 public data class GetDvrConfigsResponse(public val configurations: List<HtspDvrConfig>?)
 
-/** Closed request family for DVR mutations with bounded failure classification. */
+/** Closed wire request family for the five DVR mutation methods. */
 public sealed interface HtspDvrMutationRequest
 
-/** Bounded DVR mutation result. Raw server diagnostics are intentionally discarded. */
-public sealed interface HtspDvrMutationOutcome {
-    public data class Accepted(public val entryId: Long? = null) : HtspDvrMutationOutcome
-    public data object PermissionDenied : HtspDvrMutationOutcome
-    public data object ConnectionLimit : HtspDvrMutationOutcome
-    public data object Conflict : HtspDvrMutationOutcome
-    public data object NotSupported : HtspDvrMutationOutcome
-    public data object Timeout : HtspDvrMutationOutcome
-    public data object TransportUnavailable : HtspDvrMutationOutcome
-    public data object Rejected : HtspDvrMutationOutcome
-}
-
-/** Bounded `getDvrConfigs` result with no raw error payload. */
-public sealed interface HtspDvrConfigurationsOutcome {
-    public data class Success(
-        public val configurations: List<HtspDvrConfig>?,
-    ) : HtspDvrConfigurationsOutcome
-
-    public data object PermissionDenied : HtspDvrConfigurationsOutcome
-    public data object ConnectionLimit : HtspDvrConfigurationsOutcome
-    public data object NotSupported : HtspDvrConfigurationsOutcome
-    public data object Timeout : HtspDvrConfigurationsOutcome
-    public data object TransportUnavailable : HtspDvrConfigurationsOutcome
-    public data object Rejected : HtspDvrConfigurationsOutcome
+/** Wire-shaped DVR mutation reply. [error] is untrusted server text. */
+public sealed interface HtspDvrMutationResponse {
+    public val success: Long?
+    public val error: String?
+    public val entryId: Long?
+        get() = null
 }
 
 public data class AddDvrEntryResponse(
-    public val success: Long,
-    public val entryId: Long?,
-)
+    override val success: Long?,
+    override val entryId: Long?,
+    override val error: String?,
+) : HtspDvrMutationResponse
 
-public data class UpdateDvrEntryResponse(public val success: Long)
+public data class UpdateDvrEntryResponse(
+    override val success: Long?,
+    override val error: String?,
+) : HtspDvrMutationResponse
 
-public data class StopDvrEntryResponse(public val success: Long)
+public data class StopDvrEntryResponse(
+    override val success: Long?,
+    override val error: String?,
+) : HtspDvrMutationResponse
 
-public data class CancelDvrEntryResponse(public val success: Long)
+public data class CancelDvrEntryResponse(
+    override val success: Long?,
+    override val error: String?,
+) : HtspDvrMutationResponse
 
-public data class DeleteDvrEntryResponse(public val success: Long)
+public data class DeleteDvrEntryResponse(
+    override val success: Long?,
+    override val error: String?,
+) : HtspDvrMutationResponse
 
 public data class GetDvrCutpointsResponse(public val cutpoints: List<HtspDvrCutpoint>?)
 
@@ -178,6 +173,23 @@ public class GetSysTimeRequest : HtspRequest<GetSysTimeResponse>(
     access = HtspAccess.ACCESS_HTSP_STREAMING,
     minimumProtocolVersion = 3,
 )
+
+public data class EnableAsyncMetadataRequest(
+    public val epg: Long? = null,
+    public val lastUpdate: Long? = null,
+    public val epgMaxTime: Long? = null,
+    public val language: String? = null,
+) : HtspRequest<HtspEmptyResponse>(
+    method = "enableAsyncMetadata",
+    access = HtspAccess.ACCESS_HTSP_STREAMING,
+    minimumProtocolVersion = 6.takeIf {
+        epg != null || lastUpdate != null || epgMaxTime != null || language != null
+    },
+) {
+    init {
+        epg?.let { requireU32("epg", it) }
+    }
+}
 
 public data class GetChannelRequest(public val channelId: Long) : HtspRequest<GetChannelResponse>(
     method = "getChannel",
@@ -512,6 +524,12 @@ internal object `HtspRequestCodecs-internal` {
         is GetDvrConfigsRequest,
         -> linkedMapOf()
 
+        is EnableAsyncMetadataRequest -> linkedMapOf<String, Any?>()
+            .putIfNotNull("epg", request.epg)
+            .putIfNotNull("lastUpdate", request.lastUpdate)
+            .putIfNotNull("epgMaxTime", request.epgMaxTime)
+            .putIfNotNull("language", request.language)
+
         is GetChannelRequest -> linkedMapOf("channelId" to request.channelId)
         is GetEventRequest -> linkedMapOf<String, Any?>(
             "eventId" to request.eventId,
@@ -644,15 +662,19 @@ internal object `HtspRequestCodecs-internal` {
         is GetDvrConfigsRequest ->
             GetDvrConfigsResponse(fields.optionalObjectList("dvrconfigs", ::dvrConfigFromFields))
 
-        is AddDvrEntryRequest -> AddDvrEntryResponse(
-            success = fields.requiredU32("success"),
-            entryId = fields.optionalU32("id"),
-        )
+        is AddDvrEntryRequest -> decodeDvrMutation(fields) { success, error ->
+            val entryId = if (fields.containsKey("id")) {
+                fields.optionalU32("id")
+            } else {
+                fields.optionalU32("dvrId")
+            }
+            AddDvrEntryResponse(success, entryId, error)
+        }
 
-        is UpdateDvrEntryRequest -> UpdateDvrEntryResponse(fields.requiredU32("success"))
-        is StopDvrEntryRequest -> StopDvrEntryResponse(fields.requiredU32("success"))
-        is CancelDvrEntryRequest -> CancelDvrEntryResponse(fields.requiredU32("success"))
-        is DeleteDvrEntryRequest -> DeleteDvrEntryResponse(fields.requiredU32("success"))
+        is UpdateDvrEntryRequest -> decodeDvrMutation(fields, ::UpdateDvrEntryResponse)
+        is StopDvrEntryRequest -> decodeDvrMutation(fields, ::StopDvrEntryResponse)
+        is CancelDvrEntryRequest -> decodeDvrMutation(fields, ::CancelDvrEntryResponse)
+        is DeleteDvrEntryRequest -> decodeDvrMutation(fields, ::DeleteDvrEntryResponse)
         is GetDvrCutpointsRequest -> GetDvrCutpointsResponse(
             fields.optionalObjectList("cutpoints") { cutpoint ->
                 HtspDvrCutpoint(
@@ -670,6 +692,7 @@ internal object `HtspRequestCodecs-internal` {
             timeshiftPeriodSeconds = fields.optionalU32("timeshiftPeriod"),
         )
 
+        is EnableAsyncMetadataRequest,
         is UnsubscribeRequest,
         is SubscriptionChangeWeightRequest,
         is SubscriptionSeekRequest,
@@ -708,6 +731,16 @@ internal object `HtspRequestCodecs-internal` {
                 tagIds = fields.requiredU32List("tags"),
             ),
         )
+    }
+
+    private fun <R> decodeDvrMutation(
+        fields: Map<String, Any?>,
+        response: (Long?, String?) -> R,
+    ): R {
+        val success = fields.optionalU32("success")
+        val error = fields.optionalString("error")
+        if (success == null && error == null) malformedReply()
+        return response(success, error)
     }
 }
 

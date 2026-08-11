@@ -389,7 +389,7 @@ internal open class `HtspService-internal`(
         HtspConnectOutcome.Failed(typedTransportFailure(error))
     }
 
-    open suspend fun enableAsyncMetadataAndWaitInitialSync(timeoutMs: Long = 30_000) {
+    internal suspend fun enableAsyncMetadataAndWaitInitialSync(timeoutMs: Long = 30_000) {
         checkOpen()
         if (!isConnectedUnsafe()) throw IllegalStateException("Not connected")
 
@@ -423,135 +423,11 @@ internal open class `HtspService-internal`(
         }
     }
 
-    override suspend fun synchronizeMetadata(timeoutMs: Long): HtspResult<Unit> = try {
-        enableAsyncMetadataAndWaitInitialSync(timeoutMs)
-        HtspResult.Ok(Unit)
-    } catch (cancelled: CancellationException) {
-        throw cancelled
-    } catch (_: MetadataPermissionDeniedException) {
-        HtspResult.AccessDenied
-    } catch (_: SocketTimeoutException) {
-        HtspResult.Timeout
-    } catch (_: HtspRequestTimeoutException) {
-        HtspResult.Timeout
-    } catch (_: Exception) {
-        HtspResult.TransportUnavailable
-    }
-
     override suspend fun <R> call(
         request: HtspRequest<R>,
         timeoutMs: Long,
         expectedGeneration: HtspConnectionGeneration?,
     ): HtspResult<R> = typedRequestCaller.call(request, timeoutMs, expectedGeneration)
-
-    override suspend fun executeDvrMutation(
-        request: HtspDvrMutationRequest,
-        timeoutMs: Long,
-        expectedGeneration: HtspConnectionGeneration?,
-    ): HtspDvrMutationOutcome {
-        val typedRequest = request as HtspRequest<*>
-        val reply = boundedDvrReply(typedRequest, timeoutMs, expectedGeneration)
-            ?: return HtspDvrMutationOutcome.TransportUnavailable
-        return classifyDvrMutationReply(reply)
-    }
-
-    override suspend fun getDvrConfigurations(
-        timeoutMs: Long,
-        expectedGeneration: HtspConnectionGeneration?,
-    ): HtspDvrConfigurationsOutcome {
-        val request = GetDvrConfigsRequest()
-        val reply = boundedDvrReply(request, timeoutMs, expectedGeneration)
-            ?: return HtspDvrConfigurationsOutcome.TransportUnavailable
-        if (reply.str("boundedFailure") == "timeout") {
-            return HtspDvrConfigurationsOutcome.Timeout
-        }
-        if (reply.int("noaccess") == 1) {
-            return if (reply.int("connlimit") == 1) {
-                HtspDvrConfigurationsOutcome.ConnectionLimit
-            } else {
-                HtspDvrConfigurationsOutcome.PermissionDenied
-            }
-        }
-        val error = reply.str("error")?.lowercase()
-        if (error != null) {
-            return if (error.isUnknownMethodError()) {
-                HtspDvrConfigurationsOutcome.NotSupported
-            } else {
-                HtspDvrConfigurationsOutcome.Rejected
-            }
-        }
-        return try {
-            val response = HtspRequestCodecs.decode(
-                request,
-                reply.fields,
-                negotiatedHtspVersion ?: 0,
-            )
-            HtspDvrConfigurationsOutcome.Success(response.configurations)
-        } catch (_: RuntimeException) {
-            HtspDvrConfigurationsOutcome.Rejected
-        }
-    }
-
-    private suspend fun boundedDvrReply(
-        request: HtspRequest<*>,
-        timeoutMs: Long,
-        expectedGeneration: HtspConnectionGeneration?,
-    ): HtspMessage? {
-        require(timeoutMs > 0L) { "timeoutMs must be positive" }
-        currentCoroutineContext().ensureActive()
-        val generation = synchronized(connectionAttemptLock) {
-            val current = protocolGeneration ?: return@synchronized null
-            if (expectedGeneration != null && current.token !== expectedGeneration) {
-                throw CancellationException("Stale HTSP connection generation")
-            }
-            current
-        } ?: return null
-        val minimumVersion = request.minimumProtocolVersion
-        val version = negotiatedHtspVersion
-        if (minimumVersion != null && (version == null || version < minimumVersion)) {
-            return HtspMessage(method = null, seq = null, fields = mapOf("error" to "method not found"))
-        }
-        return try {
-            requestForConnectionAttempt(
-                expectedConnectionAttemptId = generation.attemptId,
-                method = request.method,
-                fields = HtspRequestCodecs.encode(request),
-                timeoutMs = timeoutMs,
-                disconnectOnTimeout = false,
-            )
-        } catch (cancelled: CancellationException) {
-            throw cancelled
-        } catch (_: HtspRequestTimeoutException) {
-            HtspMessage(method = null, seq = null, fields = mapOf("boundedFailure" to "timeout"))
-        } catch (_: Exception) {
-            null
-        }
-    }
-
-    private fun classifyDvrMutationReply(reply: HtspMessage): HtspDvrMutationOutcome {
-        if (reply.str("boundedFailure") == "timeout") return HtspDvrMutationOutcome.Timeout
-        if (reply.int("noaccess") == 1) {
-            return if (reply.int("connlimit") == 1) {
-                HtspDvrMutationOutcome.ConnectionLimit
-            } else {
-                HtspDvrMutationOutcome.PermissionDenied
-            }
-        }
-        val error = reply.str("error")?.lowercase()
-        if (error != null) {
-            return when {
-                error.isUnknownMethodError() -> HtspDvrMutationOutcome.NotSupported
-                error.isPermissionError() -> HtspDvrMutationOutcome.PermissionDenied
-                error.isConflictError() -> HtspDvrMutationOutcome.Conflict
-                else -> HtspDvrMutationOutcome.Rejected
-            }
-        }
-        return if (reply.int("success") == 1) {
-            HtspDvrMutationOutcome.Accepted(reply.long("id") ?: reply.long("dvrId"))
-        } else {
-            HtspDvrMutationOutcome.Rejected
-        }
-    }
 
     override fun isCurrent(generation: HtspConnectionGeneration): Boolean =
         typedRequestCaller.generation === generation
@@ -1113,7 +989,7 @@ internal open class `HtspService-internal`(
                     val published = withCurrentConnectionAttempt(attemptId) {
                         lastReadAtMs = System.currentTimeMillis()
 
-                        // Special-cased latch
+                        // Internal probe latch. SDK metadata workflow observes the typed event.
                         if (msg.seq == null && msg.method == "initialSyncCompleted") {
                             initialSyncDef?.complete(Unit)
                         }
@@ -1588,15 +1464,6 @@ internal open class `HtspService-internal`(
 }
 
 internal typealias HtspService = `HtspService-internal`
-
-private fun String.isUnknownMethodError(): Boolean =
-    "method not found" in this || "unknown method" in this
-
-private fun String.isPermissionError(): Boolean =
-    "permission" in this || "access denied" in this || "not allowed" in this
-
-private fun String.isConflictError(): Boolean =
-    "conflict" in this || "no free" in this || "tuner" in this
 
 /**
  * Strict hello/authenticate observation mapping for public [HtspServerFacts].

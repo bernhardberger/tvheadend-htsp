@@ -260,6 +260,10 @@ FIELD_MIN_VERSION: dict[tuple[str, str, str], int] = {
     ("clientMethod", "authenticate", "limitstreaming"): 26,
     ("clientMethod", "authenticate", "uilevel"): 26,
     ("clientMethod", "authenticate", "uilanguage"): 26,
+    ("clientMethod", "enableAsyncMetadata", "epg"): 6,
+    ("clientMethod", "enableAsyncMetadata", "lastUpdate"): 6,
+    ("clientMethod", "enableAsyncMetadata", "epgMaxTime"): 6,
+    ("clientMethod", "enableAsyncMetadata", "language"): 6,
     ("clientMethod", "getChannel", "channelIdStr"): 41,
     ("clientMethod", "getChannel", "channelNumberMinor"): 13,
     ("clientMethod", "getChannel", "services"): 5,
@@ -4317,7 +4321,7 @@ def self_test() -> None:
             live_coverage["serverMessages"]["handledCount"],
             live_coverage["typedClientRequests"]["count"],
             live_coverage["typedServerMessages"]["count"],
-        ) == (29, 28, 27, 20, 26)
+        ) == (29, 28, 27, 21, 26)
         and "stopDvrEntry" in live_coverage["clientMethods"]["referenced"]
         and "stopDvrEntry" in live_coverage["clientMethods"]["outgoingRequests"]
         and "subscriptionChangeWeight" in live_coverage["clientMethods"]["referenced"]

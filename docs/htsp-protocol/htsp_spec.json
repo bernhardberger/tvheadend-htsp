@@ -1059,8 +1059,11 @@
           "direction": "request",
           "presence": "unknown",
           "evidence": "htsmsg_get_u32",
-          "confidence": "mechanical",
-          "minVersion": null,
+          "confidence": "mechanical+annotated",
+          "minVersion": 6,
+          "notes": [
+            "minVersion from annotated catalog"
+          ],
           "order": 1
         },
         {
@@ -1069,8 +1072,11 @@
           "direction": "request",
           "presence": "unknown",
           "evidence": "htsmsg_get_s64",
-          "confidence": "mechanical",
-          "minVersion": null,
+          "confidence": "mechanical+annotated",
+          "minVersion": 6,
+          "notes": [
+            "minVersion from annotated catalog"
+          ],
           "order": 2
         },
         {
@@ -1079,8 +1085,11 @@
           "direction": "request",
           "presence": "unknown",
           "evidence": "htsmsg_get_s64",
-          "confidence": "mechanical",
-          "minVersion": null,
+          "confidence": "mechanical+annotated",
+          "minVersion": 6,
+          "notes": [
+            "minVersion from annotated catalog"
+          ],
           "order": 3
         },
         {
@@ -1089,8 +1098,11 @@
           "direction": "request",
           "presence": "unknown",
           "evidence": "htsmsg_get_str",
-          "confidence": "mechanical",
-          "minVersion": null,
+          "confidence": "mechanical+annotated",
+          "minVersion": 6,
+          "notes": [
+            "minVersion from annotated catalog"
+          ],
           "order": 4
         }
       ],
@@ -1108,7 +1120,7 @@
       "sdk": {
         "referenced": true,
         "outgoingRequest": true,
-        "typedRequest": false
+        "typedRequest": true
       }
     },
     {
@@ -8973,7 +8985,7 @@
     },
     "typedClientRequests": {
       "catalog": "docs/htsp-protocol/generate_typed_requests.py",
-      "count": 20,
+      "count": 21,
       "methods": [
         {
           "name": "getProfiles",
@@ -8989,6 +9001,11 @@
           "name": "getSysTime",
           "accessMask": "ACCESS_HTSP_STREAMING",
           "methodMinVersion": 3
+        },
+        {
+          "name": "enableAsyncMetadata",
+          "accessMask": "ACCESS_HTSP_STREAMING",
+          "methodMinVersion": null
         },
         {
           "name": "getChannel",
@@ -9257,7 +9274,7 @@
       "referencedClientMethods": 29,
       "outgoingClientMethods": 28,
       "handledServerMessages": 27,
-      "typedClientRequests": 20,
+      "typedClientRequests": 21,
       "typedServerMessages": 26,
       "notes": [
         "referenced counts exact string literals in SDK production main sources",
