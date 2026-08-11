@@ -4942,9 +4942,9 @@
           "name": "file",
           "type": "str",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_str",
-          "confidence": "mechanical",
+          "presence": "required",
+          "evidence": "bounded htsp_method_file_open requires exact string file before stripping at most one leading slash",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 1
         }
@@ -4954,9 +4954,9 @@
           "name": "id",
           "type": "u32",
           "direction": "reply",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_u32",
-          "confidence": "mechanical",
+          "presence": "required",
+          "evidence": "bounded htsp_file_open always emits the new connection-owned handle id",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 1
         },
@@ -4964,37 +4964,48 @@
           "name": "size",
           "type": "s64",
           "direction": "reply",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_s64",
-          "confidence": "mechanical",
+          "presence": "conditional",
+          "evidence": "bounded htsp_file_open emits st.st_size first only when fstat succeeds",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
+          "condition": "present together with mtime when fstat on the opened fd returns zero",
           "order": 2
         },
         {
           "name": "mtime",
           "type": "s64",
           "direction": "reply",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_s64",
-          "confidence": "mechanical",
+          "presence": "conditional",
+          "evidence": "bounded htsp_file_open emits unchanged st.st_mtime second only when fstat succeeds",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
+          "condition": "present together with size when fstat on the opened fd returns zero",
           "order": 3
         }
       ],
       "requestShape": {
         "kind": "fields",
-        "completeness": "partial",
-        "evidence": "bounded handler/helper extraction plus exact-pin annotations"
+        "completeness": "complete",
+        "evidence": "bounded handler accepts exactly one required string file and strips at most one leading slash after decoding"
       },
       "replyShape": {
-        "kind": "fields",
-        "completeness": "partial",
-        "evidence": "bounded handler/helper extraction plus exact-pin annotations"
+        "kind": "alternative",
+        "completeness": "complete",
+        "evidence": "bounded helper always emits u32 id and conditionally emits ordered signed-s64 size and mtime together after successful fstat",
+        "alternatives": [
+          "required u32 id followed by signed-s64 size and unchanged signed-s64 mtime when fstat succeeds",
+          "required u32 id only when fstat fails"
+        ]
       },
+      "notes": [
+        "The exact caller string is decoded first; pinned server source strips at most one leading slash before selecting dvr/dvrfile/imagecache handling.",
+        "The returned u32 handle belongs to this HTSP connection; the helper always emits id after a successful open.",
+        "size and mtime are coupled signed-s64 observations emitted in order only when fstat succeeds; mtime is unchanged POSIX st_mtime."
+      ],
       "sdk": {
         "referenced": true,
         "outgoingRequest": true,
-        "typedRequest": false
+        "typedRequest": true
       }
     },
     {
@@ -5009,7 +5020,7 @@
           "type": "u32",
           "direction": "request",
           "presence": "required",
-          "evidence": "htsp_file_find helper reads the file-handle id",
+          "evidence": "bounded htsp_file_find performs a default-zero current-connection handle lookup",
           "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 1
@@ -5018,9 +5029,9 @@
           "name": "size",
           "type": "s64",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_s64",
-          "confidence": "mechanical",
+          "presence": "required",
+          "evidence": "bounded htsp_method_file_read rejects a missing or malformed signed-s64 size",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 2
         },
@@ -5028,9 +5039,9 @@
           "name": "offset",
           "type": "s64",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_s64",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "bounded htsp_method_file_read seeks to an exact signed-s64 offset only when present",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 3
         }
@@ -5041,7 +5052,7 @@
           "type": "bin",
           "direction": "reply",
           "presence": "required",
-          "evidence": "htsp_method_fileRead htsmsg_add_bin_alloc",
+          "evidence": "bounded htsp_method_file_read emits binary data after every successful read, including length zero",
           "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 1
@@ -5049,18 +5060,23 @@
       ],
       "requestShape": {
         "kind": "fields",
-        "completeness": "partial",
-        "evidence": "bounded handler/helper extraction plus exact-pin annotations"
+        "completeness": "complete",
+        "evidence": "bounded helper/handler accept current-connection id, required signed-s64 size, and optional signed-s64 absolute offset"
       },
       "replyShape": {
         "kind": "fields",
-        "completeness": "partial",
-        "evidence": "bounded handler/helper extraction plus exact-pin annotations"
+        "completeness": "complete",
+        "evidence": "bounded successful handler always emits exactly one binary data field, including an empty payload"
       },
+      "notes": [
+        "The id uses the default-zero lookup helper and is meaningful only in the connection that opened it.",
+        "size is required signed s64 in pinned source; the ordinary typed SDK additionally bounds it to 0..16 MiB without changing codec limits or readers.",
+        "offset is optional signed s64; a successful zero-byte read still emits a present empty binary data field."
+      ],
       "sdk": {
         "referenced": true,
         "outgoingRequest": true,
-        "typedRequest": false
+        "typedRequest": true
       }
     },
     {
@@ -5075,7 +5091,7 @@
           "type": "u32",
           "direction": "request",
           "presence": "required",
-          "evidence": "htsp_file_find helper reads the file-handle id",
+          "evidence": "bounded htsp_file_find performs a default-zero current-connection handle lookup",
           "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 1
@@ -5084,9 +5100,9 @@
           "name": "playposition",
           "type": "u32",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_u32",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "pinned close updates DVR play position only for a recording-backed handle at protocol v27 or newer when supplied; omission never updates position",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 2
         },
@@ -5094,9 +5110,9 @@
           "name": "playcount",
           "type": "u32",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_u32_or_default",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "pinned close increments DVR playcount unconditionally before v27 and, at v27 or newer, defaults omission to HTSP_DVR_PLAYCOUNT_INCR and increments when equal",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 3
         }
@@ -5104,18 +5120,23 @@
       "replyFields": [],
       "requestShape": {
         "kind": "fields",
-        "completeness": "partial",
-        "evidence": "bounded handler/helper extraction plus exact-pin annotations"
+        "completeness": "complete",
+        "evidence": "bounded helper/handler accept current-connection id plus optional DVR-only playposition and playcount inputs inside the recording-backed DVR-entry guard"
       },
       "replyShape": {
         "kind": "knownEmpty",
         "completeness": "complete",
-        "evidence": "bounded handler and official method page define no method-specific reply fields"
+        "evidence": "bounded handler destroys the matched handle and returns exactly an empty map"
       },
+      "notes": [
+        "The id uses the default-zero lookup helper and is meaningful only in the connection that opened it.",
+        "The ordinary typed fileClose request is the exact raw v8 id-only surface and exposes no playcount or playposition controls, but an id-only close of a recording-backed handle increments playcount unconditionally before v27 and, at v27 or newer, omission defaults to HTSP_DVR_PLAYCOUNT_INCR and also increments.",
+        "Omitted playposition never updates position; non-recording and image handles have no associated DVR entry to mutate. Success destroys the matched handle and returns an empty map; the existing opted-in recording close, client lifecycle, and SDK-owned progress policy remain separate."
+      ],
       "sdk": {
         "referenced": true,
         "outgoingRequest": true,
-        "typedRequest": false
+        "typedRequest": true
       }
     },
     {
@@ -5199,7 +5220,7 @@
           "type": "u32",
           "direction": "request",
           "presence": "required",
-          "evidence": "htsp_file_find helper reads the file-handle id",
+          "evidence": "bounded htsp_file_find performs a default-zero current-connection handle lookup",
           "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 1
@@ -5208,9 +5229,9 @@
           "name": "offset",
           "type": "s64",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_s64",
-          "confidence": "mechanical",
+          "presence": "required",
+          "evidence": "bounded htsp_method_file_seek rejects a missing or malformed signed-s64 offset",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 2
         },
@@ -5218,10 +5239,11 @@
           "name": "whence",
           "type": "str",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_str",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "bounded htsp_method_file_seek accepts only SEEK_SET, SEEK_CUR, or SEEK_END",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
+          "condition": "omission selects SEEK_SET",
           "order": 3
         }
       ],
@@ -5230,27 +5252,32 @@
           "name": "offset",
           "type": "s64",
           "direction": "reply",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_s64",
-          "confidence": "mechanical",
+          "presence": "required",
+          "evidence": "bounded successful lseek emits the resulting non-negative absolute offset",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 1
         }
       ],
       "requestShape": {
         "kind": "fields",
-        "completeness": "partial",
-        "evidence": "bounded handler/helper extraction plus exact-pin annotations"
+        "completeness": "complete",
+        "evidence": "bounded helper/handler accept current-connection id, required signed-s64 offset, and optional finite whence"
       },
       "replyShape": {
         "kind": "fields",
-        "completeness": "partial",
-        "evidence": "bounded handler/helper extraction plus exact-pin annotations"
+        "completeness": "complete",
+        "evidence": "bounded successful lseek emits exactly the resulting non-negative signed-s64 absolute offset"
       },
+      "notes": [
+        "The id uses the default-zero lookup helper and is meaningful only in the connection that opened it.",
+        "offset is required signed s64; whence accepts exactly SEEK_SET, SEEK_CUR, or SEEK_END and omission defaults to SEEK_SET.",
+        "A successful lseek result is non-negative and is always emitted as required signed-s64 absolute offset."
+      ],
       "sdk": {
         "referenced": true,
         "outgoingRequest": true,
-        "typedRequest": false
+        "typedRequest": true
       }
     }
   ],
@@ -9405,7 +9432,7 @@
     },
     "typedClientRequests": {
       "catalog": "docs/htsp-protocol/generate_typed_requests.py",
-      "count": 31,
+      "count": 35,
       "methods": [
         {
           "name": "getProfiles",
@@ -9558,7 +9585,27 @@
           "methodMinVersion": 12
         },
         {
+          "name": "fileOpen",
+          "accessMask": "ACCESS_HTSP_RECORDER",
+          "methodMinVersion": 8
+        },
+        {
+          "name": "fileRead",
+          "accessMask": "ACCESS_HTSP_RECORDER",
+          "methodMinVersion": 8
+        },
+        {
+          "name": "fileClose",
+          "accessMask": "ACCESS_HTSP_RECORDER",
+          "methodMinVersion": 8
+        },
+        {
           "name": "fileStat",
+          "accessMask": "ACCESS_HTSP_RECORDER",
+          "methodMinVersion": 8
+        },
+        {
+          "name": "fileSeek",
           "accessMask": "ACCESS_HTSP_RECORDER",
           "methodMinVersion": 8
         }
@@ -9758,7 +9805,7 @@
       "referencedClientMethods": 38,
       "outgoingClientMethods": 37,
       "handledServerMessages": 30,
-      "typedClientRequests": 31,
+      "typedClientRequests": 35,
       "typedServerMessages": 29,
       "notes": [
         "referenced counts exact string literals in SDK production main sources",
@@ -9805,6 +9852,12 @@
       "id": "getTicket-selector-precedence-underdocumented",
       "summary": "The official Client-to-Server RPC methods page marks channelId and dvrId optional and the path/ticket reply fields required, but does not state that at least one selector must decode or that channelId wins when both decode. Pinned current source establishes that either/or and channel-first behavior.",
       "authority": "src/htsp_server.c htsp_method_getTicket",
+      "docsUrl": "https://docs.tvheadend.org/documentation/development/htsp/client-to-server-rpc-methods"
+    },
+    {
+      "id": "bounded-file-operations-source-doc-mismatch",
+      "summary": "Official docs use unsigned fileOpen/fileRead/fileSeek size, mtime, and offset types, mark fileSeek whence required despite documenting a SEEK_SET default, and do not capture the pinned source's coupled fileOpen metadata or required successful seek offset or fileClose's recording-backed DVR defaults. Pinned source instead uses signed-s64 values, optional read offset and seek whence, always emits binary read data including an empty payload, and increments recording playcount on id-only close unconditionally before v27 and by the omitted HTSP_DVR_PLAYCOUNT_INCR default at v27+.",
+      "authority": "src/htsp_server.c htsp_file_open, htsp_method_file_open, htsp_method_file_read, htsp_method_file_close, and htsp_method_file_seek",
       "docsUrl": "https://docs.tvheadend.org/documentation/development/htsp/client-to-server-rpc-methods"
     },
     {

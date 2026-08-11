@@ -24,7 +24,7 @@ Primary authority is the pinned TVHeadend server source. Official HTSP documenta
 - Client→server methods referenced in production sources: **38 / 39**
 - Distinct outgoing request names: **37 / 39**
 - Server→client messages handled (exact literal): **30 / 30**
-- Public typed client requests from the reviewed catalog: **31 / 39**
+- Public typed client requests from the reviewed catalog: **35 / 39**
 - Public typed server messages from the separate reviewed catalog: **29 / 30**
 - Distinguish **referenced** from **outgoing**: a name can appear because an inbound handler mentions it (for example `subscriptionSkip`) while the client sends a synonym (`subscriptionSeek`).
 - Never claim methods are implemented/called merely because they are referenced.
@@ -81,11 +81,11 @@ These fields are protocol-wide and are **not** method-specific success fields.
 | 32 | `subscriptionLive` | `ACCESS_HTSP_STREAMING` | 9 (annotated) | yes | yes | yes | `subscriptionId`:u32 [required] — fields/complete | _knownEmpty/complete_ |
 | 33 | `subscriptionFilterStream` | `ACCESS_HTSP_STREAMING` | 12 (annotated) | yes | yes | yes | `subscriptionId`:u32 [required], `enable`:list [optional] → `u32`, `disable`:list [optional] → `u32` — fields/complete | _knownEmpty/complete_ |
 | 34 | `getProfiles` | `ACCESS_HTSP_STREAMING` | 16 (annotated) | yes | yes | yes | _knownEmpty/complete_ | `profiles`:list [unknown] → `profile` — fields/partial |
-| 35 | `fileOpen` | `ACCESS_HTSP_RECORDER` | 8 (annotated) | yes | yes |  | `file`:str [unknown] — fields/partial | `id`:u32 [unknown], `size`:s64 [unknown], `mtime`:s64 [unknown] — fields/partial |
-| 36 | `fileRead` | `ACCESS_HTSP_RECORDER` | 8 (annotated) | yes | yes |  | `id`:u32 [required], `size`:s64 [unknown], `offset`:s64 [unknown] — fields/partial | `data`:bin [required] — fields/partial |
-| 37 | `fileClose` | `ACCESS_HTSP_RECORDER` | 8 (annotated) | yes | yes |  | `id`:u32 [required], `playposition`:u32 [unknown], `playcount`:u32 [unknown] — fields/partial | _knownEmpty/complete_ |
+| 35 | `fileOpen` | `ACCESS_HTSP_RECORDER` | 8 (annotated) | yes | yes | yes | `file`:str [required] — fields/complete | `id`:u32 [required], `size`:s64 [conditional], `mtime`:s64 [conditional] — alternative/complete |
+| 36 | `fileRead` | `ACCESS_HTSP_RECORDER` | 8 (annotated) | yes | yes | yes | `id`:u32 [required], `size`:s64 [required], `offset`:s64 [optional] — fields/complete | `data`:bin [required] — fields/complete |
+| 37 | `fileClose` | `ACCESS_HTSP_RECORDER` | 8 (annotated) | yes | yes | yes | `id`:u32 [required], `playposition`:u32 [optional], `playcount`:u32 [optional] — fields/complete | _knownEmpty/complete_ |
 | 38 | `fileStat` | `ACCESS_HTSP_RECORDER` | 8 (annotated) | yes | yes | yes | `id`:u32 [required] — fields/complete | `size`:s64 [conditional], `mtime`:s64 [conditional] — alternative/complete |
-| 39 | `fileSeek` | `ACCESS_HTSP_RECORDER` | 8 (annotated) | yes | yes |  | `id`:u32 [required], `offset`:s64 [unknown], `whence`:str [unknown] — fields/partial | `offset`:s64 [unknown] — fields/partial |
+| 39 | `fileSeek` | `ACCESS_HTSP_RECORDER` | 8 (annotated) | yes | yes | yes | `id`:u32 [required], `offset`:s64 [required], `whence`:str [optional] — fields/complete | `offset`:s64 [required] — fields/complete |
 
 ## Server → client messages
 
@@ -164,6 +164,13 @@ The official Client-to-Server RPC methods page does not define the millisecond c
 The official Client-to-Server RPC methods page marks channelId and dvrId optional and the path/ticket reply fields required, but does not state that at least one selector must decode or that channelId wins when both decode. Pinned current source establishes that either/or and channel-first behavior.
 
 - Authority: src/htsp_server.c htsp_method_getTicket
+- Docs URL: https://docs.tvheadend.org/documentation/development/htsp/client-to-server-rpc-methods
+
+### `bounded-file-operations-source-doc-mismatch`
+
+Official docs use unsigned fileOpen/fileRead/fileSeek size, mtime, and offset types, mark fileSeek whence required despite documenting a SEEK_SET default, and do not capture the pinned source's coupled fileOpen metadata or required successful seek offset or fileClose's recording-backed DVR defaults. Pinned source instead uses signed-s64 values, optional read offset and seek whence, always emits binary read data including an empty payload, and increments recording playcount on id-only close unconditionally before v27 and by the omitted HTSP_DVR_PLAYCOUNT_INCR default at v27+.
+
+- Authority: src/htsp_server.c htsp_file_open, htsp_method_file_open, htsp_method_file_read, htsp_method_file_close, and htsp_method_file_seek
 - Docs URL: https://docs.tvheadend.org/documentation/development/htsp/client-to-server-rpc-methods
 
 ### `fileStat-reply-source-doc-mismatch`

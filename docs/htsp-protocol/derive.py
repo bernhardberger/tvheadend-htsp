@@ -485,6 +485,26 @@ DOC_LIMITATIONS = [
         ),
     },
     {
+        "id": "bounded-file-operations-source-doc-mismatch",
+        "summary": (
+            "Official docs use unsigned fileOpen/fileRead/fileSeek size, mtime, and offset types, "
+            "mark fileSeek whence required despite documenting a SEEK_SET default, and do not "
+            "capture the pinned source's coupled fileOpen metadata or required successful seek "
+            "offset or fileClose's recording-backed DVR defaults. Pinned source instead uses "
+            "signed-s64 values, optional read offset and seek whence, always emits binary read "
+            "data including an empty payload, and increments recording playcount on id-only close "
+            "unconditionally before v27 and by the omitted HTSP_DVR_PLAYCOUNT_INCR default at v27+."
+        ),
+        "authority": (
+            "src/htsp_server.c htsp_file_open, htsp_method_file_open, "
+            "htsp_method_file_read, htsp_method_file_close, and htsp_method_file_seek"
+        ),
+        "docsUrl": (
+            "https://docs.tvheadend.org/documentation/development/htsp/"
+            "client-to-server-rpc-methods"
+        ),
+    },
+    {
         "id": "fileStat-reply-source-doc-mismatch",
         "summary": (
             "Official docs describe independently optional u64 size and mtime fields, while "
@@ -3309,6 +3329,162 @@ def require_file_stat_source_facts(
         )
 
 
+def require_bounded_file_operation_source_facts(
+    server_c: str,
+    method_min_versions: dict[str, int | None] = METHOD_MIN_VERSION,
+) -> None:
+    """Validate exact bounded fileOpen/fileRead/fileClose/fileSeek source contracts."""
+    method_handlers = {
+        "fileOpen": "htsp_method_file_open",
+        "fileRead": "htsp_method_file_read",
+        "fileClose": "htsp_method_file_close",
+        "fileSeek": "htsp_method_file_seek",
+    }
+    if any(method_min_versions.get(name) != 8 for name in method_handlers):
+        raise ValueError("bounded file operation annotated minima must remain exactly 8")
+
+    source = strip_c_comments(server_c)
+    dispatch = {
+        entry["name"]: entry
+        for entry in parse_methods_table(source)
+        if entry["name"] in method_handlers
+    }
+    expected_dispatch = {
+        name: {
+            "name": name,
+            "handler": handler,
+            "accessMask": "ACCESS_HTSP_RECORDER",
+        }
+        for name, handler in method_handlers.items()
+    }
+    if dispatch != expected_dispatch:
+        raise ValueError(
+            "bounded file operations must retain exact handlers and recorder dispatch access"
+        )
+
+    file_open = find_function_body(source, "htsp_method_file_open") or ""
+    open_compact = re.sub(r"\s+", " ", file_open).strip()
+    if not re.search(
+        r'if\s*\(\s*\(\s*str\s*=\s*htsmsg_get_str\(\s*in\s*,\s*"file"\s*\)\s*\)\s*==\s*NULL\s*\)\s*'
+        r'return\s+htsp_error\(\s*htsp\s*,\s*N_\(\s*"Invalid arguments"\s*\)\s*\)\s*;',
+        open_compact,
+    ):
+        raise ValueError("fileOpen must require exact string file")
+    if not re.search(r"if\s*\(\s*\*str\s*==\s*'/'\s*\)\s*str\+\+\s*;", open_compact):
+        raise ValueError("fileOpen must strip at most one leading slash server-side")
+    if [(field["name"], field["type"]) for field in extract_get_fields(file_open, "in")] != [
+        ("file", "str")
+    ]:
+        raise ValueError("fileOpen must accept no method-specific request fields beyond string file")
+
+    open_helper = find_function_body(source, "htsp_file_open") or ""
+    if [(field["name"], field["type"]) for field in extract_add_fields(open_helper)] != [
+        ("id", "u32"), ("size", "s64"), ("mtime", "s64")
+    ]:
+        raise ValueError("fileOpen helper must emit ordered u32 id and signed-s64 size/mtime only")
+    helper_compact = re.sub(r"\s+", " ", open_helper).strip()
+    if len(re.findall(
+        r'hf->hf_de_id\s*=\s*de\s*\?\s*idnode_get_short_uuid\(\s*&de->de_id\s*\)\s*:\s*0\s*;',
+        helper_compact,
+    )) != 1:
+        raise ValueError("fileOpen helper must associate a DVR id only with a recording-backed handle")
+    if not re.search(
+        r'htsmsg_add_u32\(\s*rep\s*,\s*"id"\s*,\s*hf->hf_id\s*\)\s*;\s*'
+        r'if\s*\(\s*!\s*fstat\(\s*hf->hf_fd\s*,\s*&st\s*\)\s*\)\s*\{\s*'
+        r'htsmsg_add_s64\(\s*rep\s*,\s*"size"\s*,\s*st\.st_size\s*\)\s*;\s*'
+        r'htsmsg_add_s64\(\s*rep\s*,\s*"mtime"\s*,\s*st\.st_mtime\s*\)\s*;\s*\}',
+        helper_compact,
+    ):
+        raise ValueError("fileOpen helper must always emit id and couple ordered size/mtime to fstat success")
+
+    file_read = find_function_body(source, "htsp_method_file_read") or ""
+    read_compact = re.sub(r"\s+", " ", file_read).strip()
+    if [(field["name"], field["type"]) for field in extract_get_fields(file_read, "in")] != [
+        ("size", "s64"), ("offset", "s64")
+    ]:
+        raise ValueError("fileRead must read exactly required signed-s64 size and optional signed-s64 offset")
+    if not re.search(r'if\s*\(\s*htsmsg_get_s64\(\s*in\s*,\s*"size"\s*,\s*&size\s*\)\s*\)', read_compact):
+        raise ValueError("fileRead signed-s64 size must remain required")
+    if not re.search(r'if\s*\(\s*!\s*htsmsg_get_s64\(\s*in\s*,\s*"offset"\s*,\s*&off\s*\)\s*\)', read_compact):
+        raise ValueError("fileRead signed-s64 offset must remain optional")
+    if [(field["name"], field["type"]) for field in extract_add_fields(file_read)] != [("data", "bin")]:
+        raise ValueError("fileRead success must emit exactly binary data")
+    if not re.search(
+        r'htsmsg_add_bin_alloc\(\s*rep\s*,\s*"data"\s*,\s*m\s*,\s*r\s*\)\s*;',
+        read_compact,
+    ):
+        raise ValueError("fileRead success must emit binary data including zero-length reads")
+
+    file_close = find_function_body(source, "htsp_method_file_close") or ""
+    close_compact = re.sub(r"\s+", " ", file_close).strip()
+    close_getters = [(field["name"], field["type"]) for field in extract_get_fields(file_close, "in")]
+    if close_getters != [("playposition", "u32"), ("playcount", "u32")]:
+        raise ValueError("fileClose progress mutation inputs must remain optional u32 playcount/playposition only")
+    recording_guard = re.search(
+        r'if\s*\(\s*hf->hf_de_id\s*>\s*0\s*&&\s*'
+        r'\(\s*de\s*=\s*dvr_entry_find_by_id\(\s*hf->hf_de_id\s*\)\s*\)\s*\)\s*\{',
+        file_close,
+    )
+    if recording_guard is None:
+        raise ValueError("fileClose DVR mutation must remain guarded by a recording-backed handle and resolved DVR entry")
+    recording_body = extract_balanced_block(file_close, recording_guard.end() - 1)
+    recording_compact = re.sub(r"\s+", " ", recording_body).strip()
+    if len(re.findall(r'htsp->htsp_version\s*<\s*27\s*\|\|', recording_compact)) != 1:
+        raise ValueError("fileClose must increment playcount unconditionally before protocol v27")
+    if len(re.findall(
+        r'htsmsg_get_u32_or_default\(\s*in\s*,\s*"playcount"\s*,\s*'
+        r'HTSP_DVR_PLAYCOUNT_INCR\s*\)\s*==\s*HTSP_DVR_PLAYCOUNT_INCR',
+        recording_compact,
+    )) != 1:
+        raise ValueError(
+            "fileClose v27+ omitted playcount must default to and compare equal to HTSP_DVR_PLAYCOUNT_INCR"
+        )
+    playcount_branch = (
+        r'if\s*\(\s*htsp->htsp_version\s*<\s*27\s*\|\|\s*'
+        r'htsmsg_get_u32_or_default\(\s*in\s*,\s*"playcount"\s*,\s*'
+        r'HTSP_DVR_PLAYCOUNT_INCR\s*\)\s*==\s*HTSP_DVR_PLAYCOUNT_INCR\s*\)\s*\{\s*'
+        r'dvr_entry_incr_playcount\(\s*de\s*\)\s*;\s*save\s*=\s*1\s*;\s*\}'
+    )
+    if len(re.findall(playcount_branch, recording_compact)) != 1:
+        raise ValueError("fileClose playcount increment must remain unconditional before v27 and conditional at v27+")
+    playposition_branch = (
+        r'if\s*\(\s*htsp->htsp_version\s*>=\s*27\s*&&\s*'
+        r'!\s*htsmsg_get_u32\(\s*in\s*,\s*"playposition"\s*,\s*&u32\s*\)\s*\)\s*\{\s*'
+        r'de->de_playposition\s*=\s*u32\s*;\s*save\s*=\s*1\s*;\s*\}'
+    )
+    if len(re.findall(playposition_branch, recording_compact)) != 1:
+        raise ValueError("fileClose must update playposition only when supplied at protocol v27+")
+    if (
+        len(re.findall(r'dvr_entry_incr_playcount\s*\(', file_close)) != 1
+        or len(re.findall(r'de->de_playposition\s*=', file_close)) != 1
+    ):
+        raise ValueError("fileClose DVR progress mutations must remain confined to the recording-backed guard")
+    if not re.search(r'htsp_file_destroy\(\s*hf\s*\)\s*;.*return\s+htsmsg_create_map\(\s*\)\s*;', close_compact):
+        raise ValueError("fileClose must destroy the owned handle and return an empty map")
+
+    file_seek = find_function_body(source, "htsp_method_file_seek") or ""
+    seek_compact = re.sub(r"\s+", " ", file_seek).strip()
+    if [(field["name"], field["type"]) for field in extract_get_fields(file_seek, "in")] != [
+        ("offset", "s64"), ("whence", "str")
+    ]:
+        raise ValueError("fileSeek must read exactly required signed-s64 offset and optional string whence")
+    if not re.search(r'if\s*\(\s*htsmsg_get_s64\(\s*in\s*,\s*"offset"\s*,\s*&off\s*\)\s*\)', seek_compact):
+        raise ValueError("fileSeek signed-s64 offset must remain required")
+    for wire_name in ("SEEK_SET", "SEEK_CUR", "SEEK_END"):
+        if seek_compact.count(f'"{wire_name}"') != 1:
+            raise ValueError("fileSeek whence must remain exactly SEEK_SET/SEEK_CUR/SEEK_END")
+    if not re.search(r'else\s*\{\s*whence\s*=\s*SEEK_SET\s*;\s*\}', seek_compact):
+        raise ValueError("fileSeek omitted whence must default to SEEK_SET")
+    if [(field["name"], field["type"]) for field in extract_add_fields(file_seek)] != [("offset", "s64")]:
+        raise ValueError("fileSeek success must emit exactly signed-s64 absolute offset")
+    if not re.search(
+        r'if\s*\(\s*\(\s*off\s*=\s*lseek\(\s*fd\s*,\s*off\s*,\s*whence\s*\)\s*\)\s*<\s*0\s*\).*'
+        r'htsmsg_add_s64\(\s*rep\s*,\s*"offset"\s*,\s*off\s*\)\s*;',
+        seek_compact,
+    ):
+        raise ValueError("fileSeek must reject negative lseek results and emit the non-negative absolute offset")
+
+
 def require_subscription_change_weight_source_facts(server_c: str) -> None:
     """Validate the exact bounded subscriptionChangeWeight handler topology."""
     source = strip_c_comments(server_c)
@@ -4032,6 +4208,7 @@ def derive_client_methods(server_c: str) -> list[dict[str, Any]]:
     find_dvr_body = find_function_body(server_c, "htsp_findDvrEntry") or ""
     success_body = find_function_body(server_c, "htsp_success") or ""
     require_recording_rule_source_facts(server_c)
+    require_bounded_file_operation_source_facts(server_c)
 
     for entry in table:
         name = entry["name"]
@@ -4183,11 +4360,47 @@ def derive_client_methods(server_c: str) -> list[dict[str, Any]]:
             ]
             reply_fields = epg_broadcast_fields()
 
-        if name == "fileRead":
+        if name == "fileOpen":
+            request_fields = [exact_field(
+                "file", "str", "request", "required",
+                "bounded htsp_method_file_open requires exact string file before stripping at most one leading slash",
+            )]
+            reply_fields = [
+                exact_field("id", "u32", "reply", "required", "bounded htsp_file_open always emits the new connection-owned handle id"),
+                exact_field(
+                    "size", "s64", "reply", "conditional",
+                    "bounded htsp_file_open emits st.st_size first only when fstat succeeds",
+                    condition="present together with mtime when fstat on the opened fd returns zero",
+                ),
+                exact_field(
+                    "mtime", "s64", "reply", "conditional",
+                    "bounded htsp_file_open emits unchanged st.st_mtime second only when fstat succeeds",
+                    condition="present together with size when fstat on the opened fd returns zero",
+                ),
+            ]
+        elif name == "fileRead":
+            request_fields = [
+                exact_field("id", "u32", "request", "required", "bounded htsp_file_find performs a default-zero current-connection handle lookup"),
+                exact_field("size", "s64", "request", "required", "bounded htsp_method_file_read rejects a missing or malformed signed-s64 size"),
+                exact_field("offset", "s64", "request", "optional", "bounded htsp_method_file_read seeks to an exact signed-s64 offset only when present"),
+            ]
             reply_fields = [exact_field(
                 "data", "bin", "reply", "required",
-                "htsp_method_fileRead htsmsg_add_bin_alloc",
+                "bounded htsp_method_file_read emits binary data after every successful read, including length zero",
             )]
+        elif name == "fileClose":
+            request_fields = [
+                exact_field("id", "u32", "request", "required", "bounded htsp_file_find performs a default-zero current-connection handle lookup"),
+                exact_field(
+                    "playposition", "u32", "request", "optional",
+                    "pinned close updates DVR play position only for a recording-backed handle at protocol v27 or newer when supplied; omission never updates position",
+                ),
+                exact_field(
+                    "playcount", "u32", "request", "optional",
+                    "pinned close increments DVR playcount unconditionally before v27 and, at v27 or newer, defaults omission to HTSP_DVR_PLAYCOUNT_INCR and increments when equal",
+                ),
+            ]
+            reply_fields = []
         elif name == "epgQuery":
             require_epg_query_source_facts(server_c)
             if [(field["name"], field["type"]) for field in request_fields] != [
@@ -4305,6 +4518,20 @@ def derive_client_methods(server_c: str) -> list[dict[str, Any]]:
                     condition="present together with size when fstat(fd, &st) returns zero",
                 ),
             ]
+        elif name == "fileSeek":
+            request_fields = [
+                exact_field("id", "u32", "request", "required", "bounded htsp_file_find performs a default-zero current-connection handle lookup"),
+                exact_field("offset", "s64", "request", "required", "bounded htsp_method_file_seek rejects a missing or malformed signed-s64 offset"),
+                exact_field(
+                    "whence", "str", "request", "optional",
+                    "bounded htsp_method_file_seek accepts only SEEK_SET, SEEK_CUR, or SEEK_END",
+                    condition="omission selects SEEK_SET",
+                ),
+            ]
+            reply_fields = [exact_field(
+                "offset", "s64", "reply", "required",
+                "bounded successful lseek emits the resulting non-negative absolute offset",
+            )]
         elif name == "stopDvrEntry":
             require_stop_dvr_entry_source_facts(server_c)
             request_fields = [exact_field(
@@ -4514,6 +4741,43 @@ def derive_client_methods(server_c: str) -> list[dict[str, Any]]:
                     "bounded successful handler emits exactly ordered required string path and ticket"
                 ),
             }
+        if name == "fileOpen":
+            method["requestShape"] = {
+                "kind": "fields",
+                "completeness": "complete",
+                "evidence": "bounded handler accepts exactly one required string file and strips at most one leading slash after decoding",
+            }
+            method["replyShape"] = {
+                "kind": "alternative",
+                "completeness": "complete",
+                "evidence": "bounded helper always emits u32 id and conditionally emits ordered signed-s64 size and mtime together after successful fstat",
+                "alternatives": [
+                    "required u32 id followed by signed-s64 size and unchanged signed-s64 mtime when fstat succeeds",
+                    "required u32 id only when fstat fails",
+                ],
+            }
+        if name == "fileRead":
+            method["requestShape"] = {
+                "kind": "fields",
+                "completeness": "complete",
+                "evidence": "bounded helper/handler accept current-connection id, required signed-s64 size, and optional signed-s64 absolute offset",
+            }
+            method["replyShape"] = {
+                "kind": "fields",
+                "completeness": "complete",
+                "evidence": "bounded successful handler always emits exactly one binary data field, including an empty payload",
+            }
+        if name == "fileClose":
+            method["requestShape"] = {
+                "kind": "fields",
+                "completeness": "complete",
+                "evidence": "bounded helper/handler accept current-connection id plus optional DVR-only playposition and playcount inputs inside the recording-backed DVR-entry guard",
+            }
+            method["replyShape"] = {
+                "kind": "knownEmpty",
+                "completeness": "complete",
+                "evidence": "bounded handler destroys the matched handle and returns exactly an empty map",
+            }
         if name == "fileStat":
             method["requestShape"] = {
                 "kind": "fields",
@@ -4534,6 +4798,17 @@ def derive_client_methods(server_c: str) -> list[dict[str, Any]]:
                     "signed-s64 size followed by unchanged signed-s64 mtime when fstat succeeds",
                     "successful empty map when fstat fails",
                 ],
+            }
+        if name == "fileSeek":
+            method["requestShape"] = {
+                "kind": "fields",
+                "completeness": "complete",
+                "evidence": "bounded helper/handler accept current-connection id, required signed-s64 offset, and optional finite whence",
+            }
+            method["replyShape"] = {
+                "kind": "fields",
+                "completeness": "complete",
+                "evidence": "bounded successful lseek emits exactly the resulting non-negative signed-s64 absolute offset",
             }
         if name == "stopDvrEntry":
             method["requestShape"] = {
@@ -4601,6 +4876,24 @@ def derive_client_methods(server_c: str) -> list[dict[str, Any]]:
                 "Wire cred is an unconstrained copied message and remains an explicitly opaque shape deliberately omitted from the public response model.",
                 "Pinned time_t updated/start/stop/first_aired members are serialized as signed s64; the SDK exposes unchanged Unix-second values under its EPG time convention.",
             ]
+        if name == "fileOpen":
+            method["notes"] = [
+                "The exact caller string is decoded first; pinned server source strips at most one leading slash before selecting dvr/dvrfile/imagecache handling.",
+                "The returned u32 handle belongs to this HTSP connection; the helper always emits id after a successful open.",
+                "size and mtime are coupled signed-s64 observations emitted in order only when fstat succeeds; mtime is unchanged POSIX st_mtime.",
+            ]
+        if name == "fileRead":
+            method["notes"] = [
+                "The id uses the default-zero lookup helper and is meaningful only in the connection that opened it.",
+                "size is required signed s64 in pinned source; the ordinary typed SDK additionally bounds it to 0..16 MiB without changing codec limits or readers.",
+                "offset is optional signed s64; a successful zero-byte read still emits a present empty binary data field.",
+            ]
+        if name == "fileClose":
+            method["notes"] = [
+                "The id uses the default-zero lookup helper and is meaningful only in the connection that opened it.",
+                "The ordinary typed fileClose request is the exact raw v8 id-only surface and exposes no playcount or playposition controls, but an id-only close of a recording-backed handle increments playcount unconditionally before v27 and, at v27 or newer, omission defaults to HTSP_DVR_PLAYCOUNT_INCR and also increments.",
+                "Omitted playposition never updates position; non-recording and image handles have no associated DVR entry to mutate. Success destroys the matched handle and returns an empty map; the existing opted-in recording close, client lifecycle, and SDK-owned progress policy remain separate.",
+            ]
         if name == "fileStat":
             method["notes"] = [
                 "The id is a u32 handle lookup key; zero is not rejected before the owned-handle lookup.",
@@ -4608,6 +4901,12 @@ def derive_client_methods(server_c: str) -> list[dict[str, Any]]:
                 "size and mtime are coupled: both signed-s64 fields are emitted in that order, or neither is emitted.",
                 "mtime is the unchanged POSIX st_mtime value serialized by pinned source; official docs omit its unit and epoch.",
                 "A successful empty map is the pinned fstat-failure behavior.",
+            ]
+        if name == "fileSeek":
+            method["notes"] = [
+                "The id uses the default-zero lookup helper and is meaningful only in the connection that opened it.",
+                "offset is required signed s64; whence accepts exactly SEEK_SET, SEEK_CUR, or SEEK_END and omission defaults to SEEK_SET.",
+                "A successful lseek result is non-negative and is always emitted as required signed-s64 absolute offset.",
             ]
         elif name in RECORDING_RULE_METHODS:
             notes = [
@@ -5610,6 +5909,122 @@ static htsmsg_t *
 """
             )
             continue
+        if name == "fileOpen":
+            handlers.append(
+                f"""
+static htsmsg_t *
+{handler}(htsp_connection_t *htsp, htsmsg_t *in)
+{{
+  const char *str;
+  if ((str = htsmsg_get_str(in, "file")) == NULL)
+    return htsp_error(htsp, N_("Invalid arguments"));
+  if (*str == '/')
+    str++;
+  return htsp_file_open(htsp, str, 0, NULL);
+}}
+"""
+            )
+            continue
+        if name == "fileRead":
+            handlers.append(
+                f"""
+static htsmsg_t *
+{handler}(htsp_connection_t *htsp, htsmsg_t *in)
+{{
+  htsp_file_t *hf = htsp_file_find(htsp, in);
+  htsmsg_t *rep = NULL;
+  const char *e = NULL;
+  int64_t off;
+  int64_t size;
+  int fd;
+  if (hf == NULL)
+    return htsp_error(htsp, N_("Invalid file"));
+  if (htsmsg_get_s64(in, "size", &size))
+    return htsp_error(htsp, N_("Invalid parameters"));
+  fd = hf->hf_fd;
+  tvh_mutex_unlock(&global_lock);
+  if (!htsmsg_get_s64(in, "offset", &off))
+    if (lseek(fd, off, SEEK_SET) != off) {{ e = "Seek error"; goto error; }}
+  void *m = malloc(size);
+  if (m == NULL) {{ e = N_("Not enough memory"); goto error; }}
+  int r = read(fd, m, size);
+  if (r < 0) {{ free(m); e = N_("Read error"); goto error; }}
+  htsp_file_update_stats(hf, r);
+  rep = htsmsg_create_map();
+  htsmsg_add_bin_alloc(rep, "data", m, r);
+error:
+  tvh_mutex_lock(&global_lock);
+  return e ? htsp_error(htsp, e) : rep;
+}}
+"""
+            )
+            continue
+        if name == "fileClose":
+            handlers.append(
+                f"""
+static htsmsg_t *
+{handler}(htsp_connection_t *htsp, htsmsg_t *in)
+{{
+  htsp_file_t *hf = htsp_file_find(htsp, in);
+  uint32_t u32;
+  dvr_entry_t *de;
+  if (hf == NULL)
+    return htsp_error(htsp, N_("Invalid file"));
+  if (hf->hf_de_id > 0 && (de = dvr_entry_find_by_id(hf->hf_de_id))) {{
+    int save = 0;
+    if (htsp->htsp_version < 27 || htsmsg_get_u32_or_default(in, "playcount", HTSP_DVR_PLAYCOUNT_INCR) == HTSP_DVR_PLAYCOUNT_INCR) {{
+      dvr_entry_incr_playcount(de); save = 1;
+    }}
+    if (htsp->htsp_version >= 27 && !htsmsg_get_u32(in, "playposition", &u32)) {{
+      de->de_playposition = u32; save = 1;
+    }}
+    if (save) dvr_entry_changed(de);
+  }}
+  tvh_mutex_unlock(&global_lock);
+  htsp_file_destroy(hf);
+  tvh_mutex_lock(&global_lock);
+  return htsmsg_create_map();
+}}
+"""
+            )
+            continue
+        if name == "fileSeek":
+            handlers.append(
+                f"""
+static htsmsg_t *
+{handler}(htsp_connection_t *htsp, htsmsg_t *in)
+{{
+  htsp_file_t *hf = htsp_file_find(htsp, in);
+  htsmsg_t *rep;
+  const char *str;
+  int64_t off;
+  int fd, whence;
+  if (hf == NULL)
+    return htsp_error(htsp, N_("Invalid file"));
+  if (htsmsg_get_s64(in, "offset", &off))
+    return htsp_error(htsp, N_("Invalid parameters"));
+  if ((str = htsmsg_get_str(in, "whence"))) {{
+    if (!strcmp(str, "SEEK_SET")) whence = SEEK_SET;
+    else if (!strcmp(str, "SEEK_CUR")) whence = SEEK_CUR;
+    else if (!strcmp(str, "SEEK_END")) whence = SEEK_END;
+    else return htsp_error(htsp, N_("Invalid parameters"));
+  }} else {{
+    whence = SEEK_SET;
+  }}
+  fd = hf->hf_fd;
+  tvh_mutex_unlock(&global_lock);
+  if ((off = lseek(fd, off, whence)) < 0) {{
+    tvh_mutex_lock(&global_lock);
+    return htsp_error(htsp, N_("Seek error"));
+  }}
+  rep = htsmsg_create_map();
+  htsmsg_add_s64(rep, "offset", off);
+  tvh_mutex_lock(&global_lock);
+  return rep;
+}}
+"""
+            )
+            continue
         if name in RECORDING_RULE_METHODS:
             autorec = "Autorec" in name
             add = name.startswith("add")
@@ -6034,6 +6449,24 @@ static htsmsg_t *
     # Server message emitters for expected inventory subset used in unit tests.
     dvr_helpers = """
 #define NUM_FILTERED_STREAMS (64*8)
+static htsmsg_t *
+htsp_file_open(htsp_connection_t *htsp, const char *path, int fd, dvr_entry_t *de)
+{
+  struct stat st;
+  htsp_file_t *hf = calloc(1, sizeof(htsp_file_t));
+  hf->hf_fd = fd;
+  hf->hf_id = ++htsp->htsp_file_id;
+  hf->hf_path = strdup(path);
+  hf->hf_de_id = de ? idnode_get_short_uuid(&de->de_id) : 0;
+  LIST_INSERT_HEAD(&htsp->htsp_files, hf, hf_link);
+  htsmsg_t *rep = htsmsg_create_map();
+  htsmsg_add_u32(rep, "id", hf->hf_id);
+  if (!fstat(hf->hf_fd, &st)) {
+    htsmsg_add_s64(rep, "size", st.st_size);
+    htsmsg_add_s64(rep, "mtime", st.st_mtime);
+  }
+  return rep;
+}
 static htsp_file_t *
 htsp_file_find(htsp_connection_t *htsp, htsmsg_t *in)
 {
@@ -6854,7 +7287,7 @@ def self_test() -> None:
             live_coverage["serverMessages"]["handledCount"],
             live_coverage["typedClientRequests"]["count"],
             live_coverage["typedServerMessages"]["count"],
-        ) == (38, 37, 30, 31, 29)
+        ) == (38, 37, 30, 35, 29)
         and "getEpgObject" in live_coverage["clientMethods"]["referenced"]
         and "getEpgObject" in live_coverage["clientMethods"]["outgoingRequests"]
         and "epgQuery" in live_coverage["clientMethods"]["referenced"]
@@ -7106,8 +7539,16 @@ def self_test() -> None:
             (
                 "htsp_method_change_weight"
                 if name == "subscriptionChangeWeight"
+                else "htsp_method_file_open"
+                if name == "fileOpen"
+                else "htsp_method_file_read"
+                if name == "fileRead"
+                else "htsp_method_file_close"
+                if name == "fileClose"
                 else "htsp_method_file_stat"
                 if name == "fileStat"
+                else "htsp_method_file_seek"
+                if name == "fileSeek"
                 else "htsp_method_live"
                 if name == "subscriptionLive"
                 else "htsp_method_filter_stream"
@@ -7115,12 +7556,16 @@ def self_test() -> None:
                 else f"htsp_method_{name}"
                 if name in {
                     "getEvent", "getEvents", "getEpgObject", "epgQuery", "stopDvrEntry",
-                    "getDvrCutpoints", "getTicket", "fileStat", *RECORDING_RULE_METHODS,
+                    "getDvrCutpoints", "getTicket", "fileOpen", "fileRead", "fileClose",
+                    "fileStat", "fileSeek", *RECORDING_RULE_METHODS,
                 }
                 else f"htsp_method_{idx}"
             ),
             "ACCESS_HTSP_RECORDER"
-            if name in {"stopDvrEntry", "getDvrCutpoints", "fileStat", *RECORDING_RULE_METHODS}
+            if name in {
+                "stopDvrEntry", "getDvrCutpoints", "fileOpen", "fileRead", "fileClose",
+                "fileStat", "fileSeek", *RECORDING_RULE_METHODS,
+            }
             else "ACCESS_HTSP_STREAMING"
             if name in {
                 "epgQuery", "getEpgObject", "getTicket", "subscriptionChangeWeight", "subscriptionLive", "subscriptionFilterStream",
@@ -8707,6 +9152,179 @@ def self_test() -> None:
                 )
                 continue
             check(f"reject-fileStat-source-{label}", False)
+
+        changed_file_operation_minima = dict(METHOD_MIN_VERSION)
+        changed_file_operation_minima["fileRead"] = 9
+        try:
+            require_bounded_file_operation_source_facts(server_c, changed_file_operation_minima)
+        except ValueError as exc:
+            check(
+                "bounded-file-operation-minimum-mutation-exact-diagnostic",
+                str(exc) == "bounded file operation annotated minima must remain exactly 8",
+                str(exc),
+            )
+        else:
+            check("reject-bounded-file-operation-minimum-mutation", False)
+
+        bounded_file_source_mutations = (
+            (
+                "dispatch-access",
+                server_c.replace(
+                    '{ "fileRead", htsp_method_file_read, ACCESS_HTSP_RECORDER}',
+                    '{ "fileRead", htsp_method_file_read, ACCESS_ANONYMOUS}',
+                    1,
+                ),
+                "bounded file operations must retain exact handlers and recorder dispatch access",
+            ),
+            (
+                "open-file-name",
+                mutate_file_stat_function(
+                    "open-file-name", "htsp_method_file_open",
+                    'htsmsg_get_str(in, "file")', 'htsmsg_get_str(in, "path")',
+                ),
+                "fileOpen must require exact string file",
+            ),
+            (
+                "open-leading-slash",
+                mutate_file_stat_function(
+                    "open-leading-slash", "htsp_method_file_open", "str++;", "str += 2;",
+                ),
+                "fileOpen must strip at most one leading slash server-side",
+            ),
+            (
+                "open-recording-association",
+                mutate_file_stat_dispatch(
+                    "open-recording-association",
+                    "hf->hf_de_id = de ? idnode_get_short_uuid(&de->de_id) : 0;",
+                    "hf->hf_de_id = de ? idnode_get_short_uuid(&de->de_id) : 1;",
+                ),
+                "fileOpen helper must associate a DVR id only with a recording-backed handle",
+            ),
+            (
+                "read-size-requiredness",
+                mutate_file_stat_function(
+                    "read-size-requiredness", "htsp_method_file_read",
+                    'if (htsmsg_get_s64(in, "size", &size))',
+                    'if (!htsmsg_get_s64(in, "size", &size))',
+                ),
+                "fileRead signed-s64 size must remain required",
+            ),
+            (
+                "read-offset-optionality",
+                mutate_file_stat_function(
+                    "read-offset-optionality", "htsp_method_file_read",
+                    'if (!htsmsg_get_s64(in, "offset", &off))',
+                    'if (htsmsg_get_s64(in, "offset", &off))',
+                ),
+                "fileRead signed-s64 offset must remain optional",
+            ),
+            (
+                "read-data-name",
+                mutate_file_stat_function(
+                    "read-data-name", "htsp_method_file_read", '"data", m, r', '"payload", m, r',
+                ),
+                "fileRead success must emit exactly binary data",
+            ),
+            (
+                "close-progress-field",
+                mutate_file_stat_function(
+                    "close-progress-field", "htsp_method_file_close", '"playcount"', '"watched"',
+                ),
+                "fileClose progress mutation inputs must remain optional u32 playcount/playposition only",
+            ),
+            (
+                "close-recording-backed-guard",
+                mutate_file_stat_function(
+                    "close-recording-backed-guard", "htsp_method_file_close",
+                    "hf->hf_de_id > 0 && (de = dvr_entry_find_by_id(hf->hf_de_id))",
+                    "hf->hf_de_id >= 0 && (de = dvr_entry_find_by_id(hf->hf_de_id))",
+                ),
+                "fileClose DVR mutation must remain guarded by a recording-backed handle and resolved DVR entry",
+            ),
+            (
+                "close-pre-v27-version-branch",
+                mutate_file_stat_function(
+                    "close-pre-v27-version-branch", "htsp_method_file_close",
+                    "htsp->htsp_version < 27 ||", "htsp->htsp_version < 26 ||",
+                ),
+                "fileClose must increment playcount unconditionally before protocol v27",
+            ),
+            (
+                "close-omitted-playcount-default",
+                mutate_file_stat_function(
+                    "close-omitted-playcount-default", "htsp_method_file_close",
+                    'htsmsg_get_u32_or_default(in, "playcount", HTSP_DVR_PLAYCOUNT_INCR)',
+                    'htsmsg_get_u32_or_default(in, "playcount", 0)',
+                ),
+                "fileClose v27+ omitted playcount must default to and compare equal to HTSP_DVR_PLAYCOUNT_INCR",
+            ),
+            (
+                "close-playcount-comparison",
+                mutate_file_stat_function(
+                    "close-playcount-comparison", "htsp_method_file_close",
+                    ") == HTSP_DVR_PLAYCOUNT_INCR", ") != HTSP_DVR_PLAYCOUNT_INCR",
+                ),
+                "fileClose v27+ omitted playcount must default to and compare equal to HTSP_DVR_PLAYCOUNT_INCR",
+            ),
+            (
+                "close-v27-conditional-increment",
+                mutate_file_stat_function(
+                    "close-v27-conditional-increment", "htsp_method_file_close",
+                    "htsp->htsp_version < 27 ||", "htsp->htsp_version < 27 &&",
+                ),
+                "fileClose must increment playcount unconditionally before protocol v27",
+            ),
+            (
+                "close-optional-playposition-update",
+                mutate_file_stat_function(
+                    "close-optional-playposition-update", "htsp_method_file_close",
+                    '!htsmsg_get_u32(in, "playposition", &u32)',
+                    'htsmsg_get_u32(in, "playposition", &u32)',
+                ),
+                "fileClose must update playposition only when supplied at protocol v27+",
+            ),
+            (
+                "close-empty-reply",
+                mutate_file_stat_function(
+                    "close-empty-reply", "htsp_method_file_close",
+                    "return htsmsg_create_map();", "return NULL;",
+                ),
+                "fileClose must destroy the owned handle and return an empty map",
+            ),
+            (
+                "seek-whence-vocabulary",
+                mutate_file_stat_function(
+                    "seek-whence-vocabulary", "htsp_method_file_seek", '"SEEK_CUR"', '"SEEK_DATA"',
+                ),
+                "fileSeek whence must remain exactly SEEK_SET/SEEK_CUR/SEEK_END",
+            ),
+            (
+                "seek-default",
+                mutate_file_stat_function(
+                    "seek-default", "htsp_method_file_seek",
+                    "whence = SEEK_SET;\n  }\n  fd", "whence = SEEK_CUR;\n  }\n  fd",
+                ),
+                "fileSeek omitted whence must default to SEEK_SET",
+            ),
+            (
+                "seek-output-name",
+                mutate_file_stat_function(
+                    "seek-output-name", "htsp_method_file_seek", '"offset", off', '"position", off',
+                ),
+                "fileSeek success must emit exactly signed-s64 absolute offset",
+            ),
+        )
+        for label, mutated_source, expected_diagnostic in bounded_file_source_mutations:
+            try:
+                require_bounded_file_operation_source_facts(mutated_source)
+            except ValueError as exc:
+                check(
+                    f"bounded-file-source-mutation-exact-diagnostic-{label}",
+                    str(exc) == expected_diagnostic,
+                    str(exc),
+                )
+                continue
+            check(f"reject-bounded-file-source-{label}", False)
 
         weight_method = next(
             item for item in spec["clientMethods"]

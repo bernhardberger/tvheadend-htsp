@@ -91,7 +91,11 @@ EXPECTED_TYPED_CLIENT_REQUESTS: tuple[tuple[str, str, int | None], ...] = (
     ("subscriptionSpeed", "ACCESS_HTSP_STREAMING", 9),
     ("subscriptionLive", "ACCESS_HTSP_STREAMING", 9),
     ("subscriptionFilterStream", "ACCESS_HTSP_STREAMING", 12),
+    ("fileOpen", "ACCESS_HTSP_RECORDER", 8),
+    ("fileRead", "ACCESS_HTSP_RECORDER", 8),
+    ("fileClose", "ACCESS_HTSP_RECORDER", 8),
     ("fileStat", "ACCESS_HTSP_RECORDER", 8),
+    ("fileSeek", "ACCESS_HTSP_RECORDER", 8),
 )
 
 EXPECTED_SERVER_MESSAGES: tuple[str, ...] = (
@@ -631,6 +635,52 @@ GET_TICKET_NOTES = [
 ]
 FILE_STAT_LIMITATION_ID = "fileStat-reply-source-doc-mismatch"
 FILE_STAT_DOCS_URL = GET_TICKET_DOCS_URL
+BOUNDED_FILE_OPERATIONS_LIMITATION_ID = "bounded-file-operations-source-doc-mismatch"
+BOUNDED_FILE_OPERATIONS_LIMITATION_SUMMARY = (
+    "Official docs use unsigned fileOpen/fileRead/fileSeek size, mtime, and offset types, "
+    "mark fileSeek whence required despite documenting a SEEK_SET default, and do not "
+    "capture the pinned source's coupled fileOpen metadata or required successful seek "
+    "offset or fileClose's recording-backed DVR defaults. Pinned source instead uses "
+    "signed-s64 values, optional read offset and seek whence, always emits binary read "
+    "data including an empty payload, and increments recording playcount on id-only close "
+    "unconditionally before v27 and by the omitted HTSP_DVR_PLAYCOUNT_INCR default at v27+."
+)
+BOUNDED_FILE_OPERATIONS_AUTHORITY = (
+    "src/htsp_server.c htsp_file_open, htsp_method_file_open, "
+    "htsp_method_file_read, htsp_method_file_close, and htsp_method_file_seek"
+)
+FILE_CLOSE_REQUEST_CONTRACT = (
+    (
+        "id", "u32", "required", None,
+        "bounded htsp_file_find performs a default-zero current-connection handle lookup",
+    ),
+    (
+        "playposition", "u32", "optional", None,
+        "pinned close updates DVR play position only for a recording-backed handle at protocol v27 or newer when supplied; omission never updates position",
+    ),
+    (
+        "playcount", "u32", "optional", None,
+        "pinned close increments DVR playcount unconditionally before v27 and, at v27 or newer, defaults omission to HTSP_DVR_PLAYCOUNT_INCR and increments when equal",
+    ),
+)
+FILE_CLOSE_REQUEST_SHAPE = {
+    "kind": "fields",
+    "completeness": "complete",
+    "evidence": (
+        "bounded helper/handler accept current-connection id plus optional DVR-only "
+        "playposition and playcount inputs inside the recording-backed DVR-entry guard"
+    ),
+}
+FILE_CLOSE_REPLY_SHAPE = {
+    "kind": "knownEmpty",
+    "completeness": "complete",
+    "evidence": "bounded handler destroys the matched handle and returns exactly an empty map",
+}
+FILE_CLOSE_NOTES = [
+    "The id uses the default-zero lookup helper and is meaningful only in the connection that opened it.",
+    "The ordinary typed fileClose request is the exact raw v8 id-only surface and exposes no playcount or playposition controls, but an id-only close of a recording-backed handle increments playcount unconditionally before v27 and, at v27 or newer, omission defaults to HTSP_DVR_PLAYCOUNT_INCR and also increments.",
+    "Omitted playposition never updates position; non-recording and image handles have no associated DVR entry to mutate. Success destroys the matched handle and returns an empty map; the existing opted-in recording close, client lifecycle, and SDK-owned progress policy remain separate.",
+]
 FILE_STAT_LIMITATION_SUMMARY = (
     "Official docs describe independently optional u64 size and mtime fields, while "
     "pinned source emits signed-s64 size then mtime together only when fstat succeeds "
@@ -1431,6 +1481,75 @@ def validate_spec(spec: dict[str, Any], upstream: dict[str, Any] | None = None) 
         errors.append("getTicket must preserve the official selector-documentation gap status")
     if get_ticket.get("notes") != GET_TICKET_NOTES:
         errors.append("getTicket notes must preserve selector, branch, path, output, and credential facts")
+    bounded_file_contracts = {
+        "fileOpen": (
+            "htsp_method_file_open",
+            [("file", "str", "required")],
+            [("id", "u32", "required"), ("size", "s64", "conditional"), ("mtime", "s64", "conditional")],
+            "alternative",
+        ),
+        "fileRead": (
+            "htsp_method_file_read",
+            [("id", "u32", "required"), ("size", "s64", "required"), ("offset", "s64", "optional")],
+            [("data", "bin", "required")],
+            "fields",
+        ),
+        "fileClose": (
+            "htsp_method_file_close",
+            [("id", "u32", "required"), ("playposition", "u32", "optional"), ("playcount", "u32", "optional")],
+            [],
+            "knownEmpty",
+        ),
+        "fileSeek": (
+            "htsp_method_file_seek",
+            [("id", "u32", "required"), ("offset", "s64", "required"), ("whence", "str", "optional")],
+            [("offset", "s64", "required")],
+            "fields",
+        ),
+    }
+    for method_name, (handler, request_contract, reply_contract, reply_kind) in bounded_file_contracts.items():
+        method = method_map.get(method_name, {})
+        if (
+            method.get("handler") != handler
+            or method.get("accessMask") != "ACCESS_HTSP_RECORDER"
+            or method.get("minVersion") != 8
+            or method.get("minVersionConfidence") != "annotated"
+        ):
+            errors.append(f"{method_name} must preserve exact handler, recorder access, and annotated minimum v8")
+        actual_request = [
+            (field.get("name"), field.get("type"), field.get("presence"))
+            for field in method.get("requestFields", [])
+        ]
+        actual_reply = [
+            (field.get("name"), field.get("type"), field.get("presence"))
+            for field in method.get("replyFields", [])
+        ]
+        if actual_request != request_contract or actual_reply != reply_contract:
+            errors.append(f"{method_name} must preserve its exact bounded request/reply field contract")
+        if (
+            method.get("requestShape", {}).get("kind") != "fields"
+            or method.get("requestShape", {}).get("completeness") != "complete"
+            or method.get("replyShape", {}).get("kind") != reply_kind
+            or method.get("replyShape", {}).get("completeness") != "complete"
+        ):
+            errors.append(f"{method_name} must preserve complete bounded request/reply shapes")
+        if len(method.get("notes", [])) != 3:
+            errors.append(f"{method_name} notes must preserve exact bounded file-operation facts")
+    file_close = method_map.get("fileClose", {})
+    if [
+        (
+            field.get("name"), field.get("type"), field.get("presence"),
+            field.get("condition"), field.get("evidence"),
+        )
+        for field in file_close.get("requestFields", [])
+    ] != list(FILE_CLOSE_REQUEST_CONTRACT):
+        errors.append("fileClose request evidence must preserve exact recording-backed version/default progress behavior")
+    if file_close.get("requestShape") != FILE_CLOSE_REQUEST_SHAPE:
+        errors.append("fileClose request shape must preserve the recording-backed DVR-entry guard")
+    if file_close.get("replyShape") != FILE_CLOSE_REPLY_SHAPE:
+        errors.append("fileClose reply must preserve exact empty acknowledgement evidence")
+    if file_close.get("notes") != FILE_CLOSE_NOTES:
+        errors.append("fileClose notes must preserve exact id-only server-default mutation and separation facts")
     file_stat = method_map.get("fileStat", {})
     if (
         file_stat.get("handler") != "htsp_method_file_stat"
@@ -1772,8 +1891,8 @@ def validate_spec(spec: dict[str, Any], upstream: dict[str, Any] | None = None) 
             errors.append(f"{name}: typed catalog access mask disagrees with pinned method")
         if method.get("minVersion") != method_min_version:
             errors.append(f"{name}: typed catalog method minimum disagrees with pinned method")
-    if typed_count != len(typed_methods) or typed_count != 31:
-        errors.append("coverage typedClientRequests.count must match exactly 31 methods")
+    if typed_count != len(typed_methods) or typed_count != 35:
+        errors.append("coverage typedClientRequests.count must match exactly 35 methods")
     if typed_cov.get("catalog") != "docs/htsp-protocol/generate_typed_requests.py":
         errors.append("coverage typedClientRequests.catalog must name the reviewed generator")
     if typed_cov.get("meaning") != (
@@ -2063,6 +2182,22 @@ def validate_spec(spec: dict[str, Any], upstream: dict[str, Any] | None = None) 
         ):
             errors.append(
                 "getTicket limitation must preserve exact selector requirement, precedence gap, and pinned authority"
+            )
+        bounded_file_limitation = next(
+            (
+                item for item in limitations
+                if isinstance(item, dict)
+                and item.get("id") == BOUNDED_FILE_OPERATIONS_LIMITATION_ID
+            ),
+            None,
+        )
+        if not bounded_file_limitation or (
+            bounded_file_limitation.get("summary") != BOUNDED_FILE_OPERATIONS_LIMITATION_SUMMARY
+            or bounded_file_limitation.get("authority") != BOUNDED_FILE_OPERATIONS_AUTHORITY
+            or bounded_file_limitation.get("docsUrl") != FILE_STAT_DOCS_URL
+        ):
+            errors.append(
+                "bounded file-operation limitation must preserve exact signed/requiredness source-doc mismatches"
             )
         file_stat_limitation = next(
             (
@@ -2661,8 +2796,16 @@ def _derive_fresh_self_test_spec(fresh_mutator: Any = None) -> dict[str, Any]:
             name,
             "htsp_method_change_weight"
             if name == "subscriptionChangeWeight"
+            else "htsp_method_file_open"
+            if name == "fileOpen"
+            else "htsp_method_file_read"
+            if name == "fileRead"
+            else "htsp_method_file_close"
+            if name == "fileClose"
             else "htsp_method_file_stat"
             if name == "fileStat"
+            else "htsp_method_file_seek"
+            if name == "fileSeek"
             else "htsp_method_live"
             if name == "subscriptionLive"
             else "htsp_method_filter_stream"
@@ -2670,12 +2813,14 @@ def _derive_fresh_self_test_spec(fresh_mutator: Any = None) -> dict[str, Any]:
             else f"htsp_method_{name}"
             if name in {
                 "getEvent", "getEvents", "getEpgObject", "epgQuery", "stopDvrEntry",
-                "getDvrCutpoints", "getTicket", "fileStat", *derive_module.RECORDING_RULE_METHODS,
+                "getDvrCutpoints", "getTicket", "fileOpen", "fileRead", "fileClose",
+                "fileStat", "fileSeek", *derive_module.RECORDING_RULE_METHODS,
             }
             else f"htsp_method_{index}",
             "ACCESS_HTSP_RECORDER"
             if name in {
-                "stopDvrEntry", "getDvrCutpoints", "fileStat", *derive_module.RECORDING_RULE_METHODS,
+                "stopDvrEntry", "getDvrCutpoints", "fileOpen", "fileRead", "fileClose",
+                "fileStat", "fileSeek", *derive_module.RECORDING_RULE_METHODS,
             }
             else "ACCESS_HTSP_STREAMING"
             if name in {
@@ -2744,7 +2889,8 @@ def _derive_fresh_self_test_spec(fresh_mutator: Any = None) -> dict[str, Any]:
     candidate["clientMethods"] = [
         fresh_methods[item["name"]]
         if item["name"] in {
-            "getEvents", "epgQuery", "getEpgObject", "getTicket", "fileStat", "stopDvrEntry", "getDvrCutpoints",
+            "getEvents", "epgQuery", "getEpgObject", "getTicket", "fileOpen", "fileRead",
+            "fileClose", "fileStat", "fileSeek", "stopDvrEntry", "getDvrCutpoints",
             "addAutorecEntry", "updateAutorecEntry", "deleteAutorecEntry",
             "addTimerecEntry", "updateTimerecEntry", "deleteTimerecEntry",
             "subscriptionChangeWeight", "subscriptionLive",
@@ -3274,6 +3420,86 @@ def self_test() -> None:
         check(
             f"reject-getTicket-limitation-{label}",
             any("getTicket limitation" in error for error in err),
+            str(err),
+        )
+
+    bounded_file_report_mutations = (
+        (
+            "fileOpen-required-file", "fileOpen",
+            lambda method: method["requestFields"][0].update({"presence": "optional"}),
+            "fileOpen must preserve its exact bounded request/reply field contract",
+        ),
+        (
+            "fileRead-binary-data", "fileRead",
+            lambda method: method["replyFields"][0].update({"type": "str"}),
+            [
+                "fileRead.data must be bin",
+                "fileRead must preserve its exact bounded request/reply field contract",
+            ],
+        ),
+        (
+            "fileClose-empty-reply", "fileClose",
+            lambda method: method["replyShape"].update({"kind": "fields"}),
+            [
+                "fileClose.replyShape: fields shape requires top-level fields",
+                "fileClose must preserve complete bounded request/reply shapes",
+                "fileClose reply must preserve exact empty acknowledgement evidence",
+            ],
+        ),
+        (
+            "fileClose-playcount-evidence", "fileClose",
+            lambda method: method["requestFields"][2].update({"evidence": "drifted playcount evidence"}),
+            "fileClose request evidence must preserve exact recording-backed version/default progress behavior",
+        ),
+        (
+            "fileClose-recording-guard-shape", "fileClose",
+            lambda method: method["requestShape"].update({"evidence": "unguarded progress inputs"}),
+            "fileClose request shape must preserve the recording-backed DVR-entry guard",
+        ),
+        (
+            "fileClose-server-default-notes", "fileClose",
+            lambda method: method["notes"].__setitem__(1, "drifted fileClose server-default note"),
+            "fileClose notes must preserve exact id-only server-default mutation and separation facts",
+        ),
+        (
+            "fileSeek-required-offset", "fileSeek",
+            lambda method: method["replyFields"][0].update({"presence": "optional"}),
+            "fileSeek must preserve its exact bounded request/reply field contract",
+        ),
+        (
+            "fileOpen-notes", "fileOpen",
+            lambda method: method["notes"].pop(),
+            "fileOpen notes must preserve exact bounded file-operation facts",
+        ),
+    )
+    for label, method_name, mutate, expected_diagnostic in bounded_file_report_mutations:
+        bad = json.loads(json.dumps(good_spec))
+        method = next(item for item in bad["clientMethods"] if item["name"] == method_name)
+        mutate(method)
+        err = validate_spec(bad)
+        check(
+            f"bounded-file-report-mutation-exact-diagnostic-{label}",
+            err == (expected_diagnostic if isinstance(expected_diagnostic, list) else [expected_diagnostic]),
+            str(err),
+        )
+
+    for label, key, replacement in (
+        ("summary", "summary", "official and source agree"),
+        ("authority", "authority", "src/htsp_server.c decoy"),
+        ("docs-url", "docsUrl", "https://example.invalid/file-operations"),
+    ):
+        bad = json.loads(json.dumps(good_spec))
+        limitation = next(
+            item for item in bad["docLimitations"]
+            if item["id"] == BOUNDED_FILE_OPERATIONS_LIMITATION_ID
+        )
+        limitation[key] = replacement
+        err = validate_spec(bad)
+        check(
+            f"bounded-file-limitation-mutation-exact-diagnostic-{label}",
+            err == [
+                "bounded file-operation limitation must preserve exact signed/requiredness source-doc mismatches"
+            ],
             str(err),
         )
 

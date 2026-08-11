@@ -396,6 +396,113 @@ public final class at/bernhardberger/tvheadend/htsp/EpgQueryResponse$Events : at
 	public fun toString ()Ljava/lang/String;
 }
 
+public final class at/bernhardberger/tvheadend/htsp/FileCloseRequest : at/bernhardberger/tvheadend/htsp/HtspRequest {
+	public fun <init> (J)V
+	public final fun component1 ()J
+	public final fun copy (J)Lat/bernhardberger/tvheadend/htsp/FileCloseRequest;
+	public static synthetic fun copy$default (Lat/bernhardberger/tvheadend/htsp/FileCloseRequest;JILjava/lang/Object;)Lat/bernhardberger/tvheadend/htsp/FileCloseRequest;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getId ()J
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class at/bernhardberger/tvheadend/htsp/FileCloseResponse {
+	public static final field INSTANCE Lat/bernhardberger/tvheadend/htsp/FileCloseResponse;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class at/bernhardberger/tvheadend/htsp/FileOpenRequest : at/bernhardberger/tvheadend/htsp/HtspRequest {
+	public fun <init> (Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;)Lat/bernhardberger/tvheadend/htsp/FileOpenRequest;
+	public static synthetic fun copy$default (Lat/bernhardberger/tvheadend/htsp/FileOpenRequest;Ljava/lang/String;ILjava/lang/Object;)Lat/bernhardberger/tvheadend/htsp/FileOpenRequest;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getFile ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class at/bernhardberger/tvheadend/htsp/FileOpenResponse {
+	public fun <init> (JLjava/lang/Long;Ljava/lang/Long;)V
+	public final fun component1 ()J
+	public final fun component2 ()Ljava/lang/Long;
+	public final fun component3 ()Ljava/lang/Long;
+	public final fun copy (JLjava/lang/Long;Ljava/lang/Long;)Lat/bernhardberger/tvheadend/htsp/FileOpenResponse;
+	public static synthetic fun copy$default (Lat/bernhardberger/tvheadend/htsp/FileOpenResponse;JLjava/lang/Long;Ljava/lang/Long;ILjava/lang/Object;)Lat/bernhardberger/tvheadend/htsp/FileOpenResponse;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getId ()J
+	public final fun getModifiedAtUnixSeconds ()Ljava/lang/Long;
+	public final fun getSizeBytes ()Ljava/lang/Long;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class at/bernhardberger/tvheadend/htsp/FileReadRequest : at/bernhardberger/tvheadend/htsp/HtspRequest {
+	public fun <init> (JJLjava/lang/Long;)V
+	public synthetic fun <init> (JJLjava/lang/Long;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()J
+	public final fun component2 ()J
+	public final fun component3 ()Ljava/lang/Long;
+	public final fun copy (JJLjava/lang/Long;)Lat/bernhardberger/tvheadend/htsp/FileReadRequest;
+	public static synthetic fun copy$default (Lat/bernhardberger/tvheadend/htsp/FileReadRequest;JJLjava/lang/Long;ILjava/lang/Object;)Lat/bernhardberger/tvheadend/htsp/FileReadRequest;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getId ()J
+	public final fun getOffset ()Ljava/lang/Long;
+	public final fun getSize ()J
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class at/bernhardberger/tvheadend/htsp/FileReadResponse {
+	public fun <init> (Lat/bernhardberger/tvheadend/htsp/HtspBinary;)V
+	public final fun component1 ()Lat/bernhardberger/tvheadend/htsp/HtspBinary;
+	public final fun copy (Lat/bernhardberger/tvheadend/htsp/HtspBinary;)Lat/bernhardberger/tvheadend/htsp/FileReadResponse;
+	public static synthetic fun copy$default (Lat/bernhardberger/tvheadend/htsp/FileReadResponse;Lat/bernhardberger/tvheadend/htsp/HtspBinary;ILjava/lang/Object;)Lat/bernhardberger/tvheadend/htsp/FileReadResponse;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getData ()Lat/bernhardberger/tvheadend/htsp/HtspBinary;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class at/bernhardberger/tvheadend/htsp/FileSeekRequest : at/bernhardberger/tvheadend/htsp/HtspRequest {
+	public fun <init> (JJLat/bernhardberger/tvheadend/htsp/FileSeekWhence;)V
+	public synthetic fun <init> (JJLat/bernhardberger/tvheadend/htsp/FileSeekWhence;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()J
+	public final fun component2 ()J
+	public final fun component3 ()Lat/bernhardberger/tvheadend/htsp/FileSeekWhence;
+	public final fun copy (JJLat/bernhardberger/tvheadend/htsp/FileSeekWhence;)Lat/bernhardberger/tvheadend/htsp/FileSeekRequest;
+	public static synthetic fun copy$default (Lat/bernhardberger/tvheadend/htsp/FileSeekRequest;JJLat/bernhardberger/tvheadend/htsp/FileSeekWhence;ILjava/lang/Object;)Lat/bernhardberger/tvheadend/htsp/FileSeekRequest;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getId ()J
+	public final fun getOffset ()J
+	public final fun getWhence ()Lat/bernhardberger/tvheadend/htsp/FileSeekWhence;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class at/bernhardberger/tvheadend/htsp/FileSeekResponse {
+	public fun <init> (J)V
+	public final fun component1 ()J
+	public final fun copy (J)Lat/bernhardberger/tvheadend/htsp/FileSeekResponse;
+	public static synthetic fun copy$default (Lat/bernhardberger/tvheadend/htsp/FileSeekResponse;JILjava/lang/Object;)Lat/bernhardberger/tvheadend/htsp/FileSeekResponse;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getOffset ()J
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class at/bernhardberger/tvheadend/htsp/FileSeekWhence : java/lang/Enum {
+	public static final field CURRENT Lat/bernhardberger/tvheadend/htsp/FileSeekWhence;
+	public static final field END Lat/bernhardberger/tvheadend/htsp/FileSeekWhence;
+	public static final field SET Lat/bernhardberger/tvheadend/htsp/FileSeekWhence;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Lat/bernhardberger/tvheadend/htsp/FileSeekWhence;
+	public static fun values ()[Lat/bernhardberger/tvheadend/htsp/FileSeekWhence;
+}
+
 public final class at/bernhardberger/tvheadend/htsp/FileStatRequest : at/bernhardberger/tvheadend/htsp/HtspRequest {
 	public fun <init> (J)V
 	public final fun component1 ()J
@@ -443,6 +550,14 @@ public final class at/bernhardberger/tvheadend/htsp/GeneratedHtspExtensionsKt {
 	public static synthetic fun enableAsyncMetadata$default (Lat/bernhardberger/tvheadend/htsp/HtspConnection;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/String;JLat/bernhardberger/tvheadend/htsp/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
 	public static final fun epgQuery (Lat/bernhardberger/tvheadend/htsp/HtspConnection;Ljava/lang/String;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/String;Ljava/lang/Boolean;Ljava/lang/Boolean;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;JLat/bernhardberger/tvheadend/htsp/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public static synthetic fun epgQuery$default (Lat/bernhardberger/tvheadend/htsp/HtspConnection;Ljava/lang/String;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/String;Ljava/lang/Boolean;Ljava/lang/Boolean;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;JLat/bernhardberger/tvheadend/htsp/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+	public static final fun fileClose (Lat/bernhardberger/tvheadend/htsp/HtspConnection;JJLat/bernhardberger/tvheadend/htsp/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static synthetic fun fileClose$default (Lat/bernhardberger/tvheadend/htsp/HtspConnection;JJLat/bernhardberger/tvheadend/htsp/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+	public static final fun fileOpen (Lat/bernhardberger/tvheadend/htsp/HtspConnection;Ljava/lang/String;JLat/bernhardberger/tvheadend/htsp/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static synthetic fun fileOpen$default (Lat/bernhardberger/tvheadend/htsp/HtspConnection;Ljava/lang/String;JLat/bernhardberger/tvheadend/htsp/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+	public static final fun fileRead (Lat/bernhardberger/tvheadend/htsp/HtspConnection;JJLjava/lang/Long;JLat/bernhardberger/tvheadend/htsp/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static synthetic fun fileRead$default (Lat/bernhardberger/tvheadend/htsp/HtspConnection;JJLjava/lang/Long;JLat/bernhardberger/tvheadend/htsp/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+	public static final fun fileSeek (Lat/bernhardberger/tvheadend/htsp/HtspConnection;JJLat/bernhardberger/tvheadend/htsp/FileSeekWhence;JLat/bernhardberger/tvheadend/htsp/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static synthetic fun fileSeek$default (Lat/bernhardberger/tvheadend/htsp/HtspConnection;JJLat/bernhardberger/tvheadend/htsp/FileSeekWhence;JLat/bernhardberger/tvheadend/htsp/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
 	public static final fun fileStat (Lat/bernhardberger/tvheadend/htsp/HtspConnection;JJLat/bernhardberger/tvheadend/htsp/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public static synthetic fun fileStat$default (Lat/bernhardberger/tvheadend/htsp/HtspConnection;JJLat/bernhardberger/tvheadend/htsp/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
 	public static final fun getChannel (Lat/bernhardberger/tvheadend/htsp/HtspConnection;JJLat/bernhardberger/tvheadend/htsp/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;

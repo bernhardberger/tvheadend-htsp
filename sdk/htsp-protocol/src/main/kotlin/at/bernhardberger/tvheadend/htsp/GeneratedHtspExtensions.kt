@@ -45,7 +45,11 @@ internal val typedHtspRequestCatalog: List<TypedHtspRequestCatalogEntry> = listO
     TypedHtspRequestCatalogEntry("subscriptionSpeed", "SubscriptionSpeedRequest", "HtspEmptyResponse", HtspAccess.ACCESS_HTSP_STREAMING, 9),
     TypedHtspRequestCatalogEntry("subscriptionLive", "SubscriptionLiveRequest", "HtspEmptyResponse", HtspAccess.ACCESS_HTSP_STREAMING, 9),
     TypedHtspRequestCatalogEntry("subscriptionFilterStream", "SubscriptionFilterStreamRequest", "HtspEmptyResponse", HtspAccess.ACCESS_HTSP_STREAMING, 12),
+    TypedHtspRequestCatalogEntry("fileOpen", "FileOpenRequest", "FileOpenResponse", HtspAccess.ACCESS_HTSP_RECORDER, 8),
+    TypedHtspRequestCatalogEntry("fileRead", "FileReadRequest", "FileReadResponse", HtspAccess.ACCESS_HTSP_RECORDER, 8),
+    TypedHtspRequestCatalogEntry("fileClose", "FileCloseRequest", "FileCloseResponse", HtspAccess.ACCESS_HTSP_RECORDER, 8),
     TypedHtspRequestCatalogEntry("fileStat", "FileStatRequest", "FileStatResponse", HtspAccess.ACCESS_HTSP_RECORDER, 8),
+    TypedHtspRequestCatalogEntry("fileSeek", "FileSeekRequest", "FileSeekResponse", HtspAccess.ACCESS_HTSP_RECORDER, 8),
 )
 
 public suspend fun HtspConnection.getProfiles(
@@ -846,6 +850,49 @@ public suspend fun HtspConnection.subscriptionFilterStream(
         expectedGeneration = expectedGeneration,
     )
 
+public suspend fun HtspConnection.fileOpen(
+    file: String,
+    timeoutMs: Long = 5_000L,
+    expectedGeneration: HtspConnectionGeneration? = null,
+): HtspResult<FileOpenResponse> =
+    call(
+        request = FileOpenRequest(
+            file = file,
+        ),
+        timeoutMs = timeoutMs,
+        expectedGeneration = expectedGeneration,
+    )
+
+public suspend fun HtspConnection.fileRead(
+    id: Long,
+    size: Long,
+    offset: Long? = null,
+    timeoutMs: Long = 5_000L,
+    expectedGeneration: HtspConnectionGeneration? = null,
+): HtspResult<FileReadResponse> =
+    call(
+        request = FileReadRequest(
+            id = id,
+            size = size,
+            offset = offset,
+        ),
+        timeoutMs = timeoutMs,
+        expectedGeneration = expectedGeneration,
+    )
+
+public suspend fun HtspConnection.fileClose(
+    id: Long,
+    timeoutMs: Long = 5_000L,
+    expectedGeneration: HtspConnectionGeneration? = null,
+): HtspResult<FileCloseResponse> =
+    call(
+        request = FileCloseRequest(
+            id = id,
+        ),
+        timeoutMs = timeoutMs,
+        expectedGeneration = expectedGeneration,
+    )
+
 public suspend fun HtspConnection.fileStat(
     id: Long,
     timeoutMs: Long = 5_000L,
@@ -854,6 +901,23 @@ public suspend fun HtspConnection.fileStat(
     call(
         request = FileStatRequest(
             id = id,
+        ),
+        timeoutMs = timeoutMs,
+        expectedGeneration = expectedGeneration,
+    )
+
+public suspend fun HtspConnection.fileSeek(
+    id: Long,
+    offset: Long,
+    whence: FileSeekWhence? = null,
+    timeoutMs: Long = 5_000L,
+    expectedGeneration: HtspConnectionGeneration? = null,
+): HtspResult<FileSeekResponse> =
+    call(
+        request = FileSeekRequest(
+            id = id,
+            offset = offset,
+            whence = whence,
         ),
         timeoutMs = timeoutMs,
         expectedGeneration = expectedGeneration,

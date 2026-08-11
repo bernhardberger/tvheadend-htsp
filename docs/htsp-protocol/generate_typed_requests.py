@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate the reviewed 31-request HTSP convenience/catalog surface."""
+"""Generate the reviewed 35-request HTSP convenience/catalog surface."""
 
 from __future__ import annotations
 
@@ -254,8 +254,24 @@ CATALOG: tuple[Entry, ...] = (
         parameter("enable", "List<Long>?", "null"),
         parameter("disable", "List<Long>?", "null"),
     )),
+    Entry("fileOpen", "FileOpenRequest", "FileOpenResponse", "ACCESS_HTSP_RECORDER", 8, (
+        parameter("file", "String"),
+    )),
+    Entry("fileRead", "FileReadRequest", "FileReadResponse", "ACCESS_HTSP_RECORDER", 8, (
+        parameter("id", "Long"),
+        parameter("size", "Long"),
+        parameter("offset", "Long?", "null"),
+    )),
+    Entry("fileClose", "FileCloseRequest", "FileCloseResponse", "ACCESS_HTSP_RECORDER", 8, (
+        parameter("id", "Long"),
+    )),
     Entry("fileStat", "FileStatRequest", "FileStatResponse", "ACCESS_HTSP_RECORDER", 8, (
         parameter("id", "Long"),
+    )),
+    Entry("fileSeek", "FileSeekRequest", "FileSeekResponse", "ACCESS_HTSP_RECORDER", 8, (
+        parameter("id", "Long"),
+        parameter("offset", "Long"),
+        parameter("whence", "FileSeekWhence?", "null"),
     )),
 )
 
@@ -388,11 +404,12 @@ def validate_catalog() -> None:
         "deleteAutorecEntry", "addTimerecEntry", "updateTimerecEntry", "deleteTimerecEntry",
         "getDvrCutpoints", "getTicket", "subscribe", "unsubscribe",
         "subscriptionChangeWeight", "subscriptionSeek", "subscriptionSpeed",
-        "subscriptionLive", "subscriptionFilterStream", "fileStat",
+        "subscriptionLive", "subscriptionFilterStream", "fileOpen", "fileRead", "fileClose",
+        "fileStat", "fileSeek",
     )
     methods = tuple(entry.method for entry in CATALOG)
-    if methods != expected or len(set(methods)) != 31:
-        raise ValueError("typed request catalog must contain exactly the reviewed 31 methods")
+    if methods != expected or len(set(methods)) != 35:
+        raise ValueError("typed request catalog must contain exactly the reviewed 35 methods")
     epg_query = CATALOG[7]
     if epg_query != Entry(
         "epgQuery", "EpgQueryRequest", "EpgQueryResponse", "ACCESS_HTSP_STREAMING", 4, (
@@ -424,14 +441,30 @@ def validate_catalog() -> None:
         ),
     ):
         raise ValueError("getTicket catalog entry must preserve the reviewed constructor contract")
-    file_stat = CATALOG[30]
-    if file_stat != Entry(
-        "fileStat", "FileStatRequest", "FileStatResponse", "ACCESS_HTSP_RECORDER", 8, (
+    file_operations = CATALOG[30:35]
+    if file_operations != (
+        Entry("fileOpen", "FileOpenRequest", "FileOpenResponse", "ACCESS_HTSP_RECORDER", 8, (
+            parameter("file", "String"),
+        )),
+        Entry("fileRead", "FileReadRequest", "FileReadResponse", "ACCESS_HTSP_RECORDER", 8, (
             parameter("id", "Long"),
-        ),
+            parameter("size", "Long"),
+            parameter("offset", "Long?", "null"),
+        )),
+        Entry("fileClose", "FileCloseRequest", "FileCloseResponse", "ACCESS_HTSP_RECORDER", 8, (
+            parameter("id", "Long"),
+        )),
+        Entry("fileStat", "FileStatRequest", "FileStatResponse", "ACCESS_HTSP_RECORDER", 8, (
+            parameter("id", "Long"),
+        )),
+        Entry("fileSeek", "FileSeekRequest", "FileSeekResponse", "ACCESS_HTSP_RECORDER", 8, (
+            parameter("id", "Long"),
+            parameter("offset", "Long"),
+            parameter("whence", "FileSeekWhence?", "null"),
+        )),
     ):
-        raise ValueError("fileStat catalog entry must preserve the reviewed constructor contract")
-    forbidden = {"hello", "authenticate", "subscriptionSkip", "fileOpen"}
+        raise ValueError("file operation catalog entries must preserve the reviewed constructor contract")
+    forbidden = {"hello", "authenticate", "subscriptionSkip", "api"}
     if forbidden.intersection(methods):
         raise ValueError("typed request catalog contains an excluded method")
     if tuple(overload.method for overload in SELECTOR_OVERLOADS) != (
@@ -448,13 +481,13 @@ def self_test() -> None:
     if first != second:
         raise AssertionError("generator output is not deterministic")
     extension_lines = [line for line in first.splitlines() if line.startswith("public suspend fun")]
-    if len(extension_lines) != 39:
-        raise AssertionError("generated extensions must contain 31 canonical and 8 selector overloads")
+    if len(extension_lines) != 43:
+        raise AssertionError("generated extensions must contain 35 canonical and 8 selector overloads")
     if "    request:" in first:
         raise AssertionError("generated extensions must not accept request objects")
-    if first.count("timeoutMs: Long = 5_000L") != 39:
+    if first.count("timeoutMs: Long = 5_000L") != 43:
         raise AssertionError("every generated extension must expose the default request timeout")
-    if first.count("expectedGeneration: HtspConnectionGeneration? = null") != 39:
+    if first.count("expectedGeneration: HtspConnectionGeneration? = null") != 43:
         raise AssertionError("every generated extension must expose the optional generation fence")
     required_signatures = (
         "public suspend fun HtspConnection.getEvents(\n    channelId: Long? = null,",
@@ -464,6 +497,10 @@ def self_test() -> None:
         "public suspend fun HtspConnection.getTicket(\n    selector: GetTicketSelector.Channel,",
         "public suspend fun HtspConnection.getTicket(\n    selector: GetTicketSelector.Dvr,",
         "public suspend fun HtspConnection.fileStat(\n    id: Long,",
+        "public suspend fun HtspConnection.fileOpen(\n    file: String,",
+        "public suspend fun HtspConnection.fileRead(\n    id: Long,\n    size: Long,\n    offset: Long? = null,",
+        "public suspend fun HtspConnection.fileClose(\n    id: Long,",
+        "public suspend fun HtspConnection.fileSeek(\n    id: Long,\n    offset: Long,\n    whence: FileSeekWhence? = null,",
         "    fullText: Boolean? = null,\n    mergeText: Boolean? = null,\n    full: Long? = null,\n    minDurationSeconds: Long? = null,\n    maxDurationSeconds: Long? = null,",
         "public suspend fun HtspConnection.addDvrEntry(\n    selector: AddDvrEntrySelector,",
         "    selector: AddDvrEntrySelector,\n    configName: String? = null,\n    language: String? = null,\n    title: String? = null,",
@@ -488,11 +525,11 @@ def self_test() -> None:
     missing = [signature for signature in required_signatures if signature not in first]
     if missing:
         raise AssertionError(f"generated extension signatures are incomplete: {missing}")
-    if first.count("    call(") != 39:
+    if first.count("    call(") != 43:
         raise AssertionError("every generated extension must contain exactly one call delegation")
-    if first.count("        timeoutMs = timeoutMs,") != 39:
+    if first.count("        timeoutMs = timeoutMs,") != 43:
         raise AssertionError("every generated extension must forward timeout exactly once")
-    if first.count("        expectedGeneration = expectedGeneration,") != 39:
+    if first.count("        expectedGeneration = expectedGeneration,") != 43:
         raise AssertionError("every generated extension must forward generation exactly once")
     with tempfile.TemporaryDirectory() as directory:
         path = Path(directory) / "generated.kt"

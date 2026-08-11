@@ -14,6 +14,165 @@ import java.lang.reflect.Modifier
 
 class HtspProtocolCoreTest {
     @Test
+    fun boundedFileOperationsPreserveFiniteWireAndAttemptContracts() = runTest {
+        val disconnected = createHtspConnection(Dispatchers.Unconfined)
+        try {
+            assertSame(HtspResult.TransportUnavailable, disconnected.fileOpen(file = ""))
+            assertSame(HtspResult.TransportUnavailable, disconnected.fileRead(id = 0L, size = 0L))
+            assertSame(HtspResult.TransportUnavailable, disconnected.fileClose(id = 0L))
+            assertSame(HtspResult.TransportUnavailable, disconnected.fileSeek(id = 0L, offset = 0L))
+        } finally {
+            disconnected.close()
+        }
+
+        val pathBearingOpen = FileOpenRequest("//private/recording.ts")
+        assertEquals("FileOpenRequest(file=<redacted>)", pathBearingOpen.toString())
+        assertEquals(
+            linkedMapOf("file" to "/imagecache/73"),
+            HtspRequestCodecs.encode(FileOpenRequest("/imagecache/73")),
+        )
+        assertEquals(
+            linkedMapOf("id" to 0xffff_ffffL, "size" to 0L),
+            HtspRequestCodecs.encode(FileReadRequest(0xffff_ffffL, size = 0L)),
+        )
+        assertEquals(
+            linkedMapOf("id" to 0L, "size" to 16_777_216L, "offset" to Long.MIN_VALUE),
+            HtspRequestCodecs.encode(FileReadRequest(0L, size = 16_777_216L, offset = Long.MIN_VALUE)),
+        )
+        assertEquals(
+            linkedMapOf("id" to 0xffff_ffffL),
+            HtspRequestCodecs.encode(FileCloseRequest(0xffff_ffffL)),
+        )
+        assertEquals(
+            linkedMapOf("id" to 0L, "offset" to Long.MIN_VALUE),
+            HtspRequestCodecs.encode(FileSeekRequest(0L, offset = Long.MIN_VALUE)),
+        )
+        assertEquals(
+            listOf("SEEK_SET", "SEEK_CUR", "SEEK_END"),
+            FileSeekWhence.entries.map { whence ->
+                HtspRequestCodecs.encode(FileSeekRequest(1L, 2L, whence))["whence"]
+            },
+        )
+        listOf<() -> Unit>(
+            { FileReadRequest(-1L, 0L) },
+            { FileReadRequest(0x1_0000_0000L, 0L) },
+            { FileReadRequest(0L, -1L) },
+            { FileReadRequest(0L, 16_777_217L) },
+            { FileCloseRequest(-1L) },
+            { FileSeekRequest(0x1_0000_0000L, 0L) },
+        ).forEach(::assertIllegalArgument)
+
+        val transport = FakeProtocolTransport(version = 7)
+        val connection = HtspTypedRequestCaller(transport)
+        val requests: List<HtspRequest<*>> = listOf(
+            FileOpenRequest(""),
+            FileReadRequest(0L, 0L),
+            FileCloseRequest(0L),
+            FileSeekRequest(0L, Long.MAX_VALUE),
+        )
+        requests.forEach { request -> assertSame(HtspResult.NotSupported, connection.call(request)) }
+        assertEquals(0, transport.dispatches)
+
+        transport.version = 8
+        transport.reply = HtspWireReply(
+            linkedMapOf("id" to 0xffff_ffffL, "size" to 123L, "mtime" to Long.MIN_VALUE),
+        )
+        assertEquals(
+            HtspResult.Ok(
+                FileOpenResponse(
+                    id = 0xffff_ffffL,
+                    sizeBytes = 123L,
+                    modifiedAtUnixSeconds = Long.MIN_VALUE,
+                ),
+            ),
+            connection.call(FileOpenRequest("//dvrfile/1")),
+        )
+        assertEquals("fileOpen", transport.lastMethod)
+        assertEquals(linkedMapOf("file" to "//dvrfile/1"), transport.lastFields)
+
+        transport.reply = HtspWireReply(linkedMapOf("id" to 0L))
+        assertEquals(
+            HtspResult.Ok(FileOpenResponse(id = 0L, sizeBytes = null, modifiedAtUnixSeconds = null)),
+            connection.call(FileOpenRequest("")),
+        )
+
+        listOf(
+            linkedMapOf<String, Any?>(),
+            linkedMapOf<String, Any?>("id" to 1L, "size" to 1L),
+            linkedMapOf<String, Any?>("id" to 1L, "mtime" to 1L),
+            linkedMapOf<String, Any?>("id" to -1L),
+            linkedMapOf<String, Any?>("id" to 1, "size" to 1L, "mtime" to 1L),
+            linkedMapOf<String, Any?>("id" to 1L, "size" to -1L, "mtime" to 1L),
+        ).forEach { fields ->
+            transport.reply = HtspWireReply(fields)
+            assertSame(HtspResult.ServerError, connection.call(FileOpenRequest("")))
+        }
+
+        val mutableData = byteArrayOf(1, 2, 3)
+        transport.reply = HtspWireReply(linkedMapOf("data" to mutableData))
+        val read = connection.call(FileReadRequest(0L, 3L, offset = 0L))
+        assertEquals(HtspResult.Ok(FileReadResponse(HtspBinary(byteArrayOf(1, 2, 3)))), read)
+        mutableData[0] = 9
+        val readData = ((read as HtspResult.Ok).value.data).toByteArray()
+        readData[1] = 9
+        assertEquals(HtspBinary(byteArrayOf(1, 2, 3)), read.value.data)
+        assertEquals(linkedMapOf("id" to 0L, "size" to 3L, "offset" to 0L), transport.lastFields)
+
+        transport.reply = HtspWireReply(linkedMapOf("data" to ByteArray(0)))
+        assertEquals(
+            HtspResult.Ok(FileReadResponse(HtspBinary(ByteArray(0)))),
+            connection.call(FileReadRequest(0L, 0L)),
+        )
+        listOf(
+            linkedMapOf<String, Any?>(),
+            linkedMapOf<String, Any?>("data" to emptyList<Any?>()),
+        ).forEach { fields ->
+            transport.reply = HtspWireReply(fields)
+            assertSame(HtspResult.ServerError, connection.call(FileReadRequest(0L, 1L)))
+        }
+
+        transport.reply = HtspWireReply(linkedMapOf("seq" to 7L))
+        assertEquals(HtspResult.Ok(FileCloseResponse), connection.call(FileCloseRequest(0L)))
+        transport.reply = HtspWireReply(linkedMapOf("unexpected" to 1L))
+        assertSame(HtspResult.ServerError, connection.call(FileCloseRequest(0L)))
+
+        transport.reply = HtspWireReply(linkedMapOf("offset" to Long.MAX_VALUE))
+        assertEquals(
+            HtspResult.Ok(FileSeekResponse(offset = Long.MAX_VALUE)),
+            connection.call(FileSeekRequest(0L, Long.MIN_VALUE, FileSeekWhence.END)),
+        )
+        assertEquals(
+            linkedMapOf("id" to 0L, "offset" to Long.MIN_VALUE, "whence" to "SEEK_END"),
+            transport.lastFields,
+        )
+        listOf(
+            linkedMapOf<String, Any?>(),
+            linkedMapOf<String, Any?>("offset" to -1L),
+            linkedMapOf<String, Any?>("offset" to 0),
+        ).forEach { fields ->
+            transport.reply = HtspWireReply(fields)
+            assertSame(HtspResult.ServerError, connection.call(FileSeekRequest(0L, 0L)))
+        }
+
+        transport.reply = HtspWireReply(linkedMapOf("noaccess" to 1L))
+        assertSame(HtspResult.AccessDenied, connection.call(FileCloseRequest(0L)))
+        transport.reply = HtspWireReply(linkedMapOf("error" to "synthetic rejection"))
+        assertSame(HtspResult.ServerError, connection.call(FileReadRequest(0L, 1L)))
+
+        val staleGeneration = connection.generation
+        transport.replace()
+        val staleFailure = runCatching {
+            connection.call(FileOpenRequest(""), expectedGeneration = staleGeneration)
+        }.exceptionOrNull()
+        assertTrue(staleFailure is CancellationException)
+
+        val cancellation = CancellationException("synthetic file operation cancellation")
+        transport.failure = cancellation
+        val cancellationFailure = runCatching { connection.call(FileSeekRequest(0L, 0L)) }.exceptionOrNull()
+        assertSame(cancellation, cancellationFailure)
+    }
+
+    @Test
     fun fileStatPreservesFiniteSourceReplyAndAttemptContracts() = runTest {
         val disconnected = createHtspConnection(Dispatchers.Unconfined)
         try {
@@ -193,44 +352,19 @@ class HtspProtocolCoreTest {
                 "subscriptionSpeed",
                 "subscriptionLive",
                 "subscriptionFilterStream",
+                "fileOpen",
+                "fileRead",
+                "fileClose",
                 "fileStat",
+                "fileSeek",
             ),
             typedHtspRequestCatalog.map { it.method },
         )
         assertEquals(
-            listOf(
-                HtspAccess.ACCESS_HTSP_STREAMING,
-                HtspAccess.ACCESS_HTSP_STREAMING,
-                HtspAccess.ACCESS_HTSP_STREAMING,
-                HtspAccess.ACCESS_HTSP_STREAMING,
-                HtspAccess.ACCESS_HTSP_STREAMING,
-                HtspAccess.ACCESS_HTSP_STREAMING,
-                HtspAccess.ACCESS_HTSP_STREAMING,
-                HtspAccess.ACCESS_HTSP_STREAMING,
-                HtspAccess.ACCESS_HTSP_STREAMING,
-                HtspAccess.ACCESS_HTSP_RECORDER,
-                HtspAccess.ACCESS_HTSP_RECORDER,
-                HtspAccess.ACCESS_HTSP_RECORDER,
-                HtspAccess.ACCESS_HTSP_RECORDER,
-                HtspAccess.ACCESS_HTSP_RECORDER,
-                HtspAccess.ACCESS_HTSP_RECORDER,
-                HtspAccess.ACCESS_HTSP_RECORDER,
-                HtspAccess.ACCESS_HTSP_RECORDER,
-                HtspAccess.ACCESS_HTSP_RECORDER,
-                HtspAccess.ACCESS_HTSP_RECORDER,
-                HtspAccess.ACCESS_HTSP_RECORDER,
-                HtspAccess.ACCESS_HTSP_RECORDER,
-                HtspAccess.ACCESS_HTSP_RECORDER,
-                HtspAccess.ACCESS_HTSP_STREAMING,
-                HtspAccess.ACCESS_HTSP_STREAMING,
-                HtspAccess.ACCESS_HTSP_STREAMING,
-                HtspAccess.ACCESS_HTSP_STREAMING,
-                HtspAccess.ACCESS_HTSP_STREAMING,
-                HtspAccess.ACCESS_HTSP_STREAMING,
-                HtspAccess.ACCESS_HTSP_STREAMING,
-                HtspAccess.ACCESS_HTSP_STREAMING,
-                HtspAccess.ACCESS_HTSP_RECORDER,
-            ),
+            List(9) { HtspAccess.ACCESS_HTSP_STREAMING } +
+                List(13) { HtspAccess.ACCESS_HTSP_RECORDER } +
+                List(8) { HtspAccess.ACCESS_HTSP_STREAMING } +
+                List(5) { HtspAccess.ACCESS_HTSP_RECORDER },
             typedHtspRequestCatalog.map { it.access },
         )
         val requests: List<HtspRequest<*>> = listOf(
@@ -264,7 +398,11 @@ class HtspProtocolCoreTest {
             SubscriptionSpeedRequest(0L, 0),
             SubscriptionLiveRequest(0L),
             SubscriptionFilterStreamRequest(0L),
+            FileOpenRequest(""),
+            FileReadRequest(0L, 0L),
+            FileCloseRequest(0L),
             FileStatRequest(0L),
+            FileSeekRequest(0L, 0L),
         )
         assertEquals(
             typedHtspRequestCatalog.map { Triple(it.method, it.access, it.minimumProtocolVersion) },
@@ -1207,7 +1345,11 @@ class HtspProtocolCoreTest {
             SubscriptionSpeedRequest::class.java,
             SubscriptionLiveRequest::class.java,
             SubscriptionFilterStreamRequest::class.java,
+            FileOpenRequest::class.java,
+            FileReadRequest::class.java,
+            FileCloseRequest::class.java,
             FileStatRequest::class.java,
+            FileSeekRequest::class.java,
         )
 
         val leakedMethods = requestClasses.flatMap { requestClass ->

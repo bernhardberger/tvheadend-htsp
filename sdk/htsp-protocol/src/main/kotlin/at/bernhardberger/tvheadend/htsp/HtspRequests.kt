@@ -3,6 +3,7 @@ package at.bernhardberger.tvheadend.htsp
 import java.util.Collections
 
 private const val U32_MAX: Long = 0xffff_ffffL
+private const val MAX_FILE_READ_SIZE_BYTES: Long = 16L * 1024L * 1024L
 
 /** One stream-profile map returned by `getProfiles`. */
 public data class HtspProfile(
@@ -275,11 +276,34 @@ public class GetTicketResponse(
         "GetTicketResponse(path=<redacted>, ticket=<redacted>)"
 }
 
+/** Finite successful `fileOpen` reply with source-coupled optional metadata. */
+public data class FileOpenResponse(
+    public val id: Long,
+    public val sizeBytes: Long?,
+    public val modifiedAtUnixSeconds: Long?,
+)
+
+/** One bounded binary payload returned by `fileRead`, including a valid empty payload. */
+public data class FileReadResponse(public val data: HtspBinary)
+
+/** Explicit successful empty `fileClose` acknowledgement. */
+public data object FileCloseResponse
+
 /** Finite successful `fileStat` reply; both values are absent when pinned `fstat` fails. */
 public data class FileStatResponse(
     public val sizeBytes: Long?,
     public val modifiedAtUnixSeconds: Long?,
 )
+
+/** Successful absolute non-negative file offset returned by `fileSeek`. */
+public data class FileSeekResponse(public val offset: Long)
+
+/** Complete valid `fileSeek` origin vocabulary; null request selection omits `whence`. */
+public enum class FileSeekWhence {
+    SET,
+    CURRENT,
+    END,
+}
 
 public data class SubscribeResponse(
     public val ninetyKhz: Long?,
@@ -848,8 +872,66 @@ public class SubscriptionFilterStreamRequest(
 
 }
 
+/** Raw protocol file open; [file] is sent exactly as supplied, without path normalization. */
+public data class FileOpenRequest(public val file: String) : HtspRequest<FileOpenResponse>(
+    method = "fileOpen",
+    access = HtspAccess.ACCESS_HTSP_RECORDER,
+    minimumProtocolVersion = 8,
+) {
+    override fun toString(): String = "FileOpenRequest(file=<redacted>)"
+}
+
+/**
+ * Bounded raw protocol file read.
+ *
+ * [size] is restricted to 0 through 16 MiB so one successful binary reply stays within the
+ * existing JVM bounded-file contract and below the unchanged 32 MiB codec message ceiling.
+ */
+public data class FileReadRequest(
+    public val id: Long,
+    public val size: Long,
+    public val offset: Long? = null,
+) : HtspRequest<FileReadResponse>(
+    method = "fileRead",
+    access = HtspAccess.ACCESS_HTSP_RECORDER,
+    minimumProtocolVersion = 8,
+) {
+    init {
+        requireU32("id", id)
+        require(size in 0L..MAX_FILE_READ_SIZE_BYTES) {
+            "size must be between zero and 16 MiB"
+        }
+    }
+}
+
+/** Generic file close; intentionally emits only [id] and no DVR progress fields. */
+public data class FileCloseRequest(public val id: Long) : HtspRequest<FileCloseResponse>(
+    method = "fileClose",
+    access = HtspAccess.ACCESS_HTSP_RECORDER,
+    minimumProtocolVersion = 8,
+) {
+    init {
+        requireU32("id", id)
+    }
+}
+
 public data class FileStatRequest(public val id: Long) : HtspRequest<FileStatResponse>(
     method = "fileStat",
+    access = HtspAccess.ACCESS_HTSP_RECORDER,
+    minimumProtocolVersion = 8,
+) {
+    init {
+        requireU32("id", id)
+    }
+}
+
+/** Signed seek request; omitted [whence] preserves the pinned `SEEK_SET` default. */
+public data class FileSeekRequest(
+    public val id: Long,
+    public val offset: Long,
+    public val whence: FileSeekWhence? = null,
+) : HtspRequest<FileSeekResponse>(
+    method = "fileSeek",
     access = HtspAccess.ACCESS_HTSP_RECORDER,
     minimumProtocolVersion = 8,
 ) {
@@ -1076,7 +1158,26 @@ internal object `HtspRequestCodecs-internal` {
             "subscriptionId" to request.subscriptionId,
         ).putIfNotNull("enable", request.enable)
             .putIfNotNull("disable", request.disable)
+        is FileOpenRequest -> linkedMapOf("file" to request.file)
+        is FileReadRequest -> linkedMapOf<String, Any?>(
+            "id" to request.id,
+            "size" to request.size,
+        ).putIfNotNull("offset", request.offset)
+        is FileCloseRequest -> linkedMapOf("id" to request.id)
         is FileStatRequest -> linkedMapOf("id" to request.id)
+        is FileSeekRequest -> linkedMapOf<String, Any?>(
+            "id" to request.id,
+            "offset" to request.offset,
+        ).putIfNotNull(
+            "whence",
+            request.whence?.let { whence ->
+                when (whence) {
+                    FileSeekWhence.SET -> "SEEK_SET"
+                    FileSeekWhence.CURRENT -> "SEEK_CUR"
+                    FileSeekWhence.END -> "SEEK_END"
+                }
+            },
+        )
 
         else -> malformedReply()
     }
@@ -1149,7 +1250,15 @@ internal object `HtspRequestCodecs-internal` {
             ticket = fields.requiredString("ticket"),
         )
 
+        is FileOpenRequest -> decodeFileOpen(fields)
+        is FileReadRequest -> FileReadResponse(HtspBinary(fields.requiredBinary("data")))
+        is FileCloseRequest -> decodeFileClose(fields)
         is FileStatRequest -> decodeFileStat(fields)
+        is FileSeekRequest -> FileSeekResponse(
+            offset = fields.requiredS64("offset").also { offset ->
+                if (offset < 0L) malformedReply()
+            },
+        )
 
         is SubscribeRequest -> SubscribeResponse(
             ninetyKhz = fields.optionalU32("90khz"),
@@ -1229,6 +1338,24 @@ internal object `HtspRequestCodecs-internal` {
             sizeBytes = sizeBytes,
             modifiedAtUnixSeconds = fields.requiredS64("mtime"),
         )
+    }
+
+    private fun decodeFileOpen(fields: Map<String, Any?>): FileOpenResponse {
+        val hasSize = fields.containsKey("size")
+        val hasModifiedAt = fields.containsKey("mtime")
+        if (hasSize != hasModifiedAt) malformedReply()
+        val sizeBytes = if (hasSize) fields.requiredS64("size") else null
+        if (sizeBytes != null && sizeBytes < 0L) malformedReply()
+        return FileOpenResponse(
+            id = fields.requiredU32("id"),
+            sizeBytes = sizeBytes,
+            modifiedAtUnixSeconds = if (hasModifiedAt) fields.requiredS64("mtime") else null,
+        )
+    }
+
+    private fun decodeFileClose(fields: Map<String, Any?>): FileCloseResponse {
+        if (fields.keys.any { it != "seq" }) malformedReply()
+        return FileCloseResponse
     }
 
     private fun <R> decodeDvrMutation(
@@ -1378,6 +1505,9 @@ private fun Map<*, *>.optionalU32(name: String): Long? =
 
 private fun Map<*, *>.requiredString(name: String): String =
     this[name] as? String ?: malformedReply()
+
+private fun Map<*, *>.requiredBinary(name: String): ByteArray =
+    this[name] as? ByteArray ?: malformedReply()
 
 private fun Map<*, *>.optionalString(name: String): String? =
     if (containsKey(name)) requiredString(name) else null
