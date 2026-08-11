@@ -68,6 +68,7 @@ EXPECTED_TYPED_CLIENT_REQUESTS: tuple[tuple[str, str, int | None], ...] = (
     ("getChannel", "ACCESS_HTSP_STREAMING", 14),
     ("getEvent", "ACCESS_HTSP_STREAMING", None),
     ("getEvents", "ACCESS_HTSP_STREAMING", 4),
+    ("epgQuery", "ACCESS_HTSP_STREAMING", 4),
     ("getDvrConfigs", "ACCESS_HTSP_RECORDER", 16),
     ("addDvrEntry", "ACCESS_HTSP_RECORDER", 4),
     ("updateDvrEntry", "ACCESS_HTSP_RECORDER", 5),
@@ -333,6 +334,40 @@ GET_EVENTS_REQUEST_CONTRACT = (
     ("numFollowing", "u32", "optional", 6),
     ("maxTime", "s64", "optional", 6),
 )
+EPG_QUERY_REQUEST_CONTRACT = (
+    ("query", "str", "required", None),
+    ("channelId", "u32", "optional", None),
+    ("tagId", "u32", "optional", None),
+    ("contentType", "u32", "optional", None),
+    ("language", "str", "optional", 6),
+    ("fulltext", "bool", "optional", None),
+    ("mergetext", "bool", "optional", None),
+    ("full", "u32", "optional", None),
+    ("minduration", "u32", "optional", 13),
+    ("maxduration", "u32", "optional", 13),
+)
+EPG_QUERY_REPLY_CONTRACT = (
+    (
+        "eventIds", "list", "alternative", "u32",
+        "selected when full is absent or zero; omitted for zero matches",
+    ),
+    (
+        "events", "list", "alternative", "event",
+        "selected when full is non-zero; omitted for zero matches",
+    ),
+)
+EPG_QUERY_REPLY_ALTERNATIVES = [
+    "eventIds when full is absent/zero and matches exist",
+    "events when full is non-zero and matches exist",
+    "empty map when the selected query has zero matches",
+]
+EPG_QUERY_NOTES = [
+    "The required query string is accepted unchanged, including an empty string.",
+    "Optional fulltext and mergetext default false; optional full defaults zero and any nonzero value selects full events.",
+    "channelId and tagId are independent optional selectors; contentType retains the pinned pre-v6 conversion.",
+    "language has field minimum v6 and minduration/maxduration have field minimum v13; no other field raises the method minimum v4.",
+    "The selected result field is omitted when the query has zero matches.",
+]
 GET_DVR_CUTPOINTS_LIMITATION_ID = (
     "getDvrCutpoints-coordinate-order-semantics-underdocumented"
 )
@@ -945,8 +980,42 @@ def validate_spec(spec: dict[str, Any], upstream: dict[str, Any] | None = None) 
         errors.append("getDvrCutpoints cutpoint shape must be exact complete required u32 {start,end,type}")
     if method_map.get("getEvents", {}).get("replyShape", {}).get("kind") != "fields" or [f.get("name") for f in method_map.get("getEvents", {}).get("replyFields", [])] != ["events"]:
         errors.append("getEvents reply must contain only nested events")
-    if method_map.get("epgQuery", {}).get("replyShape", {}).get("kind") != "alternative" or [f.get("name") for f in method_map.get("epgQuery", {}).get("replyFields", [])] != ["eventIds", "events"]:
-        errors.append("epgQuery reply must model eventIds/events alternatives")
+    epg_query = method_map.get("epgQuery", {})
+    if (
+        epg_query.get("handler") != "htsp_method_epgQuery"
+        or epg_query.get("accessMask") != "ACCESS_HTSP_STREAMING"
+        or epg_query.get("minVersion") != 4
+        or epg_query.get("minVersionConfidence") != "annotated"
+    ):
+        errors.append("epgQuery must preserve exact handler, streaming access, and method minimum v4")
+    epg_query_request = [
+        (field.get("name"), field.get("type"), field.get("presence"), field.get("minVersion"))
+        for field in epg_query.get("requestFields", [])
+    ]
+    if epg_query_request != list(EPG_QUERY_REQUEST_CONTRACT):
+        errors.append("epgQuery request must preserve required query and ordered optional field/minimum contract")
+    if (
+        epg_query.get("requestShape", {}).get("kind") != "fields"
+        or epg_query.get("requestShape", {}).get("completeness") != "complete"
+    ):
+        errors.append("epgQuery request shape must be fields/complete")
+    epg_query_reply = [
+        (
+            field.get("name"), field.get("type"), field.get("presence"),
+            field.get("shapeRef"), field.get("condition"),
+        )
+        for field in epg_query.get("replyFields", [])
+    ]
+    if epg_query_reply != list(EPG_QUERY_REPLY_CONTRACT):
+        errors.append("epgQuery reply must preserve strict eventIds/events alternatives and zero-match omission")
+    if (
+        epg_query.get("replyShape", {}).get("kind") != "alternative"
+        or epg_query.get("replyShape", {}).get("completeness") != "complete"
+        or epg_query.get("replyShape", {}).get("alternatives") != EPG_QUERY_REPLY_ALTERNATIVES
+    ):
+        errors.append("epgQuery reply shape must preserve complete selected alternatives and empty-map success")
+    if epg_query.get("notes") != EPG_QUERY_NOTES:
+        errors.append("epgQuery notes must preserve defaults, nonzero full, field minima, and zero-match behavior")
     if method_map.get("getEpgObject", {}).get("replyShape", {}).get("kind") != "dynamic":
         errors.append("getEpgObject reply must be explicitly dynamic/opaque")
     system_time = method_map.get("getSysTime", {})
@@ -1182,8 +1251,8 @@ def validate_spec(spec: dict[str, Any], upstream: dict[str, Any] | None = None) 
             errors.append(f"{name}: typed catalog access mask disagrees with pinned method")
         if method.get("minVersion") != method_min_version:
             errors.append(f"{name}: typed catalog method minimum disagrees with pinned method")
-    if typed_count != len(typed_methods) or typed_count != 21:
-        errors.append("coverage typedClientRequests.count must match exactly 21 methods")
+    if typed_count != len(typed_methods) or typed_count != 22:
+        errors.append("coverage typedClientRequests.count must match exactly 22 methods")
     if typed_cov.get("catalog") != "docs/htsp-protocol/generate_typed_requests.py":
         errors.append("coverage typedClientRequests.catalog must name the reviewed generator")
     if typed_cov.get("meaning") != (
@@ -1260,13 +1329,13 @@ def validate_spec(spec: dict[str, Any], upstream: dict[str, Any] | None = None) 
         errors.append("outgoingRequestCount cannot exceed referencedCount")
 
     # Current repository acceptance targets (exact-literal metric).
-    if ref_count not in (None, 29):
+    if ref_count not in (None, 30):
         errors.append(
-            f"expected referenced client methods == 29 under current metric, got {ref_count}"
+            f"expected referenced client methods == 30 under current metric, got {ref_count}"
         )
-    if out_count not in (None, 28):
+    if out_count not in (None, 29):
         errors.append(
-            f"expected outgoing client methods == 28 under current metric, got {out_count}"
+            f"expected outgoing client methods == 29 under current metric, got {out_count}"
         )
     if handled_count not in (None, 27):
         errors.append(
@@ -1995,7 +2064,7 @@ def validate_repository_artifacts(
     return errors
 
 
-def _derive_fresh_self_test_spec() -> dict[str, Any]:
+def _derive_fresh_self_test_spec(fresh_mutator: Any = None) -> dict[str, Any]:
     """Build report validation input from an isolated exact-topology source fixture."""
     module_name = "_htsp_report_self_test_derive"
     if module_name in sys.modules:
@@ -2018,13 +2087,13 @@ def _derive_fresh_self_test_spec() -> dict[str, Any]:
             else "htsp_method_filter_stream"
             if name == "subscriptionFilterStream"
             else f"htsp_method_{name}"
-            if name in {"getEvent", "getEvents", "stopDvrEntry", "getDvrCutpoints"}
+            if name in {"getEvent", "getEvents", "epgQuery", "stopDvrEntry", "getDvrCutpoints"}
             else f"htsp_method_{index}",
             "ACCESS_HTSP_RECORDER"
             if name in {"stopDvrEntry", "getDvrCutpoints"}
             else "ACCESS_HTSP_STREAMING"
             if name in {
-                "getEvents", "subscriptionChangeWeight", "subscriptionLive",
+                "getEvents", "epgQuery", "subscriptionChangeWeight", "subscriptionLive",
                 "subscriptionFilterStream",
             }
             else "ACCESS_ANONYMOUS",
@@ -2069,9 +2138,11 @@ def _derive_fresh_self_test_spec() -> dict[str, Any]:
             fixture_manifest,
             enforce_exact_pin=False,
         )
+        if fresh_mutator is not None:
+            fresh_mutator(fresh)
 
     # Report validation owns schema/policy, not fixture-byte pin verification.
-    # Evaluate freshly derived getEvents/event/stopDvrEntry/getDvrCutpoints/
+    # Evaluate freshly derived getEvents/epgQuery/event/stopDvrEntry/getDvrCutpoints/
     # subscriptionChangeWeight/subscriptionLive/subscriptionFilterStream evidence
     # inside the complete committed-schema baseline; unrelated minimal fixture
     # handlers deliberately do not pretend to model every pinned method.
@@ -2082,7 +2153,7 @@ def _derive_fresh_self_test_spec() -> dict[str, Any]:
     candidate["clientMethods"] = [
         fresh_methods[item["name"]]
         if item["name"] in {
-            "getEvents", "stopDvrEntry", "getDvrCutpoints",
+            "getEvents", "epgQuery", "stopDvrEntry", "getDvrCutpoints",
             "subscriptionChangeWeight", "subscriptionLive",
             "subscriptionFilterStream",
         }
@@ -2249,8 +2320,8 @@ def self_test() -> None:
     )
     check(
         "getChannel-fresh-coverage",
-        good_spec["coverage"]["clientMethods"]["referencedCount"] == 29
-        and good_spec["coverage"]["clientMethods"]["outgoingRequestCount"] == 28
+        good_spec["coverage"]["clientMethods"]["referencedCount"] == 30
+        and good_spec["coverage"]["clientMethods"]["outgoingRequestCount"] == 29
         and "getChannel" in good_spec["coverage"]["clientMethods"]["outgoingRequests"],
     )
 
@@ -2284,10 +2355,41 @@ def self_test() -> None:
     )
     check(
         "getEvents-fresh-unchanged-coverage",
-        good_spec["coverage"]["clientMethods"]["referencedCount"] == 29
-        and good_spec["coverage"]["clientMethods"]["outgoingRequestCount"] == 28
+        good_spec["coverage"]["clientMethods"]["referencedCount"] == 30
+        and good_spec["coverage"]["clientMethods"]["outgoingRequestCount"] == 29
         and good_spec["coverage"]["serverMessages"]["handledCount"] == 27
         and "getEvents" in good_spec["coverage"]["clientMethods"]["outgoingRequests"],
+    )
+    epg_query = next(m for m in good_spec["clientMethods"] if m["name"] == "epgQuery")
+    check(
+        "epgQuery-fresh-complete-contract",
+        [
+            (f["name"], f["type"], f["presence"], f.get("minVersion"))
+            for f in epg_query["requestFields"]
+        ] == list(EPG_QUERY_REQUEST_CONTRACT)
+        and epg_query.get("requestShape", {}).get("completeness") == "complete"
+        and [
+            (f["name"], f["type"], f["presence"], f.get("shapeRef"), f.get("condition"))
+            for f in epg_query["replyFields"]
+        ] == list(EPG_QUERY_REPLY_CONTRACT)
+        and epg_query.get("replyShape", {}).get("alternatives") == EPG_QUERY_REPLY_ALTERNATIVES
+        and epg_query.get("notes") == EPG_QUERY_NOTES
+        and epg_query.get("sdk") == {
+            "referenced": True,
+            "outgoingRequest": True,
+            "typedRequest": True,
+        },
+    )
+    mutated_fresh_epg = _derive_fresh_self_test_spec(
+        lambda fresh: next(
+            method for method in fresh["clientMethods"] if method["name"] == "epgQuery"
+        )["requestFields"][0].update({"type": "uuid"}),
+    )
+    mutated_fresh_epg_errors = validate_spec(mutated_fresh_epg)
+    check(
+        "epgQuery-fresh-contract-mutation-rejected",
+        any("epgQuery request" in error for error in mutated_fresh_epg_errors),
+        str(mutated_fresh_epg_errors),
     )
     stop_dvr_entry = next(
         method for method in good_spec["clientMethods"] if method["name"] == "stopDvrEntry"
@@ -3376,7 +3478,7 @@ def self_test() -> None:
     err = validate_spec(bad)
     check(
         "reject-false-all-called",
-        any("outgoing client methods == 28" in e for e in err),
+        any("outgoing client methods == 29" in e for e in err),
         str(err),
     )
 

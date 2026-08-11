@@ -1795,9 +1795,9 @@
           "name": "query",
           "type": "str",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_str",
-          "confidence": "mechanical",
+          "presence": "required",
+          "evidence": "htsp_method_epgQuery rejects a missing query and accepts the supplied string unchanged",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 1
         },
@@ -1805,9 +1805,9 @@
           "name": "channelId",
           "type": "u32",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_u32",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "htsp_method_epgQuery optional channel selector",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 2
         },
@@ -1815,9 +1815,9 @@
           "name": "tagId",
           "type": "u32",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_u32",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "htsp_method_epgQuery optional channel-tag selector",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 3
         },
@@ -1825,9 +1825,9 @@
           "name": "contentType",
           "type": "u32",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_u32",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "htsp_method_epgQuery optional content selector with pre-v6 compatibility conversion",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 4
         },
@@ -1835,19 +1835,22 @@
           "name": "language",
           "type": "str",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_str",
-          "confidence": "mechanical",
-          "minVersion": null,
+          "presence": "optional",
+          "evidence": "htsp_method_epgQuery uses supplied language or connection language",
+          "confidence": "mechanical+annotated",
+          "minVersion": 6,
+          "notes": [
+            "minVersion from annotated catalog"
+          ],
           "order": 5
         },
         {
           "name": "fulltext",
           "type": "bool",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_bool_or_default",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "htsp_method_epgQuery reads optional boolean fulltext with default false",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 6
         },
@@ -1855,9 +1858,9 @@
           "name": "mergetext",
           "type": "bool",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_bool_or_default",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "htsp_method_epgQuery reads optional boolean mergetext with default false",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 7
         },
@@ -1865,9 +1868,9 @@
           "name": "full",
           "type": "u32",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_u32_or_default",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "htsp_method_epgQuery reads optional u32 full with default zero",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 8
         },
@@ -1875,20 +1878,26 @@
           "name": "minduration",
           "type": "u32",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_u32_or_default",
-          "confidence": "mechanical",
-          "minVersion": null,
+          "presence": "optional",
+          "evidence": "htsp_method_epgQuery reads optional u32 minimum duration with default zero",
+          "confidence": "mechanical+annotated",
+          "minVersion": 13,
+          "notes": [
+            "minVersion from annotated catalog"
+          ],
           "order": 9
         },
         {
           "name": "maxduration",
           "type": "u32",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_u32_or_default",
-          "confidence": "mechanical",
-          "minVersion": null,
+          "presence": "optional",
+          "evidence": "htsp_method_epgQuery reads optional u32 maximum duration with default INT_MAX",
+          "confidence": "mechanical+annotated",
+          "minVersion": 13,
+          "notes": [
+            "minVersion from annotated catalog"
+          ],
           "order": 10
         }
       ],
@@ -1901,7 +1910,7 @@
           "evidence": "htsp_method_epgQuery non-full result",
           "confidence": "mechanical+annotated",
           "minVersion": null,
-          "condition": "present when full is absent or zero",
+          "condition": "selected when full is absent or zero; omitted for zero matches",
           "shapeRef": "u32",
           "order": 1
         },
@@ -1913,29 +1922,37 @@
           "evidence": "htsp_method_epgQuery full result",
           "confidence": "mechanical+annotated",
           "minVersion": null,
-          "condition": "present when full is non-zero",
+          "condition": "selected when full is non-zero; omitted for zero matches",
           "shapeRef": "event",
           "order": 2
         }
       ],
       "requestShape": {
         "kind": "fields",
-        "completeness": "partial",
-        "evidence": "bounded handler/helper extraction plus exact-pin annotations"
+        "completeness": "complete",
+        "evidence": "bounded pinned htsp_method_epgQuery required query and ordered optional filter extraction"
       },
       "replyShape": {
         "kind": "alternative",
         "completeness": "complete",
         "evidence": "bounded htsp_method_epgQuery branches on full",
         "alternatives": [
-          "eventIds when full is absent/zero",
-          "events when full is non-zero"
+          "eventIds when full is absent/zero and matches exist",
+          "events when full is non-zero and matches exist",
+          "empty map when the selected query has zero matches"
         ]
       },
+      "notes": [
+        "The required query string is accepted unchanged, including an empty string.",
+        "Optional fulltext and mergetext default false; optional full defaults zero and any nonzero value selects full events.",
+        "channelId and tagId are independent optional selectors; contentType retains the pinned pre-v6 conversion.",
+        "language has field minimum v6 and minduration/maxduration have field minimum v13; no other field raises the method minimum v4.",
+        "The selected result field is omitted when the query has zero matches."
+      ],
       "sdk": {
-        "referenced": false,
-        "outgoingRequest": false,
-        "typedRequest": false
+        "referenced": true,
+        "outgoingRequest": true,
+        "typedRequest": true
       }
     },
     {
@@ -8913,6 +8930,7 @@
         "cancelDvrEntry",
         "deleteDvrEntry",
         "enableAsyncMetadata",
+        "epgQuery",
         "fileClose",
         "fileOpen",
         "fileRead",
@@ -8938,13 +8956,14 @@
         "unsubscribe",
         "updateDvrEntry"
       ],
-      "referencedCount": 29,
+      "referencedCount": 30,
       "outgoingRequests": [
         "addDvrEntry",
         "authenticate",
         "cancelDvrEntry",
         "deleteDvrEntry",
         "enableAsyncMetadata",
+        "epgQuery",
         "fileClose",
         "fileOpen",
         "fileRead",
@@ -8969,10 +8988,9 @@
         "unsubscribe",
         "updateDvrEntry"
       ],
-      "outgoingRequestCount": 28,
+      "outgoingRequestCount": 29,
       "unreferenced": [
         "api",
-        "epgQuery",
         "getEpgObject",
         "addAutorecEntry",
         "updateAutorecEntry",
@@ -8985,7 +9003,7 @@
     },
     "typedClientRequests": {
       "catalog": "docs/htsp-protocol/generate_typed_requests.py",
-      "count": 21,
+      "count": 22,
       "methods": [
         {
           "name": "getProfiles",
@@ -9019,6 +9037,11 @@
         },
         {
           "name": "getEvents",
+          "accessMask": "ACCESS_HTSP_STREAMING",
+          "methodMinVersion": 4
+        },
+        {
+          "name": "epgQuery",
           "accessMask": "ACCESS_HTSP_STREAMING",
           "methodMinVersion": 4
         },
@@ -9271,10 +9294,10 @@
       ]
     },
     "metrics": {
-      "referencedClientMethods": 29,
-      "outgoingClientMethods": 28,
+      "referencedClientMethods": 30,
+      "outgoingClientMethods": 29,
       "handledServerMessages": 27,
-      "typedClientRequests": 21,
+      "typedClientRequests": 22,
       "typedServerMessages": 26,
       "notes": [
         "referenced counts exact string literals in SDK production main sources",

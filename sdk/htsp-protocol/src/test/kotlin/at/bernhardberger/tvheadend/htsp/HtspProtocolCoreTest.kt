@@ -33,6 +33,7 @@ class HtspProtocolCoreTest {
                 "getChannel",
                 "getEvent",
                 "getEvents",
+                "epgQuery",
                 "getDvrConfigs",
                 "addDvrEntry",
                 "updateDvrEntry",
@@ -52,6 +53,7 @@ class HtspProtocolCoreTest {
         )
         assertEquals(
             listOf(
+                HtspAccess.ACCESS_HTSP_STREAMING,
                 HtspAccess.ACCESS_HTSP_STREAMING,
                 HtspAccess.ACCESS_HTSP_STREAMING,
                 HtspAccess.ACCESS_HTSP_STREAMING,
@@ -84,6 +86,7 @@ class HtspProtocolCoreTest {
             GetChannelRequest(0L),
             GetEventRequest(0L),
             GetEventsRequest(),
+            EpgQueryRequest(""),
             GetDvrConfigsRequest(),
             AddDvrEntryRequest(AddDvrEntrySelector.Event(0L)),
             UpdateDvrEntryRequest(0L),
@@ -298,6 +301,123 @@ class HtspProtocolCoreTest {
     }
 
     @Test
+    fun epgQueryPreservesWireShapeVersionsAndStrictSelectedReplyAlternative() = runTest {
+        assertEquals(
+            linkedMapOf("query" to ""),
+            HtspRequestCodecs.encode(EpgQueryRequest(query = "")),
+        )
+        assertEquals(4, EpgQueryRequest(query = "").minimumProtocolVersion)
+        assertEquals(
+            linkedMapOf(
+                "query" to "needle",
+                "channelId" to 0xffff_ffffL,
+                "tagId" to 0L,
+                "contentType" to 1L,
+                "language" to "",
+                "fulltext" to false,
+                "mergetext" to true,
+                "full" to 2L,
+                "minduration" to 0L,
+                "maxduration" to 0xffff_ffffL,
+            ),
+            HtspRequestCodecs.encode(
+                EpgQueryRequest(
+                    query = "needle",
+                    channelId = 0xffff_ffffL,
+                    tagId = 0L,
+                    contentType = 1L,
+                    language = "",
+                    fullText = false,
+                    mergeText = true,
+                    full = 2L,
+                    minDurationSeconds = 0L,
+                    maxDurationSeconds = 0xffff_ffffL,
+                ),
+            ),
+        )
+        assertEquals(4, EpgQueryRequest("q", fullText = false, mergeText = true, full = 1L).minimumProtocolVersion)
+        assertEquals(6, EpgQueryRequest("q", language = "").minimumProtocolVersion)
+        assertEquals(13, EpgQueryRequest("q", minDurationSeconds = 0L).minimumProtocolVersion)
+        assertEquals(13, EpgQueryRequest("q", maxDurationSeconds = 0L, language = "").minimumProtocolVersion)
+
+        val invalidU32Requests = listOf<() -> Unit>(
+            { EpgQueryRequest("q", channelId = -1L) },
+            { EpgQueryRequest("q", tagId = 0x1_0000_0000L) },
+            { EpgQueryRequest("q", contentType = -1L) },
+            { EpgQueryRequest("q", full = 0x1_0000_0000L) },
+            { EpgQueryRequest("q", minDurationSeconds = -1L) },
+            { EpgQueryRequest("q", maxDurationSeconds = 0x1_0000_0000L) },
+        )
+        invalidU32Requests.forEach(::assertIllegalArgument)
+
+        val transport = FakeProtocolTransport(version = 44)
+        val caller = HtspTypedRequestCaller(transport)
+        transport.reply = HtspWireReply(linkedMapOf("eventIds" to listOf(0L, 0xffff_ffffL)))
+        assertEquals(
+            HtspResult.Ok(EpgQueryResponse.EventIds(listOf(0L, 0xffff_ffffL))),
+            caller.call(EpgQueryRequest("q")),
+        )
+        transport.reply = HtspWireReply(
+            linkedMapOf(
+                "events" to listOf(
+                    linkedMapOf(
+                        "eventId" to 7L,
+                        "start" to Long.MIN_VALUE,
+                        "stop" to Long.MAX_VALUE,
+                    ),
+                ),
+                "ignored" to "envelope",
+            ),
+        )
+        val fullResult = caller.call(EpgQueryRequest("q", full = 2L))
+        assertTrue(fullResult is HtspResult.Ok)
+        val fullResponse = (fullResult as HtspResult.Ok).value
+        assertTrue(fullResponse is EpgQueryResponse.Events)
+        assertEquals(7L, (fullResponse as EpgQueryResponse.Events).events.single().eventId)
+        assertEquals(Long.MIN_VALUE, fullResponse.events.single().start)
+        assertEquals(Long.MAX_VALUE, fullResponse.events.single().stop)
+
+        transport.reply = HtspWireReply(linkedMapOf())
+        assertEquals(
+            HtspResult.Ok(EpgQueryResponse.EventIds(emptyList())),
+            caller.call(EpgQueryRequest("q", full = 0L)),
+        )
+        assertEquals(
+            HtspResult.Ok(EpgQueryResponse.Events(emptyList())),
+            caller.call(EpgQueryRequest("q", full = 1L)),
+        )
+
+        val malformedIdReplies = listOf(
+            linkedMapOf<String, Any?>("events" to emptyList<Any?>()),
+            linkedMapOf("eventIds" to emptyList<Any?>(), "events" to emptyList<Any?>()),
+            linkedMapOf<String, Any?>("eventIds" to "not-a-list"),
+            linkedMapOf<String, Any?>("eventIds" to listOf(1)),
+            linkedMapOf<String, Any?>("eventIds" to listOf(-1L)),
+            linkedMapOf<String, Any?>("eventIds" to listOf(0x1_0000_0000L)),
+        )
+        malformedIdReplies.forEach { fields ->
+            transport.reply = HtspWireReply(fields)
+            assertSame(HtspResult.ServerError, caller.call(EpgQueryRequest("q")))
+        }
+        val malformedEventReplies = listOf(
+            linkedMapOf<String, Any?>("eventIds" to emptyList<Any?>()),
+            linkedMapOf("eventIds" to emptyList<Any?>(), "events" to emptyList<Any?>()),
+            linkedMapOf<String, Any?>("events" to "not-a-list"),
+            linkedMapOf<String, Any?>("events" to listOf(1L)),
+            linkedMapOf<String, Any?>(
+                "events" to listOf(
+                    linkedMapOf<String, Any?>("eventId" to 1L, "start" to 2, "stop" to 3L),
+                ),
+            ),
+            linkedMapOf<String, Any?>("events" to listOf(linkedMapOf("eventId" to -1L, "start" to 2L, "stop" to 3L))),
+        )
+        malformedEventReplies.forEach { fields ->
+            transport.reply = HtspWireReply(fields)
+            assertSame(HtspResult.ServerError, caller.call(EpgQueryRequest("q", full = 1L)))
+        }
+    }
+
+    @Test
     fun serverErrorIsPayloadFreeAndDoesNotRetainReplyText() = runTest {
         val transport = FakeProtocolTransport(version = 44)
         val connection = HtspTypedRequestCaller(transport)
@@ -492,6 +612,7 @@ class HtspProtocolCoreTest {
             GetChannelRequest::class.java,
             GetEventRequest::class.java,
             GetEventsRequest::class.java,
+            EpgQueryRequest::class.java,
             GetDvrConfigsRequest::class.java,
             AddDvrEntryRequest::class.java,
             UpdateDvrEntryRequest::class.java,

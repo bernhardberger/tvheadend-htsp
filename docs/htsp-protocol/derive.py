@@ -272,6 +272,9 @@ FIELD_MIN_VERSION: dict[tuple[str, str, str], int] = {
     ("clientMethod", "getEvents", "language"): 6,
     ("clientMethod", "getEvents", "numFollowing"): 6,
     ("clientMethod", "getEvents", "maxTime"): 6,
+    ("clientMethod", "epgQuery", "language"): 6,
+    ("clientMethod", "epgQuery", "minduration"): 13,
+    ("clientMethod", "epgQuery", "maxduration"): 13,
     ("serverMessage", "channelAdd", "channelIdStr"): 41,
     ("serverMessage", "channelUpdate", "channelIdStr"): 41,
     ("serverMessage", "channelAdd", "channelNumberMinor"): 13,
@@ -1342,6 +1345,232 @@ def require_get_events_source_facts(server_c: str) -> None:
     ]
     if len(events_adds) != 1 or len(reply_adds) != 1:
         raise ValueError("htsp_method_getEvents reply must contain exactly required events list")
+
+
+def require_epg_query_source_facts(server_c: str) -> None:
+    """Reject drift in every source fact promoted for the pinned epgQuery contract."""
+    source = strip_c_comments(server_c)
+    syntax = mask_c_literals(source)
+    signatures = list(re.finditer(
+        r'\bhtsp_method_epgQuery\s*\(\s*htsp_connection_t\s*\*\s*htsp\s*,\s*'
+        r'htsmsg_t\s*\*\s*in\s*\)\s*\{',
+        syntax,
+    ))
+    if len(signatures) != 1:
+        raise ValueError("htsp_method_epgQuery must have exactly one bounded body")
+    body = extract_balanced_block(source, signatures[0].end() - 1)
+    compact = re.sub(r"\s+", " ", body).strip()
+
+    getter_inventory = [
+        (field["name"], field["type"])
+        for field in extract_get_fields(body, "in")
+    ]
+    if getter_inventory != [
+        ("query", "str"),
+        ("channelId", "u32"),
+        ("tagId", "u32"),
+        ("contentType", "u32"),
+        ("language", "str"),
+        ("fulltext", "bool"),
+        ("mergetext", "bool"),
+        ("full", "u32"),
+        ("minduration", "u32"),
+        ("maxduration", "u32"),
+    ]:
+        raise ValueError("htsp_method_epgQuery request getter inventory/type drift")
+
+    def exactly_one(label: str, pattern: str, text: str = compact) -> re.Match[str]:
+        matches = list(re.finditer(pattern, text, flags=re.S))
+        if len(matches) != 1:
+            raise ValueError(f"htsp_method_epgQuery must preserve exactly one {label}")
+        return matches[0]
+
+    query_guard = exactly_one(
+        "required query string assignment/null guard",
+        r'if\s*\(\s*\(\s*(?P<query>[A-Za-z_][A-Za-z0-9_]*)\s*=\s*'
+        r'htsmsg_get_str\(\s*in\s*,\s*"query"\s*\)\s*\)\s*==\s*NULL\s*\)\s*'
+        r'return\s+htsp_error\(\s*htsp\s*,\s*N_\(\s*"Invalid arguments"\s*\)\s*\)\s*;',
+        body,
+    )
+    query_var = query_guard.group("query")
+    memset = exactly_one(
+        "zero-initialized query state",
+        r'\bmemset\(\s*&\s*eq\s*,\s*0\s*,\s*sizeof\(\s*eq\s*\)\s*\)\s*;',
+        body,
+    )
+    title_copy = exactly_one(
+        "unchanged query-title copy",
+        rf'\beq\.stitle\s*=\s*strdup\(\s*{re.escape(query_var)}\s*\)\s*;',
+        body,
+    )
+    flag_assignments: dict[str, re.Match[str]] = {}
+    for field in ("fulltext", "mergetext"):
+        flag_assignments[field] = exactly_one(
+            f"optional default-zero {field} flag assignment",
+            rf'if\s*\(\s*htsmsg_get_bool_or_default\(\s*in\s*,\s*"{field}"\s*,\s*0\s*\)\s*\)\s*'
+            rf'eq\.{field}\s*=\s*1\s*;',
+            body,
+        )
+
+    selector_facts: list[tuple[str, int, int]] = []
+    for field, target, lookup, missing, assignment in (
+        (
+            "channelId", "ch", r'channel_find_by_id\(\s*u32\s*\)',
+            "Channel does not exist",
+            r'eq\.channel\s*=\s*strdup\(\s*idnode_uuid_as_str\(\s*&\s*ch->ch_id\s*,\s*ubuf\s*\)\s*\)\s*;',
+        ),
+        (
+            "tagId", "ct", r'htsp_channel_tag_find_by_id\(\s*htsp\s*,\s*u32\s*\)',
+            "Channel tag does not exist",
+            r'eq\.channel_tag\s*=\s*strdup\(\s*idnode_uuid_as_str\(\s*&\s*ct->ct_id\s*,\s*ubuf\s*\)\s*\)\s*;',
+        ),
+    ):
+        header = exactly_one(
+            f"independent optional u32 {field} selector",
+            rf'if\s*\(\s*!\s*\(?\s*htsmsg_get_u32\(\s*in\s*,\s*"{field}"\s*,\s*&\s*u32\s*\)\s*\)?\s*\)\s*\{{',
+            body,
+        )
+        open_index = header.end() - 1
+        block = extract_balanced_block(body, open_index)
+        exactly_one(
+            f"exact {field} lookup and error",
+            rf'if\s*\(\s*!\s*\(\s*{target}\s*=\s*{lookup}\s*\)\s*\)\s*\{{?'
+            rf'.*?epg_query_free\(\s*&\s*eq\s*\)\s*;.*?'
+            rf'return\s+htsp_error\(\s*htsp\s*,\s*N_\(\s*"{missing}"\s*\)\s*\)\s*;',
+            block,
+        )
+        exactly_one(f"exact {field} query selector assignment", assignment, block)
+        selector_facts.append((field, header.start(), open_index + len(block) + 1))
+    if selector_facts[0][2] >= selector_facts[1][1] or re.fullmatch(
+        r'\s*', body[selector_facts[0][2] + 1:selector_facts[1][1]], flags=re.S,
+    ) is None:
+        raise ValueError("htsp_method_epgQuery channelId and tagId selectors must be independent")
+
+    content_header = exactly_one(
+        "optional u32 contentType selector",
+        r'if\s*\(\s*!\s*htsmsg_get_u32\(\s*in\s*,\s*"contentType"\s*,\s*&\s*u32\s*\)\s*\)\s*\{',
+        body,
+    )
+    content = extract_balanced_block(body, content_header.end() - 1)
+    if re.fullmatch(
+        r'\s*if\s*\(\s*htsp->htsp_version\s*<\s*6\s*\)\s*u32\s*<<=\s*4\s*;\s*'
+        r'eq\.genre_count\s*=\s*1\s*;\s*eq\.genre\s*=\s*eq\.genre_static\s*;\s*'
+        r'eq\.genre\s*\[\s*0\s*\]\s*=\s*u32\s*;\s*',
+        content,
+        flags=re.S,
+    ) is None:
+        raise ValueError("htsp_method_epgQuery must preserve exact pre-v6 content conversion and genre assignment")
+
+    language_fallback = exactly_one(
+        "supplied-language/connection-language fallback",
+        r'\blang\s*=\s*htsmsg_get_str\(\s*in\s*,\s*"language"\s*\)\s*\?:\s*htsp->htsp_language\s*;',
+        body,
+    )
+    language_copy = exactly_one("query language copy", r'\beq\.lang\s*=\s*lang\s*\?\s*strdup\(\s*lang\s*\)\s*:\s*NULL\s*;', body)
+    full_selector = exactly_one("optional default-zero full selector", r'\bfull\s*=\s*htsmsg_get_u32_or_default\(\s*in\s*,\s*"full"\s*,\s*0\s*\)\s*;', body)
+    minimum_default = exactly_one("minimum duration default", r'\bmin_duration\s*=\s*htsmsg_get_u32_or_default\(\s*in\s*,\s*"minduration"\s*,\s*0\s*\)\s*;', body)
+    maximum_default = exactly_one("maximum duration default", r'\bmax_duration\s*=\s*htsmsg_get_u32_or_default\(\s*in\s*,\s*"maxduration"\s*,\s*INT_MAX\s*\)\s*;', body)
+    duration_mode = exactly_one("EC_RG duration range mode", r'\beq\.duration\.comp\s*=\s*EC_RG\s*;', body)
+    minimum_assignment = exactly_one("minimum duration range assignment", r'\beq\.duration\.val1\s*=\s*min_duration\s*;', body)
+    maximum_assignment = exactly_one("maximum duration range assignment", r'\beq\.duration\.val2\s*=\s*max_duration\s*;', body)
+
+    access = exactly_one(
+        "chosen-channel access guard",
+        r'if\s*\(\s*ch\s*&&\s*!\s*htsp_user_access_channel\(\s*htsp\s*,\s*ch\s*\)\s*\)\s*'
+        r'\{\s*epg_query_free\(\s*&\s*eq\s*\)\s*;\s*'
+        r'return\s+htsp_error\(\s*htsp\s*,\s*N_\(\s*"User does not have access"\s*\)\s*\)\s*;\s*\}',
+        body,
+    )
+    query_call = exactly_one("query invocation with granted access", r'\bepg_query\(\s*&\s*eq\s*,\s*htsp->htsp_granted_access\s*\)\s*;', body)
+    setup_sequence = (
+        ("required query guard", query_guard),
+        ("query-state initialization", memset),
+        ("fulltext assignment", flag_assignments["fulltext"]),
+        ("mergetext assignment", flag_assignments["mergetext"]),
+        ("query-title assignment", title_copy),
+        ("channel selector", (selector_facts[0][1], selector_facts[0][2])),
+        ("tag selector", (selector_facts[1][1], selector_facts[1][2])),
+        ("content selector", (content_header.start(), content_header.end() - 1 + len(content) + 1)),
+        ("language fallback", language_fallback),
+        ("language assignment", language_copy),
+        ("full selector", full_selector),
+        ("minimum-duration default", minimum_default),
+        ("maximum-duration default", maximum_default),
+        ("EC_RG duration mode", duration_mode),
+        ("minimum-duration assignment", minimum_assignment),
+        ("maximum-duration assignment", maximum_assignment),
+        ("channel-access guard", access),
+        ("query execution", query_call),
+    )
+    normalized_sequence = [
+        (label, item.start(), item.end())
+        if isinstance(item, re.Match)
+        else (label, item[0], item[1])
+        for label, item in setup_sequence
+    ]
+    for (before_label, _before_start, before_end), (after_label, after_start, _after_end) in zip(
+        normalized_sequence, normalized_sequence[1:],
+    ):
+        if before_end > after_start:
+            raise ValueError(
+                f"htsp_method_epgQuery {before_label} must precede {after_label}"
+            )
+
+    map_creation = exactly_one("fresh reply map", r'\bout\s*=\s*htsmsg_create_map\(\s*\)\s*;', body)
+    if map_creation.start() <= query_call.end():
+        raise ValueError("htsp_method_epgQuery reply map must be fresh after the query")
+    entries_header = exactly_one("nonzero entry-count reply guard", r'if\s*\(\s*eq\.entries\s*\)\s*\{', body)
+    if map_creation.end() > entries_header.start():
+        raise ValueError("htsp_method_epgQuery fresh reply map must precede the entry-count output guard")
+    entries = extract_balanced_block(body, entries_header.end() - 1)
+    exactly_one("result list creation inside entry guard", r'\barray\s*=\s*htsmsg_create_list\(\s*\)\s*;', entries)
+    loop_header = exactly_one(
+        "bounded result loop",
+        r'for\s*\(\s*i\s*=\s*0\s*;\s*i\s*<\s*eq\.entries\s*;\s*\+\+i\s*\)\s*\{',
+        entries,
+    )
+    loop = extract_balanced_block(entries, loop_header.end() - 1)
+    if re.fullmatch(
+        r'\s*if\s*\(\s*full\s*\)\s*htsmsg_add_msg\(\s*array\s*,\s*NULL\s*,\s*'
+        r'htsp_build_event\(\s*eq\.result\s*\[\s*i\s*\]\s*,\s*NULL\s*,\s*lang\s*,\s*0\s*,\s*htsp\s*\)\s*\)\s*;\s*'
+        r'else\s*htsmsg_add_u32\(\s*array\s*,\s*NULL\s*,\s*eq\.result\s*\[\s*i\s*\]->id\s*\)\s*;\s*',
+        loop,
+        flags=re.S,
+    ) is None:
+        raise ValueError("htsp_method_epgQuery must preserve strict full-event/non-full-ID result branches")
+    exactly_one(
+        "selected full-dependent result key",
+        r'htsmsg_add_msg\(\s*out\s*,\s*full\s*\?\s*"events"\s*:\s*"eventIds"\s*,\s*array\s*\)\s*;',
+        entries,
+    )
+    if compact.count('"events"') != 1 or compact.count('"eventIds"') != 1:
+        raise ValueError("htsp_method_epgQuery must not manufacture both reply alternatives")
+    if len(re.findall(r'\bhtsmsg_create_map\s*\(', body)) != 1 or len(re.findall(r'\bhtsmsg_create_list\s*\(', body)) != 1:
+        raise ValueError("htsp_method_epgQuery must own exactly one guarded result list and one reply map")
+    entries_close = entries_header.end() - 1 + len(entries) + 1
+    output_calls = re.findall(r'\bhtsmsg_(?:add|set)_[a-z0-9_]+(?:_(?:alloc|ptr))?\s*\(', body)
+    if len(output_calls) != 3:
+        raise ValueError(
+            "htsp_method_epgQuery reply output must be exclusive to the guarded event/ID alternatives"
+        )
+    tail = body[entries_close + 1:]
+    if re.fullmatch(
+        r'\s*epg_query_free\(\s*&\s*eq\s*\)\s*;\s*return\s+out\s*;\s*',
+        tail,
+        flags=re.S,
+    ) is None:
+        raise ValueError("htsp_method_epgQuery must end with cleanup followed by final return out")
+    if len(re.findall(r'\bepg_query_free\(\s*&\s*eq\s*\)\s*;', body)) != 4:
+        raise ValueError("htsp_method_epgQuery must preserve the four accepted cleanup paths")
+    returns = [re.sub(r"\s+", " ", value).strip() for value in re.findall(r'\breturn\s+([^;]+)\s*;', body)]
+    if returns != [
+        'htsp_error(htsp, N_("Invalid arguments"))',
+        'htsp_error(htsp, N_("Channel does not exist"))',
+        'htsp_error(htsp, N_("Channel tag does not exist"))',
+        'htsp_error(htsp, N_("User does not have access"))',
+        "out",
+    ]:
+        raise ValueError("htsp_method_epgQuery must preserve exact error returns and one final return out")
 
 
 def require_get_dvr_cutpoints_source_facts(server_c: str) -> list[dict[str, Any]]:
@@ -2586,17 +2815,64 @@ def derive_client_methods(server_c: str) -> list[dict[str, Any]]:
                 "htsp_method_fileRead htsmsg_add_bin_alloc",
             )]
         elif name == "epgQuery":
+            require_epg_query_source_facts(server_c)
+            if [(field["name"], field["type"]) for field in request_fields] != [
+                ("query", "str"),
+                ("channelId", "u32"),
+                ("tagId", "u32"),
+                ("contentType", "u32"),
+                ("language", "str"),
+                ("fulltext", "bool"),
+                ("mergetext", "bool"),
+                ("full", "u32"),
+                ("minduration", "u32"),
+                ("maxduration", "u32"),
+            ]:
+                raise ValueError("htsp_method_epgQuery request shape drift")
+            request_fields = [
+                exact_field(
+                    "query", "str", "request", "required",
+                    "htsp_method_epgQuery rejects a missing query and accepts the supplied string unchanged",
+                ),
+                exact_field("channelId", "u32", "request", "optional", "htsp_method_epgQuery optional channel selector"),
+                exact_field("tagId", "u32", "request", "optional", "htsp_method_epgQuery optional channel-tag selector"),
+                exact_field(
+                    "contentType", "u32", "request", "optional",
+                    "htsp_method_epgQuery optional content selector with pre-v6 compatibility conversion",
+                ),
+                exact_field("language", "str", "request", "optional", "htsp_method_epgQuery uses supplied language or connection language"),
+                exact_field(
+                    "fulltext", "bool", "request", "optional",
+                    "htsp_method_epgQuery reads optional boolean fulltext with default false",
+                ),
+                exact_field(
+                    "mergetext", "bool", "request", "optional",
+                    "htsp_method_epgQuery reads optional boolean mergetext with default false",
+                ),
+                exact_field(
+                    "full", "u32", "request", "optional",
+                    "htsp_method_epgQuery reads optional u32 full with default zero",
+                ),
+                exact_field(
+                    "minduration", "u32", "request", "optional",
+                    "htsp_method_epgQuery reads optional u32 minimum duration with default zero",
+                ),
+                exact_field(
+                    "maxduration", "u32", "request", "optional",
+                    "htsp_method_epgQuery reads optional u32 maximum duration with default INT_MAX",
+                ),
+            ]
             reply_fields = [
                 exact_field(
                     "eventIds", "list", "reply", "alternative",
                     "htsp_method_epgQuery non-full result",
-                    condition="present when full is absent or zero",
+                    condition="selected when full is absent or zero; omitted for zero matches",
                     shape_ref="u32",
                 ),
                 exact_field(
                     "events", "list", "reply", "alternative",
                     "htsp_method_epgQuery full result",
-                    condition="present when full is non-zero",
+                    condition="selected when full is non-zero; omitted for zero matches",
                     shape_ref="event",
                 ),
             ]
@@ -2747,6 +3023,12 @@ def derive_client_methods(server_c: str) -> list[dict[str, Any]]:
                 "completeness": "complete",
                 "evidence": "bounded pinned htsp_method_getEvents required events-list construction",
             }
+        if name == "epgQuery":
+            method["requestShape"] = {
+                "kind": "fields",
+                "completeness": "complete",
+                "evidence": "bounded pinned htsp_method_epgQuery required query and ordered optional filter extraction",
+            }
         if name == "getDvrCutpoints":
             method["requestShape"] = {
                 "kind": "fields",
@@ -2829,8 +3111,19 @@ def derive_client_methods(server_c: str) -> list[dict[str, Any]]:
                 "kind": "alternative",
                 "completeness": "complete",
                 "evidence": "bounded htsp_method_epgQuery branches on full",
-                "alternatives": ["eventIds when full is absent/zero", "events when full is non-zero"],
+                "alternatives": [
+                    "eventIds when full is absent/zero and matches exist",
+                    "events when full is non-zero and matches exist",
+                    "empty map when the selected query has zero matches",
+                ],
             }
+            method["notes"] = [
+                "The required query string is accepted unchanged, including an empty string.",
+                "Optional fulltext and mergetext default false; optional full defaults zero and any nonzero value selects full events.",
+                "channelId and tagId are independent optional selectors; contentType retains the pinned pre-v6 conversion.",
+                "language has field minimum v6 and minduration/maxduration have field minimum v13; no other field raises the method minimum v4.",
+                "The selected result field is omitted when the query has zero matches.",
+            ]
         if name == "stopDvrEntry":
             method["docStatus"] = "missing-from-official-client-method-page"
             method["notes"] = [
@@ -3882,20 +4175,74 @@ static htsmsg_t *
                 '  }'
             )
             reply_lines = '  htsmsg_add_msg(r, "events", l);\n  return r;'
+        elif name == "epgQuery":
+            request_lines = (
+                '  htsmsg_t *out, *array;\n'
+                '  epg_query_t eq;\n'
+                '  const char *query;\n'
+                '  const char *lang;\n'
+                '  uint32_t full, u32;\n'
+                '  channel_t *ch = NULL;\n'
+                '  channel_tag_t *ct = NULL;\n'
+                '  int min_duration, max_duration, i;\n'
+                '  if ((query = htsmsg_get_str(in, "query")) == NULL)\n'
+                '    return htsp_error(htsp, N_("Invalid arguments"));\n'
+                '  memset(&eq, 0, sizeof(eq));\n'
+                '  if (htsmsg_get_bool_or_default(in, "fulltext", 0)) eq.fulltext = 1;\n'
+                '  if (htsmsg_get_bool_or_default(in, "mergetext", 0)) eq.mergetext = 1;\n'
+                '  eq.stitle = strdup(query);\n'
+                '  if (!htsmsg_get_u32(in, "channelId", &u32)) {\n'
+                '    if (!(ch = channel_find_by_id(u32))) { epg_query_free(&eq); return htsp_error(htsp, N_("Channel does not exist")); }\n'
+                '    else eq.channel = strdup(idnode_uuid_as_str(&ch->ch_id, ubuf));\n'
+                '  }\n'
+                '  if (!htsmsg_get_u32(in, "tagId", &u32)) {\n'
+                '    if (!(ct = htsp_channel_tag_find_by_id(htsp, u32))) { epg_query_free(&eq); return htsp_error(htsp, N_("Channel tag does not exist")); }\n'
+                '    else eq.channel_tag = strdup(idnode_uuid_as_str(&ct->ct_id, ubuf));\n'
+                '  }\n'
+                '  if (!htsmsg_get_u32(in, "contentType", &u32)) {\n'
+                '    if (htsp->htsp_version < 6) u32 <<= 4;\n'
+                '    eq.genre_count = 1; eq.genre = eq.genre_static; eq.genre[0] = u32;\n'
+                '  }\n'
+                '  lang = htsmsg_get_str(in, "language") ?: htsp->htsp_language;\n'
+                '  eq.lang = lang ? strdup(lang) : NULL;\n'
+                '  full = htsmsg_get_u32_or_default(in, "full", 0);\n'
+                '  min_duration = htsmsg_get_u32_or_default(in, "minduration", 0);\n'
+                '  max_duration = htsmsg_get_u32_or_default(in, "maxduration", INT_MAX);\n'
+                '  eq.duration.comp = EC_RG; eq.duration.val1 = min_duration; eq.duration.val2 = max_duration;\n'
+                '  if (ch && !htsp_user_access_channel(htsp, ch)) { epg_query_free(&eq); return htsp_error(htsp, N_("User does not have access")); }\n'
+                '  epg_query(&eq, htsp->htsp_granted_access);'
+            )
+            reply_lines = (
+                '  out = htsmsg_create_map();\n'
+                '  if (eq.entries) {\n'
+                '    array = htsmsg_create_list();\n'
+                '    for (i = 0; i < eq.entries; ++i) {\n'
+                '      if (full) htsmsg_add_msg(array, NULL, htsp_build_event(eq.result[i], NULL, lang, 0, htsp));\n'
+                '      else htsmsg_add_u32(array, NULL, eq.result[i]->id);\n'
+                '    }\n'
+                '    htsmsg_add_msg(out, full ? "events" : "eventIds", array);\n'
+                '  }\n'
+                '  epg_query_free(&eq);\n'
+                '  return out;'
+            )
         else:
             request_lines = '  htsmsg_get_u32(in, "demoField", &v);'
             reply_lines = '  htsmsg_add_u32(r, "demoReply", v);\n  return r;'
+        fixture_locals = (
+            ""
+            if name == "epgQuery"
+            else "  uint32_t v;\n  htsmsg_t *l = htsmsg_create_list();\n  htsmsg_t *r = htsmsg_create_map();\n"
+        )
+        fixture_trailer = "" if name == "epgQuery" else "  (void)htsp;"
         handlers.append(
             f"""
 static htsmsg_t *
 {handler}(htsp_connection_t *htsp, htsmsg_t *in)
 {{
-  uint32_t v;
-  htsmsg_t *l = htsmsg_create_list();
-  htsmsg_t *r = htsmsg_create_map();
+{fixture_locals}
 {request_lines}
 {reply_lines}
-  (void)htsp; (void)name_{name};
+{fixture_trailer} (void)name_{name};
 }}
 """.replace(f"(void)name_{name};", "")
         )
@@ -4178,7 +4525,42 @@ def self_test() -> None:
     check("queueStatus-no-mux-fields", not ({"stream", "dts", "pts", "duration", "payload"} & queue_fields.keys()))
     check("getEpgObject-dynamic", methods_by_name["getEpgObject"].get("replyShape", {}).get("kind") == "dynamic")
     check("getEvents-nested", methods_by_name["getEvents"].get("replyShape", {}).get("kind") == "fields")
-    check("epgQuery-alternative", methods_by_name["epgQuery"].get("replyShape", {}).get("kind") == "alternative")
+    epg_query = methods_by_name["epgQuery"]
+    check(
+        "epgQuery-exact-complete-contract",
+        epg_query.get("accessMask") == "ACCESS_HTSP_STREAMING"
+        and epg_query.get("minVersion") == 4
+        and [
+            (field["name"], field["type"], field["presence"], field.get("minVersion"))
+            for field in epg_query["requestFields"]
+        ] == [
+            ("query", "str", "required", None),
+            ("channelId", "u32", "optional", None),
+            ("tagId", "u32", "optional", None),
+            ("contentType", "u32", "optional", None),
+            ("language", "str", "optional", 6),
+            ("fulltext", "bool", "optional", None),
+            ("mergetext", "bool", "optional", None),
+            ("full", "u32", "optional", None),
+            ("minduration", "u32", "optional", 13),
+            ("maxduration", "u32", "optional", 13),
+        ]
+        and epg_query.get("requestShape", {}).get("completeness") == "complete"
+        and [
+            (field["name"], field["type"], field["presence"], field.get("shapeRef"))
+            for field in epg_query["replyFields"]
+        ] == [
+            ("eventIds", "list", "alternative", "u32"),
+            ("events", "list", "alternative", "event"),
+        ]
+        and epg_query.get("replyShape", {}).get("kind") == "alternative"
+        and epg_query.get("replyShape", {}).get("completeness") == "complete"
+        and epg_query.get("sdk") == {
+            "referenced": True,
+            "outgoingRequest": True,
+            "typedRequest": True,
+        },
+    )
     check("cutpoints-shape", "cutpoint" in committed.get("shapes", {}))
     system_time = methods_by_name["getSysTime"]
     check(
@@ -4321,7 +4703,9 @@ def self_test() -> None:
             live_coverage["serverMessages"]["handledCount"],
             live_coverage["typedClientRequests"]["count"],
             live_coverage["typedServerMessages"]["count"],
-        ) == (29, 28, 27, 21, 26)
+        ) == (30, 29, 27, 22, 26)
+        and "epgQuery" in live_coverage["clientMethods"]["referenced"]
+        and "epgQuery" in live_coverage["clientMethods"]["outgoingRequests"]
         and "stopDvrEntry" in live_coverage["clientMethods"]["referenced"]
         and "stopDvrEntry" in live_coverage["clientMethods"]["outgoingRequests"]
         and "subscriptionChangeWeight" in live_coverage["clientMethods"]["referenced"]
@@ -4372,7 +4756,7 @@ def self_test() -> None:
             live_coverage["clientMethods"]["referencedCount"],
             live_coverage["clientMethods"]["outgoingRequestCount"],
             live_coverage["serverMessages"]["handledCount"],
-        ) == (29, 28, 27)
+        ) == (30, 29, 27)
         and "getChannel" in live_coverage["clientMethods"]["referenced"]
         and "getChannel" in live_coverage["clientMethods"]["outgoingRequests"],
         str(live_coverage.get("metrics")),
@@ -4425,7 +4809,7 @@ def self_test() -> None:
             live_coverage["clientMethods"]["referencedCount"],
             live_coverage["clientMethods"]["outgoingRequestCount"],
             live_coverage["serverMessages"]["handledCount"],
-        ) == (29, 28, 27)
+        ) == (30, 29, 27)
         and "getEvents" in live_coverage["clientMethods"]["referenced"]
         and "getEvents" in live_coverage["clientMethods"]["outgoingRequests"],
     )
@@ -4569,14 +4953,14 @@ def self_test() -> None:
                 else "htsp_method_filter_stream"
                 if name == "subscriptionFilterStream"
                 else f"htsp_method_{name}"
-                if name in {"getEvent", "getEvents", "stopDvrEntry", "getDvrCutpoints"}
+                if name in {"getEvent", "getEvents", "epgQuery", "stopDvrEntry", "getDvrCutpoints"}
                 else f"htsp_method_{idx}"
             ),
             "ACCESS_HTSP_RECORDER"
             if name in {"stopDvrEntry", "getDvrCutpoints"}
             else "ACCESS_HTSP_STREAMING"
             if name in {
-                "subscriptionChangeWeight", "subscriptionLive", "subscriptionFilterStream",
+                "epgQuery", "subscriptionChangeWeight", "subscriptionLive", "subscriptionFilterStream",
             }
             else "ACCESS_ANONYMOUS",
         )
@@ -4680,6 +5064,203 @@ def self_test() -> None:
             and stop_method.get("replyShape", {}).get("completeness") == "complete"
             and stop_method.get("docStatus") == "missing-from-official-client-method-page"
             and len(stop_method.get("notes", [])) == 3,
+        )
+
+        def mutate_epg_query_handler(label: str, old: str, new: str) -> str:
+            marker = "htsp_method_epgQuery(htsp_connection_t *htsp, htsmsg_t *in)"
+            start = server_c.index(marker)
+            open_brace = server_c.index("{", start)
+            end = server_c.index("\n}\n", open_brace) + len("\n}\n")
+            handler_source = server_c[start:end]
+            check(
+                f"epgQuery-mutation-target-{label}",
+                handler_source.count(old) == 1,
+                str(handler_source.count(old)),
+            )
+            changed_handler = handler_source.replace(old, new, 1)
+            check(f"epgQuery-mutation-changed-{label}", changed_handler != handler_source)
+            return server_c[:start] + changed_handler + server_c[end:]
+
+        epg_query_source_mutations = (
+            ("required-query-polarity", 'if ((query = htsmsg_get_str(in, "query")) == NULL)', 'if ((query = htsmsg_get_str(in, "query")) != NULL)'),
+            ("required-query-name", 'htsmsg_get_str(in, "query")', 'htsmsg_get_str(in, "title")'),
+            ("required-query-type", 'htsmsg_get_str(in, "query")', 'htsmsg_get_uuid(in, "query")'),
+            ("query-copy-target", 'eq.stitle = strdup(query)', 'eq.stitle = strdup("changed")'),
+            ("fulltext-default", 'htsmsg_get_bool_or_default(in, "fulltext", 0)', 'htsmsg_get_bool_or_default(in, "fulltext", 1)'),
+            ("fulltext-target", 'eq.fulltext = 1', 'eq.mergetext = 1'),
+            ("mergetext-default", 'htsmsg_get_bool_or_default(in, "mergetext", 0)', 'htsmsg_get_bool_or_default(in, "mergetext", 1)'),
+            ("mergetext-target", 'eq.mergetext = 1', 'eq.fulltext = 1'),
+            ("channel-tag-independence", '  if (!htsmsg_get_u32(in, "tagId", &u32)) {', '  else if (!htsmsg_get_u32(in, "tagId", &u32)) {'),
+            ("channel-lookup", 'channel_find_by_id(u32)', 'channel_find_by_uuid(u32)'),
+            ("tag-lookup", 'htsp_channel_tag_find_by_id(htsp, u32)', 'channel_tag_find_by_id(u32)'),
+            ("content-conversion", 'if (htsp->htsp_version < 6) u32 <<= 4', 'if (htsp->htsp_version < 6) u32 >>= 4'),
+            ("language-fallback", 'htsmsg_get_str(in, "language") ?: htsp->htsp_language', 'htsmsg_get_str(in, "language")'),
+            ("full-default", 'htsmsg_get_u32_or_default(in, "full", 0)', 'htsmsg_get_u32_or_default(in, "full", 1)'),
+            ("minimum-duration-default", 'htsmsg_get_u32_or_default(in, "minduration", 0)', 'htsmsg_get_u32_or_default(in, "minduration", 1)'),
+            ("maximum-duration-default", 'htsmsg_get_u32_or_default(in, "maxduration", INT_MAX)', 'htsmsg_get_u32_or_default(in, "maxduration", 0)'),
+            ("minimum-duration-assignment", 'eq.duration.val1 = min_duration', 'eq.duration.val1 = max_duration'),
+            ("maximum-duration-assignment", 'eq.duration.val2 = max_duration', 'eq.duration.val2 = min_duration'),
+            ("channel-access", 'htsp_user_access_channel(htsp, ch)', 'htsp_user_access_channel(htsp, NULL)'),
+            ("query-granted-access", 'epg_query(&eq, htsp->htsp_granted_access)', 'epg_query(&eq, NULL)'),
+            ("entry-count-guard", 'if (eq.entries) {', 'if (1) {'),
+            ("full-nonzero-condition", 'if (full) htsmsg_add_msg', 'if (full == 1) htsmsg_add_msg'),
+            ("full-event-builder", 'htsp_build_event(eq.result[i], NULL, lang, 0, htsp)', 'htsp_build_event(eq.result[0], NULL, lang, 0, htsp)'),
+            ("id-result-branch", 'htsmsg_add_u32(array, NULL, eq.result[i]->id)', 'htsmsg_add_u32(array, NULL, eq.result[0]->id)'),
+            ("selected-key", 'full ? "events" : "eventIds"', 'full ? "eventIds" : "events"'),
+            ("zero-match-omission", '  if (eq.entries) {', '  htsmsg_add_msg(out, "eventIds", array);\n  if (eq.entries) {'),
+        )
+        for label, old, new in epg_query_source_mutations:
+            mutated_source = mutate_epg_query_handler(label, old, new)
+            check(f"epgQuery-source-mutation-changed-{label}", mutated_source != server_c)
+            try:
+                require_epg_query_source_facts(mutated_source)
+            except ValueError:
+                continue
+            check(f"reject-epgQuery-source-{label}", False)
+
+        epg_query_governance_mutations = (
+            (
+                "setup-assignment-after-query",
+                (
+                    ('  eq.lang = lang ? strdup(lang) : NULL;\n', ''),
+                    (
+                        '  epg_query(&eq, htsp->htsp_granted_access);',
+                        '  epg_query(&eq, htsp->htsp_granted_access);\n'
+                        '  eq.lang = lang ? strdup(lang) : NULL;',
+                    ),
+                ),
+                "language assignment must precede full selector",
+            ),
+            (
+                "duration-range-mode",
+                (('eq.duration.comp = EC_RG', 'eq.duration.comp = EC_GT'),),
+                "exactly one EC_RG duration range mode",
+            ),
+            (
+                "duration-range-mode-after-query",
+                (
+                    ('  eq.duration.comp = EC_RG;', ''),
+                    (
+                        '  epg_query(&eq, htsp->htsp_granted_access);',
+                        '  epg_query(&eq, htsp->htsp_granted_access);\n'
+                        '  eq.duration.comp = EC_RG;',
+                    ),
+                ),
+                "EC_RG duration mode must precede minimum-duration assignment",
+            ),
+            (
+                "query-after-map",
+                (
+                    ('  epg_query(&eq, htsp->htsp_granted_access);', ''),
+                    (
+                        '  out = htsmsg_create_map();',
+                        '  out = htsmsg_create_map();\n'
+                        '  epg_query(&eq, htsp->htsp_granted_access);',
+                    ),
+                ),
+                "reply map must be fresh after the query",
+            ),
+            (
+                "map-inside-entry-guard",
+                (
+                    ('  out = htsmsg_create_map();\n', ''),
+                    ('  if (eq.entries) {', '  if (eq.entries) {\n    out = htsmsg_create_map();'),
+                ),
+                "fresh reply map must precede the entry-count output guard",
+            ),
+            (
+                "extra-output-before-guard",
+                ((
+                    '  out = htsmsg_create_map();',
+                    '  out = htsmsg_create_map();\n  htsmsg_set_u32(out, "count", eq.entries);',
+                ),),
+                "reply output must be exclusive",
+            ),
+            (
+                "extra-output-inside-guard",
+                ((
+                    '    array = htsmsg_create_list();',
+                    '    array = htsmsg_create_list();\n    htsmsg_set_u32(out, "count", eq.entries);',
+                ),),
+                "reply output must be exclusive",
+            ),
+            (
+                "alternative-output-guard",
+                ((
+                    '  if (eq.entries) {',
+                    '  if (eq.entries > 0) htsmsg_set_u32(out, "count", eq.entries);\n'
+                    '  if (eq.entries) {',
+                ),),
+                "reply output must be exclusive",
+            ),
+            (
+                "extra-output-after-guard",
+                ((
+                    '  epg_query_free(&eq);',
+                    '  htsmsg_set_u32(out, "count", eq.entries);\n  epg_query_free(&eq);',
+                ),),
+                "reply output must be exclusive",
+            ),
+            (
+                "cleanup-before-output-guard",
+                (
+                    ('  epg_query_free(&eq);\n', ''),
+                    ('  if (eq.entries) {', '  epg_query_free(&eq);\n  if (eq.entries) {'),
+                ),
+                "must end with cleanup followed by final return out",
+            ),
+            (
+                "return-before-cleanup",
+                ((
+                    '  epg_query_free(&eq);\n  return out;',
+                    '  return out;\n  epg_query_free(&eq);',
+                ),),
+                "must end with cleanup followed by final return out",
+            ),
+            (
+                "early-return",
+                ((
+                    '  out = htsmsg_create_map();',
+                    '  out = htsmsg_create_map();\n  if (!full) return out;',
+                ),),
+                "must preserve exact error returns and one final return out",
+            ),
+            (
+                "alternative-return",
+                (('  return out;', '  return NULL;'),),
+                "must end with cleanup followed by final return out",
+            ),
+        )
+        falsely_accepted_epg_query_mutations = []
+        for label, edits, expected_error in epg_query_governance_mutations:
+            mutated_source = server_c
+            for index, (old, new) in enumerate(edits):
+                marker = "htsp_method_epgQuery(htsp_connection_t *htsp, htsmsg_t *in)"
+                start = mutated_source.index(marker)
+                open_brace = mutated_source.index("{", start)
+                end = mutated_source.index("\n}\n", open_brace) + len("\n}\n")
+                handler_source = mutated_source[start:end]
+                check(
+                    f"epgQuery-governance-mutation-target-{label}-{index}",
+                    handler_source.count(old) == 1,
+                    str(handler_source.count(old)),
+                )
+                changed_handler = handler_source.replace(old, new, 1)
+                mutated_source = mutated_source[:start] + changed_handler + mutated_source[end:]
+            try:
+                require_epg_query_source_facts(mutated_source)
+            except ValueError as exc:
+                check(
+                    f"epgQuery-governance-mutation-diagnostic-{label}",
+                    expected_error in str(exc),
+                    str(exc),
+                )
+                continue
+            falsely_accepted_epg_query_mutations.append(label)
+        check(
+            "reject-all-epgQuery-governance-mutations",
+            not falsely_accepted_epg_query_mutations,
+            ", ".join(falsely_accepted_epg_query_mutations),
         )
 
         weight_method = next(

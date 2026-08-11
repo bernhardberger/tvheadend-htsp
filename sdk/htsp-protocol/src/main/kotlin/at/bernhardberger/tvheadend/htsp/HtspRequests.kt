@@ -108,6 +108,12 @@ public data class GetEventResponse(public val event: HtspEvent)
 
 public data class GetEventsResponse(public val events: List<HtspEvent>)
 
+/** Selected finite reply alternative for `epgQuery`. */
+public sealed interface EpgQueryResponse {
+    public data class EventIds(public val eventIds: List<Long>) : EpgQueryResponse
+    public data class Events(public val events: List<HtspEvent>) : EpgQueryResponse
+}
+
 public data class GetDvrConfigsResponse(public val configurations: List<HtspDvrConfig>?)
 
 /** Closed wire request family for the five DVR mutation methods. */
@@ -235,6 +241,36 @@ public data class GetEventsRequest(
         numFollowing?.let { requireU32("numFollowing", it) }
     }
 
+}
+
+public data class EpgQueryRequest(
+    public val query: String,
+    public val channelId: Long? = null,
+    public val tagId: Long? = null,
+    public val contentType: Long? = null,
+    public val language: String? = null,
+    public val fullText: Boolean? = null,
+    public val mergeText: Boolean? = null,
+    public val full: Long? = null,
+    public val minDurationSeconds: Long? = null,
+    public val maxDurationSeconds: Long? = null,
+) : HtspRequest<EpgQueryResponse>(
+    method = "epgQuery",
+    access = HtspAccess.ACCESS_HTSP_STREAMING,
+    minimumProtocolVersion = maxVersion(
+        4,
+        6.takeIf { language != null },
+        13.takeIf { minDurationSeconds != null || maxDurationSeconds != null },
+    ),
+) {
+    init {
+        channelId?.let { requireU32("channelId", it) }
+        tagId?.let { requireU32("tagId", it) }
+        contentType?.let { requireU32("contentType", it) }
+        full?.let { requireU32("full", it) }
+        minDurationSeconds?.let { requireU32("minduration", it) }
+        maxDurationSeconds?.let { requireU32("maxduration", it) }
+    }
 }
 
 public class GetDvrConfigsRequest : HtspRequest<GetDvrConfigsResponse>(
@@ -542,6 +578,17 @@ internal object `HtspRequestCodecs-internal` {
             .putIfNotNull("numFollowing", request.numFollowing)
             .putIfNotNull("maxTime", request.maxTime)
 
+        is EpgQueryRequest -> linkedMapOf<String, Any?>("query" to request.query)
+            .putIfNotNull("channelId", request.channelId)
+            .putIfNotNull("tagId", request.tagId)
+            .putIfNotNull("contentType", request.contentType)
+            .putIfNotNull("language", request.language)
+            .putIfNotNull("fulltext", request.fullText)
+            .putIfNotNull("mergetext", request.mergeText)
+            .putIfNotNull("full", request.full)
+            .putIfNotNull("minduration", request.minDurationSeconds)
+            .putIfNotNull("maxduration", request.maxDurationSeconds)
+
         is AddDvrEntryRequest -> linkedMapOf<String, Any?>().apply {
             if (request.selector is AddDvrEntrySelector.ExplicitChannelTime) {
                 put("channelId", request.selector.channelId)
@@ -659,6 +706,8 @@ internal object `HtspRequestCodecs-internal` {
         is GetEventsRequest ->
             GetEventsResponse(fields.requiredObjectList("events", ::eventFromFields))
 
+        is EpgQueryRequest -> decodeEpgQuery(request, fields)
+
         is GetDvrConfigsRequest ->
             GetDvrConfigsResponse(fields.optionalObjectList("dvrconfigs", ::dvrConfigFromFields))
 
@@ -730,6 +779,25 @@ internal object `HtspRequestCodecs-internal` {
                 services = services,
                 tagIds = fields.requiredU32List("tags"),
             ),
+        )
+    }
+
+    private fun decodeEpgQuery(
+        request: EpgQueryRequest,
+        fields: Map<String, Any?>,
+    ): EpgQueryResponse = if (request.full == null || request.full == 0L) {
+        if (fields.containsKey("events")) malformedReply()
+        EpgQueryResponse.EventIds(
+            if (fields.containsKey("eventIds")) fields.requiredU32List("eventIds") else emptyList(),
+        )
+    } else {
+        if (fields.containsKey("eventIds")) malformedReply()
+        EpgQueryResponse.Events(
+            if (fields.containsKey("events")) {
+                fields.requiredObjectList("events", ::eventFromFields)
+            } else {
+                emptyList()
+            },
         )
     }
 
