@@ -604,6 +604,12 @@ public final class at/bernhardberger/tvheadend/htsp/GeneratedHtspExtensionsKt {
 	public static synthetic fun subscriptionSeek$default (Lat/bernhardberger/tvheadend/htsp/HtspConnection;JLat/bernhardberger/tvheadend/htsp/SubscriptionSeekPosition$Size;Ljava/lang/Long;JLat/bernhardberger/tvheadend/htsp/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
 	public static synthetic fun subscriptionSeek$default (Lat/bernhardberger/tvheadend/htsp/HtspConnection;JLat/bernhardberger/tvheadend/htsp/SubscriptionSeekPosition$Time;Ljava/lang/Long;JLat/bernhardberger/tvheadend/htsp/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
 	public static synthetic fun subscriptionSeek$default (Lat/bernhardberger/tvheadend/htsp/HtspConnection;JLat/bernhardberger/tvheadend/htsp/SubscriptionSeekPosition;Ljava/lang/Long;JLat/bernhardberger/tvheadend/htsp/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+	public static final fun subscriptionSkip (Lat/bernhardberger/tvheadend/htsp/HtspConnection;JLat/bernhardberger/tvheadend/htsp/SubscriptionSeekPosition$Size;Ljava/lang/Long;JLat/bernhardberger/tvheadend/htsp/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static final fun subscriptionSkip (Lat/bernhardberger/tvheadend/htsp/HtspConnection;JLat/bernhardberger/tvheadend/htsp/SubscriptionSeekPosition$Time;Ljava/lang/Long;JLat/bernhardberger/tvheadend/htsp/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static final fun subscriptionSkip (Lat/bernhardberger/tvheadend/htsp/HtspConnection;JLat/bernhardberger/tvheadend/htsp/SubscriptionSeekPosition;Ljava/lang/Long;JLat/bernhardberger/tvheadend/htsp/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static synthetic fun subscriptionSkip$default (Lat/bernhardberger/tvheadend/htsp/HtspConnection;JLat/bernhardberger/tvheadend/htsp/SubscriptionSeekPosition$Size;Ljava/lang/Long;JLat/bernhardberger/tvheadend/htsp/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+	public static synthetic fun subscriptionSkip$default (Lat/bernhardberger/tvheadend/htsp/HtspConnection;JLat/bernhardberger/tvheadend/htsp/SubscriptionSeekPosition$Time;Ljava/lang/Long;JLat/bernhardberger/tvheadend/htsp/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+	public static synthetic fun subscriptionSkip$default (Lat/bernhardberger/tvheadend/htsp/HtspConnection;JLat/bernhardberger/tvheadend/htsp/SubscriptionSeekPosition;Ljava/lang/Long;JLat/bernhardberger/tvheadend/htsp/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
 	public static final fun subscriptionSpeed (Lat/bernhardberger/tvheadend/htsp/HtspConnection;JIJLat/bernhardberger/tvheadend/htsp/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public static synthetic fun subscriptionSpeed$default (Lat/bernhardberger/tvheadend/htsp/HtspConnection;JIJLat/bernhardberger/tvheadend/htsp/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
 	public static final fun unsubscribe (Lat/bernhardberger/tvheadend/htsp/HtspConnection;JJLat/bernhardberger/tvheadend/htsp/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
@@ -2639,6 +2645,22 @@ public final class at/bernhardberger/tvheadend/htsp/SubscriptionSeekRequest : at
 	public final fun component3 ()Ljava/lang/Long;
 	public final fun copy (JLat/bernhardberger/tvheadend/htsp/SubscriptionSeekPosition;Ljava/lang/Long;)Lat/bernhardberger/tvheadend/htsp/SubscriptionSeekRequest;
 	public static synthetic fun copy$default (Lat/bernhardberger/tvheadend/htsp/SubscriptionSeekRequest;JLat/bernhardberger/tvheadend/htsp/SubscriptionSeekPosition;Ljava/lang/Long;ILjava/lang/Object;)Lat/bernhardberger/tvheadend/htsp/SubscriptionSeekRequest;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getAbsolute ()Ljava/lang/Long;
+	public final fun getPosition ()Lat/bernhardberger/tvheadend/htsp/SubscriptionSeekPosition;
+	public final fun getSubscriptionId ()J
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class at/bernhardberger/tvheadend/htsp/SubscriptionSkipRequest : at/bernhardberger/tvheadend/htsp/HtspRequest {
+	public fun <init> (JLat/bernhardberger/tvheadend/htsp/SubscriptionSeekPosition;Ljava/lang/Long;)V
+	public synthetic fun <init> (JLat/bernhardberger/tvheadend/htsp/SubscriptionSeekPosition;Ljava/lang/Long;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()J
+	public final fun component2 ()Lat/bernhardberger/tvheadend/htsp/SubscriptionSeekPosition;
+	public final fun component3 ()Ljava/lang/Long;
+	public final fun copy (JLat/bernhardberger/tvheadend/htsp/SubscriptionSeekPosition;Ljava/lang/Long;)Lat/bernhardberger/tvheadend/htsp/SubscriptionSkipRequest;
+	public static synthetic fun copy$default (Lat/bernhardberger/tvheadend/htsp/SubscriptionSkipRequest;JLat/bernhardberger/tvheadend/htsp/SubscriptionSeekPosition;Ljava/lang/Long;ILjava/lang/Object;)Lat/bernhardberger/tvheadend/htsp/SubscriptionSkipRequest;
 	public fun equals (Ljava/lang/Object;)Z
 	public final fun getAbsolute ()Ljava/lang/Long;
 	public final fun getPosition ()Lat/bernhardberger/tvheadend/htsp/SubscriptionSeekPosition;

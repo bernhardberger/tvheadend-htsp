@@ -551,6 +551,22 @@ DOC_LIMITATIONS = [
         ),
     },
     {
+        "id": "subscriptionSkip-seek-coordinate-source-doc-mismatch",
+        "summary": (
+            "The official Client-to-Server RPC methods page calls subscriptionSeek a "
+            "synonym of subscriptionSkip and lists time/size as optional u64 values "
+            "without stating the pinned either/or rule. Pinned current source maps both "
+            "dispatch names to htsp_method_skip, requires exact u32 subscriptionId, "
+            "reads optional u32 absolute with default 0, and accepts signed-s64 time "
+            "first otherwise signed-s64 size, erroring when neither coordinate exists."
+        ),
+        "authority": "src/htsp_server.c htsp_method_skip",
+        "docsUrl": (
+            "https://docs.tvheadend.org/documentation/development/htsp/"
+            "client-to-server-rpc-methods"
+        ),
+    },
+    {
         "id": "subscriptionFilterStream-range-overlap-underdocumented",
         "summary": (
             "The official Client-to-Server RPC methods page omits the pinned "
@@ -1155,6 +1171,14 @@ PRESENCE_ANNOTATIONS: dict[tuple[str, str, str, str], tuple[str, str | None]] = 
     ("clientMethod", "subscriptionSkip", "request", "size"): ("alternative", "time or size selects the seek coordinate"),
     ("clientMethod", "subscriptionSeek", "request", "subscriptionId"): ("required", None),
     ("clientMethod", "subscriptionSkip", "request", "subscriptionId"): ("required", None),
+    ("clientMethod", "subscriptionSeek", "request", "absolute"): (
+        "optional",
+        "when omitted, pinned current source supplies wire value 0 before absolute/relative type selection",
+    ),
+    ("clientMethod", "subscriptionSkip", "request", "absolute"): (
+        "optional",
+        "when omitted, pinned current source supplies wire value 0 before absolute/relative type selection",
+    ),
 }
 
 CONTAINER_ANNOTATIONS: dict[tuple[str, str, str, str], tuple[str, str]] = {
@@ -3607,6 +3631,161 @@ def require_subscription_change_weight_source_facts(server_c: str) -> None:
         )
 
 
+def require_subscription_skip_source_facts(server_c: str) -> None:
+    """Validate the exact shared subscriptionSeek/subscriptionSkip handler topology."""
+    source = strip_c_comments(server_c)
+    seek_dispatch = [
+        entry for entry in parse_methods_table(source)
+        if entry["name"] == "subscriptionSeek"
+    ]
+    skip_dispatch = [
+        entry for entry in parse_methods_table(source)
+        if entry["name"] == "subscriptionSkip"
+    ]
+    if seek_dispatch != [{
+        "name": "subscriptionSeek",
+        "handler": "htsp_method_skip",
+        "accessMask": "ACCESS_HTSP_STREAMING",
+    }]:
+        raise ValueError(
+            "subscriptionSeek dispatch must use htsp_method_skip with streaming access"
+        )
+    if skip_dispatch != [{
+        "name": "subscriptionSkip",
+        "handler": "htsp_method_skip",
+        "accessMask": "ACCESS_HTSP_STREAMING",
+    }]:
+        raise ValueError(
+            "subscriptionSkip dispatch must use htsp_method_skip with streaming access"
+        )
+    if METHOD_MIN_VERSION.get("subscriptionSeek") != 9:
+        raise ValueError("subscriptionSeek annotated minimum must remain exactly 9")
+    if METHOD_MIN_VERSION.get("subscriptionSkip") != 9:
+        raise ValueError("subscriptionSkip annotated minimum must remain exactly 9")
+
+    body = find_function_body(source, "htsp_method_skip")
+    if body is None:
+        raise ValueError("htsp_method_skip body not found")
+    compact = re.sub(r"\s+", " ", body).strip()
+
+    getters = [(field["name"], field["type"]) for field in extract_get_fields(body, "in")]
+    if getters != [
+        ("subscriptionId", "u32"),
+        ("time", "s64"),
+        ("size", "s64"),
+        ("absolute", "u32"),
+    ]:
+        raise ValueError(
+            "htsp_method_skip must read subscriptionId, absolute, time, and size exactly once each"
+        )
+
+    invalid_error = (
+        r'htsp_error\s*\(\s*htsp\s*,\s*N_\(\s*"Invalid arguments"\s*\)\s*\)'
+    )
+    subscription_id_guards = re.findall(
+        r'if\s*\(\s*htsmsg_get_u32\(\s*in\s*,\s*"subscriptionId"\s*,\s*&\s*'
+        r'(?P<subscription_id>[A-Za-z_][A-Za-z0-9_]*)\s*\)\s*\)\s*'
+        rf'return\s+{invalid_error}\s*;',
+        compact,
+    )
+    if len(subscription_id_guards) != 1:
+        raise ValueError(
+            "htsp_method_skip must require decoded u32 subscriptionId with exact Invalid arguments error"
+        )
+    subscription_id_var = subscription_id_guards[0]
+
+    traversals = re.findall(
+        r'LIST_FOREACH\(\s*(?P<subscription>[A-Za-z_][A-Za-z0-9_]*)\s*,\s*'
+        r'&\s*htsp->htsp_subscriptions\s*,\s*hs_link\s*\)\s*'
+        rf'if\s*\(\s*(?P=subscription)->hs_sid\s*==\s*{re.escape(subscription_id_var)}\s*\)\s*'
+        r'break\s*;',
+        compact,
+    )
+    if len(traversals) != 1:
+        raise ValueError("htsp_method_skip must search htsp_subscriptions by exact hs_sid")
+    subscription_var = traversals[0]
+
+    missing_error = (
+        r'htsp_error\s*\(\s*htsp\s*,\s*N_\(\s*"Subscription does not exist"\s*\)\s*\)'
+    )
+    if len(re.findall(
+        rf'if\s*\(\s*{re.escape(subscription_var)}\s*==\s*NULL\s*\)\s*'
+        rf'return\s+{missing_error}\s*;',
+        compact,
+    )) != 1:
+        raise ValueError(
+            "htsp_method_skip must preserve exact missing-subscription guard and error"
+        )
+
+    absolute_defaults = re.findall(
+        r'(?P<absolute>[A-Za-z_][A-Za-z0-9_]*)\s*=\s*'
+        r'htsmsg_get_u32_or_default\(\s*in\s*,\s*"absolute"\s*,\s*0\s*\)\s*;',
+        compact,
+    )
+    if len(absolute_defaults) != 1:
+        raise ValueError(
+            "htsp_method_skip must read optional u32 absolute with default zero exactly once"
+        )
+    absolute_var = absolute_defaults[0]
+
+    skip_declarations = re.findall(
+        r'streaming_skip_t\s+(?P<skip>[A-Za-z_][A-Za-z0-9_]*)\s*;',
+        compact,
+    )
+    if len(skip_declarations) != 1:
+        raise ValueError("htsp_method_skip must declare exactly one streaming_skip_t")
+    skip_var = skip_declarations[0]
+    zero_init = (
+        rf'memset\s*\(\s*&\s*{re.escape(skip_var)}\s*,\s*0\s*,\s*'
+        rf'sizeof\s*\(\s*{re.escape(skip_var)}\s*\)\s*\)\s*;'
+    )
+    time_branch = (
+        rf'if\s*\(\s*!\s*htsmsg_get_s64\(\s*in\s*,\s*"time"\s*,\s*&\s*'
+        r'(?P<value>[A-Za-z_][A-Za-z0-9_]*)\s*\)\s*\)\s*\{\s*'
+        rf'{re.escape(skip_var)}\.type\s*=\s*{re.escape(absolute_var)}\s*\?\s*'
+        rf'SMT_SKIP_ABS_TIME\s*:\s*SMT_SKIP_REL_TIME\s*;'
+    )
+    size_branch = (
+        rf'else\s+if\s*\(\s*!\s*htsmsg_get_s64\(\s*in\s*,\s*"size"\s*,\s*&\s*'
+        r'(?P<value>[A-Za-z_][A-Za-z0-9_]*)\s*\)\s*\)\s*\{\s*'
+        rf'{re.escape(skip_var)}\.type\s*=\s*{re.escape(absolute_var)}\s*\?\s*'
+        rf'SMT_SKIP_ABS_SIZE\s*:\s*SMT_SKIP_REL_SIZE\s*;'
+    )
+    neither_error = (
+        r'else\s*\{\s*return\s+' + invalid_error + r'\s*;\s*\}'
+    )
+    set_skip = (
+        rf'subscription_set_skip\s*\(\s*{re.escape(subscription_var)}->hs_s\s*,\s*'
+        rf'&\s*{re.escape(skip_var)}\s*\)\s*;'
+    )
+    reply = (
+        r'htsp_reply\s*\(\s*htsp\s*,\s*in\s*,\s*htsmsg_create_map\(\s*\)\s*\)\s*;'
+    )
+    for label, pattern in (
+        ("zero initialization", zero_init),
+        ("time-first coordinate branch", time_branch),
+        ("size coordinate branch", size_branch),
+        ("neither-coordinate error", neither_error),
+        ("subscription_set_skip call", set_skip),
+        ("empty reply", reply),
+    ):
+        if len(re.findall(pattern, compact)) != 1:
+            raise ValueError(f"htsp_method_skip must preserve exactly one {label}")
+
+    set_skip_match = re.search(set_skip, compact)
+    reply_match = re.search(reply, compact)
+    if set_skip_match is None or reply_match is None or set_skip_match.end() > reply_match.start():
+        raise ValueError(
+            "htsp_method_skip must call subscription_set_skip before queuing the empty reply"
+        )
+    if compact.count("htsp_reply") != 1 or compact.count("subscription_set_skip") != 1:
+        raise ValueError(
+            "htsp_method_skip must queue exactly one empty reply and call subscription_set_skip once"
+        )
+    if "return NULL" not in compact:
+        raise ValueError("htsp_method_skip must return NULL after queuing the empty reply")
+
+
 def require_subscription_live_source_facts(server_c: str) -> None:
     """Validate the exact bounded subscriptionLive handler topology."""
     source = strip_c_comments(server_c)
@@ -4559,6 +4738,33 @@ def derive_client_methods(server_c: str) -> list[dict[str, Any]]:
                 ),
             ]
             reply_fields = []
+        elif name in {"subscriptionSeek", "subscriptionSkip"}:
+            require_subscription_skip_source_facts(server_c)
+            request_fields = [
+                exact_field(
+                    "subscriptionId", "u32", "request", "required",
+                    "bounded htsp_method_skip requires exactly decoded u32 subscriptionId",
+                ),
+                exact_field(
+                    "time", "s64", "request", "alternative",
+                    "bounded htsp_method_skip reads signed-s64 time before size",
+                    condition="time or size selects the seek coordinate",
+                ),
+                exact_field(
+                    "size", "s64", "request", "alternative",
+                    "bounded htsp_method_skip reads signed-s64 size only when time is absent",
+                    condition="time or size selects the seek coordinate",
+                ),
+                exact_field(
+                    "absolute", "u32", "request", "optional",
+                    "bounded htsp_method_skip reads optional u32 absolute with default zero",
+                    condition=(
+                        "when omitted, pinned current source supplies wire value 0 before "
+                        "absolute/relative type selection"
+                    ),
+                ),
+            ]
+            reply_fields = []
         elif name == "subscriptionLive":
             require_subscription_live_source_facts(server_c)
             request_fields = [exact_field(
@@ -4965,12 +5171,48 @@ def derive_client_methods(server_c: str) -> list[dict[str, Any]]:
                 "Successful source output creates one map and adds required string path then required string ticket; both values are untrusted and diagnostic-sensitive, and ticket is credential-bearing.",
             ]
         if name == "subscriptionSeek":
+            method["requestShape"] = {
+                "kind": "fields",
+                "completeness": "complete",
+                "evidence": (
+                    "bounded htsp_method_skip accepts required subscriptionId, optional "
+                    "default-zero absolute, and signed time-or-size coordinates"
+                ),
+            }
+            method["replyShape"] = {
+                "kind": "knownEmpty",
+                "completeness": "complete",
+                "evidence": (
+                    "bounded htsp_method_skip queues exactly one empty reply map after "
+                    "subscription_set_skip"
+                ),
+            }
             method["notes"] = [
-                "Dispatch synonym of subscriptionSkip; both call htsp_method_skip."
+                "Dispatch synonym of subscriptionSkip; both call htsp_method_skip with streaming access and annotated minimum v9.",
+                "Pinned current source requires exact u32 subscriptionId, defaults omitted absolute to zero, and accepts signed-s64 time first otherwise signed-s64 size.",
+                "Pinned current source calls subscription_set_skip before queuing the empty RPC reply; the separate asynchronous subscriptionSkip message remains authoritative, with no on-wire ordering or settled-skip guarantee.",
             ]
         if name == "subscriptionSkip":
+            method["requestShape"] = {
+                "kind": "fields",
+                "completeness": "complete",
+                "evidence": (
+                    "bounded htsp_method_skip accepts required subscriptionId, optional "
+                    "default-zero absolute, and signed time-or-size coordinates"
+                ),
+            }
+            method["replyShape"] = {
+                "kind": "knownEmpty",
+                "completeness": "complete",
+                "evidence": (
+                    "bounded htsp_method_skip queues exactly one empty reply map after "
+                    "subscription_set_skip"
+                ),
+            }
             method["notes"] = [
-                "Dispatch synonym of subscriptionSeek; both call htsp_method_skip."
+                "Dispatch synonym of subscriptionSeek; both call htsp_method_skip with streaming access and annotated minimum v9.",
+                "Pinned current source requires exact u32 subscriptionId, defaults omitted absolute to zero, and accepts signed-s64 time first otherwise signed-s64 size.",
+                "Pinned current source calls subscription_set_skip before queuing the empty RPC reply; the separate asynchronous subscriptionSkip message remains authoritative, with no on-wire ordering or settled-skip guarantee.",
             ]
         if name == "subscriptionChangeWeight":
             method["notes"] = [
@@ -5419,7 +5661,7 @@ def scan_sdk_coverage(
             "notes": [
                 "referenced counts exact string literals in SDK production main sources",
                 "outgoing counts method = \"...\" / method = CONST assignments only",
-                "subscriptionSkip may be referenced via inbound handling without being outgoing",
+                "api remains the sole unreferenced client method under the exact-literal metric",
                 "handled server messages use the same exact-literal metric",
                 "typed request coverage comes only from the reviewed deterministic generator catalog",
                 "typed server-message coverage comes only from its separate reviewed deterministic generator catalog",
@@ -6163,6 +6405,47 @@ static htsmsg_t *
 }}
 """
             )
+            continue
+        if name == "subscriptionSeek":
+            handlers.append(
+                f"""
+static htsmsg_t *
+{handler}(htsp_connection_t *htsp, htsmsg_t *in)
+{{
+  htsp_subscription_t *hs;
+  uint32_t sid, abs;
+  int64_t s64;
+  streaming_skip_t skip;
+  if(htsmsg_get_u32(in, "subscriptionId", &sid))
+    return htsp_error(htsp, N_("Invalid arguments"));
+  LIST_FOREACH(hs, &htsp->htsp_subscriptions, hs_link)
+    if(hs->hs_sid == sid)
+      break;
+  if(hs == NULL)
+    return htsp_error(htsp, N_("Subscription does not exist"));
+  abs = htsmsg_get_u32_or_default(in, "absolute", 0);
+  memset(&skip, 0, sizeof(skip));
+  if(!htsmsg_get_s64(in, "time", &s64)) {{
+    skip.type = abs ? SMT_SKIP_ABS_TIME : SMT_SKIP_REL_TIME;
+    skip.time = hs->hs_90khz ? s64 : ts_rescale_inv(s64, 1000000);
+    tvhtrace(LS_HTSP_SUB, "skip: %s %"PRId64" (%s)", abs ? "abs" : "rel",
+             skip.time, hs->hs_90khz ? "90kHz" : "1MHz");
+  }} else if (!htsmsg_get_s64(in, "size", &s64)) {{
+    skip.type = abs ? SMT_SKIP_ABS_SIZE : SMT_SKIP_REL_SIZE;
+    skip.size = s64;
+    tvhtrace(LS_HTSP_SUB, "skip: %s by size %"PRId64, abs ? "abs" : "rel", s64);
+  }} else {{
+    return htsp_error(htsp, N_("Invalid arguments"));
+  }}
+  subscription_set_skip(hs->hs_s, &skip);
+  htsp_reply(htsp, in, htsmsg_create_map());
+  return NULL;
+}}
+"""
+            )
+            continue
+        if name == "subscriptionSkip":
+            # Shared handler body is emitted once with subscriptionSeek.
             continue
         if name == "subscriptionChangeWeight":
             handlers.append(
@@ -7249,6 +7532,42 @@ def self_test() -> None:
         "subscriptionLive-doc-limitation",
         "subscriptionLive-rpc-async-order-underdocumented" in limitation_ids,
     )
+    subscription_seek = methods_by_name["subscriptionSeek"]
+    subscription_skip = methods_by_name["subscriptionSkip"]
+    skip_request_contract = [
+        ("subscriptionId", "u32", "required"),
+        ("time", "s64", "alternative"),
+        ("size", "s64", "alternative"),
+        ("absolute", "u32", "optional"),
+    ]
+    for method_name, method in (
+        ("subscriptionSeek", subscription_seek),
+        ("subscriptionSkip", subscription_skip),
+    ):
+        check(
+            f"{method_name}-committed-exact-contract",
+            method.get("handler") == "htsp_method_skip"
+            and method.get("accessMask") == "ACCESS_HTSP_STREAMING"
+            and method.get("minVersion") == 9
+            and method.get("minVersionConfidence") == "annotated"
+            and [
+                (field["name"], field["type"], field["presence"])
+                for field in method["requestFields"]
+            ] == skip_request_contract
+            and method.get("requestShape", {}).get("completeness") == "complete"
+            and method.get("replyFields") == []
+            and method.get("replyShape", {}).get("kind") == "knownEmpty"
+            and method.get("replyShape", {}).get("completeness") == "complete"
+            and method.get("sdk") == {
+                "referenced": True,
+                "outgoingRequest": True,
+                "typedRequest": True,
+            },
+        )
+    check(
+        "subscriptionSkip-doc-limitation",
+        "subscriptionSkip-seek-coordinate-source-doc-mismatch" in limitation_ids,
+    )
     subscription_filter = methods_by_name["subscriptionFilterStream"]
     check(
         "subscriptionFilterStream-committed-exact-contract",
@@ -7287,7 +7606,7 @@ def self_test() -> None:
             live_coverage["serverMessages"]["handledCount"],
             live_coverage["typedClientRequests"]["count"],
             live_coverage["typedServerMessages"]["count"],
-        ) == (38, 37, 30, 35, 29)
+        ) == (38, 38, 30, 36, 29)
         and "getEpgObject" in live_coverage["clientMethods"]["referenced"]
         and "getEpgObject" in live_coverage["clientMethods"]["outgoingRequests"]
         and "epgQuery" in live_coverage["clientMethods"]["referenced"]
@@ -7296,6 +7615,10 @@ def self_test() -> None:
         and "stopDvrEntry" in live_coverage["clientMethods"]["outgoingRequests"]
         and "subscriptionChangeWeight" in live_coverage["clientMethods"]["referenced"]
         and "subscriptionChangeWeight" in live_coverage["clientMethods"]["outgoingRequests"]
+        and "subscriptionSeek" in live_coverage["clientMethods"]["referenced"]
+        and "subscriptionSeek" in live_coverage["clientMethods"]["outgoingRequests"]
+        and "subscriptionSkip" in live_coverage["clientMethods"]["referenced"]
+        and "subscriptionSkip" in live_coverage["clientMethods"]["outgoingRequests"]
         and "subscriptionLive" in live_coverage["clientMethods"]["referenced"]
         and "subscriptionLive" in live_coverage["clientMethods"]["outgoingRequests"]
         and "subscriptionFilterStream" in live_coverage["clientMethods"]["referenced"]
@@ -7347,7 +7670,7 @@ def self_test() -> None:
             live_coverage["clientMethods"]["referencedCount"],
             live_coverage["clientMethods"]["outgoingRequestCount"],
             live_coverage["serverMessages"]["handledCount"],
-        ) == (38, 37, 30)
+        ) == (38, 38, 30)
         and "getChannel" in live_coverage["clientMethods"]["referenced"]
         and "getChannel" in live_coverage["clientMethods"]["outgoingRequests"],
         str(live_coverage.get("metrics")),
@@ -7400,7 +7723,7 @@ def self_test() -> None:
             live_coverage["clientMethods"]["referencedCount"],
             live_coverage["clientMethods"]["outgoingRequestCount"],
             live_coverage["serverMessages"]["handledCount"],
-        ) == (38, 37, 30)
+        ) == (38, 38, 30)
         and "getEvents" in live_coverage["clientMethods"]["referenced"]
         and "getEvents" in live_coverage["clientMethods"]["outgoingRequests"],
     )
@@ -7549,6 +7872,8 @@ def self_test() -> None:
                 if name == "fileStat"
                 else "htsp_method_file_seek"
                 if name == "fileSeek"
+                else "htsp_method_skip"
+                if name in {"subscriptionSeek", "subscriptionSkip"}
                 else "htsp_method_live"
                 if name == "subscriptionLive"
                 else "htsp_method_filter_stream"
@@ -7568,7 +7893,9 @@ def self_test() -> None:
             }
             else "ACCESS_HTSP_STREAMING"
             if name in {
-                "epgQuery", "getEpgObject", "getTicket", "subscriptionChangeWeight", "subscriptionLive", "subscriptionFilterStream",
+                "epgQuery", "getEpgObject", "getTicket", "subscriptionChangeWeight",
+                "subscriptionSeek", "subscriptionSkip", "subscriptionLive",
+                "subscriptionFilterStream",
             }
             else "ACCESS_ANONYMOUS",
         )
@@ -9412,6 +9739,68 @@ def self_test() -> None:
             str(live_method),
         )
 
+        skip_request_fields = [
+            (
+                "subscriptionId", "u32", "required", None,
+                "bounded htsp_method_skip requires exactly decoded u32 subscriptionId",
+            ),
+            (
+                "time", "s64", "alternative",
+                "time or size selects the seek coordinate",
+                "bounded htsp_method_skip reads signed-s64 time before size",
+            ),
+            (
+                "size", "s64", "alternative",
+                "time or size selects the seek coordinate",
+                "bounded htsp_method_skip reads signed-s64 size only when time is absent",
+            ),
+            (
+                "absolute", "u32", "optional",
+                "when omitted, pinned current source supplies wire value 0 before absolute/relative type selection",
+                "bounded htsp_method_skip reads optional u32 absolute with default zero",
+            ),
+        ]
+        skip_request_shape = {
+            "kind": "fields",
+            "completeness": "complete",
+            "evidence": (
+                "bounded htsp_method_skip accepts required subscriptionId, optional "
+                "default-zero absolute, and signed time-or-size coordinates"
+            ),
+        }
+        skip_reply_shape = {
+            "kind": "knownEmpty",
+            "completeness": "complete",
+            "evidence": (
+                "bounded htsp_method_skip queues exactly one empty reply map after "
+                "subscription_set_skip"
+            ),
+        }
+        for method_name in ("subscriptionSeek", "subscriptionSkip"):
+            skip_method = next(
+                item for item in spec["clientMethods"]
+                if item["name"] == method_name
+            )
+            check(
+                f"{method_name}-fresh-exact-contract",
+                skip_method.get("handler") == "htsp_method_skip"
+                and skip_method.get("accessMask") == "ACCESS_HTSP_STREAMING"
+                and skip_method.get("minVersion") == 9
+                and skip_method.get("minVersionConfidence") == "annotated"
+                and [
+                    (
+                        field["name"], field["type"], field["presence"],
+                        field.get("condition"), field["evidence"],
+                    )
+                    for field in skip_method["requestFields"]
+                ] == skip_request_fields
+                and skip_method.get("requestShape") == skip_request_shape
+                and skip_method.get("replyFields") == []
+                and skip_method.get("replyShape") == skip_reply_shape
+                and len(skip_method.get("notes", [])) == 3,
+                str(skip_method),
+            )
+
         filter_method = next(
             item for item in spec["clientMethods"]
             if item["name"] == "subscriptionFilterStream"
@@ -9781,6 +10170,88 @@ def self_test() -> None:
         except ValueError as exc:
             check(
                 "accept-subscriptionLive-comment-string-decoys",
+                False,
+                str(exc),
+            )
+
+        def mutate_skip_handler(old: str, new: str) -> str:
+            marker = "htsp_method_skip(htsp_connection_t *htsp, htsmsg_t *in)"
+            start = server_c.index(marker)
+            open_brace = server_c.index("{", start)
+            end = server_c.index("\n}\n", open_brace) + len("\n}\n")
+            handler_source = server_c[start:end]
+            check(
+                f"subscriptionSkip-mutation-source-count-{old}",
+                handler_source.count(old) == 1,
+                str(handler_source.count(old)),
+            )
+            changed_handler = handler_source.replace(old, new, 1)
+            check(
+                f"subscriptionSkip-mutation-source-changed-{old}",
+                changed_handler != handler_source,
+            )
+            return server_c[:start] + changed_handler + server_c[end:]
+
+        skip_source_mutations = (
+            ("optional-subscription-id", mutate_skip_handler('if(htsmsg_get_u32(in, "subscriptionId", &sid))', 'if(!htsmsg_get_u32(in, "subscriptionId", &sid))')),
+            ("renamed-subscription-id", mutate_skip_handler('"subscriptionId", &sid', '"sid", &sid')),
+            ("wrong-subscription-id-type", mutate_skip_handler('htsmsg_get_u32(in, "subscriptionId"', 'htsmsg_get_s64(in, "subscriptionId"')),
+            (
+                "changed-invalid-arguments-error",
+                mutate_skip_handler(
+                    'if(htsmsg_get_u32(in, "subscriptionId", &sid))\n'
+                    '    return htsp_error(htsp, N_("Invalid arguments"));',
+                    'if(htsmsg_get_u32(in, "subscriptionId", &sid))\n'
+                    '    return htsp_error(htsp, N_("Bad arguments"));',
+                ),
+            ),
+            ("wrong-subscription-list", mutate_skip_handler('&htsp->htsp_subscriptions', '&htsp->other_subscriptions')),
+            ("wrong-subscription-id-comparison", mutate_skip_handler('hs->hs_sid == sid', 'hs->hs_sid != sid')),
+            ("removed-missing-guard", mutate_skip_handler('  if(hs == NULL)\n    return htsp_error(htsp, N_("Subscription does not exist"));\n', '')),
+            ("changed-missing-error", mutate_skip_handler('N_("Subscription does not exist")', 'N_("Subscription missing")')),
+            ("required-absolute", mutate_skip_handler('abs = htsmsg_get_u32_or_default(in, "absolute", 0);', 'if (htsmsg_get_u32(in, "absolute", &abs)) return NULL;')),
+            ("wrong-absolute-default", mutate_skip_handler('htsmsg_get_u32_or_default(in, "absolute", 0)', 'htsmsg_get_u32_or_default(in, "absolute", 1)')),
+            ("wrong-absolute-type", mutate_skip_handler('htsmsg_get_u32_or_default(in, "absolute", 0)', 'htsmsg_get_s64_or_default(in, "absolute", 0)')),
+            ("size-before-time", mutate_skip_handler('if(!htsmsg_get_s64(in, "time", &s64))', 'if(!htsmsg_get_s64(in, "offset", &s64))')),
+            (
+                "removed-neither-error",
+                mutate_skip_handler(
+                    '  } else {\n    return htsp_error(htsp, N_("Invalid arguments"));\n  }\n',
+                    '  }\n',
+                ),
+            ),
+            ("removed-set-skip", mutate_skip_handler('  subscription_set_skip(hs->hs_s, &skip);\n', '')),
+            ("replaced-set-skip", mutate_skip_handler('subscription_set_skip(hs->hs_s, &skip)', 'subscription_set_live(hs->hs_s, &skip)')),
+            ("duplicate-set-skip", mutate_skip_handler('  subscription_set_skip(hs->hs_s, &skip);', '  subscription_set_skip(hs->hs_s, &skip);\n  subscription_set_skip(hs->hs_s, &skip);')),
+            ("removed-reply", mutate_skip_handler('  htsp_reply(htsp, in, htsmsg_create_map());\n', '')),
+            ("reply-before-action", mutate_skip_handler('  subscription_set_skip(hs->hs_s, &skip);\n  htsp_reply(htsp, in, htsmsg_create_map());', '  htsp_reply(htsp, in, htsmsg_create_map());\n  subscription_set_skip(hs->hs_s, &skip);')),
+            ("wrong-return", mutate_skip_handler('  return NULL;\n', '  return htsmsg_create_map();\n')),
+            ("seek-dispatch-handler", server_c.replace('{ "subscriptionSeek", htsp_method_skip, ACCESS_HTSP_STREAMING}', '{ "subscriptionSeek", htsp_method_29, ACCESS_HTSP_STREAMING}', 1)),
+            ("skip-dispatch-handler", server_c.replace('{ "subscriptionSkip", htsp_method_skip, ACCESS_HTSP_STREAMING}', '{ "subscriptionSkip", htsp_method_30, ACCESS_HTSP_STREAMING}', 1)),
+            ("seek-dispatch-access", server_c.replace('{ "subscriptionSeek", htsp_method_skip, ACCESS_HTSP_STREAMING}', '{ "subscriptionSeek", htsp_method_skip, ACCESS_ANONYMOUS}', 1)),
+            ("skip-dispatch-access", server_c.replace('{ "subscriptionSkip", htsp_method_skip, ACCESS_HTSP_STREAMING}', '{ "subscriptionSkip", htsp_method_skip, ACCESS_ANONYMOUS}', 1)),
+        )
+        for label, mutated_source in skip_source_mutations:
+            check(
+                f"subscriptionSkip-source-mutation-changed-{label}",
+                mutated_source != server_c,
+            )
+            try:
+                require_subscription_skip_source_facts(mutated_source)
+            except ValueError:
+                continue
+            check(f"reject-subscriptionSkip-source-{label}", False)
+
+        skip_decoy_source = mutate_skip_handler(
+            '  subscription_set_skip(hs->hs_s, &skip);',
+            '  /* htsmsg_add_u32(in, "extra", 1); */\n'
+            '  subscription_set_skip(hs->hs_s, &skip);',
+        ) + '\nstatic const char *skip_topology_decoy = "subscription_set_live(hs, skip)";\n'
+        try:
+            require_subscription_skip_source_facts(skip_decoy_source)
+        except ValueError as exc:
+            check(
+                "accept-subscriptionSkip-comment-string-decoys",
                 False,
                 str(exc),
             )

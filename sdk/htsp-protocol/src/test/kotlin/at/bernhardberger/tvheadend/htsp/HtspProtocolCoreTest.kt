@@ -173,6 +173,132 @@ class HtspProtocolCoreTest {
     }
 
     @Test
+    fun subscriptionSkipPreservesSharedHandlerWireAndAttemptContracts() = runTest {
+        val disconnected = createHtspConnection(Dispatchers.Unconfined)
+        try {
+            val canonicalPosition: SubscriptionSeekPosition = SubscriptionSeekPosition.Time(0L)
+            assertSame(
+                HtspResult.TransportUnavailable,
+                disconnected.subscriptionSkip(
+                    subscriptionId = 0L,
+                    position = canonicalPosition,
+                ),
+            )
+            assertSame(
+                HtspResult.TransportUnavailable,
+                disconnected.subscriptionSkip(
+                    subscriptionId = 0L,
+                    position = SubscriptionSeekPosition.Time(0L),
+                ),
+            )
+            assertSame(
+                HtspResult.TransportUnavailable,
+                disconnected.subscriptionSkip(
+                    subscriptionId = 0L,
+                    position = SubscriptionSeekPosition.Size(0L),
+                ),
+            )
+        } finally {
+            disconnected.close()
+        }
+
+        assertEquals(
+            linkedMapOf("subscriptionId" to 0L, "time" to Long.MIN_VALUE),
+            HtspRequestCodecs.encode(
+                SubscriptionSkipRequest(0L, SubscriptionSeekPosition.Time(Long.MIN_VALUE)),
+            ),
+        )
+        assertEquals(
+            linkedMapOf("subscriptionId" to 0xffff_ffffL, "size" to Long.MAX_VALUE),
+            HtspRequestCodecs.encode(
+                SubscriptionSkipRequest(0xffff_ffffL, SubscriptionSeekPosition.Size(Long.MAX_VALUE)),
+            ),
+        )
+        assertEquals(
+            linkedMapOf(
+                "subscriptionId" to 1L,
+                "time" to 2L,
+                "absolute" to 0L,
+            ),
+            HtspRequestCodecs.encode(
+                SubscriptionSkipRequest(1L, SubscriptionSeekPosition.Time(2L), absolute = 0L),
+            ),
+        )
+        assertEquals(
+            linkedMapOf(
+                "subscriptionId" to 1L,
+                "size" to -3L,
+                "absolute" to 0xffff_ffffL,
+            ),
+            HtspRequestCodecs.encode(
+                SubscriptionSkipRequest(
+                    1L,
+                    SubscriptionSeekPosition.Size(-3L),
+                    absolute = 0xffff_ffffL,
+                ),
+            ),
+        )
+        listOf<() -> Unit>(
+            { SubscriptionSkipRequest(-1L, SubscriptionSeekPosition.Time(0L)) },
+            { SubscriptionSkipRequest(0x1_0000_0000L, SubscriptionSeekPosition.Size(0L)) },
+            { SubscriptionSkipRequest(0L, SubscriptionSeekPosition.Time(0L), absolute = -1L) },
+            {
+                SubscriptionSkipRequest(
+                    0L,
+                    SubscriptionSeekPosition.Size(0L),
+                    absolute = 0x1_0000_0000L,
+                )
+            },
+        ).forEach(::assertIllegalArgument)
+
+        val transport = FakeProtocolTransport(version = 8)
+        val connection = HtspTypedRequestCaller(transport)
+        val request = SubscriptionSkipRequest(0L, SubscriptionSeekPosition.Time(0L))
+        assertSame(HtspResult.NotSupported, connection.call(request))
+        assertEquals(0, transport.dispatches)
+
+        transport.version = 9
+        transport.reply = HtspWireReply(linkedMapOf("seq" to 7L))
+        assertEquals(HtspResult.Ok(HtspEmptyResponse), connection.call(request))
+        assertEquals("subscriptionSkip", transport.lastMethod)
+        assertEquals(linkedMapOf("subscriptionId" to 0L, "time" to 0L), transport.lastFields)
+
+        transport.reply = HtspWireReply(linkedMapOf())
+        assertEquals(
+            HtspResult.Ok(HtspEmptyResponse),
+            connection.call(
+                SubscriptionSkipRequest(2L, SubscriptionSeekPosition.Size(Long.MIN_VALUE)),
+            ),
+        )
+        assertEquals(
+            linkedMapOf("subscriptionId" to 2L, "size" to Long.MIN_VALUE),
+            transport.lastFields,
+        )
+
+        transport.reply = HtspWireReply(linkedMapOf("unexpected" to 1L))
+        assertSame(HtspResult.ServerError, connection.call(request))
+
+        transport.reply = HtspWireReply(linkedMapOf("noaccess" to 1L))
+        assertSame(HtspResult.AccessDenied, connection.call(request))
+        transport.reply = HtspWireReply(linkedMapOf("error" to "synthetic rejection"))
+        assertSame(HtspResult.ServerError, connection.call(request))
+
+        val staleGeneration = connection.generation
+        transport.replace()
+        val dispatchesBeforeStaleCall = transport.dispatches
+        val staleFailure = runCatching {
+            connection.call(request, expectedGeneration = staleGeneration)
+        }.exceptionOrNull()
+        assertTrue(staleFailure is CancellationException)
+        assertEquals(dispatchesBeforeStaleCall, transport.dispatches)
+
+        val cancellation = CancellationException("synthetic subscriptionSkip cancellation")
+        transport.failure = cancellation
+        val cancellationFailure = runCatching { connection.call(request) }.exceptionOrNull()
+        assertSame(cancellation, cancellationFailure)
+    }
+
+    @Test
     fun fileStatPreservesFiniteSourceReplyAndAttemptContracts() = runTest {
         val disconnected = createHtspConnection(Dispatchers.Unconfined)
         try {
@@ -349,6 +475,7 @@ class HtspProtocolCoreTest {
                 "unsubscribe",
                 "subscriptionChangeWeight",
                 "subscriptionSeek",
+                "subscriptionSkip",
                 "subscriptionSpeed",
                 "subscriptionLive",
                 "subscriptionFilterStream",
@@ -363,7 +490,7 @@ class HtspProtocolCoreTest {
         assertEquals(
             List(9) { HtspAccess.ACCESS_HTSP_STREAMING } +
                 List(13) { HtspAccess.ACCESS_HTSP_RECORDER } +
-                List(8) { HtspAccess.ACCESS_HTSP_STREAMING } +
+                List(9) { HtspAccess.ACCESS_HTSP_STREAMING } +
                 List(5) { HtspAccess.ACCESS_HTSP_RECORDER },
             typedHtspRequestCatalog.map { it.access },
         )
@@ -395,6 +522,7 @@ class HtspProtocolCoreTest {
             UnsubscribeRequest(0L),
             SubscriptionChangeWeightRequest(0L),
             SubscriptionSeekRequest(0L, SubscriptionSeekPosition.Time(0L)),
+            SubscriptionSkipRequest(0L, SubscriptionSeekPosition.Time(0L)),
             SubscriptionSpeedRequest(0L, 0),
             SubscriptionLiveRequest(0L),
             SubscriptionFilterStreamRequest(0L),
@@ -1342,6 +1470,7 @@ class HtspProtocolCoreTest {
             UnsubscribeRequest::class.java,
             SubscriptionChangeWeightRequest::class.java,
             SubscriptionSeekRequest::class.java,
+            SubscriptionSkipRequest::class.java,
             SubscriptionSpeedRequest::class.java,
             SubscriptionLiveRequest::class.java,
             SubscriptionFilterStreamRequest::class.java,
@@ -1399,6 +1528,22 @@ class HtspProtocolCoreTest {
             linkedMapOf("subscriptionId" to 2L, "size" to Long.MAX_VALUE),
             HtspRequestCodecs.encode(
                 SubscriptionSeekRequest(2L, SubscriptionSeekPosition.Size(Long.MAX_VALUE)),
+            ),
+        )
+        assertEquals(
+            linkedMapOf("subscriptionId" to 3L, "time" to Long.MAX_VALUE, "absolute" to 1L),
+            HtspRequestCodecs.encode(
+                SubscriptionSkipRequest(
+                    3L,
+                    SubscriptionSeekPosition.Time(Long.MAX_VALUE),
+                    absolute = 1L,
+                ),
+            ),
+        )
+        assertEquals(
+            linkedMapOf("subscriptionId" to 3L, "size" to Long.MIN_VALUE),
+            HtspRequestCodecs.encode(
+                SubscriptionSkipRequest(3L, SubscriptionSeekPosition.Size(Long.MIN_VALUE)),
             ),
         )
 

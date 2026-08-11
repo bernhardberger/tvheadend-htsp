@@ -4618,7 +4618,7 @@
           "type": "u32",
           "direction": "request",
           "presence": "required",
-          "evidence": "htsmsg_get_u32",
+          "evidence": "bounded htsp_method_skip requires exactly decoded u32 subscriptionId",
           "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 1
@@ -4628,7 +4628,7 @@
           "type": "s64",
           "direction": "request",
           "presence": "alternative",
-          "evidence": "htsmsg_get_s64",
+          "evidence": "bounded htsp_method_skip reads signed-s64 time before size",
           "confidence": "mechanical+annotated",
           "minVersion": null,
           "condition": "time or size selects the seek coordinate",
@@ -4639,7 +4639,7 @@
           "type": "s64",
           "direction": "request",
           "presence": "alternative",
-          "evidence": "htsmsg_get_s64",
+          "evidence": "bounded htsp_method_skip reads signed-s64 size only when time is absent",
           "confidence": "mechanical+annotated",
           "minVersion": null,
           "condition": "time or size selects the seek coordinate",
@@ -4649,26 +4649,29 @@
           "name": "absolute",
           "type": "u32",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_u32_or_default",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "bounded htsp_method_skip reads optional u32 absolute with default zero",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
+          "condition": "when omitted, pinned current source supplies wire value 0 before absolute/relative type selection",
           "order": 4
         }
       ],
       "replyFields": [],
       "requestShape": {
         "kind": "fields",
-        "completeness": "partial",
-        "evidence": "bounded handler/helper extraction plus exact-pin annotations"
+        "completeness": "complete",
+        "evidence": "bounded htsp_method_skip accepts required subscriptionId, optional default-zero absolute, and signed time-or-size coordinates"
       },
       "replyShape": {
         "kind": "knownEmpty",
         "completeness": "complete",
-        "evidence": "bounded handler and official method page define no method-specific reply fields"
+        "evidence": "bounded htsp_method_skip queues exactly one empty reply map after subscription_set_skip"
       },
       "notes": [
-        "Dispatch synonym of subscriptionSkip; both call htsp_method_skip."
+        "Dispatch synonym of subscriptionSkip; both call htsp_method_skip with streaming access and annotated minimum v9.",
+        "Pinned current source requires exact u32 subscriptionId, defaults omitted absolute to zero, and accepts signed-s64 time first otherwise signed-s64 size.",
+        "Pinned current source calls subscription_set_skip before queuing the empty RPC reply; the separate asynchronous subscriptionSkip message remains authoritative, with no on-wire ordering or settled-skip guarantee."
       ],
       "sdk": {
         "referenced": true,
@@ -4688,7 +4691,7 @@
           "type": "u32",
           "direction": "request",
           "presence": "required",
-          "evidence": "htsmsg_get_u32",
+          "evidence": "bounded htsp_method_skip requires exactly decoded u32 subscriptionId",
           "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 1
@@ -4698,7 +4701,7 @@
           "type": "s64",
           "direction": "request",
           "presence": "alternative",
-          "evidence": "htsmsg_get_s64",
+          "evidence": "bounded htsp_method_skip reads signed-s64 time before size",
           "confidence": "mechanical+annotated",
           "minVersion": null,
           "condition": "time or size selects the seek coordinate",
@@ -4709,7 +4712,7 @@
           "type": "s64",
           "direction": "request",
           "presence": "alternative",
-          "evidence": "htsmsg_get_s64",
+          "evidence": "bounded htsp_method_skip reads signed-s64 size only when time is absent",
           "confidence": "mechanical+annotated",
           "minVersion": null,
           "condition": "time or size selects the seek coordinate",
@@ -4719,31 +4722,34 @@
           "name": "absolute",
           "type": "u32",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_u32_or_default",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "bounded htsp_method_skip reads optional u32 absolute with default zero",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
+          "condition": "when omitted, pinned current source supplies wire value 0 before absolute/relative type selection",
           "order": 4
         }
       ],
       "replyFields": [],
       "requestShape": {
         "kind": "fields",
-        "completeness": "partial",
-        "evidence": "bounded handler/helper extraction plus exact-pin annotations"
+        "completeness": "complete",
+        "evidence": "bounded htsp_method_skip accepts required subscriptionId, optional default-zero absolute, and signed time-or-size coordinates"
       },
       "replyShape": {
         "kind": "knownEmpty",
         "completeness": "complete",
-        "evidence": "bounded handler and official method page define no method-specific reply fields"
+        "evidence": "bounded htsp_method_skip queues exactly one empty reply map after subscription_set_skip"
       },
       "notes": [
-        "Dispatch synonym of subscriptionSeek; both call htsp_method_skip."
+        "Dispatch synonym of subscriptionSeek; both call htsp_method_skip with streaming access and annotated minimum v9.",
+        "Pinned current source requires exact u32 subscriptionId, defaults omitted absolute to zero, and accepts signed-s64 time first otherwise signed-s64 size.",
+        "Pinned current source calls subscription_set_skip before queuing the empty RPC reply; the separate asynchronous subscriptionSkip message remains authoritative, with no on-wire ordering or settled-skip guarantee."
       ],
       "sdk": {
         "referenced": true,
-        "outgoingRequest": false,
-        "typedRequest": false
+        "outgoingRequest": true,
+        "typedRequest": true
       }
     },
     {
@@ -9419,20 +9425,21 @@
         "subscriptionFilterStream",
         "subscriptionLive",
         "subscriptionSeek",
+        "subscriptionSkip",
         "subscriptionSpeed",
         "unsubscribe",
         "updateAutorecEntry",
         "updateDvrEntry",
         "updateTimerecEntry"
       ],
-      "outgoingRequestCount": 37,
+      "outgoingRequestCount": 38,
       "unreferenced": [
         "api"
       ]
     },
     "typedClientRequests": {
       "catalog": "docs/htsp-protocol/generate_typed_requests.py",
-      "count": 35,
+      "count": 36,
       "methods": [
         {
           "name": "getProfiles",
@@ -9566,6 +9573,11 @@
         },
         {
           "name": "subscriptionSeek",
+          "accessMask": "ACCESS_HTSP_STREAMING",
+          "methodMinVersion": 9
+        },
+        {
+          "name": "subscriptionSkip",
           "accessMask": "ACCESS_HTSP_STREAMING",
           "methodMinVersion": 9
         },
@@ -9803,14 +9815,14 @@
     },
     "metrics": {
       "referencedClientMethods": 38,
-      "outgoingClientMethods": 37,
+      "outgoingClientMethods": 38,
       "handledServerMessages": 30,
-      "typedClientRequests": 35,
+      "typedClientRequests": 36,
       "typedServerMessages": 29,
       "notes": [
         "referenced counts exact string literals in SDK production main sources",
         "outgoing counts method = \"...\" / method = CONST assignments only",
-        "subscriptionSkip may be referenced via inbound handling without being outgoing",
+        "api remains the sole unreferenced client method under the exact-literal metric",
         "handled server messages use the same exact-literal metric",
         "typed request coverage comes only from the reviewed deterministic generator catalog",
         "typed server-message coverage comes only from its separate reviewed deterministic generator catalog"
@@ -9876,6 +9888,12 @@
       "id": "subscriptionLive-rpc-async-order-underdocumented",
       "summary": "The official Client-to-Server RPC methods page does not clearly distinguish the empty subscriptionLive RPC acknowledgement from the separate asynchronous subscriptionSkip outcome or define their delivery ordering or settled-live semantics. Pinned current source calls subscription_set_skip before queuing the empty RPC reply; that source topology is not promoted to an on-wire ordering or settled-state guarantee.",
       "authority": "src/htsp_server.c htsp_method_live",
+      "docsUrl": "https://docs.tvheadend.org/documentation/development/htsp/client-to-server-rpc-methods"
+    },
+    {
+      "id": "subscriptionSkip-seek-coordinate-source-doc-mismatch",
+      "summary": "The official Client-to-Server RPC methods page calls subscriptionSeek a synonym of subscriptionSkip and lists time/size as optional u64 values without stating the pinned either/or rule. Pinned current source maps both dispatch names to htsp_method_skip, requires exact u32 subscriptionId, reads optional u32 absolute with default 0, and accepts signed-s64 time first otherwise signed-s64 size, erroring when neither coordinate exists.",
+      "authority": "src/htsp_server.c htsp_method_skip",
       "docsUrl": "https://docs.tvheadend.org/documentation/development/htsp/client-to-server-rpc-methods"
     },
     {

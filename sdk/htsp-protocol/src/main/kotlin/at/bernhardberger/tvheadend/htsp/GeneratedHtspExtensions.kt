@@ -42,6 +42,7 @@ internal val typedHtspRequestCatalog: List<TypedHtspRequestCatalogEntry> = listO
     TypedHtspRequestCatalogEntry("unsubscribe", "UnsubscribeRequest", "HtspEmptyResponse", HtspAccess.ACCESS_HTSP_STREAMING, null),
     TypedHtspRequestCatalogEntry("subscriptionChangeWeight", "SubscriptionChangeWeightRequest", "HtspEmptyResponse", HtspAccess.ACCESS_HTSP_STREAMING, 5),
     TypedHtspRequestCatalogEntry("subscriptionSeek", "SubscriptionSeekRequest", "HtspEmptyResponse", HtspAccess.ACCESS_HTSP_STREAMING, 9),
+    TypedHtspRequestCatalogEntry("subscriptionSkip", "SubscriptionSkipRequest", "HtspEmptyResponse", HtspAccess.ACCESS_HTSP_STREAMING, 9),
     TypedHtspRequestCatalogEntry("subscriptionSpeed", "SubscriptionSpeedRequest", "HtspEmptyResponse", HtspAccess.ACCESS_HTSP_STREAMING, 9),
     TypedHtspRequestCatalogEntry("subscriptionLive", "SubscriptionLiveRequest", "HtspEmptyResponse", HtspAccess.ACCESS_HTSP_STREAMING, 9),
     TypedHtspRequestCatalogEntry("subscriptionFilterStream", "SubscriptionFilterStreamRequest", "HtspEmptyResponse", HtspAccess.ACCESS_HTSP_STREAMING, 12),
@@ -797,6 +798,57 @@ public suspend fun HtspConnection.subscriptionSeek(
 ): HtspResult<HtspEmptyResponse> =
     call(
         request = SubscriptionSeekRequest(
+            subscriptionId = subscriptionId,
+            position = position,
+            absolute = absolute,
+        ),
+        timeoutMs = timeoutMs,
+        expectedGeneration = expectedGeneration,
+    )
+
+public suspend fun HtspConnection.subscriptionSkip(
+    subscriptionId: Long,
+    position: SubscriptionSeekPosition,
+    absolute: Long? = null,
+    timeoutMs: Long = 5_000L,
+    expectedGeneration: HtspConnectionGeneration? = null,
+): HtspResult<HtspEmptyResponse> =
+    call(
+        request = SubscriptionSkipRequest(
+            subscriptionId = subscriptionId,
+            position = position,
+            absolute = absolute,
+        ),
+        timeoutMs = timeoutMs,
+        expectedGeneration = expectedGeneration,
+    )
+
+public suspend fun HtspConnection.subscriptionSkip(
+    subscriptionId: Long,
+    position: SubscriptionSeekPosition.Time,
+    absolute: Long? = null,
+    timeoutMs: Long = 5_000L,
+    expectedGeneration: HtspConnectionGeneration? = null,
+): HtspResult<HtspEmptyResponse> =
+    call(
+        request = SubscriptionSkipRequest(
+            subscriptionId = subscriptionId,
+            position = position,
+            absolute = absolute,
+        ),
+        timeoutMs = timeoutMs,
+        expectedGeneration = expectedGeneration,
+    )
+
+public suspend fun HtspConnection.subscriptionSkip(
+    subscriptionId: Long,
+    position: SubscriptionSeekPosition.Size,
+    absolute: Long? = null,
+    timeoutMs: Long = 5_000L,
+    expectedGeneration: HtspConnectionGeneration? = null,
+): HtspResult<HtspEmptyResponse> =
+    call(
+        request = SubscriptionSkipRequest(
             subscriptionId = subscriptionId,
             position = position,
             absolute = absolute,

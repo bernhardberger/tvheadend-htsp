@@ -803,7 +803,7 @@ public data class SubscriptionChangeWeightRequest(
 
 }
 
-/** Exactly one signed seek coordinate accepted by `subscriptionSeek`. */
+/** Exactly one signed seek coordinate accepted by `subscriptionSeek` and `subscriptionSkip`. */
 public sealed interface SubscriptionSeekPosition {
     public data class Time(public val time: Long) : SubscriptionSeekPosition
     public data class Size(public val size: Long) : SubscriptionSeekPosition
@@ -815,6 +815,22 @@ public data class SubscriptionSeekRequest(
     public val absolute: Long? = null,
 ) : HtspRequest<HtspEmptyResponse>(
     method = "subscriptionSeek",
+    access = HtspAccess.ACCESS_HTSP_STREAMING,
+    minimumProtocolVersion = 9,
+) {
+    init {
+        requireU32("subscriptionId", subscriptionId)
+        absolute?.let { requireU32("absolute", it) }
+    }
+
+}
+
+public data class SubscriptionSkipRequest(
+    public val subscriptionId: Long,
+    public val position: SubscriptionSeekPosition,
+    public val absolute: Long? = null,
+) : HtspRequest<HtspEmptyResponse>(
+    method = "subscriptionSkip",
     access = HtspAccess.ACCESS_HTSP_STREAMING,
     minimumProtocolVersion = 9,
 ) {
@@ -1148,6 +1164,16 @@ internal object `HtspRequestCodecs-internal` {
             putIfNotNull("absolute", request.absolute)
         }
 
+        is SubscriptionSkipRequest -> linkedMapOf<String, Any?>(
+            "subscriptionId" to request.subscriptionId,
+        ).apply {
+            when (val position = request.position) {
+                is SubscriptionSeekPosition.Time -> put("time", position.time)
+                is SubscriptionSeekPosition.Size -> put("size", position.size)
+            }
+            putIfNotNull("absolute", request.absolute)
+        }
+
         is SubscriptionSpeedRequest -> linkedMapOf(
             "subscriptionId" to request.subscriptionId,
             "speed" to request.speed,
@@ -1275,6 +1301,11 @@ internal object `HtspRequestCodecs-internal` {
         is SubscriptionLiveRequest,
         is SubscriptionFilterStreamRequest,
         -> HtspEmptyResponse
+
+        is SubscriptionSkipRequest -> {
+            if (fields.keys.any { it != "seq" }) malformedReply()
+            HtspEmptyResponse
+        }
 
         else -> malformedReply()
     } as R

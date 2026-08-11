@@ -88,6 +88,7 @@ EXPECTED_TYPED_CLIENT_REQUESTS: tuple[tuple[str, str, int | None], ...] = (
     ("unsubscribe", "ACCESS_HTSP_STREAMING", None),
     ("subscriptionChangeWeight", "ACCESS_HTSP_STREAMING", 5),
     ("subscriptionSeek", "ACCESS_HTSP_STREAMING", 9),
+    ("subscriptionSkip", "ACCESS_HTSP_STREAMING", 9),
     ("subscriptionSpeed", "ACCESS_HTSP_STREAMING", 9),
     ("subscriptionLive", "ACCESS_HTSP_STREAMING", 9),
     ("subscriptionFilterStream", "ACCESS_HTSP_STREAMING", 12),
@@ -810,6 +811,63 @@ SUBSCRIPTION_CHANGE_WEIGHT_NOTES = [
     "Pinned current source defaults an omitted weight to zero before looking up the exact subscription ID.",
     "Pinned current source queues the empty acknowledgement before exactly one subscription_change_weight call; acknowledgement does not prove settled or applied weight state.",
 ]
+SUBSCRIPTION_SKIP_LIMITATION_ID = "subscriptionSkip-seek-coordinate-source-doc-mismatch"
+SUBSCRIPTION_SKIP_DOCS_URL = GET_DVR_CUTPOINTS_DOCS_URL
+SUBSCRIPTION_SKIP_LIMITATION_SUMMARY = (
+    "The official Client-to-Server RPC methods page calls subscriptionSeek a "
+    "synonym of subscriptionSkip and lists time/size as optional u64 values "
+    "without stating the pinned either/or rule. Pinned current source maps both "
+    "dispatch names to htsp_method_skip, requires exact u32 subscriptionId, "
+    "reads optional u32 absolute with default 0, and accepts signed-s64 time "
+    "first otherwise signed-s64 size, erroring when neither coordinate exists."
+)
+SUBSCRIPTION_SKIP_REQUEST_CONTRACT = (
+    (
+        "subscriptionId", "u32", "required", None,
+        "bounded htsp_method_skip requires exactly decoded u32 subscriptionId",
+    ),
+    (
+        "time", "s64", "alternative",
+        "time or size selects the seek coordinate",
+        "bounded htsp_method_skip reads signed-s64 time before size",
+    ),
+    (
+        "size", "s64", "alternative",
+        "time or size selects the seek coordinate",
+        "bounded htsp_method_skip reads signed-s64 size only when time is absent",
+    ),
+    (
+        "absolute", "u32", "optional",
+        "when omitted, pinned current source supplies wire value 0 before absolute/relative type selection",
+        "bounded htsp_method_skip reads optional u32 absolute with default zero",
+    ),
+)
+SUBSCRIPTION_SKIP_REQUEST_SHAPE = {
+    "kind": "fields",
+    "completeness": "complete",
+    "evidence": (
+        "bounded htsp_method_skip accepts required subscriptionId, optional "
+        "default-zero absolute, and signed time-or-size coordinates"
+    ),
+}
+SUBSCRIPTION_SKIP_REPLY_SHAPE = {
+    "kind": "knownEmpty",
+    "completeness": "complete",
+    "evidence": (
+        "bounded htsp_method_skip queues exactly one empty reply map after "
+        "subscription_set_skip"
+    ),
+}
+SUBSCRIPTION_SKIP_NOTES = [
+    "Dispatch synonym of subscriptionSeek; both call htsp_method_skip with streaming access and annotated minimum v9.",
+    "Pinned current source requires exact u32 subscriptionId, defaults omitted absolute to zero, and accepts signed-s64 time first otherwise signed-s64 size.",
+    "Pinned current source calls subscription_set_skip before queuing the empty RPC reply; the separate asynchronous subscriptionSkip message remains authoritative, with no on-wire ordering or settled-skip guarantee.",
+]
+SUBSCRIPTION_SEEK_NOTES = [
+    "Dispatch synonym of subscriptionSkip; both call htsp_method_skip with streaming access and annotated minimum v9.",
+    "Pinned current source requires exact u32 subscriptionId, defaults omitted absolute to zero, and accepts signed-s64 time first otherwise signed-s64 size.",
+    "Pinned current source calls subscription_set_skip before queuing the empty RPC reply; the separate asynchronous subscriptionSkip message remains authoritative, with no on-wire ordering or settled-skip guarantee.",
+]
 SUBSCRIPTION_LIVE_LIMITATION_ID = "subscriptionLive-rpc-async-order-underdocumented"
 SUBSCRIPTION_LIVE_DOCS_URL = GET_DVR_CUTPOINTS_DOCS_URL
 SUBSCRIPTION_LIVE_LIMITATION_SUMMARY = (
@@ -1340,6 +1398,43 @@ def validate_spec(spec: dict[str, Any], upstream: dict[str, Any] | None = None) 
         errors.append(
             "subscriptionLive notes must preserve exact async-authority and non-settlement semantics"
         )
+    for method_name, expected_notes in (
+        ("subscriptionSeek", SUBSCRIPTION_SEEK_NOTES),
+        ("subscriptionSkip", SUBSCRIPTION_SKIP_NOTES),
+    ):
+        skip_method = method_map.get(method_name, {})
+        if skip_method.get("handler") != "htsp_method_skip":
+            errors.append(f"{method_name} must preserve exact shared dispatch handler")
+        if skip_method.get("accessMask") != "ACCESS_HTSP_STREAMING":
+            errors.append(f"{method_name} must preserve streaming dispatch access")
+        if (
+            skip_method.get("minVersion") != 9
+            or skip_method.get("minVersionConfidence") != "annotated"
+        ):
+            errors.append(f"{method_name} must preserve annotated minimum version 9")
+        skip_request = [
+            (
+                field.get("name"), field.get("type"), field.get("presence"),
+                field.get("condition"), field.get("evidence"),
+            )
+            for field in skip_method.get("requestFields", [])
+        ]
+        if skip_request != list(SUBSCRIPTION_SKIP_REQUEST_CONTRACT):
+            errors.append(
+                f"{method_name} request must preserve exact shared skip coordinate contract"
+            )
+        if skip_method.get("requestShape") != SUBSCRIPTION_SKIP_REQUEST_SHAPE:
+            errors.append(f"{method_name} request shape must preserve exact complete evidence")
+        if skip_method.get("replyFields") != []:
+            errors.append(f"{method_name} method-specific reply must remain exactly empty")
+        if skip_method.get("replyShape") != SUBSCRIPTION_SKIP_REPLY_SHAPE:
+            errors.append(
+                f"{method_name} reply shape must preserve exact action-before-empty-reply evidence"
+            )
+        if skip_method.get("notes") != expected_notes:
+            errors.append(
+                f"{method_name} notes must preserve exact shared-handler and non-settlement semantics"
+            )
     subscription_filter = method_map.get("subscriptionFilterStream", {})
     if subscription_filter.get("handler") != "htsp_method_filter_stream":
         errors.append("subscriptionFilterStream must preserve exact dispatch handler")
@@ -1891,8 +1986,8 @@ def validate_spec(spec: dict[str, Any], upstream: dict[str, Any] | None = None) 
             errors.append(f"{name}: typed catalog access mask disagrees with pinned method")
         if method.get("minVersion") != method_min_version:
             errors.append(f"{name}: typed catalog method minimum disagrees with pinned method")
-    if typed_count != len(typed_methods) or typed_count != 35:
-        errors.append("coverage typedClientRequests.count must match exactly 35 methods")
+    if typed_count != len(typed_methods) or typed_count != 36:
+        errors.append("coverage typedClientRequests.count must match exactly 36 methods")
     if typed_cov.get("catalog") != "docs/htsp-protocol/generate_typed_requests.py":
         errors.append("coverage typedClientRequests.catalog must name the reviewed generator")
     if typed_cov.get("meaning") != (
@@ -1973,9 +2068,9 @@ def validate_spec(spec: dict[str, Any], upstream: dict[str, Any] | None = None) 
         errors.append(
             f"expected referenced client methods == 38 under current metric, got {ref_count}"
         )
-    if out_count not in (None, 37):
+    if out_count not in (None, 38):
         errors.append(
-            f"expected outgoing client methods == 37 under current metric, got {out_count}"
+            f"expected outgoing client methods == 38 under current metric, got {out_count}"
         )
     if handled_count not in (None, 30):
         errors.append(
@@ -1989,10 +2084,10 @@ def validate_spec(spec: dict[str, Any], upstream: dict[str, Any] | None = None) 
             f"got {unhandled!r} expected {list(EXPECTED_UNHANDLED_MESSAGES)!r}"
         )
 
-    if "subscriptionSkip" not in referenced_list or "subscriptionSkip" in outgoing_list:
-        errors.append("subscriptionSkip must be referenced inbound but not outgoing")
-    if "subscriptionSeek" not in outgoing_list:
-        errors.append("subscriptionSeek must be the outgoing seek synonym")
+    if "subscriptionSkip" not in referenced_list or "subscriptionSkip" not in outgoing_list:
+        errors.append("subscriptionSkip must be fresh referenced and outgoing production coverage")
+    if "subscriptionSeek" not in referenced_list or "subscriptionSeek" not in outgoing_list:
+        errors.append("subscriptionSeek must remain fresh referenced and outgoing production coverage")
     if "getSysTime" not in referenced_list or "getSysTime" not in outgoing_list:
         errors.append("getSysTime must be fresh referenced and outgoing production coverage")
     if "getChannel" not in referenced_list or "getChannel" not in outgoing_list:
@@ -2265,6 +2360,21 @@ def validate_spec(spec: dict[str, Any], upstream: dict[str, Any] | None = None) 
         ):
             errors.append(
                 "subscriptionLive limitation must preserve exact RPC/async uncertainty and pinned source facts"
+            )
+        skip_limitation = next(
+            (
+                item for item in limitations
+                if isinstance(item, dict) and item.get("id") == SUBSCRIPTION_SKIP_LIMITATION_ID
+            ),
+            None,
+        )
+        if not skip_limitation or (
+            skip_limitation.get("summary") != SUBSCRIPTION_SKIP_LIMITATION_SUMMARY
+            or skip_limitation.get("authority") != "src/htsp_server.c htsp_method_skip"
+            or skip_limitation.get("docsUrl") != SUBSCRIPTION_SKIP_DOCS_URL
+        ):
+            errors.append(
+                "subscriptionSkip limitation must preserve exact coordinate source/docs mismatch facts"
             )
         filter_limitation = next(
             (
@@ -2603,9 +2713,9 @@ def render_matrix(spec: dict[str, Any]) -> str:
         f"**{typed_server_cov['count']} / {server_cov['total']}**"
     )
     lines.append(
-        "- Distinguish **referenced** from **outgoing**: a name can appear "
-        "because an inbound handler mentions it (for example `subscriptionSkip`) "
-        "while the client sends a synonym (`subscriptionSeek`)."
+        "- Distinguish **referenced** from **outgoing** and from typed coverage: "
+        "`api` remains unreferenced; both `subscriptionSeek` and `subscriptionSkip` "
+        "are distinct outgoing wire names for one shared pinned handler."
     )
     lines.append(
         "- Never claim methods are implemented/called merely because they are referenced."
@@ -2806,6 +2916,8 @@ def _derive_fresh_self_test_spec(fresh_mutator: Any = None) -> dict[str, Any]:
             if name == "fileStat"
             else "htsp_method_file_seek"
             if name == "fileSeek"
+            else "htsp_method_skip"
+            if name in {"subscriptionSeek", "subscriptionSkip"}
             else "htsp_method_live"
             if name == "subscriptionLive"
             else "htsp_method_filter_stream"
@@ -2824,7 +2936,8 @@ def _derive_fresh_self_test_spec(fresh_mutator: Any = None) -> dict[str, Any]:
             }
             else "ACCESS_HTSP_STREAMING"
             if name in {
-                "getEvents", "epgQuery", "getEpgObject", "getTicket", "subscriptionChangeWeight", "subscriptionLive",
+                "getEvents", "epgQuery", "getEpgObject", "getTicket", "subscriptionChangeWeight",
+                "subscriptionSeek", "subscriptionSkip", "subscriptionLive",
                 "subscriptionFilterStream",
             }
             else "ACCESS_ANONYMOUS",
@@ -3176,7 +3289,7 @@ def self_test() -> None:
     check(
         "getChannel-fresh-coverage",
         good_spec["coverage"]["clientMethods"]["referencedCount"] == 38
-        and good_spec["coverage"]["clientMethods"]["outgoingRequestCount"] == 37
+        and good_spec["coverage"]["clientMethods"]["outgoingRequestCount"] == 38
         and "getChannel" in good_spec["coverage"]["clientMethods"]["outgoingRequests"],
     )
 
@@ -3211,7 +3324,7 @@ def self_test() -> None:
     check(
         "getEvents-fresh-unchanged-coverage",
         good_spec["coverage"]["clientMethods"]["referencedCount"] == 38
-        and good_spec["coverage"]["clientMethods"]["outgoingRequestCount"] == 37
+        and good_spec["coverage"]["clientMethods"]["outgoingRequestCount"] == 38
         and good_spec["coverage"]["serverMessages"]["handledCount"] == 30
         and "getEvents" in good_spec["coverage"]["clientMethods"]["outgoingRequests"],
     )
@@ -3964,6 +4077,98 @@ def self_test() -> None:
         and "subscriptionLive"
         in good_spec["coverage"]["clientMethods"]["outgoingRequests"],
     )
+
+    for method_name, expected_notes in (
+        ("subscriptionSeek", SUBSCRIPTION_SEEK_NOTES),
+        ("subscriptionSkip", SUBSCRIPTION_SKIP_NOTES),
+    ):
+        skip_method = next(
+            method for method in good_spec["clientMethods"]
+            if method["name"] == method_name
+        )
+        check(
+            f"{method_name}-fresh-complete-contract",
+            skip_method.get("handler") == "htsp_method_skip"
+            and skip_method.get("accessMask") == "ACCESS_HTSP_STREAMING"
+            and skip_method.get("minVersion") == 9
+            and skip_method.get("minVersionConfidence") == "annotated"
+            and [
+                (
+                    field.get("name"), field.get("type"), field.get("presence"),
+                    field.get("condition"), field.get("evidence"),
+                )
+                for field in skip_method["requestFields"]
+            ] == list(SUBSCRIPTION_SKIP_REQUEST_CONTRACT)
+            and skip_method.get("requestShape") == SUBSCRIPTION_SKIP_REQUEST_SHAPE
+            and skip_method.get("replyFields") == []
+            and skip_method.get("replyShape") == SUBSCRIPTION_SKIP_REPLY_SHAPE
+            and skip_method.get("notes") == expected_notes,
+        )
+        check(
+            f"{method_name}-fresh-coverage",
+            method_name in good_spec["coverage"]["clientMethods"]["referenced"]
+            and method_name in good_spec["coverage"]["clientMethods"]["outgoingRequests"],
+        )
+
+    for label, mutate in (
+        ("false-min-version", lambda method: method.update({"minVersion": 8})),
+        ("wrong-handler", lambda method: method.update({"handler": "decoy"})),
+        ("wrong-access", lambda method: method.update({"accessMask": "ACCESS_ANONYMOUS"})),
+        ("optional-subscription-id", lambda method: method["requestFields"][0].update({"presence": "optional"})),
+        ("renamed-time", lambda method: method["requestFields"][1].update({"name": "pts"})),
+        ("unsigned-time", lambda method: method["requestFields"][1].update({"type": "u64"})),
+        ("optional-time", lambda method: method["requestFields"][1].update({"presence": "optional"})),
+        ("required-absolute", lambda method: method["requestFields"][3].update({"presence": "required"})),
+        ("partial-request", lambda method: method["requestShape"].update({"completeness": "partial"})),
+        ("invented-reply-field", lambda method: method["replyFields"].append({"name": "success"})),
+        ("false-async-note", lambda method: method["notes"].__setitem__(2, "Reply proves settled skip state.")),
+    ):
+        bad = json.loads(json.dumps(good_spec))
+        method = next(
+            item for item in bad["clientMethods"] if item["name"] == "subscriptionSkip"
+        )
+        mutate(method)
+        err = validate_spec(bad)
+        check(
+            f"reject-subscriptionSkip-{label}",
+            any("subscriptionSkip" in error for error in err),
+            str(err),
+        )
+
+    bad = json.loads(json.dumps(good_spec))
+    bad["coverage"]["clientMethods"]["referenced"].remove("subscriptionSkip")
+    bad["coverage"]["clientMethods"]["referencedCount"] -= 1
+    bad["coverage"]["clientMethods"]["outgoingRequests"].remove("subscriptionSkip")
+    bad["coverage"]["clientMethods"]["outgoingRequestCount"] -= 1
+    bad["coverage"]["metrics"]["referencedClientMethods"] -= 1
+    bad["coverage"]["metrics"]["outgoingClientMethods"] -= 1
+    next(
+        method for method in bad["clientMethods"] if method["name"] == "subscriptionSkip"
+    )["sdk"] = {"referenced": False, "outgoingRequest": False, "typedRequest": True}
+    err = validate_spec(bad)
+    check(
+        "reject-subscriptionSkip-stale-live-coverage",
+        any("subscriptionSkip must be fresh" in error for error in err),
+        str(err),
+    )
+
+    for label, key, replacement in (
+        ("summary", "summary", "Official docs fully specify either/or skip coordinates"),
+        ("authority", "authority", "src/htsp_server.c decoy"),
+        ("docs-url", "docsUrl", "https://example.invalid/skip"),
+    ):
+        bad = json.loads(json.dumps(good_spec))
+        limitation = next(
+            item for item in bad["docLimitations"]
+            if item["id"] == SUBSCRIPTION_SKIP_LIMITATION_ID
+        )
+        limitation[key] = replacement
+        err = validate_spec(bad)
+        check(
+            f"reject-subscriptionSkip-limitation-{label}",
+            any("subscriptionSkip limitation" in error for error in err),
+            str(err),
+        )
 
     for label, mutate in (
         ("false-min-version", lambda method: method.update({"minVersion": 8})),
@@ -4816,17 +5021,18 @@ def self_test() -> None:
     err = validate_spec(bad)
     check("reject-reordered-method", any("inventory/order" in e for e in err), str(err))
 
-    # False all-called: outgoing forced to equal referenced without distinction.
+    # False completeness: invent an outgoing count beyond the accepted metric.
     bad = json.loads(json.dumps(good_spec))
-    bad["coverage"]["clientMethods"]["outgoingRequests"] = list(ref_names)
-    bad["coverage"]["clientMethods"]["outgoingRequestCount"] = len(ref_names)
-    bad["coverage"]["metrics"]["outgoingClientMethods"] = len(ref_names)
-    for method in bad["clientMethods"]:
-        method["sdk"]["outgoingRequest"] = method["name"] in ref_names
+    bad["coverage"]["clientMethods"]["outgoingRequestCount"] = 39
+    bad["coverage"]["metrics"]["outgoingClientMethods"] = 39
     err = validate_spec(bad)
     check(
         "reject-false-all-called",
-        any("outgoing client methods == 37" in e for e in err),
+        any(
+            "outgoing client methods == 38" in e
+            or "outgoingRequestCount does not match" in e
+            for e in err
+        ),
         str(err),
     )
 

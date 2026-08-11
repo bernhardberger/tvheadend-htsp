@@ -22,11 +22,11 @@ Primary authority is the pinned TVHeadend server source. Official HTSP documenta
 
 - Production scan roots: `sdk/htsp-protocol/src/main`, `sdk/htsp/src/main`, `sdk/playback-media3/src/main`
 - Client→server methods referenced in production sources: **38 / 39**
-- Distinct outgoing request names: **37 / 39**
+- Distinct outgoing request names: **38 / 39**
 - Server→client messages handled (exact literal): **30 / 30**
-- Public typed client requests from the reviewed catalog: **35 / 39**
+- Public typed client requests from the reviewed catalog: **36 / 39**
 - Public typed server messages from the separate reviewed catalog: **29 / 30**
-- Distinguish **referenced** from **outgoing**: a name can appear because an inbound handler mentions it (for example `subscriptionSkip`) while the client sends a synonym (`subscriptionSeek`).
+- Distinguish **referenced** from **outgoing** and from typed coverage: `api` remains unreferenced; both `subscriptionSeek` and `subscriptionSkip` are distinct outgoing wire names for one shared pinned handler.
 - Never claim methods are implemented/called merely because they are referenced.
 - Typed request coverage means a public `HtspRequest` model plus a generated `HtspConnection` extension. It is not a support, stability, or completeness claim.
 - Typed server-message coverage means public payload models plus a public finite decoder; the metric alone does not prove support, runtime consumption, stability, or completeness. Selected client metadata/status consumers use the decoder while raw transport and playback integration remain unchanged.
@@ -75,8 +75,8 @@ These fields are protocol-wide and are **not** method-specific success fields.
 | 26 | `subscribe` | `ACCESS_HTSP_STREAMING` | — | yes | yes | yes | `subscriptionId`:u32 [required], `channelId`:u32 [alternative], `channelName`:str [alternative], `profile`:str [unknown], `weight`:u32 [unknown], `90khz`:u32 [unknown], `timeshiftPeriod`:u32 [unknown], `queueDepth`:u32 [unknown] — fields/partial | `90khz`:u32 [unknown], `normts`:u32 [unknown], `weight`:u32 [unknown], `timeshiftPeriod`:u32 [unknown] — fields/partial |
 | 27 | `unsubscribe` | `ACCESS_HTSP_STREAMING` | — | yes | yes | yes | `subscriptionId`:u32 [unknown] — fields/partial | _knownEmpty/complete_ |
 | 28 | `subscriptionChangeWeight` | `ACCESS_HTSP_STREAMING` | 5 (annotated) | yes | yes | yes | `subscriptionId`:u32 [required], `weight`:u32 [optional] — fields/complete | _knownEmpty/complete_ |
-| 29 | `subscriptionSeek` | `ACCESS_HTSP_STREAMING` | 9 (annotated) | yes | yes | yes | `subscriptionId`:u32 [required], `time`:s64 [alternative], `size`:s64 [alternative], `absolute`:u32 [unknown] — fields/partial | _knownEmpty/complete_ |
-| 30 | `subscriptionSkip` | `ACCESS_HTSP_STREAMING` | 9 (annotated) | yes |  |  | `subscriptionId`:u32 [required], `time`:s64 [alternative], `size`:s64 [alternative], `absolute`:u32 [unknown] — fields/partial | _knownEmpty/complete_ |
+| 29 | `subscriptionSeek` | `ACCESS_HTSP_STREAMING` | 9 (annotated) | yes | yes | yes | `subscriptionId`:u32 [required], `time`:s64 [alternative], `size`:s64 [alternative], `absolute`:u32 [optional] — fields/complete | _knownEmpty/complete_ |
+| 30 | `subscriptionSkip` | `ACCESS_HTSP_STREAMING` | 9 (annotated) | yes | yes | yes | `subscriptionId`:u32 [required], `time`:s64 [alternative], `size`:s64 [alternative], `absolute`:u32 [optional] — fields/complete | _knownEmpty/complete_ |
 | 31 | `subscriptionSpeed` | `ACCESS_HTSP_STREAMING` | 9 (annotated) | yes | yes | yes | `subscriptionId`:u32 [unknown], `speed`:s32 [unknown] — fields/partial | _knownEmpty/complete_ |
 | 32 | `subscriptionLive` | `ACCESS_HTSP_STREAMING` | 9 (annotated) | yes | yes | yes | `subscriptionId`:u32 [required] — fields/complete | _knownEmpty/complete_ |
 | 33 | `subscriptionFilterStream` | `ACCESS_HTSP_STREAMING` | 12 (annotated) | yes | yes | yes | `subscriptionId`:u32 [required], `enable`:list [optional] → `u32`, `disable`:list [optional] → `u32` — fields/complete | _knownEmpty/complete_ |
@@ -192,6 +192,13 @@ The official Client-to-Server RPC methods page leaves the optional subscriptionC
 The official Client-to-Server RPC methods page does not clearly distinguish the empty subscriptionLive RPC acknowledgement from the separate asynchronous subscriptionSkip outcome or define their delivery ordering or settled-live semantics. Pinned current source calls subscription_set_skip before queuing the empty RPC reply; that source topology is not promoted to an on-wire ordering or settled-state guarantee.
 
 - Authority: src/htsp_server.c htsp_method_live
+- Docs URL: https://docs.tvheadend.org/documentation/development/htsp/client-to-server-rpc-methods
+
+### `subscriptionSkip-seek-coordinate-source-doc-mismatch`
+
+The official Client-to-Server RPC methods page calls subscriptionSeek a synonym of subscriptionSkip and lists time/size as optional u64 values without stating the pinned either/or rule. Pinned current source maps both dispatch names to htsp_method_skip, requires exact u32 subscriptionId, reads optional u32 absolute with default 0, and accepts signed-s64 time first otherwise signed-s64 size, erroring when neither coordinate exists.
+
+- Authority: src/htsp_server.c htsp_method_skip
 - Docs URL: https://docs.tvheadend.org/documentation/development/htsp/client-to-server-rpc-methods
 
 ### `subscriptionFilterStream-range-overlap-underdocumented`
