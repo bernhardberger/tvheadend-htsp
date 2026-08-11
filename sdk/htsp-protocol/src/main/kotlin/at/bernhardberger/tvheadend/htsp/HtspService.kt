@@ -6,6 +6,7 @@ import at.bernhardberger.tvheadend.htsp.HtspCapturedGeneration
 import at.bernhardberger.tvheadend.htsp.HtspConnection
 import at.bernhardberger.tvheadend.htsp.HtspConnectionGeneration
 import at.bernhardberger.tvheadend.htsp.HtspRequestTransport
+import at.bernhardberger.tvheadend.htsp.HtspTypedRequestCapability
 import at.bernhardberger.tvheadend.htsp.HtspTypedRequestCaller
 import at.bernhardberger.tvheadend.htsp.HtspWireReply
 import at.bernhardberger.tvheadend.htsp.MetadataPermissionDeniedException
@@ -89,7 +90,7 @@ internal open class `HtspService-internal`(
     private val logger: HtspLogger = HtspLogger.None,
     private val socketFactory: () -> Socket = ::Socket,
     private val afterTeardownAdmission: suspend () -> Unit = {},
-) : PlaybackHtspTransport, HtspRequestTransport, HtspConnection {
+) : PlaybackHtspTransport, HtspRequestTransport, HtspConnection, HtspTypedRequestCapability {
     private val _state = MutableStateFlow<ConnectionState>(ConnectionState.Disconnected)
     override val state: StateFlow<ConnectionState> = _state
 
@@ -423,7 +424,7 @@ internal open class `HtspService-internal`(
         }
     }
 
-    override suspend fun <R> call(
+    override suspend fun <R> callTypedRequest(
         request: HtspRequest<R>,
         timeoutMs: Long,
         expectedGeneration: HtspConnectionGeneration?,

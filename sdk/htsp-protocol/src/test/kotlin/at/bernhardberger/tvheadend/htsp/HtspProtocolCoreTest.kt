@@ -1,6 +1,7 @@
 package at.bernhardberger.tvheadend.htsp
 
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
@@ -102,6 +103,17 @@ class HtspProtocolCoreTest {
             typedHtspRequestCatalog.map { Triple(it.method, it.access, it.minimumProtocolVersion) },
             requests.map { Triple(it.method, it.access, it.minimumProtocolVersion) },
         )
+    }
+
+    @Test
+    fun generatedExtensionsUseOnlyTheFactoryInternalRequestCapability() = runTest {
+        val factoryConnection = createHtspConnection(Dispatchers.Unconfined)
+        assertTrue(factoryConnection is HtspTypedRequestCapability)
+
+        val unsupportedCustomConnection = object : HtspConnection by factoryConnection {}
+        assertSame(HtspResult.TransportUnavailable, unsupportedCustomConnection.getProfiles())
+
+        unsupportedCustomConnection.close()
     }
 
     @Test

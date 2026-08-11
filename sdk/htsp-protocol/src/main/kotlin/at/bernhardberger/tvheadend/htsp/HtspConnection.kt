@@ -53,16 +53,6 @@ public interface HtspConnection {
         options: HtspConnectOptions = HtspConnectOptions(),
     ): HtspConnectOutcome
 
-    /**
-     * Executes exactly one request against one captured live generation.
-     * Cancellation, including generation replacement, is never converted to [HtspResult].
-     */
-    public suspend fun <R> call(
-        request: HtspRequest<R>,
-        timeoutMs: Long = 5_000L,
-        expectedGeneration: HtspConnectionGeneration? = null,
-    ): HtspResult<R>
-
     public fun isCurrent(generation: HtspConnectionGeneration): Boolean
 
     public fun <T> commitIfCurrent(
@@ -81,6 +71,32 @@ public interface HtspConnection {
      * A stale non-null generation propagates [CancellationException] without closing the owner.
      */
     public suspend fun close(expectedGeneration: HtspConnectionGeneration? = null)
+}
+
+/** ABI-hidden capability implemented only by the factory-owned protocol connection. */
+internal interface `HtspTypedRequestCapability-internal` {
+    suspend fun <R> callTypedRequest(
+        request: HtspRequest<R>,
+        timeoutMs: Long,
+        expectedGeneration: HtspConnectionGeneration?,
+    ): HtspResult<R>
+}
+
+internal typealias HtspTypedRequestCapability = `HtspTypedRequestCapability-internal`
+
+/** Internal bridge used exclusively by the generated parameter extensions. */
+@JvmSynthetic
+internal suspend fun <R> HtspConnection.call(
+    request: HtspRequest<R>,
+    timeoutMs: Long = 5_000L,
+    expectedGeneration: HtspConnectionGeneration? = null,
+): HtspResult<R> {
+    currentCoroutineContext().ensureActive()
+    return (this as? HtspTypedRequestCapability)?.callTypedRequest(
+        request = request,
+        timeoutMs = timeoutMs,
+        expectedGeneration = expectedGeneration,
+    ) ?: HtspResult.TransportUnavailable
 }
 
 /** ABI-hidden owner of the preserved typed request primitive. */

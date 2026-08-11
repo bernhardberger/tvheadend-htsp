@@ -17,6 +17,11 @@ mappers, and the catalog helper remain internal. The public 26-message finite
 decoder is the explicit raw-map input boundary, while pre-existing raw playback
 events remain available only through `@PlaybackIntegrationApi` opt-in.
 
+Generated parameter-based `HtspConnection` extensions are the only supported
+public request path. Public request and response models remain data contracts,
+but there is no public generic request primitive; missing methods belong in the
+reviewed typed request catalog and generated surface.
+
 This mutable `0.x` snapshot has exactly one declared external dependency:
 `kotlinx-coroutines-core`, in addition to the implicit Kotlin and JDK runtimes.
 It has no dependency on another SDK module, Android, Media3, playback/session,
