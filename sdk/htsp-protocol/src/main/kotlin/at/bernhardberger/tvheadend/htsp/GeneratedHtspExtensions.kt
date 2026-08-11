@@ -38,24 +38,495 @@ internal val typedHtspRequestCatalog: List<TypedHtspRequestCatalogEntry> = listO
     TypedHtspRequestCatalogEntry("subscriptionFilterStream", "SubscriptionFilterStreamRequest", "HtspEmptyResponse", HtspAccess.ACCESS_HTSP_STREAMING, 12),
 )
 
-public suspend fun HtspConnection.getProfiles(request: GetProfilesRequest = GetProfilesRequest()): HtspResult<GetProfilesResponse> = call(request)
-public suspend fun HtspConnection.getDiskSpace(request: GetDiskSpaceRequest = GetDiskSpaceRequest()): HtspResult<GetDiskSpaceResponse> = call(request)
-public suspend fun HtspConnection.getSysTime(request: GetSysTimeRequest = GetSysTimeRequest()): HtspResult<GetSysTimeResponse> = call(request)
-public suspend fun HtspConnection.enableAsyncMetadata(request: EnableAsyncMetadataRequest = EnableAsyncMetadataRequest()): HtspResult<HtspEmptyResponse> = call(request)
-public suspend fun HtspConnection.getChannel(request: GetChannelRequest): HtspResult<GetChannelResponse> = call(request)
-public suspend fun HtspConnection.getEvent(request: GetEventRequest): HtspResult<GetEventResponse> = call(request)
-public suspend fun HtspConnection.getEvents(request: GetEventsRequest): HtspResult<GetEventsResponse> = call(request)
-public suspend fun HtspConnection.getDvrConfigs(request: GetDvrConfigsRequest = GetDvrConfigsRequest()): HtspResult<GetDvrConfigsResponse> = call(request)
-public suspend fun HtspConnection.addDvrEntry(request: AddDvrEntryRequest): HtspResult<AddDvrEntryResponse> = call(request)
-public suspend fun HtspConnection.updateDvrEntry(request: UpdateDvrEntryRequest): HtspResult<UpdateDvrEntryResponse> = call(request)
-public suspend fun HtspConnection.stopDvrEntry(request: StopDvrEntryRequest): HtspResult<StopDvrEntryResponse> = call(request)
-public suspend fun HtspConnection.cancelDvrEntry(request: CancelDvrEntryRequest): HtspResult<CancelDvrEntryResponse> = call(request)
-public suspend fun HtspConnection.deleteDvrEntry(request: DeleteDvrEntryRequest): HtspResult<DeleteDvrEntryResponse> = call(request)
-public suspend fun HtspConnection.getDvrCutpoints(request: GetDvrCutpointsRequest): HtspResult<GetDvrCutpointsResponse> = call(request)
-public suspend fun HtspConnection.subscribe(request: SubscribeRequest): HtspResult<SubscribeResponse> = call(request)
-public suspend fun HtspConnection.unsubscribe(request: UnsubscribeRequest): HtspResult<HtspEmptyResponse> = call(request)
-public suspend fun HtspConnection.subscriptionChangeWeight(request: SubscriptionChangeWeightRequest): HtspResult<HtspEmptyResponse> = call(request)
-public suspend fun HtspConnection.subscriptionSeek(request: SubscriptionSeekRequest): HtspResult<HtspEmptyResponse> = call(request)
-public suspend fun HtspConnection.subscriptionSpeed(request: SubscriptionSpeedRequest): HtspResult<HtspEmptyResponse> = call(request)
-public suspend fun HtspConnection.subscriptionLive(request: SubscriptionLiveRequest): HtspResult<HtspEmptyResponse> = call(request)
-public suspend fun HtspConnection.subscriptionFilterStream(request: SubscriptionFilterStreamRequest): HtspResult<HtspEmptyResponse> = call(request)
+public suspend fun HtspConnection.getProfiles(
+    timeoutMs: Long = 5_000L,
+    expectedGeneration: HtspConnectionGeneration? = null,
+): HtspResult<GetProfilesResponse> =
+    call(
+        request = GetProfilesRequest(),
+        timeoutMs = timeoutMs,
+        expectedGeneration = expectedGeneration,
+    )
+
+public suspend fun HtspConnection.getDiskSpace(
+    timeoutMs: Long = 5_000L,
+    expectedGeneration: HtspConnectionGeneration? = null,
+): HtspResult<GetDiskSpaceResponse> =
+    call(
+        request = GetDiskSpaceRequest(),
+        timeoutMs = timeoutMs,
+        expectedGeneration = expectedGeneration,
+    )
+
+public suspend fun HtspConnection.getSysTime(
+    timeoutMs: Long = 5_000L,
+    expectedGeneration: HtspConnectionGeneration? = null,
+): HtspResult<GetSysTimeResponse> =
+    call(
+        request = GetSysTimeRequest(),
+        timeoutMs = timeoutMs,
+        expectedGeneration = expectedGeneration,
+    )
+
+public suspend fun HtspConnection.enableAsyncMetadata(
+    epg: Long? = null,
+    lastUpdate: Long? = null,
+    epgMaxTime: Long? = null,
+    language: String? = null,
+    timeoutMs: Long = 5_000L,
+    expectedGeneration: HtspConnectionGeneration? = null,
+): HtspResult<HtspEmptyResponse> =
+    call(
+        request = EnableAsyncMetadataRequest(
+            epg = epg,
+            lastUpdate = lastUpdate,
+            epgMaxTime = epgMaxTime,
+            language = language,
+        ),
+        timeoutMs = timeoutMs,
+        expectedGeneration = expectedGeneration,
+    )
+
+public suspend fun HtspConnection.getChannel(
+    channelId: Long,
+    timeoutMs: Long = 5_000L,
+    expectedGeneration: HtspConnectionGeneration? = null,
+): HtspResult<GetChannelResponse> =
+    call(
+        request = GetChannelRequest(
+            channelId = channelId,
+        ),
+        timeoutMs = timeoutMs,
+        expectedGeneration = expectedGeneration,
+    )
+
+public suspend fun HtspConnection.getEvent(
+    eventId: Long,
+    language: String? = null,
+    timeoutMs: Long = 5_000L,
+    expectedGeneration: HtspConnectionGeneration? = null,
+): HtspResult<GetEventResponse> =
+    call(
+        request = GetEventRequest(
+            eventId = eventId,
+            language = language,
+        ),
+        timeoutMs = timeoutMs,
+        expectedGeneration = expectedGeneration,
+    )
+
+public suspend fun HtspConnection.getEvents(
+    channelId: Long? = null,
+    eventId: Long? = null,
+    language: String? = null,
+    numFollowing: Long? = null,
+    maxTime: Long? = null,
+    timeoutMs: Long = 5_000L,
+    expectedGeneration: HtspConnectionGeneration? = null,
+): HtspResult<GetEventsResponse> =
+    call(
+        request = GetEventsRequest(
+            channelId = channelId,
+            eventId = eventId,
+            language = language,
+            numFollowing = numFollowing,
+            maxTime = maxTime,
+        ),
+        timeoutMs = timeoutMs,
+        expectedGeneration = expectedGeneration,
+    )
+
+public suspend fun HtspConnection.getDvrConfigs(
+    timeoutMs: Long = 5_000L,
+    expectedGeneration: HtspConnectionGeneration? = null,
+): HtspResult<GetDvrConfigsResponse> =
+    call(
+        request = GetDvrConfigsRequest(),
+        timeoutMs = timeoutMs,
+        expectedGeneration = expectedGeneration,
+    )
+
+public suspend fun HtspConnection.addDvrEntry(
+    selector: AddDvrEntrySelector,
+    configName: String? = null,
+    language: String? = null,
+    title: String? = null,
+    subtitle: String? = null,
+    summary: String? = null,
+    description: String? = null,
+    ageRating: Long? = null,
+    timeoutMs: Long = 5_000L,
+    expectedGeneration: HtspConnectionGeneration? = null,
+): HtspResult<AddDvrEntryResponse> =
+    call(
+        request = AddDvrEntryRequest(
+            selector = selector,
+            configName = configName,
+            language = language,
+            title = title,
+            subtitle = subtitle,
+            summary = summary,
+            description = description,
+            ageRating = ageRating,
+        ),
+        timeoutMs = timeoutMs,
+        expectedGeneration = expectedGeneration,
+    )
+
+public suspend fun HtspConnection.addDvrEntry(
+    eventId: Long,
+    configName: String? = null,
+    language: String? = null,
+    title: String? = null,
+    subtitle: String? = null,
+    summary: String? = null,
+    description: String? = null,
+    ageRating: Long? = null,
+    timeoutMs: Long = 5_000L,
+    expectedGeneration: HtspConnectionGeneration? = null,
+): HtspResult<AddDvrEntryResponse> =
+    call(
+        request = AddDvrEntryRequest(
+            selector = AddDvrEntrySelector.Event(eventId),
+            configName = configName,
+            language = language,
+            title = title,
+            subtitle = subtitle,
+            summary = summary,
+            description = description,
+            ageRating = ageRating,
+        ),
+        timeoutMs = timeoutMs,
+        expectedGeneration = expectedGeneration,
+    )
+
+public suspend fun HtspConnection.addDvrEntry(
+    channelId: Long,
+    start: Long,
+    stop: Long,
+    configName: String? = null,
+    language: String? = null,
+    title: String? = null,
+    subtitle: String? = null,
+    summary: String? = null,
+    description: String? = null,
+    ageRating: Long? = null,
+    timeoutMs: Long = 5_000L,
+    expectedGeneration: HtspConnectionGeneration? = null,
+): HtspResult<AddDvrEntryResponse> =
+    call(
+        request = AddDvrEntryRequest(
+            selector = AddDvrEntrySelector.ExplicitChannelTime(channelId, start, stop),
+            configName = configName,
+            language = language,
+            title = title,
+            subtitle = subtitle,
+            summary = summary,
+            description = description,
+            ageRating = ageRating,
+        ),
+        timeoutMs = timeoutMs,
+        expectedGeneration = expectedGeneration,
+    )
+
+public suspend fun HtspConnection.updateDvrEntry(
+    entryId: Long,
+    channelId: Long? = null,
+    configName: String? = null,
+    title: String? = null,
+    subtitle: String? = null,
+    summary: String? = null,
+    description: String? = null,
+    language: String? = null,
+    comment: String? = null,
+    playCount: Long? = null,
+    playPosition: Long? = null,
+    enabled: Long? = null,
+    start: Long? = null,
+    stop: Long? = null,
+    startExtra: Long? = null,
+    stopExtra: Long? = null,
+    retention: Long? = null,
+    removal: Long? = null,
+    priority: Long? = null,
+    ageRating: Long? = null,
+    timeoutMs: Long = 5_000L,
+    expectedGeneration: HtspConnectionGeneration? = null,
+): HtspResult<UpdateDvrEntryResponse> =
+    call(
+        request = UpdateDvrEntryRequest(
+            entryId = entryId,
+            channelId = channelId,
+            configName = configName,
+            title = title,
+            subtitle = subtitle,
+            summary = summary,
+            description = description,
+            language = language,
+            comment = comment,
+            playCount = playCount,
+            playPosition = playPosition,
+            enabled = enabled,
+            start = start,
+            stop = stop,
+            startExtra = startExtra,
+            stopExtra = stopExtra,
+            retention = retention,
+            removal = removal,
+            priority = priority,
+            ageRating = ageRating,
+        ),
+        timeoutMs = timeoutMs,
+        expectedGeneration = expectedGeneration,
+    )
+
+public suspend fun HtspConnection.stopDvrEntry(
+    entryId: Long,
+    timeoutMs: Long = 5_000L,
+    expectedGeneration: HtspConnectionGeneration? = null,
+): HtspResult<StopDvrEntryResponse> =
+    call(
+        request = StopDvrEntryRequest(
+            entryId = entryId,
+        ),
+        timeoutMs = timeoutMs,
+        expectedGeneration = expectedGeneration,
+    )
+
+public suspend fun HtspConnection.cancelDvrEntry(
+    entryId: Long,
+    timeoutMs: Long = 5_000L,
+    expectedGeneration: HtspConnectionGeneration? = null,
+): HtspResult<CancelDvrEntryResponse> =
+    call(
+        request = CancelDvrEntryRequest(
+            entryId = entryId,
+        ),
+        timeoutMs = timeoutMs,
+        expectedGeneration = expectedGeneration,
+    )
+
+public suspend fun HtspConnection.deleteDvrEntry(
+    entryId: Long,
+    timeoutMs: Long = 5_000L,
+    expectedGeneration: HtspConnectionGeneration? = null,
+): HtspResult<DeleteDvrEntryResponse> =
+    call(
+        request = DeleteDvrEntryRequest(
+            entryId = entryId,
+        ),
+        timeoutMs = timeoutMs,
+        expectedGeneration = expectedGeneration,
+    )
+
+public suspend fun HtspConnection.getDvrCutpoints(
+    entryId: Long,
+    timeoutMs: Long = 5_000L,
+    expectedGeneration: HtspConnectionGeneration? = null,
+): HtspResult<GetDvrCutpointsResponse> =
+    call(
+        request = GetDvrCutpointsRequest(
+            entryId = entryId,
+        ),
+        timeoutMs = timeoutMs,
+        expectedGeneration = expectedGeneration,
+    )
+
+public suspend fun HtspConnection.subscribe(
+    subscriptionId: Long,
+    channel: SubscribeChannel,
+    profile: String? = null,
+    weight: Long? = null,
+    ninetyKhz: Long? = null,
+    timeshiftPeriodSeconds: Long? = null,
+    queueDepth: Long? = null,
+    timeoutMs: Long = 5_000L,
+    expectedGeneration: HtspConnectionGeneration? = null,
+): HtspResult<SubscribeResponse> =
+    call(
+        request = SubscribeRequest(
+            subscriptionId = subscriptionId,
+            channel = channel,
+            profile = profile,
+            weight = weight,
+            ninetyKhz = ninetyKhz,
+            timeshiftPeriodSeconds = timeshiftPeriodSeconds,
+            queueDepth = queueDepth,
+        ),
+        timeoutMs = timeoutMs,
+        expectedGeneration = expectedGeneration,
+    )
+
+public suspend fun HtspConnection.subscribe(
+    subscriptionId: Long,
+    channelId: Long,
+    profile: String? = null,
+    weight: Long? = null,
+    ninetyKhz: Long? = null,
+    timeshiftPeriodSeconds: Long? = null,
+    queueDepth: Long? = null,
+    timeoutMs: Long = 5_000L,
+    expectedGeneration: HtspConnectionGeneration? = null,
+): HtspResult<SubscribeResponse> =
+    call(
+        request = SubscribeRequest(
+            subscriptionId = subscriptionId,
+            channel = SubscribeChannel.Id(channelId),
+            profile = profile,
+            weight = weight,
+            ninetyKhz = ninetyKhz,
+            timeshiftPeriodSeconds = timeshiftPeriodSeconds,
+            queueDepth = queueDepth,
+        ),
+        timeoutMs = timeoutMs,
+        expectedGeneration = expectedGeneration,
+    )
+
+public suspend fun HtspConnection.subscribe(
+    subscriptionId: Long,
+    channelName: String,
+    profile: String? = null,
+    weight: Long? = null,
+    ninetyKhz: Long? = null,
+    timeshiftPeriodSeconds: Long? = null,
+    queueDepth: Long? = null,
+    timeoutMs: Long = 5_000L,
+    expectedGeneration: HtspConnectionGeneration? = null,
+): HtspResult<SubscribeResponse> =
+    call(
+        request = SubscribeRequest(
+            subscriptionId = subscriptionId,
+            channel = SubscribeChannel.Name(channelName),
+            profile = profile,
+            weight = weight,
+            ninetyKhz = ninetyKhz,
+            timeshiftPeriodSeconds = timeshiftPeriodSeconds,
+            queueDepth = queueDepth,
+        ),
+        timeoutMs = timeoutMs,
+        expectedGeneration = expectedGeneration,
+    )
+
+public suspend fun HtspConnection.unsubscribe(
+    subscriptionId: Long,
+    timeoutMs: Long = 5_000L,
+    expectedGeneration: HtspConnectionGeneration? = null,
+): HtspResult<HtspEmptyResponse> =
+    call(
+        request = UnsubscribeRequest(
+            subscriptionId = subscriptionId,
+        ),
+        timeoutMs = timeoutMs,
+        expectedGeneration = expectedGeneration,
+    )
+
+public suspend fun HtspConnection.subscriptionChangeWeight(
+    subscriptionId: Long,
+    weight: Long? = null,
+    timeoutMs: Long = 5_000L,
+    expectedGeneration: HtspConnectionGeneration? = null,
+): HtspResult<HtspEmptyResponse> =
+    call(
+        request = SubscriptionChangeWeightRequest(
+            subscriptionId = subscriptionId,
+            weight = weight,
+        ),
+        timeoutMs = timeoutMs,
+        expectedGeneration = expectedGeneration,
+    )
+
+public suspend fun HtspConnection.subscriptionSeek(
+    subscriptionId: Long,
+    position: SubscriptionSeekPosition,
+    absolute: Long? = null,
+    timeoutMs: Long = 5_000L,
+    expectedGeneration: HtspConnectionGeneration? = null,
+): HtspResult<HtspEmptyResponse> =
+    call(
+        request = SubscriptionSeekRequest(
+            subscriptionId = subscriptionId,
+            position = position,
+            absolute = absolute,
+        ),
+        timeoutMs = timeoutMs,
+        expectedGeneration = expectedGeneration,
+    )
+
+public suspend fun HtspConnection.subscriptionSeek(
+    subscriptionId: Long,
+    position: SubscriptionSeekPosition.Time,
+    absolute: Long? = null,
+    timeoutMs: Long = 5_000L,
+    expectedGeneration: HtspConnectionGeneration? = null,
+): HtspResult<HtspEmptyResponse> =
+    call(
+        request = SubscriptionSeekRequest(
+            subscriptionId = subscriptionId,
+            position = position,
+            absolute = absolute,
+        ),
+        timeoutMs = timeoutMs,
+        expectedGeneration = expectedGeneration,
+    )
+
+public suspend fun HtspConnection.subscriptionSeek(
+    subscriptionId: Long,
+    position: SubscriptionSeekPosition.Size,
+    absolute: Long? = null,
+    timeoutMs: Long = 5_000L,
+    expectedGeneration: HtspConnectionGeneration? = null,
+): HtspResult<HtspEmptyResponse> =
+    call(
+        request = SubscriptionSeekRequest(
+            subscriptionId = subscriptionId,
+            position = position,
+            absolute = absolute,
+        ),
+        timeoutMs = timeoutMs,
+        expectedGeneration = expectedGeneration,
+    )
+
+public suspend fun HtspConnection.subscriptionSpeed(
+    subscriptionId: Long,
+    speed: Int,
+    timeoutMs: Long = 5_000L,
+    expectedGeneration: HtspConnectionGeneration? = null,
+): HtspResult<HtspEmptyResponse> =
+    call(
+        request = SubscriptionSpeedRequest(
+            subscriptionId = subscriptionId,
+            speed = speed,
+        ),
+        timeoutMs = timeoutMs,
+        expectedGeneration = expectedGeneration,
+    )
+
+public suspend fun HtspConnection.subscriptionLive(
+    subscriptionId: Long,
+    timeoutMs: Long = 5_000L,
+    expectedGeneration: HtspConnectionGeneration? = null,
+): HtspResult<HtspEmptyResponse> =
+    call(
+        request = SubscriptionLiveRequest(
+            subscriptionId = subscriptionId,
+        ),
+        timeoutMs = timeoutMs,
+        expectedGeneration = expectedGeneration,
+    )
+
+public suspend fun HtspConnection.subscriptionFilterStream(
+    subscriptionId: Long,
+    enable: List<Long>? = null,
+    disable: List<Long>? = null,
+    timeoutMs: Long = 5_000L,
+    expectedGeneration: HtspConnectionGeneration? = null,
+): HtspResult<HtspEmptyResponse> =
+    call(
+        request = SubscriptionFilterStreamRequest(
+            subscriptionId = subscriptionId,
+            enable = enable,
+            disable = disable,
+        ),
+        timeoutMs = timeoutMs,
+        expectedGeneration = expectedGeneration,
+    )
