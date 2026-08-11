@@ -17,6 +17,7 @@ SOURCE_SUFFIXES = {".java", ".kt"}
 STANDALONE_FIXTURE_MODULES = {
     "htsp-consumer-contract",
     "playback-consumer-contract",
+    "protocol-consumer-contract",
 }
 IGNORED_DIRECTORIES = {".gradle", ".idea", "build", "out"}
 
@@ -338,6 +339,8 @@ def self_test_errors() -> list[str]:
         write_module_source(root, "beta", "androidTest", "example.alpha")
         write_module_source(root, "beta", "debugAndroidTest", "example.alpha")
         write_module_source(root, "htsp-consumer-contract", "main", "example.alpha")
+        write_module_source(root, "playback-consumer-contract", "main", "example.alpha")
+        write_module_source(root, "protocol-consumer-contract", "main", "example.alpha")
         absent_source_module = root / "sdk" / "absent-source"
         absent_source_module.mkdir()
         (absent_source_module / "build.gradle.kts").write_text("// fixture\n", encoding="utf-8")
@@ -345,6 +348,26 @@ def self_test_errors() -> list[str]:
             errors.append(
                 "distinct production packages with test/fixture duplicates or absent src were rejected"
             )
+
+        topology_drift = write_module_source(
+            root,
+            "protocol-consumer-contract-copy",
+            "main",
+            "example.alpha",
+        )
+        expected_fixture_drift = (
+            "production package example.alpha is declared in SDK modules "
+            "alpha, protocol-consumer-contract-copy"
+        )
+        if expected_fixture_drift not in package_ownership_errors(root):
+            errors.append("standalone fixture topology drift was not rejected exactly")
+        topology_drift.unlink()
+        topology_drift.parents[0].rmdir()
+        topology_drift.parents[1].rmdir()
+        topology_drift.parents[2].rmdir()
+        topology_drift.parents[3].rmdir()
+        (root / "sdk" / "protocol-consumer-contract-copy" / "build.gradle.kts").unlink()
+        (root / "sdk" / "protocol-consumer-contract-copy").rmdir()
 
         contest = write_module_source(root, "beta", "contest", "example.alpha")
         expected_duplicate = (
