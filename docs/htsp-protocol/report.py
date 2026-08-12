@@ -162,12 +162,26 @@ EXPECTED_TYPED_SERVER_MESSAGES: tuple[tuple[str, str, int | None], ...] = (
     ("subscriptionGrace", "HtspSubscriptionGraceMessage", 13),
     ("subscriptionStatus", "HtspSubscriptionStatusMessage", None),
     ("signalStatus", "HtspSignalStatusMessage", None),
+    ("descrambleInfo", "HtspDescrambleInfoMessage", 24),
     ("subscriptionSpeed", "HtspSubscriptionSpeedMessage", 9),
     ("timeshiftStatus", "HtspTimeshiftStatusMessage", 9),
     ("subscriptionSkip", "HtspSubscriptionSkipMessage", 9),
 )
 
 EXPECTED_UNHANDLED_MESSAGES: tuple[str, ...] = ()
+
+DESCRAMBLE_INFO_CONTRACT: tuple[tuple[str, str, str], ...] = (
+    ("subscriptionId", "u32", "required"),
+    ("pid", "u32", "required"),
+    ("caid", "u32", "required"),
+    ("provid", "u32", "required"),
+    ("ecmtime", "u32", "required"),
+    ("hops", "u32", "required"),
+    ("cardsystem", "str", "conditional"),
+    ("reader", "str", "conditional"),
+    ("from", "str", "conditional"),
+    ("protocol", "str", "conditional"),
+)
 
 AUTOREC_SERVER_MESSAGE_CONTRACT: tuple[tuple[str, str, str], ...] = (
     ("id", "str", "required"),
@@ -1361,6 +1375,38 @@ def validate_spec(spec: dict[str, Any], upstream: dict[str, Any] | None = None) 
             )
     errors.extend(_validate_reference_shapes(shapes, message_map))
     errors.extend(_validate_field_shape_refs(spec))
+    descramble = message_map.get("descrambleInfo", {})
+    if [
+        (field.get("name"), field.get("type"), field.get("presence"))
+        for field in descramble.get("fields", [])
+    ] != list(DESCRAMBLE_INFO_CONTRACT):
+        errors.append("descrambleInfo must preserve exact pinned field order, types, and requiredness")
+    if descramble.get("minVersion") != 24 or descramble.get("messageShape") != {
+        "kind": "fields",
+        "completeness": "complete",
+        "evidence": "bounded pinned htsp_subscription_descramble_info gates and complete emitter topology",
+    }:
+        errors.append("descrambleInfo must preserve exact v24 complete bounded source shape")
+    if descramble.get("notes") != [
+        "Source returns early when htsp_version < 24 or anonymize is set."
+    ] or descramble.get("docStatus") != "missing-from-official-server-message-page":
+        errors.append("descrambleInfo must preserve gates and official-doc omission evidence")
+    stream_meta = next(
+        (field for field in shapes.get("stream", {}).get("fields", []) if field.get("name") == "meta"),
+        None,
+    )
+    if stream_meta is None or (
+        stream_meta.get("type"), stream_meta.get("presence"), stream_meta.get("minVersion")
+    ) != ("bin", "optional", 17):
+        errors.append("stream.meta must preserve optional nested binary v17 evidence")
+    timeshift_speed = next(
+        (field for field in message_map.get("timeshiftStatus", {}).get("fields", []) if field.get("name") == "speed"),
+        None,
+    )
+    if timeshift_speed is None or (
+        timeshift_speed.get("type"), timeshift_speed.get("presence")
+    ) != ("s32", "optional"):
+        errors.append("timeshiftStatus.speed must preserve optional signed-s32 evidence")
     for method_name in ("fileRead", "fileClose", "fileStat", "fileSeek"):
         names = {f.get("name") for f in method_map.get(method_name, {}).get("requestFields", [])}
         if "id" not in names:
@@ -1944,6 +1990,7 @@ def validate_spec(spec: dict[str, Any], upstream: dict[str, Any] | None = None) 
     if stream_shape.get("kind") != "object" or stream_shape.get("completeness") != "partial" or stream_fields != [
         ("index", "u32", "required", None),
         ("type", "str", "required", None),
+        ("meta", "bin", "optional", 17),
         ("language", "str", "optional", None),
         ("composition_id", "u32", "optional", 5),
         ("ancillary_id", "u32", "optional", 5),
@@ -2159,8 +2206,8 @@ def validate_spec(spec: dict[str, Any], upstream: dict[str, Any] | None = None) 
     ]
     if typed_server_contract != list(EXPECTED_TYPED_SERVER_MESSAGES):
         errors.append("coverage typedServerMessages must match the exact reviewed catalog")
-    if typed_server_count != len(typed_server_messages) or typed_server_count != 29:
-        errors.append("coverage typedServerMessages.count must match exactly 29 messages")
+    if typed_server_count != len(typed_server_messages) or typed_server_count != 30:
+        errors.append("coverage typedServerMessages.count must match exactly 30 messages")
     if typed_server_cov.get("catalog") != "docs/htsp-protocol/generate_typed_server_messages.py":
         errors.append("coverage typedServerMessages.catalog must name the reviewed generator")
     if typed_server_cov.get("meaning") != (
@@ -3345,6 +3392,44 @@ def self_test() -> None:
     # independently of the committed generated artifact. Every following test
     # mutates one independently meaningful contract.
     good_spec = _derive_fresh_self_test_spec()
+    for label, mutate, expected in (
+        (
+            "descramble-requiredness",
+            lambda spec: next(
+                field for field in next(
+                    message for message in spec["serverMessages"] if message["name"] == "descrambleInfo"
+                )["fields"] if field["name"] == "pid"
+            ).update({"presence": "optional"}),
+            "descrambleInfo must preserve exact pinned field order",
+        ),
+        (
+            "descramble-completeness",
+            lambda spec: next(
+                message for message in spec["serverMessages"] if message["name"] == "descrambleInfo"
+            )["messageShape"].update({"completeness": "partial"}),
+            "descrambleInfo must preserve exact v24 complete bounded source shape",
+        ),
+        (
+            "stream-meta-type",
+            lambda spec: next(
+                field for field in spec["shapes"]["stream"]["fields"] if field["name"] == "meta"
+            ).update({"type": "str"}),
+            "stream.meta must preserve optional nested binary v17 evidence",
+        ),
+        (
+            "timeshift-speed-type",
+            lambda spec: next(
+                field for field in next(
+                    message for message in spec["serverMessages"] if message["name"] == "timeshiftStatus"
+                )["fields"] if field["name"] == "speed"
+            ).update({"type": "u32"}),
+            "timeshiftStatus.speed must preserve optional signed-s32 evidence",
+        ),
+    ):
+        bad = json.loads(json.dumps(good_spec))
+        mutate(bad)
+        errors = validate_spec(bad)
+        check(f"reject-{label}", any(expected in error for error in errors), str(errors))
     committed_spec = load_json(SPEC_PATH)
     check(
         "committed-spec-still-valid",

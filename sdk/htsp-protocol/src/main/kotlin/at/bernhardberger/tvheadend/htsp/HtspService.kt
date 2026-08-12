@@ -52,6 +52,7 @@ import kotlin.text.Charsets.UTF_8
 @JvmSynthetic
 internal const val DVR_PLAY_COUNT_KEEP: Int = Int.MAX_VALUE - 1
 private const val HTSP_CHALLENGE_SIZE_BYTES: Int = 32
+private val TYPED_TRANSPORT_PUBLICATION_EXCLUSIONS: Set<String> = setOf("descrambleInfo")
 
 internal class `HtspRequestTimeoutException-internal`(
     val requestMethod: String,
@@ -1051,7 +1052,11 @@ internal open class `HtspService-internal`(
                             )
                             val generation = protocolGeneration?.token
                             val decoded = decodeHtspServerMessage(msg.fields)
-                            if (generation != null && decoded is HtspServerMessageDecoded) {
+                            if (
+                                generation != null &&
+                                msg.method !in TYPED_TRANSPORT_PUBLICATION_EXCLUSIONS &&
+                                decoded is HtspServerMessageDecoded
+                            ) {
                                 typedEvent = HtspTransportEvent.ServerMessage(
                                     message = decoded.message,
                                     generation = generation,

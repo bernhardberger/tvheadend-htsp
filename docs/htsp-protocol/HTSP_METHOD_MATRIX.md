@@ -29,7 +29,7 @@ Primary authority is the pinned TVHeadend server source. Official HTSP documenta
 - Distinct outgoing request names: **39 / 39**
 - Server→client messages handled (exact literal): **30 / 30**
 - Public typed client requests from the reviewed catalog: **39 / 39**
-- Public typed server messages from the separate reviewed catalog: **29 / 30**
+- Public typed server messages from the separate reviewed catalog: **30 / 30**
 - Distinguish **referenced** from **outgoing** and from typed coverage: all pinned methods are now referenced and outgoing; both `subscriptionSeek` and `subscriptionSkip` are distinct outgoing wire names for one shared pinned handler.
 - Never claim methods are implemented/called merely because they are referenced.
 - Typed request coverage means a public `HtspRequest` model plus a generated `HtspConnection` extension. It is not a support, stability, or completeness claim.
@@ -128,9 +128,9 @@ These fields are protocol-wide and are **not** method-specific success fields.
 | 24 | `subscriptionGrace` | 13 | yes | yes | `subscriptionId`:u32 [unknown], `graceTimeout`:u32 [unknown] — fields/partial |
 | 25 | `subscriptionStatus` | — | yes | yes | `subscriptionId`:u32 [unknown], `status`:str [unknown], `subscriptionError`:str [unknown] ≥v20 — fields/partial |
 | 26 | `signalStatus` | — | yes | yes | `subscriptionId`:u32 [unknown], `feStatus`:str [unknown], `feSNR`:u32 [unknown], `feAbsoluteSNR`:s64 [unknown] ≥v44, `feSignal`:u32 [unknown], `feAbsoluteSignal`:s64 [unknown] ≥v44, `feBER`:u32 [unknown], `feUNC`:u32 [unknown] — fields/partial |
-| 27 | `descrambleInfo` | 24 | yes |  | `subscriptionId`:u32 [unknown] ≥v24, `pid`:u32 [unknown], `caid`:u32 [unknown], `provid`:u32 [unknown], `ecmtime`:u32 [unknown], `hops`:u32 [unknown], `cardsystem`:str [unknown], `reader`:str [unknown], `from`:str [unknown], `protocol`:str [unknown] — fields/partial |
+| 27 | `descrambleInfo` | 24 | yes | yes | `subscriptionId`:u32 [required] ≥v24, `pid`:u32 [required], `caid`:u32 [required], `provid`:u32 [required], `ecmtime`:u32 [required], `hops`:u32 [required], `cardsystem`:str [conditional], `reader`:str [conditional], `from`:str [conditional], `protocol`:str [conditional] — fields/complete |
 | 28 | `subscriptionSpeed` | 9 | yes | yes | `subscriptionId`:u32 [unknown], `speed`:s32 [unknown] — fields/partial |
-| 29 | `timeshiftStatus` | 9 | yes | yes | `subscriptionId`:u32 [unknown], `full`:u32 [unknown], `shift`:s64 [unknown], `start`:s64 [unknown], `end`:s64 [unknown] — fields/partial |
+| 29 | `timeshiftStatus` | 9 | yes | yes | `subscriptionId`:u32 [required], `full`:u32 [required], `shift`:s64 [required], `start`:s64 [conditional], `end`:s64 [conditional], `speed`:s32 [optional] — fields/partial |
 | 30 | `subscriptionSkip` | 9 | yes | yes | `subscriptionId`:u32 [unknown], `absolute`:u32 [unknown], `error`:u32 [unknown], `time`:s64 [unknown], `size`:s64 [unknown] — fields/partial |
 
 ## Documentation limitations (source-derived)

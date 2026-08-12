@@ -38,13 +38,87 @@ class HtspServerMessageTest {
                 "subscriptionGrace",
                 "subscriptionStatus",
                 "signalStatus",
+                "descrambleInfo",
                 "subscriptionSpeed",
                 "timeshiftStatus",
                 "subscriptionSkip",
             ),
             typedHtspServerMessageCatalogForTest().map { it.first },
         )
-        assertEquals(29, typedHtspServerMessageCatalogForTest().map { it.second }.toSet().size)
+        assertEquals(30, typedHtspServerMessageCatalogForTest().map { it.second }.toSet().size)
+    }
+
+    @Test
+    fun descrambleInfoDecodesTheCompletePinnedShapeStrictly() {
+        val message = decodeMessage(
+            mapOf(
+                "method" to "descrambleInfo",
+                "subscriptionId" to 0xffff_ffffL,
+                "pid" to 0L,
+                "caid" to 0xffff_ffffL,
+                "provid" to 1L,
+                "ecmtime" to 2L,
+                "hops" to 3L,
+                "cardsystem" to "system",
+                "reader" to "reader",
+                "from" to "source",
+                "protocol" to "protocol",
+            ),
+        ) as HtspDescrambleInfoMessage
+
+        assertEquals(0xffff_ffffL, message.subscriptionId)
+        assertEquals(0L, message.pid)
+        assertEquals(0xffff_ffffL, message.conditionalAccessId)
+        assertEquals(1L, message.providerId)
+        assertEquals(2L, message.ecmTime)
+        assertEquals(3L, message.hopCount)
+        assertEquals("system", message.cardSystem)
+        assertEquals("reader", message.reader)
+        assertEquals("source", message.source)
+        assertEquals("protocol", message.protocol)
+
+        val required = listOf("subscriptionId", "pid", "caid", "provid", "ecmtime", "hops")
+        val complete = minimalFixture("descrambleInfo")
+        required.forEach { field -> assertMalformed(complete - field) }
+        listOf(
+            complete + ("subscriptionId" to -1L),
+            complete + ("pid" to 0x1_0000_0000L),
+            complete + ("caid" to 1),
+            complete + ("provid" to "1"),
+            complete + ("ecmtime" to null),
+            complete + ("hops" to -1L),
+            complete + ("cardsystem" to 1L),
+            complete + ("reader" to null),
+            complete + ("from" to listOf("source")),
+            complete + ("protocol" to false),
+        ).forEach(::assertMalformed)
+    }
+
+    @Test
+    fun subscriptionStreamMetadataAndTimeshiftSpeedDecodeStrictlyAndDefensively() {
+        val metadata = byteArrayOf(1, 2, 3)
+        val start = decodeMessage(
+            mapOf(
+                "method" to "subscriptionStart",
+                "subscriptionId" to 1L,
+                "streams" to listOf(mapOf("index" to 2L, "type" to "H264", "meta" to metadata)),
+            ),
+        ) as HtspSubscriptionStartMessage
+        metadata[0] = 9
+        assertTrue(start.streams!!.single().codecMetadata!!.toByteArray().contentEquals(byteArrayOf(1, 2, 3)))
+
+        val timeshift = decodeMessage(
+            minimalFixture("timeshiftStatus") + ("speed" to Int.MIN_VALUE.toLong()),
+        ) as HtspTimeshiftStatusMessage
+        assertEquals(Int.MIN_VALUE, timeshift.speed)
+        assertEquals(null, (decodeMessage(minimalFixture("timeshiftStatus")) as HtspTimeshiftStatusMessage).speed)
+
+        assertMalformed(
+            minimalFixture("subscriptionStart") +
+                ("streams" to listOf(mapOf("index" to 0L, "type" to "H264", "meta" to "bad"))),
+        )
+        assertMalformed(minimalFixture("timeshiftStatus") + ("speed" to Int.MAX_VALUE.toLong() + 1L))
+        assertMalformed(minimalFixture("timeshiftStatus") + ("speed" to 1))
     }
 
     @Test
@@ -987,6 +1061,15 @@ class HtspServerMessageTest {
             "method" to method,
             "subscriptionId" to 1L,
             "feStatus" to "LOCK",
+        )
+        "descrambleInfo" -> mapOf(
+            "method" to method,
+            "subscriptionId" to 1L,
+            "pid" to 2L,
+            "caid" to 3L,
+            "provid" to 4L,
+            "ecmtime" to 5L,
+            "hops" to 6L,
         )
         "subscriptionSpeed" -> mapOf("method" to method, "subscriptionId" to 1L, "speed" to -100L)
         "timeshiftStatus" -> mapOf(

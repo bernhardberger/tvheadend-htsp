@@ -35,6 +35,50 @@ import kotlin.concurrent.thread
 class HtspServiceLifecycleTest {
 
     @Test
+    fun descrambleInfoRemainsExcludedFromTypedTransportPublication() {
+        FakeHtspServer(respondToHello = true).use { server ->
+            val service = service()
+            runBlocking {
+                service.connect(HtspEndpoint("127.0.0.1", server.port))
+                val typedEvents = CopyOnWriteArrayList<HtspTransportEvent>()
+                val collector = launch(start = CoroutineStart.UNDISPATCHED) {
+                    service.events.collect { typedEvents += it }
+                }
+
+                server.sendServerMessage(
+                    "descrambleInfo",
+                    mapOf(
+                        "subscriptionId" to 1L,
+                        "pid" to 2L,
+                        "caid" to 3L,
+                        "provid" to 4L,
+                        "ecmtime" to 5L,
+                        "hops" to 6L,
+                    ),
+                )
+                server.sendServerMessage("subscriptionStatus", mapOf("subscriptionId" to 1L))
+
+                withTimeout(1_000L) {
+                    while (typedEvents.none {
+                            it is HtspTransportEvent.ServerMessage &&
+                                it.message is HtspSubscriptionStatusMessage
+                        }) {
+                        delay(1L)
+                    }
+                }
+                assertTrue(
+                    typedEvents.none {
+                        it is HtspTransportEvent.ServerMessage &&
+                            it.message is HtspDescrambleInfoMessage
+                    },
+                )
+                collector.cancelAndJoin()
+                service.disconnect()
+            }
+        }
+    }
+
+    @Test
     fun identicalEndpointReusesOnlyTheSameLiveConnectionIdentity() {
         FakeHtspServer(respondToHello = true).use { server ->
             val service = service()
@@ -2061,12 +2105,12 @@ class HtspServiceLifecycleTest {
 
         val port: Int = serverSocket.localPort
 
-        fun sendServerMessage(method: String) {
+        fun sendServerMessage(method: String, fields: Map<String, Any?> = emptyMap()) {
             val output = checkNotNull(clientSocket).getOutputStream()
             HtspCodec.writeMessage(
                 output = output,
                 method = method,
-                fields = emptyMap(),
+                fields = fields,
             )
             output.flush()
         }

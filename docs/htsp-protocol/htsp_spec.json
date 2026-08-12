@@ -448,6 +448,16 @@
           "order": 2
         },
         {
+          "name": "meta",
+          "type": "bin",
+          "direction": "nested",
+          "presence": "optional",
+          "evidence": "official protocol v17 nested stream codec metadata",
+          "confidence": "mechanical+annotated",
+          "minVersion": 17,
+          "order": 3
+        },
+        {
           "name": "language",
           "type": "str",
           "direction": "nested",
@@ -455,7 +465,7 @@
           "evidence": "official subscriptionStart stream field",
           "confidence": "mechanical+annotated",
           "minVersion": null,
-          "order": 3
+          "order": 4
         },
         {
           "name": "composition_id",
@@ -465,7 +475,7 @@
           "evidence": "official protocol v5 stream metadata",
           "confidence": "mechanical+annotated",
           "minVersion": 5,
-          "order": 4
+          "order": 5
         },
         {
           "name": "ancillary_id",
@@ -475,7 +485,7 @@
           "evidence": "official protocol v5 stream metadata",
           "confidence": "mechanical+annotated",
           "minVersion": 5,
-          "order": 5
+          "order": 6
         },
         {
           "name": "width",
@@ -485,7 +495,7 @@
           "evidence": "official subscriptionStart stream field",
           "confidence": "mechanical+annotated",
           "minVersion": null,
-          "order": 6
+          "order": 7
         },
         {
           "name": "height",
@@ -495,7 +505,7 @@
           "evidence": "official subscriptionStart stream field",
           "confidence": "mechanical+annotated",
           "minVersion": null,
-          "order": 7
+          "order": 8
         },
         {
           "name": "duration",
@@ -505,7 +515,7 @@
           "evidence": "official subscriptionStart stream field",
           "confidence": "mechanical+annotated",
           "minVersion": null,
-          "order": 8
+          "order": 9
         },
         {
           "name": "aspect_num",
@@ -515,7 +525,7 @@
           "evidence": "official protocol v5 stream metadata",
           "confidence": "mechanical+annotated",
           "minVersion": 5,
-          "order": 9
+          "order": 10
         },
         {
           "name": "aspect_den",
@@ -525,7 +535,7 @@
           "evidence": "official protocol v5 stream metadata",
           "confidence": "mechanical+annotated",
           "minVersion": 5,
-          "order": 10
+          "order": 11
         },
         {
           "name": "audio_type",
@@ -535,7 +545,7 @@
           "evidence": "official protocol v11 stream metadata",
           "confidence": "mechanical+annotated",
           "minVersion": 11,
-          "order": 11
+          "order": 12
         },
         {
           "name": "audio_version",
@@ -545,7 +555,7 @@
           "evidence": "current decoder vocabulary; introduction unknown",
           "confidence": "mechanical+annotated",
           "minVersion": null,
-          "order": 12
+          "order": 13
         },
         {
           "name": "channels",
@@ -555,7 +565,7 @@
           "evidence": "official protocol v5 stream metadata",
           "confidence": "mechanical+annotated",
           "minVersion": 5,
-          "order": 13
+          "order": 14
         },
         {
           "name": "rate",
@@ -565,7 +575,7 @@
           "evidence": "official protocol v5 stream metadata",
           "confidence": "mechanical+annotated",
           "minVersion": 5,
-          "order": 14
+          "order": 15
         },
         {
           "name": "rds_uecp",
@@ -575,7 +585,7 @@
           "evidence": "current decoder vocabulary; introduction unknown",
           "confidence": "mechanical+annotated",
           "minVersion": null,
-          "order": 15
+          "order": 16
         }
       ]
     },
@@ -9123,8 +9133,8 @@
           "name": "subscriptionId",
           "type": "u32",
           "direction": "message",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_u32",
+          "presence": "required",
+          "evidence": "bounded pinned htsp_subscription_descramble_info emitter topology",
           "confidence": "mechanical+annotated",
           "minVersion": 24,
           "notes": [
@@ -9136,9 +9146,9 @@
           "name": "pid",
           "type": "u32",
           "direction": "message",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_u32",
-          "confidence": "mechanical",
+          "presence": "required",
+          "evidence": "bounded pinned htsp_subscription_descramble_info emitter topology",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 2
         },
@@ -9146,9 +9156,9 @@
           "name": "caid",
           "type": "u32",
           "direction": "message",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_u32",
-          "confidence": "mechanical",
+          "presence": "required",
+          "evidence": "bounded pinned htsp_subscription_descramble_info emitter topology",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 3
         },
@@ -9156,9 +9166,9 @@
           "name": "provid",
           "type": "u32",
           "direction": "message",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_u32",
-          "confidence": "mechanical",
+          "presence": "required",
+          "evidence": "bounded pinned htsp_subscription_descramble_info emitter topology",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 4
         },
@@ -9166,9 +9176,9 @@
           "name": "ecmtime",
           "type": "u32",
           "direction": "message",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_u32",
-          "confidence": "mechanical",
+          "presence": "required",
+          "evidence": "bounded pinned htsp_subscription_descramble_info emitter topology",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 5
         },
@@ -9176,9 +9186,9 @@
           "name": "hops",
           "type": "u32",
           "direction": "message",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_u32",
-          "confidence": "mechanical",
+          "presence": "required",
+          "evidence": "bounded pinned htsp_subscription_descramble_info emitter topology",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 6
         },
@@ -9186,47 +9196,51 @@
           "name": "cardsystem",
           "type": "str",
           "direction": "message",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_str",
-          "confidence": "mechanical",
+          "presence": "conditional",
+          "evidence": "bounded pinned htsp_subscription_descramble_info emitter topology",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
+          "condition": "emitted when di->cardsystem is non-empty",
           "order": 7
         },
         {
           "name": "reader",
           "type": "str",
           "direction": "message",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_str",
-          "confidence": "mechanical",
+          "presence": "conditional",
+          "evidence": "bounded pinned htsp_subscription_descramble_info emitter topology",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
+          "condition": "emitted when di->reader is non-empty",
           "order": 8
         },
         {
           "name": "from",
           "type": "str",
           "direction": "message",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_str",
-          "confidence": "mechanical",
+          "presence": "conditional",
+          "evidence": "bounded pinned htsp_subscription_descramble_info emitter topology",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
+          "condition": "emitted when di->from is non-empty",
           "order": 9
         },
         {
           "name": "protocol",
           "type": "str",
           "direction": "message",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_str",
-          "confidence": "mechanical",
+          "presence": "conditional",
+          "evidence": "bounded pinned htsp_subscription_descramble_info emitter topology",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
+          "condition": "emitted when di->protocol is non-empty",
           "order": 10
         }
       ],
       "messageShape": {
         "kind": "fields",
-        "completeness": "partial",
-        "evidence": "bounded handler/helper extraction plus exact-pin annotations"
+        "completeness": "complete",
+        "evidence": "bounded pinned htsp_subscription_descramble_info gates and complete emitter topology"
       },
       "docStatus": "missing-from-official-server-message-page",
       "notes": [
@@ -9234,7 +9248,7 @@
       ],
       "sdk": {
         "handled": true,
-        "typedServerMessage": false
+        "typedServerMessage": true
       }
     },
     {
@@ -9282,9 +9296,9 @@
           "name": "subscriptionId",
           "type": "u32",
           "direction": "message",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_u32",
-          "confidence": "mechanical",
+          "presence": "required",
+          "evidence": "bounded timeshiftStatus emitter",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 1
         },
@@ -9292,9 +9306,9 @@
           "name": "full",
           "type": "u32",
           "direction": "message",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_u32",
-          "confidence": "mechanical",
+          "presence": "required",
+          "evidence": "bounded timeshiftStatus emitter",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 2
         },
@@ -9302,9 +9316,9 @@
           "name": "shift",
           "type": "s64",
           "direction": "message",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_s64",
-          "confidence": "mechanical",
+          "presence": "required",
+          "evidence": "bounded timeshiftStatus emitter",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 3
         },
@@ -9312,21 +9326,33 @@
           "name": "start",
           "type": "s64",
           "direction": "message",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_s64",
-          "confidence": "mechanical",
+          "presence": "conditional",
+          "evidence": "bounded timeshiftStatus PTS branch",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
+          "condition": "emitted when pts_start is set",
           "order": 4
         },
         {
           "name": "end",
           "type": "s64",
           "direction": "message",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_s64",
-          "confidence": "mechanical",
+          "presence": "conditional",
+          "evidence": "bounded timeshiftStatus PTS branch",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
+          "condition": "emitted when pts_end is set",
           "order": 5
+        },
+        {
+          "name": "speed",
+          "type": "s32",
+          "direction": "message",
+          "presence": "optional",
+          "evidence": "reviewed compatibility field absent from the pinned emitter",
+          "confidence": "mechanical+annotated",
+          "minVersion": null,
+          "order": 6
         }
       ],
       "messageShape": {
@@ -9714,7 +9740,7 @@
     },
     "typedServerMessages": {
       "catalog": "docs/htsp-protocol/generate_typed_server_messages.py",
-      "count": 29,
+      "count": 30,
       "messages": [
         {
           "name": "channelAdd",
@@ -9847,6 +9873,11 @@
           "minVersion": null
         },
         {
+          "name": "descrambleInfo",
+          "messageType": "HtspDescrambleInfoMessage",
+          "minVersion": 24
+        },
+        {
           "name": "subscriptionSpeed",
           "messageType": "HtspSubscriptionSpeedMessage",
           "minVersion": 9
@@ -9906,7 +9937,7 @@
       "outgoingClientMethods": 39,
       "handledServerMessages": 30,
       "typedClientRequests": 39,
-      "typedServerMessages": 29,
+      "typedServerMessages": 30,
       "notes": [
         "referenced counts exact string literals in SDK production main sources",
         "outgoing counts method = \"...\" / method = CONST assignments only",

@@ -1452,6 +1452,36 @@ public final class at/bernhardberger/tvheadend/htsp/HtspControlEvent$ServerMessa
 	public fun toString ()Ljava/lang/String;
 }
 
+public final class at/bernhardberger/tvheadend/htsp/HtspDescrambleInfoMessage : at/bernhardberger/tvheadend/htsp/HtspServerMessage {
+	public fun <init> (JJJJJJLjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V
+	public synthetic fun <init> (JJJJJJLjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()J
+	public final fun component10 ()Ljava/lang/String;
+	public final fun component2 ()J
+	public final fun component3 ()J
+	public final fun component4 ()J
+	public final fun component5 ()J
+	public final fun component6 ()J
+	public final fun component7 ()Ljava/lang/String;
+	public final fun component8 ()Ljava/lang/String;
+	public final fun component9 ()Ljava/lang/String;
+	public final fun copy (JJJJJJLjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Lat/bernhardberger/tvheadend/htsp/HtspDescrambleInfoMessage;
+	public static synthetic fun copy$default (Lat/bernhardberger/tvheadend/htsp/HtspDescrambleInfoMessage;JJJJJJLjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Lat/bernhardberger/tvheadend/htsp/HtspDescrambleInfoMessage;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getCardSystem ()Ljava/lang/String;
+	public final fun getConditionalAccessId ()J
+	public final fun getEcmTime ()J
+	public final fun getHopCount ()J
+	public final fun getPid ()J
+	public final fun getProtocol ()Ljava/lang/String;
+	public final fun getProviderId ()J
+	public final fun getReader ()Ljava/lang/String;
+	public final fun getSource ()Ljava/lang/String;
+	public final fun getSubscriptionId ()J
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
 public final class at/bernhardberger/tvheadend/htsp/HtspDvrConfig {
 	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V
 	public final fun component1 ()Ljava/lang/String;
@@ -2376,7 +2406,8 @@ public final class at/bernhardberger/tvheadend/htsp/HtspSubscriptionStopMessage 
 }
 
 public final class at/bernhardberger/tvheadend/htsp/HtspSubscriptionStream {
-	public fun <init> (JLjava/lang/String;Ljava/lang/String;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;)V
+	public fun <init> (JLjava/lang/String;Ljava/lang/String;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Lat/bernhardberger/tvheadend/htsp/HtspBinary;)V
+	public synthetic fun <init> (JLjava/lang/String;Ljava/lang/String;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Lat/bernhardberger/tvheadend/htsp/HtspBinary;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public final fun component1 ()J
 	public final fun component10 ()Ljava/lang/Long;
 	public final fun component11 ()Ljava/lang/Long;
@@ -2384,6 +2415,7 @@ public final class at/bernhardberger/tvheadend/htsp/HtspSubscriptionStream {
 	public final fun component13 ()Ljava/lang/Long;
 	public final fun component14 ()Ljava/lang/Long;
 	public final fun component15 ()Ljava/lang/Long;
+	public final fun component16 ()Lat/bernhardberger/tvheadend/htsp/HtspBinary;
 	public final fun component2 ()Ljava/lang/String;
 	public final fun component3 ()Ljava/lang/String;
 	public final fun component4 ()Ljava/lang/Long;
@@ -2392,8 +2424,8 @@ public final class at/bernhardberger/tvheadend/htsp/HtspSubscriptionStream {
 	public final fun component7 ()Ljava/lang/Long;
 	public final fun component8 ()Ljava/lang/Long;
 	public final fun component9 ()Ljava/lang/Long;
-	public final fun copy (JLjava/lang/String;Ljava/lang/String;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;)Lat/bernhardberger/tvheadend/htsp/HtspSubscriptionStream;
-	public static synthetic fun copy$default (Lat/bernhardberger/tvheadend/htsp/HtspSubscriptionStream;JLjava/lang/String;Ljava/lang/String;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;ILjava/lang/Object;)Lat/bernhardberger/tvheadend/htsp/HtspSubscriptionStream;
+	public final fun copy (JLjava/lang/String;Ljava/lang/String;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Lat/bernhardberger/tvheadend/htsp/HtspBinary;)Lat/bernhardberger/tvheadend/htsp/HtspSubscriptionStream;
+	public static synthetic fun copy$default (Lat/bernhardberger/tvheadend/htsp/HtspSubscriptionStream;JLjava/lang/String;Ljava/lang/String;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Lat/bernhardberger/tvheadend/htsp/HtspBinary;ILjava/lang/Object;)Lat/bernhardberger/tvheadend/htsp/HtspSubscriptionStream;
 	public fun equals (Ljava/lang/Object;)Z
 	public final fun getAncillaryId ()Ljava/lang/Long;
 	public final fun getAspectDenominator ()Ljava/lang/Long;
@@ -2401,6 +2433,7 @@ public final class at/bernhardberger/tvheadend/htsp/HtspSubscriptionStream {
 	public final fun getAudioType ()Ljava/lang/Long;
 	public final fun getAudioVersion ()Ljava/lang/Long;
 	public final fun getChannelCount ()Ljava/lang/Long;
+	public final fun getCodecMetadata ()Lat/bernhardberger/tvheadend/htsp/HtspBinary;
 	public final fun getCompositionId ()Ljava/lang/Long;
 	public final fun getFrameDuration ()Ljava/lang/Long;
 	public final fun getHeight ()Ljava/lang/Long;
@@ -2541,18 +2574,21 @@ public final class at/bernhardberger/tvheadend/htsp/HtspTimerecEntryUpdateMessag
 }
 
 public final class at/bernhardberger/tvheadend/htsp/HtspTimeshiftStatusMessage : at/bernhardberger/tvheadend/htsp/HtspServerMessage {
-	public fun <init> (JJJLjava/lang/Long;Ljava/lang/Long;)V
+	public fun <init> (JJJLjava/lang/Long;Ljava/lang/Long;Ljava/lang/Integer;)V
+	public synthetic fun <init> (JJJLjava/lang/Long;Ljava/lang/Long;Ljava/lang/Integer;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public final fun component1 ()J
 	public final fun component2 ()J
 	public final fun component3 ()J
 	public final fun component4 ()Ljava/lang/Long;
 	public final fun component5 ()Ljava/lang/Long;
-	public final fun copy (JJJLjava/lang/Long;Ljava/lang/Long;)Lat/bernhardberger/tvheadend/htsp/HtspTimeshiftStatusMessage;
-	public static synthetic fun copy$default (Lat/bernhardberger/tvheadend/htsp/HtspTimeshiftStatusMessage;JJJLjava/lang/Long;Ljava/lang/Long;ILjava/lang/Object;)Lat/bernhardberger/tvheadend/htsp/HtspTimeshiftStatusMessage;
+	public final fun component6 ()Ljava/lang/Integer;
+	public final fun copy (JJJLjava/lang/Long;Ljava/lang/Long;Ljava/lang/Integer;)Lat/bernhardberger/tvheadend/htsp/HtspTimeshiftStatusMessage;
+	public static synthetic fun copy$default (Lat/bernhardberger/tvheadend/htsp/HtspTimeshiftStatusMessage;JJJLjava/lang/Long;Ljava/lang/Long;Ljava/lang/Integer;ILjava/lang/Object;)Lat/bernhardberger/tvheadend/htsp/HtspTimeshiftStatusMessage;
 	public fun equals (Ljava/lang/Object;)Z
 	public final fun getEnd ()Ljava/lang/Long;
 	public final fun getFull ()J
 	public final fun getShift ()J
+	public final fun getSpeed ()Ljava/lang/Integer;
 	public final fun getStart ()Ljava/lang/Long;
 	public final fun getSubscriptionId ()J
 	public fun hashCode ()I

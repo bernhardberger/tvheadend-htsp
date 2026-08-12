@@ -1319,6 +1319,63 @@ def require_autorec_server_message_source_facts(builder: str) -> None:
             raise ValueError(f"htsp_build_autorecentry {name} presence topology drift")
 
 
+DESCRAMBLE_INFO_FIELDS: tuple[tuple[str, str, str], ...] = (
+    ("subscriptionId", "u32", "required"),
+    ("pid", "u32", "required"),
+    ("caid", "u32", "required"),
+    ("provid", "u32", "required"),
+    ("ecmtime", "u32", "required"),
+    ("hops", "u32", "required"),
+    ("cardsystem", "str", "conditional"),
+    ("reader", "str", "conditional"),
+    ("from", "str", "conditional"),
+    ("protocol", "str", "conditional"),
+)
+
+
+def require_descramble_info_source_facts(body: str) -> None:
+    required_fragments = (
+        "if (hs->hs_htsp->htsp_version < 24)\n    return;",
+        "if (htsp_anonymize(hs->hs_htsp))\n    return;",
+        'htsmsg_add_str(m, "method", "descrambleInfo");',
+        'htsmsg_add_u32(m, "subscriptionId", hs->hs_sid);',
+        'htsmsg_add_u32(m, "pid", di->pid);',
+        'htsmsg_add_u32(m, "caid", di->caid);',
+        'htsmsg_add_u32(m, "provid", di->provid);',
+        'htsmsg_add_u32(m, "ecmtime", di->ecmtime);',
+        'htsmsg_add_u32(m, "hops", di->hops);',
+        'if (di->cardsystem[0])\n    htsmsg_add_str(m, "cardsystem", di->cardsystem);',
+        'if (di->reader[0])\n    htsmsg_add_str(m, "reader", di->reader);',
+        'if (di->from[0])\n    htsmsg_add_str(m, "from", di->from);',
+        'if (di->protocol[0])\n    htsmsg_add_str(m, "protocol", di->protocol);',
+    )
+    for fragment in required_fragments:
+        if fragment not in body:
+            raise ValueError(f"descrambleInfo source topology drift: {fragment!r}")
+    extracted = [(field["name"], field["type"]) for field in extract_add_fields(body, ("m",))]
+    expected = [(name, wire_type) for name, wire_type, _presence in DESCRAMBLE_INFO_FIELDS]
+    if extracted != expected:
+        raise ValueError(f"descrambleInfo field inventory/order drift: {extracted!r}")
+
+
+def descramble_info_fields() -> list[dict[str, Any]]:
+    return [
+        exact_field(
+            name,
+            wire_type,
+            "message",
+            presence,
+            "bounded pinned htsp_subscription_descramble_info emitter topology",
+            condition=(
+                f"emitted when di->{name if name != 'from' else 'from'} is non-empty"
+                if presence == "conditional"
+                else None
+            ),
+        )
+        for name, wire_type, presence in DESCRAMBLE_INFO_FIELDS
+    ]
+
+
 RECORDING_RULE_METHODS = (
     "addAutorecEntry",
     "updateAutorecEntry",
@@ -5865,6 +5922,18 @@ def derive_server_messages(server_c: str) -> list[dict[str, Any]]:
                 exact_field("Pdrops", "u32", "message", "required", "bounded queueStatus emitter"),
                 exact_field("Idrops", "u32", "message", "required", "bounded queueStatus emitter"),
             ]
+        elif name == "descrambleInfo":
+            require_descramble_info_source_facts(dedicated[name])
+            fields = descramble_info_fields()
+        elif name == "timeshiftStatus":
+            fields = [
+                exact_field("subscriptionId", "u32", "message", "required", "bounded timeshiftStatus emitter"),
+                exact_field("full", "u32", "message", "required", "bounded timeshiftStatus emitter"),
+                exact_field("shift", "s64", "message", "required", "bounded timeshiftStatus emitter"),
+                exact_field("start", "s64", "message", "conditional", "bounded timeshiftStatus PTS branch", condition="emitted when pts_start is set"),
+                exact_field("end", "s64", "message", "conditional", "bounded timeshiftStatus PTS branch", condition="emitted when pts_end is set"),
+                exact_field("speed", "s32", "message", "optional", "reviewed compatibility field absent from the pinned emitter"),
+            ]
         elif name in {"eventAdd", "eventUpdate"}:
             require_event_builder_source_facts(server_c)
             fields = event_fields("message", partial_update=name == "eventUpdate")
@@ -5884,7 +5953,7 @@ def derive_server_messages(server_c: str) -> list[dict[str, Any]]:
         item["fields"] = fields
         item["messageShape"] = field_shape(
             fields,
-            "complete" if name in delete_catalog or name in {"muxpkt", "queueStatus"} else "partial",
+            "complete" if name in delete_catalog or name in {"muxpkt", "queueStatus", "descrambleInfo"} else "partial",
         )
         if name == "initialSyncCompleted":
             item["messageShape"] = {
@@ -5922,6 +5991,11 @@ def derive_server_messages(server_c: str) -> list[dict[str, Any]]:
                 ),
             }
         if name == "descrambleInfo":
+            item["messageShape"] = {
+                "kind": "fields",
+                "completeness": "complete",
+                "evidence": "bounded pinned htsp_subscription_descramble_info gates and complete emitter topology",
+            }
             item["docStatus"] = "missing-from-official-server-message-page"
             item["notes"] = [
                 "Source returns early when htsp_version < 24 or anonymize is set."
@@ -6466,9 +6540,10 @@ def build_spec(
                 "kind": "object", "completeness": "partial",
                 "evidence": "official server-message field inventory with current decoder vocabulary; unknown minima remain null",
                 "fields": [
-                    exact_field("index", "u32", "nested", "required", "official subscriptionStart stream field"),
-                    exact_field("type", "str", "nested", "required", "official subscriptionStart stream field"),
-                    exact_field("language", "str", "nested", "optional", "official subscriptionStart stream field"),
+                     exact_field("index", "u32", "nested", "required", "official subscriptionStart stream field"),
+                     exact_field("type", "str", "nested", "required", "official subscriptionStart stream field"),
+                    exact_field("meta", "bin", "nested", "optional", "official protocol v17 nested stream codec metadata", min_version=17),
+                     exact_field("language", "str", "nested", "optional", "official subscriptionStart stream field"),
                     exact_field("composition_id", "u32", "nested", "optional", "official protocol v5 stream metadata", min_version=5),
                     exact_field("ancillary_id", "u32", "nested", "optional", "official protocol v5 stream metadata", min_version=5),
                     exact_field("width", "u32", "nested", "optional", "official subscriptionStart stream field"),
@@ -7440,6 +7515,28 @@ htsp_success(void)
 }
 """
     emitters = """
+static void htsp_subscription_descramble_info(htsp_subscription_t *hs, descramble_info_t *di) {
+  if (hs->hs_htsp->htsp_version < 24)
+    return;
+  if (htsp_anonymize(hs->hs_htsp))
+    return;
+  htsmsg_t *m = htsmsg_create_map();
+  htsmsg_add_str(m, "method", "descrambleInfo");
+  htsmsg_add_u32(m, "subscriptionId", hs->hs_sid);
+  htsmsg_add_u32(m, "pid", di->pid);
+  htsmsg_add_u32(m, "caid", di->caid);
+  htsmsg_add_u32(m, "provid", di->provid);
+  htsmsg_add_u32(m, "ecmtime", di->ecmtime);
+  htsmsg_add_u32(m, "hops", di->hops);
+  if (di->cardsystem[0])
+    htsmsg_add_str(m, "cardsystem", di->cardsystem);
+  if (di->reader[0])
+    htsmsg_add_str(m, "reader", di->reader);
+  if (di->from[0])
+    htsmsg_add_str(m, "from", di->from);
+  if (di->protocol[0])
+    htsmsg_add_str(m, "protocol", di->protocol);
+}
 static void emit_all(void) {
   htsmsg_t *m;
   m = htsmsg_create_map(); htsmsg_add_str(m, "method", "channelDelete"); htsmsg_add_u32(m, "channelId", 1);
@@ -8005,6 +8102,36 @@ def self_test() -> None:
     check("muxpkt-no-queue-counters", not ({"packets", "bytes", "Bdrops", "Pdrops", "Idrops"} & mux_fields.keys()))
     check("queueStatus-counters", {"packets", "bytes", "Bdrops", "Pdrops", "Idrops"} <= queue_fields.keys())
     check("queueStatus-no-mux-fields", not ({"stream", "dts", "pts", "duration", "payload"} & queue_fields.keys()))
+    descramble = messages_by_name["descrambleInfo"]
+    check(
+        "descrambleInfo-committed-exact-contract",
+        descramble.get("minVersion") == 24
+        and [(field["name"], field["type"], field["presence"]) for field in descramble["fields"]]
+        == list(DESCRAMBLE_INFO_FIELDS)
+        and descramble.get("messageShape", {}).get("completeness") == "complete"
+        and descramble.get("docStatus") == "missing-from-official-server-message-page"
+        and descramble.get("sdk") == {"handled": True, "typedServerMessage": True},
+    )
+    stream_fields = committed.get("shapes", {}).get("stream", {}).get("fields", [])
+    check(
+        "subscription-stream-nested-meta",
+        (
+            lambda field: field is not None and (
+                field.get("type"), field.get("direction"), field.get("presence"),
+                field.get("minVersion"), field.get("evidence"),
+            ) == (
+                "bin", "nested", "optional", 17,
+                "official protocol v17 nested stream codec metadata",
+            )
+        )(next((field for field in stream_fields if field.get("name") == "meta"), None)),
+    )
+    timeshift_fields = messages_by_name["timeshiftStatus"]["fields"]
+    check(
+        "timeshiftStatus-optional-signed-speed",
+        ("speed", "s32", "optional") in [
+            (field["name"], field["type"], field["presence"]) for field in timeshift_fields
+        ],
+    )
     get_epg_object = methods_by_name["getEpgObject"]
     check(
         "getEpgObject-finite-complete",
@@ -8257,7 +8384,7 @@ def self_test() -> None:
             live_coverage["serverMessages"]["handledCount"],
             live_coverage["typedClientRequests"]["count"],
             live_coverage["typedServerMessages"]["count"],
-        ) == (39, 39, 30, 39, 29)
+        ) == (39, 39, 30, 39, 30)
         and "api" in live_coverage["clientMethods"]["referenced"]
         and "api" in live_coverage["clientMethods"]["outgoingRequests"]
         and "getEpgObject" in live_coverage["clientMethods"]["referenced"]
@@ -8559,6 +8686,37 @@ def self_test() -> None:
     htsp_py = "HTSP_PROTO_VERSION = 33\nclass HTSPClient(object):\n    def hello(self):\n        self.send('hello')\n"
     epg_c, epg_h, lang_str_c, string_list_c = _minimal_epg_sources()
     api_c, api_idnode_c, htsmsg_h, htsmsg_binary_c = _minimal_api_sources()
+
+    descramble_body = find_function_body(server_c, "htsp_subscription_descramble_info") or ""
+    try:
+        require_descramble_info_source_facts(descramble_body)
+        check("descrambleInfo-source-positive-fixture", True)
+    except ValueError as exc:
+        check("descrambleInfo-source-positive-fixture", False, str(exc))
+    descramble_mutations = (
+        ("version-gate", "htsp_version < 24", "htsp_version < 23"),
+        ("anonymize-gate", "htsp_anonymize(hs->hs_htsp)", "htsp_anonymize(NULL)"),
+        ("method", '"method", "descrambleInfo"', '"method", "descrambleStatus"'),
+        ("subscriptionId", '"subscriptionId", hs->hs_sid', '"subscription", hs->hs_sid'),
+        ("pid", '"pid", di->pid', '"pid", di->caid'),
+        ("caid", '"caid", di->caid', '"caid", di->pid'),
+        ("provid", '"provid", di->provid', '"provid", di->pid'),
+        ("ecmtime", '"ecmtime", di->ecmtime', '"ecmtime", di->pid'),
+        ("hops", '"hops", di->hops', '"hops", di->pid'),
+        ("cardsystem-condition", "di->cardsystem[0]", "di->cardsystem[1]"),
+        ("reader-condition", "di->reader[0]", "di->reader[1]"),
+        ("from-condition", "di->from[0]", "di->from[1]"),
+        ("protocol-condition", "di->protocol[0]", "di->protocol[1]"),
+    )
+    for label, old, new in descramble_mutations:
+        mutated = descramble_body.replace(old, new, 1)
+        check(f"descrambleInfo-{label}-mutation-target", mutated != descramble_body)
+        try:
+            require_descramble_info_source_facts(mutated)
+        except ValueError:
+            pass
+        else:
+            check(f"descrambleInfo-{label}-mutation-rejected", False)
 
     try:
         require_api_bridge_source_facts(

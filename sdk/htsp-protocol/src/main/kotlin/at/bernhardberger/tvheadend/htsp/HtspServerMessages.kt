@@ -628,6 +628,7 @@ public data class HtspSubscriptionStream(
     public val channelCount: Long?,
     public val sampleRate: Long?,
     public val rdsUecp: Long?,
+    public val codecMetadata: HtspBinary? = null,
 ) {
     init {
         requireServerU32("streamIndex", streamIndex)
@@ -724,6 +725,31 @@ public data class HtspSignalStatusMessage(
     }
 }
 
+/** Complete bounded descrambling observations emitted by pinned HTSP v24+ source. */
+public data class HtspDescrambleInfoMessage(
+    public val subscriptionId: Long,
+    public val pid: Long,
+    public val conditionalAccessId: Long,
+    public val providerId: Long,
+    public val ecmTime: Long,
+    public val hopCount: Long,
+    public val cardSystem: String? = null,
+    public val reader: String? = null,
+    public val source: String? = null,
+    public val protocol: String? = null,
+) : HtspServerMessage {
+    init {
+        listOf(
+            subscriptionId,
+            pid,
+            conditionalAccessId,
+            providerId,
+            ecmTime,
+            hopCount,
+        ).forEach { requireServerU32("descramble field", it) }
+    }
+}
+
 public data class HtspSubscriptionSpeedMessage(
     public val subscriptionId: Long,
     public val speed: Int,
@@ -739,6 +765,7 @@ public data class HtspTimeshiftStatusMessage(
     public val shift: Long,
     public val start: Long?,
     public val end: Long?,
+    public val speed: Int? = null,
 ) : HtspServerMessage {
     init {
         requireServerU32("subscriptionId", subscriptionId)
@@ -1178,6 +1205,21 @@ internal fun decodeSignalStatus(fields: Map<String, Any?>): HtspServerMessage = 
 )
 
 @JvmSynthetic
+internal fun decodeDescrambleInfo(fields: Map<String, Any?>): HtspServerMessage =
+    HtspDescrambleInfoMessage(
+        subscriptionId = fields.requiredServerU32("subscriptionId"),
+        pid = fields.requiredServerU32("pid"),
+        conditionalAccessId = fields.requiredServerU32("caid"),
+        providerId = fields.requiredServerU32("provid"),
+        ecmTime = fields.requiredServerU32("ecmtime"),
+        hopCount = fields.requiredServerU32("hops"),
+        cardSystem = fields.optionalServerString("cardsystem"),
+        reader = fields.optionalServerString("reader"),
+        source = fields.optionalServerString("from"),
+        protocol = fields.optionalServerString("protocol"),
+    )
+
+@JvmSynthetic
 internal fun decodeSubscriptionSpeed(fields: Map<String, Any?>): HtspServerMessage =
     HtspSubscriptionSpeedMessage(
         subscriptionId = fields.requiredServerU32("subscriptionId"),
@@ -1192,6 +1234,7 @@ internal fun decodeTimeshiftStatus(fields: Map<String, Any?>): HtspServerMessage
         shift = fields.requiredServerS64("shift"),
         start = fields.optionalServerS64("start"),
         end = fields.optionalServerS64("end"),
+        speed = fields.optionalServerS32("speed"),
     )
 
 @JvmSynthetic
@@ -1272,6 +1315,7 @@ private fun decodeSubscriptionStream(fields: Map<*, *>): HtspSubscriptionStream 
     channelCount = fields.optionalServerU32("channels"),
     sampleRate = fields.optionalServerU32("rate"),
     rdsUecp = fields.optionalServerU32("rds_uecp"),
+    codecMetadata = fields.optionalServerBinary("meta")?.let(::HtspBinary),
 )
 
 private fun decodeSubscriptionSourceInfo(fields: Map<*, *>): HtspSubscriptionSourceInfo =

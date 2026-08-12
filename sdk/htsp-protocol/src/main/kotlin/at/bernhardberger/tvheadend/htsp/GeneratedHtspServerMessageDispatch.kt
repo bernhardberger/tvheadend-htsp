@@ -35,6 +35,7 @@ private val typedHtspServerMessageCatalog: List<TypedHtspServerMessageCatalogEnt
     TypedHtspServerMessageCatalogEntry("subscriptionGrace", "HtspSubscriptionGraceMessage", 13),
     TypedHtspServerMessageCatalogEntry("subscriptionStatus", "HtspSubscriptionStatusMessage", null),
     TypedHtspServerMessageCatalogEntry("signalStatus", "HtspSignalStatusMessage", null),
+    TypedHtspServerMessageCatalogEntry("descrambleInfo", "HtspDescrambleInfoMessage", 24),
     TypedHtspServerMessageCatalogEntry("subscriptionSpeed", "HtspSubscriptionSpeedMessage", 9),
     TypedHtspServerMessageCatalogEntry("timeshiftStatus", "HtspTimeshiftStatusMessage", 9),
     TypedHtspServerMessageCatalogEntry("subscriptionSkip", "HtspSubscriptionSkipMessage", 9),
@@ -78,6 +79,7 @@ public fun decodeHtspServerMessage(fields: Map<String, Any?>): HtspServerMessage
         "subscriptionGrace" -> decodeKnownServerMessage { decodeSubscriptionGrace(fields) }
         "subscriptionStatus" -> decodeKnownServerMessage { decodeSubscriptionStatus(fields) }
         "signalStatus" -> decodeKnownServerMessage { decodeSignalStatus(fields) }
+        "descrambleInfo" -> decodeKnownServerMessage { decodeDescrambleInfo(fields) }
         "subscriptionSpeed" -> decodeKnownServerMessage { decodeSubscriptionSpeed(fields) }
         "timeshiftStatus" -> decodeKnownServerMessage { decodeTimeshiftStatus(fields) }
         "subscriptionSkip" -> decodeKnownServerMessage { decodeSubscriptionSkip(fields) }
