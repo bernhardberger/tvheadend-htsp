@@ -370,6 +370,29 @@ public data class SubscribeResponse(
     public val timeshiftPeriodSeconds: Long?,
 )
 
+/** Exact endpoint invocation transported through the provisional HTSP JSON API bridge. */
+@HtspJsonApi
+public data class ApiRequest(
+    public val path: String,
+    public val args: HtspApiObject? = null,
+) : HtspRequest<ApiResponse>(
+    method = "api",
+    access = HtspAccess.ACCESS_ANONYMOUS,
+    minimumProtocolVersion = 24,
+)
+
+/** Finite successful reply topology for the provisional HTSP JSON API bridge. */
+@HtspJsonApi
+public sealed interface ApiResponse {
+    /** A successful map or list payload. */
+    @HtspJsonApi
+    public data class Payload(public val value: HtspApiContainer) : ApiResponse
+
+    /** A successful callback that supplied no response payload. */
+    @HtspJsonApi
+    public data object NoPayload : ApiResponse
+}
+
 /** Exact current-source `hello` request. Empty client names remain representable. */
 public data class HelloRequest(
     public val htspVersion: Long,
@@ -1035,9 +1058,12 @@ public data class FileSeekRequest(
     }
 }
 
+@OptIn(HtspJsonApi::class)
 internal object `HtspRequestCodecs-internal` {
     @JvmSynthetic
     internal fun encode(request: HtspRequest<*>): LinkedHashMap<String, Any?> = when (request) {
+        is ApiRequest -> linkedMapOf<String, Any?>("path" to request.path)
+            .putIfNotNull("args", request.args?.toWireValue())
         is HelloRequest -> linkedMapOf(
             "htspversion" to request.htspVersion,
             "clientname" to request.clientName,
@@ -1300,6 +1326,7 @@ internal object `HtspRequestCodecs-internal` {
         fields: Map<String, Any?>,
         protocolVersion: Int,
     ): R = when (request) {
+        is ApiRequest -> decodeApiResponse(fields)
         is HelloRequest -> HelloResponse(
             htspVersion = fields.requiredU32("htspversion"),
             serverName = fields.observedString("servername"),
@@ -1453,6 +1480,14 @@ internal object `HtspRequestCodecs-internal` {
         )
     }
 
+    private fun decodeApiResponse(fields: Map<String, Any?>): ApiResponse {
+        val permitted = setOf("seq", "noaccess", "response")
+        if (fields.keys.any { it !in permitted }) malformedReply()
+        if (!fields.containsKey("response")) return ApiResponse.NoPayload
+        val value = fields["response"].toApiValue()
+        return ApiResponse.Payload(value as? HtspApiContainer ?: malformedReply())
+    }
+
     private fun decodeEpgQuery(
         request: EpgQueryRequest,
         fields: Map<String, Any?>,
@@ -1551,6 +1586,39 @@ private fun LinkedHashMap<String, Any?>.putRecordingRuleChannel(
 }
 
 private fun Boolean.toWireFlag(): Long = if (this) 1L else 0L
+
+@OptIn(HtspJsonApi::class)
+private fun HtspApiValue.toWireValue(): Any = when (this) {
+    is HtspApiString -> value
+    is HtspApiLong -> value
+    is HtspApiBoolean -> value
+    is HtspApiBinary -> bytes()
+    is HtspApiUuid -> HtspWireUuid(bytes())
+    is HtspApiObject -> LinkedHashMap<String, Any>(size).also { result ->
+        forEachEntry { name, value -> result[name] = value.toWireValue() }
+    }
+    is HtspApiList -> ArrayList<Any>(size).also { result ->
+        forEachValue { value -> result += value.toWireValue() }
+    }
+}
+
+@OptIn(HtspJsonApi::class)
+private fun Any?.toApiValue(): HtspApiValue = when (this) {
+    is String -> HtspApiString(this)
+    is Long -> HtspApiLong(this)
+    is Boolean -> HtspApiBoolean(this)
+    is ByteArray -> HtspApiBinary(this)
+    is HtspWireUuid -> HtspApiUuid(bytes().also { if (it.size != 16) malformedReply() })
+    is Map<*, *> -> {
+        val result = ArrayList<Pair<String, HtspApiValue>>(size)
+        forEach { (key, value) ->
+            result += (key as? String ?: malformedReply()) to value.toApiValue()
+        }
+        HtspApiObject.create(result.toTypedArray())
+    }
+    is List<*> -> HtspApiList.create(map { value -> value.toApiValue() }.toTypedArray())
+    else -> malformedReply()
+}
 
 private fun AddAutorecEntryRequest.validateAutorecU32Fields() {
     validateAutorecU32Fields(

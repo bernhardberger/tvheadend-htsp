@@ -127,7 +127,7 @@ internal object `HtspCodec-internal` {
             TYPE_BIN -> data.readExactlySoft(dataLen, what = "bin")
             TYPE_DBL -> readDoubleLE(data, dataLen)
             TYPE_BOOL -> readBool(data, dataLen)
-            TYPE_UUID -> data.readExactlySoft(dataLen, what = "uuid")
+            TYPE_UUID -> HtspWireUuid(data.readExactlySoft(dataLen, what = "uuid"))
             else -> data.readExactlySoft(dataLen, what = "unknown")
         }
 
@@ -362,6 +362,7 @@ internal object `HtspCodec-internal` {
         return when (value) {
             is String -> TYPE_STR to value.toByteArray(StandardCharsets.UTF_8)
             is ByteArray -> TYPE_BIN to value
+            is HtspWireUuid -> TYPE_UUID to value.bytes()
             is Boolean -> TYPE_BOOL to byteArrayOf(if (value) 1 else 0)
             is Double -> TYPE_DBL to writeDoubleLE(value)
             is Float -> TYPE_DBL to writeDoubleLE(value.toDouble())

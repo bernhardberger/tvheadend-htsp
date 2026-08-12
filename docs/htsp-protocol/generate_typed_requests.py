@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate the reviewed 38-request HTSP convenience/catalog surface."""
+"""Generate the reviewed 39-request HTSP convenience/catalog surface."""
 
 from __future__ import annotations
 
@@ -278,6 +278,10 @@ CATALOG: tuple[Entry, ...] = (
         parameter("offset", "Long"),
         parameter("whence", "FileSeekWhence?", "null"),
     )),
+    Entry("api", "ApiRequest", "ApiResponse", "ACCESS_ANONYMOUS", 24, (
+        parameter("path", "String"),
+        parameter("args", "HtspApiObject?", "null"),
+    )),
     Entry("hello", "HelloRequest", "HelloResponse", "ACCESS_ANONYMOUS", None, (
         parameter("htspVersion", "Long"),
         parameter("clientName", "String"),
@@ -355,7 +359,9 @@ def render_extension(
     parameters: tuple[Parameter, ...],
     request_arguments: tuple[str, ...],
 ) -> list[str]:
-    lines = [f"public suspend fun HtspConnection.{entry.method}("]
+    lines = (["@HtspJsonApi"] if entry.method == "api" else []) + [
+        f"public suspend fun HtspConnection.{entry.method}("
+    ]
     for value in parameters:
         default = "" if value.default is None else f" = {value.default}"
         lines.append(f"    {value.name}: {value.type}{default},")
@@ -425,11 +431,11 @@ def validate_catalog() -> None:
         "getDvrCutpoints", "getTicket", "subscribe", "unsubscribe",
         "subscriptionChangeWeight", "subscriptionSeek", "subscriptionSkip", "subscriptionSpeed",
         "subscriptionLive", "subscriptionFilterStream", "fileOpen", "fileRead", "fileClose",
-        "fileStat", "fileSeek", "hello", "authenticate",
+        "fileStat", "fileSeek", "api", "hello", "authenticate",
     )
     methods = tuple(entry.method for entry in CATALOG)
-    if methods != expected or len(set(methods)) != 38:
-        raise ValueError("typed request catalog must contain exactly the reviewed 38 methods")
+    if methods != expected or len(set(methods)) != 39:
+        raise ValueError("typed request catalog must contain exactly the reviewed 39 methods")
     epg_query = CATALOG[7]
     if epg_query != Entry(
         "epgQuery", "EpgQueryRequest", "EpgQueryResponse", "ACCESS_HTSP_STREAMING", 4, (
@@ -493,7 +499,13 @@ def validate_catalog() -> None:
         )),
     ):
         raise ValueError("file operation catalog entries must preserve the reviewed constructor contract")
-    handshake = CATALOG[36:38]
+    api_bridge = CATALOG[36]
+    if api_bridge != Entry("api", "ApiRequest", "ApiResponse", "ACCESS_ANONYMOUS", 24, (
+        parameter("path", "String"),
+        parameter("args", "HtspApiObject?", "null"),
+    )):
+        raise ValueError("api catalog entry must preserve the reviewed constructor contract")
+    handshake = CATALOG[37:39]
     if handshake != (
         Entry("hello", "HelloRequest", "HelloResponse", "ACCESS_ANONYMOUS", None, (
             parameter("htspVersion", "Long"),
@@ -502,9 +514,6 @@ def validate_catalog() -> None:
         Entry("authenticate", "AuthenticateRequest", "AuthenticateResponse", "ACCESS_ANONYMOUS", None),
     ):
         raise ValueError("handshake catalog entries must preserve the reviewed constructor contract")
-    forbidden = {"api"}
-    if forbidden.intersection(methods):
-        raise ValueError("typed request catalog contains an excluded method")
     if tuple(overload.method for overload in SELECTOR_OVERLOADS) != (
         "addDvrEntry", "addDvrEntry", "subscribe", "subscribe",
         "subscriptionSeek", "subscriptionSeek", "subscriptionSkip", "subscriptionSkip",
@@ -520,13 +529,13 @@ def self_test() -> None:
     if first != second:
         raise AssertionError("generator output is not deterministic")
     extension_lines = [line for line in first.splitlines() if line.startswith("public suspend fun")]
-    if len(extension_lines) != 48:
-        raise AssertionError("generated extensions must contain 38 canonical and 10 selector overloads")
+    if len(extension_lines) != 49:
+        raise AssertionError("generated extensions must contain 39 canonical and 10 selector overloads")
     if "    request:" in first:
         raise AssertionError("generated extensions must not accept request objects")
-    if first.count("timeoutMs: Long = 5_000L") != 48:
+    if first.count("timeoutMs: Long = 5_000L") != 49:
         raise AssertionError("every generated extension must expose the default request timeout")
-    if first.count("expectedGeneration: HtspConnectionGeneration? = null") != 48:
+    if first.count("expectedGeneration: HtspConnectionGeneration? = null") != 49:
         raise AssertionError("every generated extension must expose the optional generation fence")
     required_signatures = (
         "public suspend fun HtspConnection.getEvents(\n    channelId: Long? = null,",
@@ -540,6 +549,7 @@ def self_test() -> None:
         "public suspend fun HtspConnection.fileRead(\n    id: Long,\n    size: Long,\n    offset: Long? = null,",
         "public suspend fun HtspConnection.fileClose(\n    id: Long,",
         "public suspend fun HtspConnection.fileSeek(\n    id: Long,\n    offset: Long,\n    whence: FileSeekWhence? = null,",
+        "@HtspJsonApi\npublic suspend fun HtspConnection.api(\n    path: String,\n    args: HtspApiObject? = null,",
         "    fullText: Boolean? = null,\n    mergeText: Boolean? = null,\n    full: Long? = null,\n    minDurationSeconds: Long? = null,\n    maxDurationSeconds: Long? = null,",
         "public suspend fun HtspConnection.addDvrEntry(\n    selector: AddDvrEntrySelector,",
         "    selector: AddDvrEntrySelector,\n    configName: String? = null,\n    language: String? = null,\n    title: String? = null,",
@@ -569,16 +579,18 @@ def self_test() -> None:
     missing = [signature for signature in required_signatures if signature not in first]
     if missing:
         raise AssertionError(f"generated extension signatures are incomplete: {missing}")
-    if first.count("    call(") != 48:
+    if first.count("    call(") != 49:
         raise AssertionError("every generated extension must contain exactly one call delegation")
-    if first.count("        timeoutMs = timeoutMs,") != 48:
+    if first.count("        timeoutMs = timeoutMs,") != 49:
         raise AssertionError("every generated extension must forward timeout exactly once")
-    if first.count("        expectedGeneration = expectedGeneration,") != 48:
+    if first.count("        expectedGeneration = expectedGeneration,") != 49:
         raise AssertionError("every generated extension must forward generation exactly once")
     if first.count("request = SubscriptionSkipRequest(") != 3:
         raise AssertionError("subscriptionSkip must emit one canonical and two selector overload request constructions")
     if first.count("request = HelloRequest(") != 1 or first.count("request = AuthenticateRequest(),") != 1:
         raise AssertionError("handshake extensions must each construct exactly one finite request")
+    if first.count("request = ApiRequest(") != 1 or first.count("@HtspJsonApi") != 1:
+        raise AssertionError("api extension must construct one finite request and require its opt-in")
     with tempfile.TemporaryDirectory() as directory:
         path = Path(directory) / "generated.kt"
         path.write_text(first, encoding="utf-8")

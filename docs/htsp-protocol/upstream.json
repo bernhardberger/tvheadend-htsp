@@ -36,6 +36,22 @@
     "src/string_list.c": {
       "gitBlobSha1": "cfe0fa03415abf649c94737d599561556b5e0a76",
       "bytes": 4655
+    },
+    "src/api.c": {
+      "gitBlobSha1": "d86fbda01312b97c451242ee24c01a384744141b",
+      "bytes": 4440
+    },
+    "src/api/api_idnode.c": {
+      "gitBlobSha1": "1f0f9b697feb30e16ce9b61b4693eb2090b5ee49",
+      "bytes": 18834
+    },
+    "src/htsmsg.h": {
+      "gitBlobSha1": "82787d4cc4d18436653ab0c19fc2e49ee930a013",
+      "bytes": 14265
+    },
+    "src/htsmsg_binary.c": {
+      "gitBlobSha1": "48a1bf985ed554df473adb3a9251b479dfcdaf26",
+      "bytes": 7750
     }
   },
   "docsUrls": {

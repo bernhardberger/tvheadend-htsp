@@ -574,6 +574,7 @@ class HtspProtocolCoreTest {
     }
 
     @Test
+    @OptIn(HtspJsonApi::class)
     fun catalogContainsExactlyTheAssignedTypedRequests() {
         assertEquals(
             listOf(
@@ -613,6 +614,7 @@ class HtspProtocolCoreTest {
                 "fileClose",
                 "fileStat",
                 "fileSeek",
+                "api",
                 "hello",
                 "authenticate",
             ),
@@ -623,7 +625,7 @@ class HtspProtocolCoreTest {
                 List(13) { HtspAccess.ACCESS_HTSP_RECORDER } +
                 List(9) { HtspAccess.ACCESS_HTSP_STREAMING } +
                 List(5) { HtspAccess.ACCESS_HTSP_RECORDER } +
-                List(2) { HtspAccess.ACCESS_ANONYMOUS },
+                List(3) { HtspAccess.ACCESS_ANONYMOUS },
             typedHtspRequestCatalog.map { it.access },
         )
         val requests: List<HtspRequest<*>> = listOf(
@@ -663,6 +665,7 @@ class HtspProtocolCoreTest {
             FileCloseRequest(0L),
             FileStatRequest(0L),
             FileSeekRequest(0L, 0L),
+            ApiRequest(""),
             HelloRequest(0L, ""),
             AuthenticateRequest(),
         )

@@ -39,6 +39,22 @@
       "src/string_list.c": {
         "gitBlobSha1": "cfe0fa03415abf649c94737d599561556b5e0a76",
         "bytes": 4655
+      },
+      "src/api.c": {
+        "gitBlobSha1": "d86fbda01312b97c451242ee24c01a384744141b",
+        "bytes": 4440
+      },
+      "src/api/api_idnode.c": {
+        "gitBlobSha1": "1f0f9b697feb30e16ce9b61b4693eb2090b5ee49",
+        "bytes": 18834
+      },
+      "src/htsmsg.h": {
+        "gitBlobSha1": "82787d4cc4d18436653ab0c19fc2e49ee930a013",
+        "bytes": 14265
+      },
+      "src/htsmsg_binary.c": {
+        "gitBlobSha1": "48a1bf985ed554df473adb3a9251b479dfcdaf26",
+        "bytes": 7750
       }
     },
     "docsUrls": {
@@ -990,62 +1006,112 @@
       "minVersionConfidence": "annotated",
       "requestFields": [
         {
-          "name": "args",
-          "type": "msg",
+          "name": "path",
+          "type": "str",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_map",
-          "confidence": "mechanical",
+          "presence": "required",
+          "evidence": "htsp_method_api reads the exact required string path and api_exec rejects a null subsystem",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 1
         },
         {
-          "name": "path",
-          "type": "str",
+          "name": "args",
+          "type": "msg",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_str",
-          "confidence": "mechanical",
+          "presence": "optional",
+          "evidence": "htsp_method_api reads an optional map and substitutes an empty map only when omitted",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 2
         }
       ],
       "replyFields": [
         {
-          "name": "noaccess",
-          "type": "u32",
-          "direction": "reply",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_u32",
-          "confidence": "mechanical",
-          "minVersion": null,
-          "order": 1
-        },
-        {
           "name": "response",
           "type": "msg",
           "direction": "reply",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_msg",
-          "confidence": "mechanical",
+          "presence": "alternative",
+          "evidence": "successful api_exec callbacks may return a map or list, attached unchanged as response",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
+          "condition": "present only when a successful endpoint callback supplies a map or list payload",
+          "order": 1
+        },
+        {
+          "name": "noaccess",
+          "type": "u32",
+          "direction": "reply",
+          "presence": "alternative",
+          "evidence": "htsp_method_api maps EPERM and EACCES to noaccess=1",
+          "confidence": "mechanical+annotated",
+          "minVersion": null,
+          "condition": "present alone for endpoint access denial",
           "order": 2
         }
       ],
       "requestShape": {
         "kind": "fields",
-        "completeness": "partial",
-        "evidence": "bounded handler/helper extraction plus exact-pin annotations"
+        "completeness": "complete",
+        "evidence": "bounded htsp_method_api accepts exact required path and optional args map only"
       },
       "replyShape": {
-        "kind": "fields",
-        "completeness": "partial",
-        "evidence": "bounded handler/helper extraction plus exact-pin annotations"
+        "kind": "alternative",
+        "completeness": "complete",
+        "evidence": "bounded htsp_method_api complete response-map/list, noaccess, error-envelope, and no-payload topology",
+        "alternatives": [
+          "success with response map",
+          "success with response list",
+          "EPERM or EACCES: noaccess=1",
+          "ENOENT or ENOSYS, or successful callback with null response: no method payload",
+          "other error: shared global error envelope"
+        ]
       },
+      "acceptedVocabulary": {
+        "sdkAdmitted": [
+          "map",
+          "list",
+          "str",
+          "s64",
+          "bin",
+          "bool",
+          "uuid"
+        ],
+        "upstreamExcluded": [
+          "dbl"
+        ],
+        "roundTripEvidence": {
+          "source": "src/htsmsg_binary.c",
+          "decode": [
+            "map",
+            "list",
+            "str",
+            "s64",
+            "bin",
+            "bool",
+            "uuid"
+          ],
+          "serialize": [
+            "map",
+            "list",
+            "str",
+            "s64",
+            "bin",
+            "bool",
+            "uuid"
+          ]
+        },
+        "uuidWidthBytes": 16
+      },
+      "notes": [
+        "Dispatch requires ACCESS_ANONYMOUS and the method is annotated as available since HTSP version 24.",
+        "Unknown endpoint and successful no-response callbacks are intentionally indistinguishable as a successful no-payload HTSP reply.",
+        "The response is an opaque closed HTSP value tree; endpoint schemas and compatibility are not negotiated by HTSP."
+      ],
       "sdk": {
-        "referenced": false,
-        "outgoingRequest": false,
-        "typedRequest": false
+        "referenced": true,
+        "outgoingRequest": true,
+        "typedRequest": true
       }
     },
     {
@@ -9362,6 +9428,7 @@
         "addAutorecEntry",
         "addDvrEntry",
         "addTimerecEntry",
+        "api",
         "authenticate",
         "cancelDvrEntry",
         "deleteAutorecEntry",
@@ -9398,11 +9465,12 @@
         "updateDvrEntry",
         "updateTimerecEntry"
       ],
-      "referencedCount": 38,
+      "referencedCount": 39,
       "outgoingRequests": [
         "addAutorecEntry",
         "addDvrEntry",
         "addTimerecEntry",
+        "api",
         "authenticate",
         "cancelDvrEntry",
         "deleteAutorecEntry",
@@ -9439,14 +9507,12 @@
         "updateDvrEntry",
         "updateTimerecEntry"
       ],
-      "outgoingRequestCount": 38,
-      "unreferenced": [
-        "api"
-      ]
+      "outgoingRequestCount": 39,
+      "unreferenced": []
     },
     "typedClientRequests": {
       "catalog": "docs/htsp-protocol/generate_typed_requests.py",
-      "count": 38,
+      "count": 39,
       "methods": [
         {
           "name": "getProfiles",
@@ -9627,6 +9693,11 @@
           "name": "fileSeek",
           "accessMask": "ACCESS_HTSP_RECORDER",
           "methodMinVersion": 8
+        },
+        {
+          "name": "api",
+          "accessMask": "ACCESS_ANONYMOUS",
+          "methodMinVersion": 24
         },
         {
           "name": "hello",
@@ -9831,15 +9902,15 @@
       "unhandled": []
     },
     "metrics": {
-      "referencedClientMethods": 38,
-      "outgoingClientMethods": 38,
+      "referencedClientMethods": 39,
+      "outgoingClientMethods": 39,
       "handledServerMessages": 30,
-      "typedClientRequests": 38,
+      "typedClientRequests": 39,
       "typedServerMessages": 29,
       "notes": [
         "referenced counts exact string literals in SDK production main sources",
         "outgoing counts method = \"...\" / method = CONST assignments only",
-        "api remains the sole unreferenced client method under the exact-literal metric",
+        "all pinned client methods are referenced and outgoing under the exact-literal metric",
         "handled server messages use the same exact-literal metric",
         "typed request coverage comes only from the reviewed deterministic generator catalog",
         "typed server-message coverage comes only from its separate reviewed deterministic generator catalog"

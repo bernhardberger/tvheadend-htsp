@@ -51,6 +51,7 @@ internal val typedHtspRequestCatalog: List<TypedHtspRequestCatalogEntry> = listO
     TypedHtspRequestCatalogEntry("fileClose", "FileCloseRequest", "FileCloseResponse", HtspAccess.ACCESS_HTSP_RECORDER, 8),
     TypedHtspRequestCatalogEntry("fileStat", "FileStatRequest", "FileStatResponse", HtspAccess.ACCESS_HTSP_RECORDER, 8),
     TypedHtspRequestCatalogEntry("fileSeek", "FileSeekRequest", "FileSeekResponse", HtspAccess.ACCESS_HTSP_RECORDER, 8),
+    TypedHtspRequestCatalogEntry("api", "ApiRequest", "ApiResponse", HtspAccess.ACCESS_ANONYMOUS, 24),
     TypedHtspRequestCatalogEntry("hello", "HelloRequest", "HelloResponse", HtspAccess.ACCESS_ANONYMOUS, null),
     TypedHtspRequestCatalogEntry("authenticate", "AuthenticateRequest", "AuthenticateResponse", HtspAccess.ACCESS_ANONYMOUS, null),
 )
@@ -972,6 +973,22 @@ public suspend fun HtspConnection.fileSeek(
             id = id,
             offset = offset,
             whence = whence,
+        ),
+        timeoutMs = timeoutMs,
+        expectedGeneration = expectedGeneration,
+    )
+
+@HtspJsonApi
+public suspend fun HtspConnection.api(
+    path: String,
+    args: HtspApiObject? = null,
+    timeoutMs: Long = 5_000L,
+    expectedGeneration: HtspConnectionGeneration? = null,
+): HtspResult<ApiResponse> =
+    call(
+        request = ApiRequest(
+            path = path,
+            args = args,
         ),
         timeoutMs = timeoutMs,
         expectedGeneration = expectedGeneration,

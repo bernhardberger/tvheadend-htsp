@@ -97,6 +97,7 @@ EXPECTED_TYPED_CLIENT_REQUESTS: tuple[tuple[str, str, int | None], ...] = (
     ("fileClose", "ACCESS_HTSP_RECORDER", 8),
     ("fileStat", "ACCESS_HTSP_RECORDER", 8),
     ("fileSeek", "ACCESS_HTSP_RECORDER", 8),
+    ("api", "ACCESS_ANONYMOUS", 24),
     ("hello", "ACCESS_ANONYMOUS", None),
     ("authenticate", "ACCESS_ANONYMOUS", None),
 )
@@ -258,6 +259,10 @@ EXPECTED_FILES = {
     "src/epg.h": {"gitBlobSha1": "cce9c09d25612f1abc892c7a0071dca9481030e9", "bytes": 22374},
     "src/lang_str.c": {"gitBlobSha1": "c0cfbe016938472778ef6aec0e6e0b829a0abd31", "bytes": 8481},
     "src/string_list.c": {"gitBlobSha1": "cfe0fa03415abf649c94737d599561556b5e0a76", "bytes": 4655},
+    "src/api.c": {"gitBlobSha1": "d86fbda01312b97c451242ee24c01a384744141b", "bytes": 4440},
+    "src/api/api_idnode.c": {"gitBlobSha1": "1f0f9b697feb30e16ce9b61b4693eb2090b5ee49", "bytes": 18834},
+    "src/htsmsg.h": {"gitBlobSha1": "82787d4cc4d18436653ab0c19fc2e49ee930a013", "bytes": 14265},
+    "src/htsmsg_binary.c": {"gitBlobSha1": "48a1bf985ed554df473adb3a9251b479dfcdaf26", "bytes": 7750},
 }
 EXPECTED_DOCS_URLS = {
     "communication": "https://docs.tvheadend.org/documentation/development/htsp/communication",
@@ -270,6 +275,16 @@ EXPECTED_SCAN_ROOTS = [
     "sdk/htsp/src/main",
     "sdk/playback-media3/src/main",
 ]
+EXPECTED_API_ACCEPTED_VOCABULARY = {
+    "sdkAdmitted": ["map", "list", "str", "s64", "bin", "bool", "uuid"],
+    "upstreamExcluded": ["dbl"],
+    "roundTripEvidence": {
+        "source": "src/htsmsg_binary.c",
+        "decode": ["map", "list", "str", "s64", "bin", "bool", "uuid"],
+        "serialize": ["map", "list", "str", "s64", "bin", "bool", "uuid"],
+    },
+    "uuidWidthBytes": 16,
+}
 SYSTEM_TIME_LIMITATION_ID = "getSysTime-time-type-source-doc-mismatch"
 CHANNEL_SERVICE_LIMITATION_ID = "channel-service-fields-underdocumented"
 CHANNEL_ID_STR_EVIDENCE = (
@@ -990,7 +1005,7 @@ def validate_exact_upstream(data: Any, label: str) -> list[str]:
         errors.append(f"{label}.htspProtoVersion does not match immutable pin")
     files = data.get("files")
     if not isinstance(files, dict) or list(files) != list(EXPECTED_FILES):
-        errors.append(f"{label}.files must be the exact ordered seven-file key set")
+        errors.append(f"{label}.files must be the exact ordered eleven-file key set")
     else:
         for relative, expected in EXPECTED_FILES.items():
             meta = files.get(relative)
@@ -1113,7 +1128,7 @@ def validate_spec(spec: dict[str, Any], upstream: dict[str, Any] | None = None) 
             "name", "handler", "accessMask", "minVersion", "minVersionConfidence",
             "requestFields", "replyFields", "requestShape", "replyShape", "sdk",
         }
-        allowed_method_keys = required_method_keys | {"docStatus", "notes"}
+        allowed_method_keys = required_method_keys | {"docStatus", "notes", "acceptedVocabulary"}
         if not required_method_keys <= set(method) or not set(method) <= allowed_method_keys:
             errors.append(f"{name}: method keys do not match schema")
         errors.extend(_validate_version_metadata(name, method))
@@ -1261,6 +1276,51 @@ def validate_spec(spec: dict[str, Any], upstream: dict[str, Any] | None = None) 
         }
     ):
         errors.append("authenticate exact no-fields or alternative shape evidence drift")
+    api = method_map.get("api", {})
+    if (
+        api.get("handler") != "htsp_method_api"
+        or api.get("accessMask") != "ACCESS_ANONYMOUS"
+        or api.get("minVersion") != 24
+        or api.get("minVersionConfidence") != "annotated"
+    ):
+        errors.append("api must preserve exact handler, anonymous access, and annotated minimum v24")
+    if [
+        (field.get("name"), field.get("type"), field.get("presence"))
+        for field in api.get("requestFields", [])
+    ] != [("path", "str", "required"), ("args", "msg", "optional")]:
+        errors.append("api request must preserve exact required path and optional args map")
+    if [
+        (field.get("name"), field.get("type"), field.get("presence"))
+        for field in api.get("replyFields", [])
+    ] != [("response", "msg", "alternative"), ("noaccess", "u32", "alternative")]:
+        errors.append("api reply fields must preserve response and noaccess alternatives")
+    if api.get("requestShape") != {
+        "kind": "fields",
+        "completeness": "complete",
+        "evidence": "bounded htsp_method_api accepts exact required path and optional args map only",
+    }:
+        errors.append("api request shape must preserve its complete finite topology")
+    if api.get("replyShape") != {
+        "kind": "alternative",
+        "completeness": "complete",
+        "evidence": "bounded htsp_method_api complete response-map/list, noaccess, error-envelope, and no-payload topology",
+        "alternatives": [
+            "success with response map",
+            "success with response list",
+            "EPERM or EACCES: noaccess=1",
+            "ENOENT or ENOSYS, or successful callback with null response: no method payload",
+            "other error: shared global error envelope",
+        ],
+    }:
+        errors.append("api reply shape must preserve complete finite alternatives")
+    if api.get("notes") != [
+        "Dispatch requires ACCESS_ANONYMOUS and the method is annotated as available since HTSP version 24.",
+        "Unknown endpoint and successful no-response callbacks are intentionally indistinguishable as a successful no-payload HTSP reply.",
+        "The response is an opaque closed HTSP value tree; endpoint schemas and compatibility are not negotiated by HTSP.",
+    ]:
+        errors.append("api notes must preserve no-payload ambiguity and permanent non-modeling boundary")
+    if api.get("acceptedVocabulary") != EXPECTED_API_ACCEPTED_VOCABULARY:
+        errors.append("api accepted vocabulary evidence drift")
     expected_server_field_versions = {
         ("channelAdd", "channelIdStr"): 41,
         ("channelUpdate", "channelIdStr"): 41,
@@ -2082,8 +2142,8 @@ def validate_spec(spec: dict[str, Any], upstream: dict[str, Any] | None = None) 
             errors.append(f"{name}: typed catalog access mask disagrees with pinned method")
         if method.get("minVersion") != method_min_version:
             errors.append(f"{name}: typed catalog method minimum disagrees with pinned method")
-    if typed_count != len(typed_methods) or typed_count != 38:
-        errors.append("coverage typedClientRequests.count must match exactly 38 methods")
+    if typed_count != len(typed_methods) or typed_count != 39:
+        errors.append("coverage typedClientRequests.count must match exactly 39 methods")
     if typed_cov.get("catalog") != "docs/htsp-protocol/generate_typed_requests.py":
         errors.append("coverage typedClientRequests.catalog must name the reviewed generator")
     if typed_cov.get("meaning") != (
@@ -2160,13 +2220,13 @@ def validate_spec(spec: dict[str, Any], upstream: dict[str, Any] | None = None) 
         errors.append("outgoingRequestCount cannot exceed referencedCount")
 
     # Current repository acceptance targets (exact-literal metric).
-    if ref_count not in (None, 38):
+    if ref_count not in (None, 39):
         errors.append(
-            f"expected referenced client methods == 38 under current metric, got {ref_count}"
+            f"expected referenced client methods == 39 under current metric, got {ref_count}"
         )
-    if out_count not in (None, 38):
+    if out_count not in (None, 39):
         errors.append(
-            f"expected outgoing client methods == 38 under current metric, got {out_count}"
+            f"expected outgoing client methods == 39 under current metric, got {out_count}"
         )
     if handled_count not in (None, 30):
         errors.append(
@@ -2184,6 +2244,8 @@ def validate_spec(spec: dict[str, Any], upstream: dict[str, Any] | None = None) 
         errors.append("subscriptionSkip must be fresh referenced and outgoing production coverage")
     if "subscriptionSeek" not in referenced_list or "subscriptionSeek" not in outgoing_list:
         errors.append("subscriptionSeek must remain fresh referenced and outgoing production coverage")
+    if "api" not in referenced_list or "api" not in outgoing_list:
+        errors.append("api must be fresh referenced and outgoing production coverage")
     if "getSysTime" not in referenced_list or "getSysTime" not in outgoing_list:
         errors.append("getSysTime must be fresh referenced and outgoing production coverage")
     if "getChannel" not in referenced_list or "getChannel" not in outgoing_list:
@@ -2810,7 +2872,7 @@ def render_matrix(spec: dict[str, Any]) -> str:
     )
     lines.append(
         "- Distinguish **referenced** from **outgoing** and from typed coverage: "
-        "`api` remains unreferenced; both `subscriptionSeek` and `subscriptionSkip` "
+        "all pinned methods are now referenced and outgoing; both `subscriptionSeek` and `subscriptionSkip` "
         "are distinct outgoing wire names for one shared pinned handler."
     )
     lines.append(
@@ -2847,6 +2909,25 @@ def render_matrix(spec: dict[str, Any]) -> str:
     lines.append(
         f"| reply | {_fmt_fields(global_rpc.get('replyFields') or [])} |"
     )
+    lines.append("")
+    api = next(method for method in spec["clientMethods"] if method["name"] == "api")
+    vocabulary = api["acceptedVocabulary"]
+    round_trip = vocabulary["roundTripEvidence"]
+    lines.append("## HTSP JSON API accepted value vocabulary")
+    lines.append("")
+    lines.append(
+        "- SDK-admitted exact types: "
+        + ", ".join(f"`{value}`" for value in vocabulary["sdkAdmitted"])
+    )
+    lines.append(
+        "- Upstream type deliberately excluded by the SDK bridge: "
+        + ", ".join(f"`{value}`" for value in vocabulary["upstreamExcluded"])
+    )
+    lines.append(
+        f"- Round-trip source: `{round_trip['source']}`; decode and serialization "
+        "are both evidenced for every admitted type."
+    )
+    lines.append(f"- UUID width: **{vocabulary['uuidWidthBytes']} bytes**")
     lines.append("")
     lines.append("## Client → server methods")
     lines.append("")
@@ -3020,7 +3101,7 @@ def _derive_fresh_self_test_spec(fresh_mutator: Any = None) -> dict[str, Any]:
             if name == "subscriptionFilterStream"
             else f"htsp_method_{name}"
             if name in {
-                "hello", "authenticate", "getEvent", "getEvents", "getEpgObject", "epgQuery", "stopDvrEntry",
+                "hello", "authenticate", "api", "getEvent", "getEvents", "getEpgObject", "epgQuery", "stopDvrEntry",
                 "getDvrCutpoints", "getTicket", "fileOpen", "fileRead", "fileClose",
                 "fileStat", "fileSeek", *derive_module.RECORDING_RULE_METHODS,
             }
@@ -3065,10 +3146,19 @@ def _derive_fresh_self_test_spec(fresh_mutator: Any = None) -> dict[str, Any]:
             "src/lang_str.c": lang_str_c,
             "src/string_list.c": string_list_c,
         }
+        api_c, api_idnode_c, htsmsg_h, htsmsg_binary_c = derive_module._minimal_api_sources()
+        fixture_files.update({
+            "src/api.c": api_c,
+            "src/api/api_idnode.c": api_idnode_c,
+            "src/htsmsg.h": htsmsg_h,
+            "src/htsmsg_binary.c": htsmsg_binary_c,
+        })
         file_metadata: dict[str, dict[str, Any]] = {}
         for relative, content in fixture_files.items():
             data, digest, size = derive_module._pin_bytes_and_sha(content)
-            (root / relative).write_bytes(data)
+            target = root / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(data)
             file_metadata[relative] = {"gitBlobSha1": digest, "bytes": size}
         fixture_manifest = {
             "schemaVersion": 1,
@@ -3098,7 +3188,7 @@ def _derive_fresh_self_test_spec(fresh_mutator: Any = None) -> dict[str, Any]:
     candidate["clientMethods"] = [
         fresh_methods[item["name"]]
         if item["name"] in {
-            "hello", "authenticate", "getEvents", "epgQuery", "getEpgObject", "getTicket", "fileOpen", "fileRead",
+            "hello", "authenticate", "api", "getEvents", "epgQuery", "getEpgObject", "getTicket", "fileOpen", "fileRead",
             "fileClose", "fileStat", "fileSeek", "stopDvrEntry", "getDvrCutpoints",
             "addAutorecEntry", "updateAutorecEntry", "deleteAutorecEntry",
             "addTimerecEntry", "updateTimerecEntry", "deleteTimerecEntry",
@@ -3286,6 +3376,62 @@ def self_test() -> None:
             for method in fresh_handshake.values()
         ),
     )
+    fresh_api = next(method for method in good_spec["clientMethods"] if method["name"] == "api")
+    expected_api_vocabulary = EXPECTED_API_ACCEPTED_VOCABULARY
+    check(
+        "api-fresh-complete-contract",
+        fresh_api.get("handler") == "htsp_method_api"
+        and fresh_api.get("accessMask") == "ACCESS_ANONYMOUS"
+        and fresh_api.get("minVersion") == 24
+        and fresh_api.get("requestShape", {}).get("completeness") == "complete"
+        and fresh_api.get("replyShape", {}).get("completeness") == "complete"
+        and fresh_api.get("acceptedVocabulary") == expected_api_vocabulary
+        and fresh_api.get("sdk") == {
+            "referenced": True,
+            "outgoingRequest": True,
+            "typedRequest": True,
+        },
+    )
+    api_vocabulary_mutations = []
+    for section in ("sdkAdmitted",):
+        for value in expected_api_vocabulary[section]:
+            api_vocabulary_mutations.append(
+                (f"{section}-{value}", lambda method, section=section, value=value: method["acceptedVocabulary"][section].remove(value))
+            )
+    for section in ("decode", "serialize"):
+        for value in expected_api_vocabulary["roundTripEvidence"][section]:
+            api_vocabulary_mutations.append(
+                (f"roundtrip-{section}-{value}", lambda method, section=section, value=value: method["acceptedVocabulary"]["roundTripEvidence"][section].remove(value))
+            )
+    api_vocabulary_mutations.extend((
+        ("excluded-dbl", lambda method: method["acceptedVocabulary"].update({"upstreamExcluded": []})),
+        ("roundtrip-source", lambda method: method["acceptedVocabulary"]["roundTripEvidence"].update({"source": "src/htsmsg.h"})),
+        ("uuid-width", lambda method: method["acceptedVocabulary"].update({"uuidWidthBytes": 15})),
+    ))
+    for label, mutate in api_vocabulary_mutations:
+        mutated = json.loads(json.dumps(good_spec))
+        mutate(next(method for method in mutated["clientMethods"] if method["name"] == "api"))
+        mutation_errors = validate_spec(mutated)
+        check(
+            f"api-vocabulary-mutation-rejected-{label}",
+            "api accepted vocabulary evidence drift" in mutation_errors,
+            str(mutation_errors),
+        )
+    for label, mutate, expected in (
+        ("path-requiredness", lambda method: method["requestFields"][0].update({"presence": "optional"}), "api request must preserve exact required path and optional args map"),
+        ("args-type", lambda method: method["requestFields"][1].update({"type": "list"}), "api request must preserve exact required path and optional args map"),
+        ("reply-field", lambda method: method["replyFields"][0].update({"name": "payload"}), "api reply fields must preserve response and noaccess alternatives"),
+        ("reply-alternatives", lambda method: method["replyShape"].update({"alternatives": ["success"]}), "api reply shape must preserve complete finite alternatives"),
+        ("no-payload-note", lambda method: method.update({"notes": []}), "api notes must preserve no-payload ambiguity and permanent non-modeling boundary"),
+    ):
+        mutated = json.loads(json.dumps(good_spec))
+        mutate(next(method for method in mutated["clientMethods"] if method["name"] == "api"))
+        mutation_errors = validate_spec(mutated)
+        check(
+            f"api-report-mutation-rejected-{label}",
+            expected in mutation_errors,
+            str(mutation_errors),
+        )
     handshake_report_mutations = (
         (
             "hello-handler",
@@ -3466,8 +3612,8 @@ def self_test() -> None:
     )
     check(
         "getChannel-fresh-coverage",
-        good_spec["coverage"]["clientMethods"]["referencedCount"] == 38
-        and good_spec["coverage"]["clientMethods"]["outgoingRequestCount"] == 38
+        good_spec["coverage"]["clientMethods"]["referencedCount"] == 39
+        and good_spec["coverage"]["clientMethods"]["outgoingRequestCount"] == 39
         and "getChannel" in good_spec["coverage"]["clientMethods"]["outgoingRequests"],
     )
 
@@ -3501,8 +3647,8 @@ def self_test() -> None:
     )
     check(
         "getEvents-fresh-unchanged-coverage",
-        good_spec["coverage"]["clientMethods"]["referencedCount"] == 38
-        and good_spec["coverage"]["clientMethods"]["outgoingRequestCount"] == 38
+        good_spec["coverage"]["clientMethods"]["referencedCount"] == 39
+        and good_spec["coverage"]["clientMethods"]["outgoingRequestCount"] == 39
         and good_spec["coverage"]["serverMessages"]["handledCount"] == 30
         and "getEvents" in good_spec["coverage"]["clientMethods"]["outgoingRequests"],
     )
@@ -5093,7 +5239,7 @@ def self_test() -> None:
     check("reject-false-coverage-total", any("total" in e for e in err), str(err))
 
     bad = json.loads(json.dumps(good_spec))
-    bad["coverage"]["clientMethods"]["unreferenced"] = bad["coverage"]["clientMethods"]["unreferenced"][1:]
+    bad["coverage"]["clientMethods"]["unreferenced"] = ["api"]
     err = validate_spec(bad)
     check("reject-false-coverage-complement", any("complement" in e for e in err), str(err))
 
@@ -5201,13 +5347,13 @@ def self_test() -> None:
 
     # False completeness: invent an outgoing count beyond the accepted metric.
     bad = json.loads(json.dumps(good_spec))
-    bad["coverage"]["clientMethods"]["outgoingRequestCount"] = 39
-    bad["coverage"]["metrics"]["outgoingClientMethods"] = 39
+    bad["coverage"]["clientMethods"]["outgoingRequestCount"] = 40
+    bad["coverage"]["metrics"]["outgoingClientMethods"] = 40
     err = validate_spec(bad)
     check(
         "reject-false-all-called",
         any(
-            "outgoing client methods == 38" in e
+            "outgoing client methods == 39" in e
             or "outgoingRequestCount does not match" in e
             for e in err
         ),

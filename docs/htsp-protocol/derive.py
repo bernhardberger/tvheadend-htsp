@@ -2,7 +2,7 @@
 """Derive machine-readable HTSP v44 inventory from pinned TVHeadend sources.
 
 Standard-library only. Normal operation requires an explicit external source root
-and never touches the network. Optional --fetch-pinned downloads only the seven
+and never touches the network. Optional --fetch-pinned downloads only the eleven
 manifest-pinned raw files, verifies Git-blob SHA-1 and size, and never runs as
 part of repository checks.
 """
@@ -74,12 +74,38 @@ EXPECTED_FILES: dict[str, dict[str, Any]] = {
         "gitBlobSha1": "cfe0fa03415abf649c94737d599561556b5e0a76",
         "bytes": 4655,
     },
+    "src/api.c": {
+        "gitBlobSha1": "d86fbda01312b97c451242ee24c01a384744141b",
+        "bytes": 4440,
+    },
+    "src/api/api_idnode.c": {
+        "gitBlobSha1": "1f0f9b697feb30e16ce9b61b4693eb2090b5ee49",
+        "bytes": 18834,
+    },
+    "src/htsmsg.h": {
+        "gitBlobSha1": "82787d4cc4d18436653ab0c19fc2e49ee930a013",
+        "bytes": 14265,
+    },
+    "src/htsmsg_binary.c": {
+        "gitBlobSha1": "48a1bf985ed554df473adb3a9251b479dfcdaf26",
+        "bytes": 7750,
+    },
 }
 EXPECTED_DOCS_URLS = {
     "communication": "https://docs.tvheadend.org/documentation/development/htsp/communication",
     "clientToServer": "https://docs.tvheadend.org/documentation/development/htsp/client-to-server-rpc-methods",
     "serverToClient": "https://docs.tvheadend.org/documentation/development/htsp/server-to-client-methods",
     "protocolChanges": "https://docs.tvheadend.org/documentation/development/htsp/protocol-changes",
+}
+API_ACCEPTED_VOCABULARY: dict[str, Any] = {
+    "sdkAdmitted": ["map", "list", "str", "s64", "bin", "bool", "uuid"],
+    "upstreamExcluded": ["dbl"],
+    "roundTripEvidence": {
+        "source": "src/htsmsg_binary.c",
+        "decode": ["map", "list", "str", "s64", "bin", "bool", "uuid"],
+        "serialize": ["map", "list", "str", "s64", "bin", "bool", "uuid"],
+    },
+    "uuidWidthBytes": 16,
 }
 
 # Source-order inventory from pinned htsp_methods[] (must match exactly).
@@ -715,7 +741,7 @@ def validate_exact_manifest(data: Any) -> dict[str, Any]:
         raise ValueError("upstream HTSP version does not match the immutable pin")
     files = data.get("files")
     if not isinstance(files, dict) or list(files) != list(EXPECTED_FILES):
-        raise ValueError("upstream files must be the exact ordered seven-file pin")
+        raise ValueError("upstream files must be the exact ordered eleven-file pin")
     for relative, expected in EXPECTED_FILES.items():
         meta = files.get(relative)
         if not isinstance(meta, dict) or set(meta) != set(expected):
@@ -841,7 +867,7 @@ def fetch_pinned_sources(
     manifest: dict[str, Any],
     downloader: Any = _network_downloader,
 ) -> Path:
-    """Explicit opt-in fetch; verify all seven responses before exclusive writes."""
+    """Explicit opt-in fetch; verify all eleven responses before exclusive writes."""
     plan = validate_fetch_plan(dest_root, manifest)
     base = f"https://raw.githubusercontent.com/tvheadend/tvheadend/{EXPECTED_REVISION}"
     verified: list[tuple[Path, bytes]] = []
@@ -4490,7 +4516,131 @@ def helper_bodies(server_c: str, names: tuple[str, ...]) -> list[str]:
     return bodies
 
 
-def derive_client_methods(server_c: str) -> list[dict[str, Any]]:
+def require_api_bridge_source_facts(
+    server_c: str,
+    api_c: str,
+    api_idnode_c: str,
+    htsmsg_h: str,
+    htsmsg_binary_c: str,
+) -> None:
+    """Require the finite HTSP api bridge, API executor, and value-wire facts."""
+    table = {entry["name"]: entry for entry in parse_methods_table(server_c)}
+    api_dispatch = table.get("api")
+    if api_dispatch != {
+        "name": "api",
+        "handler": "htsp_method_api",
+        "accessMask": "ACCESS_ANONYMOUS",
+    }:
+        raise ValueError("api dispatch must remain htsp_method_api with ACCESS_ANONYMOUS")
+
+    handler = find_function_body(server_c, "htsp_method_api")
+    if handler is None:
+        raise ValueError("htsp_method_api body missing")
+    handler_patterns = (
+        (r'htsmsg_t\s*\*resp\s*=\s*NULL\s*,\s*\*ret\s*=\s*htsmsg_create_map\(\)', "api response starts null with an empty reply map"),
+        (r'args\s*=\s*htsmsg_get_map\(\s*in\s*,\s*"args"\s*\)', "api optional args must be read as a map"),
+        (r'remain\s*=\s*htsmsg_get_str\(\s*in\s*,\s*"path"\s*\)', "api path must be read as an exact string"),
+        (r'if\s*\(\s*args\s*==\s*NULL\s*\)\s*args\s*=\s*args2\s*=\s*htsmsg_create_map\(\)', "api omitted args must substitute an empty map"),
+        (r'r\s*=\s*api_exec\(\s*htsp->htsp_granted_access\s*,\s*remain\s*,\s*args\s*,\s*&resp\s*\)', "api must call api_exec with the exact path and args"),
+        (r'case\s+EPERM\s*:\s*case\s+EACCES\s*:\s*htsmsg_add_u32\(\s*ret\s*,\s*"noaccess"\s*,\s*1\s*\)', "api permission errors must emit noaccess=1"),
+        (r'case\s+ENOENT\s*:\s*case\s+ENOSYS\s*:\s*break\s*;', "api unknown endpoint errors must produce no method payload"),
+        (r'default\s*:\s*htsmsg_destroy\(\s*args2\s*\)\s*;\s*htsmsg_destroy\(\s*ret\s*\)\s*;\s*return\s+htsp_error\(\s*htsp\s*,\s*N_\(\s*"Bad request"\s*\)\s*\)', "api other errors must use the shared error envelope"),
+        (r'else\s+if\s*\(\s*resp\s*\)\s*\{.*?htsmsg_add_msg\(\s*ret\s*,\s*"response"\s*,\s*resp\s*\)', "api successful payload must be attached as response"),
+    )
+    for pattern, diagnostic in handler_patterns:
+        if re.search(pattern, handler, re.S) is None:
+            raise ValueError(diagnostic)
+    if handler.count("tvh_mutex_unlock(&global_lock);") != 1 or handler.count("tvh_mutex_lock(&global_lock);") != 1:
+        raise ValueError("api handler must preserve its one unlock/call/relock topology")
+
+    executor = find_function_body(api_c, "api_exec")
+    if executor is None:
+        raise ValueError("api_exec body missing")
+    executor_patterns = (
+        (r'if\s*\(\s*!args\s*\|\|\s*!resp\s*\|\|\s*!subsystem\s*\)\s*return\s+EINVAL', "api_exec must reject missing args, response, or subsystem"),
+        (r'ah\s*=\s*RB_FIND\(\s*&api_hook_tree\s*,\s*&skel\s*,\s*link\s*,\s*ah_cmp\s*\)', "api_exec must perform exact subsystem lookup"),
+        (r'if\s*\(\s*!ah\s*\).*?return\s+ENOSYS', "api_exec missing subsystem must return ENOSYS"),
+        (r'ACCESS_NO_EMPTY_ARGS.*?htsmsg_is_empty\(\s*args\s*\).*?return\s+EPERM', "api_exec must enforce no-empty-args access"),
+        (r'access_verify2\(\s*perm\s*,\s*access\s*&\s*~ACCESS_INTERNAL\s*\).*?return\s+EPERM', "api_exec must verify endpoint access"),
+        (r'op\s*=\s*htsmsg_get_str\(\s*args\s*,\s*"method"\s*\).*?if\s*\(\s*!op\s*\)\s*op\s*=\s*htsmsg_get_str\(\s*args\s*,\s*"op"\s*\)', "api_exec method/op extraction drift"),
+        (r'return\s+ah->hook->ah_callback\(\s*perm\s*,\s*ah->hook->ah_opaque\s*,\s*op\s*,\s*args\s*,\s*resp\s*\)', "api_exec callback forwarding drift"),
+    )
+    for pattern, diagnostic in executor_patterns:
+        if re.search(pattern, executor, re.S) is None:
+            raise ValueError(diagnostic)
+
+    for callback_name in ("api_idnode_save", "api_idnode_save_simple"):
+        callback = find_function_body(api_idnode_c, callback_name)
+        if callback is None or re.search(r'return\s+err\s*;', callback) is None:
+            raise ValueError(f"{callback_name} successful no-response callback topology drift")
+        if re.search(r'\*\s*resp\s*=', callback) is not None:
+            raise ValueError(f"{callback_name} must preserve successful no-response behavior")
+
+    type_block = strip_c_comments(htsmsg_h)
+    expected_types = (
+        ("HMF_MAP", 1), ("HMF_S64", 2), ("HMF_STR", 3), ("HMF_BIN", 4),
+        ("HMF_LIST", 5), ("HMF_DBL", 6), ("HMF_BOOL", 7), ("HMF_UUID", 8),
+    )
+    for symbol, value in expected_types:
+        if re.search(rf'#define\s+{symbol}\s+{value}\b', type_block) is None:
+            raise ValueError(f"HTSMSG value type {symbol}={value} drift")
+    for member in ("int64_t  s64;", "const char *str;", "const uint8_t *uuid;", "double dbl;", "int boolean;"):
+        if member not in type_block:
+            raise ValueError(f"HTSMSG scalar storage drift: {member}")
+    if re.search(r'struct\s*\{\s*const char \*data\s*;\s*size_t len\s*;\s*\}\s*bin\s*;', type_block, re.S) is None:
+        raise ValueError("HTSMSG binary storage drift")
+    if re.search(r'htsmsg_t\s*\*msg\s*;', type_block) is None:
+        raise ValueError("HTSMSG map/list storage drift")
+
+    decode = find_function_body(htsmsg_binary_c, "htsmsg_binary_des0")
+    count = find_function_body(htsmsg_binary_c, "htsmsg_binary_count")
+    write = find_function_body(htsmsg_binary_c, "htsmsg_binary_write")
+    if decode is None or count is None or write is None:
+        raise ValueError("HTSMSG binary decode/count/write function topology drift")
+    decode_patterns = (
+        (r'type\s*==\s*HMF_LIST\s*\|\|\s*type\s*==\s*HMF_MAP.*?tlen\s*\+=\s*sizeof\(htsmsg_t\)', "HTSMSG map/list decoder allocation branch drift"),
+        (r'case\s+HMF_MAP\s*:\s*case\s+HMF_LIST\s*:.*?hm_islist\s*=\s*type\s*==\s*HMF_LIST.*?htsmsg_binary_des0\(\s*sub\s*,\s*buf\s*,\s*datalen\s*\)', "HTSMSG recursive map/list decode and discriminator drift"),
+        (r'case\s+HMF_STR\s*:.*?hmf_str.*?memcpy\(.*?hmf_str\s*,\s*buf\s*,\s*datalen\s*\)', "HTSMSG string decode branch drift"),
+        (r'case\s+HMF_S64\s*:.*?for\s*\(\s*i\s*=\s*datalen\s*-\s*1\s*;.*?u64\s*=\s*\(\s*u64\s*<<\s*8\s*\)\s*\|\s*buf\[i\].*?hmf_s64\s*=\s*u64', "HTSMSG signed integer decode branch drift"),
+        (r'case\s+HMF_BIN\s*:.*?hmf_bin\s*=.*?buf.*?hmf_binsize\s*=\s*datalen', "HTSMSG binary decode branch drift"),
+        (r'case\s+HMF_BOOL\s*:.*?hmf_bool\s*=\s*datalen\s*==\s*1\s*\?\s*buf\[0\]\s*:\s*0', "HTSMSG boolean decode branch drift"),
+        (r'else\s+if\s*\(\s*type\s*==\s*HMF_UUID\s*\).*?tlen\s*=\s*UUID_BIN_SIZE.*?tlen\s*!=\s*datalen.*?return\s+-1', "HTSMSG UUID decoder must enforce fixed width"),
+        (r'case\s+HMF_UUID\s*:.*?hmf_uuid.*?memcpy\(.*?hmf_uuid\s*,\s*buf\s*,\s*UUID_BIN_SIZE\s*\)', "HTSMSG UUID decode branch drift"),
+        (r'default\s*:.*?free\(\s*f\s*\)\s*;\s*return\s+-1', "HTSMSG unsupported decode types must be rejected"),
+    )
+    count_patterns = (
+        (r'case\s+HMF_MAP\s*:\s*case\s+HMF_LIST\s*:.*?htsmsg_binary_count\(\s*f->hmf_msg\s*\)', "HTSMSG map/list serialization count branch drift"),
+        (r'case\s+HMF_STR\s*:.*?strlen\(\s*f->hmf_str\s*\)', "HTSMSG string serialization count branch drift"),
+        (r'case\s+HMF_S64\s*:.*?u64\s*=\s*f->hmf_s64.*?while\s*\(\s*u64\s*!=\s*0\s*\)', "HTSMSG signed integer serialization count branch drift"),
+        (r'case\s+HMF_BIN\s*:.*?f->hmf_binsize', "HTSMSG binary serialization count branch drift"),
+        (r'case\s+HMF_BOOL\s*:.*?if\s*\(\s*f->hmf_bool\s*\)\s*len\+\+', "HTSMSG boolean serialization count branch drift"),
+        (r'case\s+HMF_UUID\s*:.*?UUID_BIN_SIZE', "HTSMSG UUID serialization count branch drift"),
+    )
+    write_patterns = (
+        (r'\*ptr\+\+\s*=\s*f->hmf_type', "HTSMSG map/list serialization discriminator drift"),
+        (r'case\s+HMF_MAP\s*:\s*case\s+HMF_LIST\s*:.*?htsmsg_binary_write\(\s*f->hmf_msg\s*,\s*ptr\s*\)', "HTSMSG recursive map/list serialization branch drift"),
+        (r'case\s+HMF_STR\s*:.*?memcpy\(\s*ptr\s*,\s*f->hmf_str\s*,\s*l\s*\)', "HTSMSG string serialization write branch drift"),
+        (r'case\s+HMF_S64\s*:.*?for\s*\(\s*i\s*=\s*0\s*;\s*i\s*<\s*l\s*;\s*i\+\+\s*\).*?ptr\[i\]\s*=\s*u64', "HTSMSG signed integer serialization write branch drift"),
+        (r'case\s+HMF_BIN\s*:.*?memcpy\(\s*ptr\s*,\s*f->hmf_bin\s*,\s*l\s*\)', "HTSMSG binary serialization write branch drift"),
+        (r'case\s+HMF_BOOL\s*:.*?if\s*\(\s*f->hmf_bool\s*\).*?ptr\[0\]\s*=\s*1', "HTSMSG boolean serialization write branch drift"),
+        (r'case\s+HMF_UUID\s*:.*?memcpy\(\s*ptr\s*,\s*f->hmf_uuid\s*,\s*UUID_BIN_SIZE\s*\)', "HTSMSG UUID serialization write branch drift"),
+        (r'default\s*:\s*abort\(\s*\)', "HTSMSG unsupported serialization types must abort"),
+    )
+    for body, patterns in ((decode, decode_patterns), (count, count_patterns), (write, write_patterns)):
+        for pattern, diagnostic in patterns:
+            if re.search(pattern, body, re.S) is None:
+                raise ValueError(diagnostic)
+    if any("HMF_DBL" in body for body in (decode, count, write)):
+        raise ValueError("HMF_DBL must remain excluded from binary decode and serialization")
+
+
+def derive_client_methods(
+    server_c: str,
+    api_c: str | None = None,
+    api_idnode_c: str | None = None,
+    htsmsg_h: str | None = None,
+    htsmsg_binary_c: str | None = None,
+) -> list[dict[str, Any]]:
     table = parse_methods_table(server_c)
     methods: list[dict[str, Any]] = []
     file_open_helper = find_function_body(server_c, "htsp_file_open") or ""
@@ -4498,6 +4648,14 @@ def derive_client_methods(server_c: str) -> list[dict[str, Any]]:
     success_body = find_function_body(server_c, "htsp_success") or ""
     require_recording_rule_source_facts(server_c)
     require_bounded_file_operation_source_facts(server_c)
+    if None not in (api_c, api_idnode_c, htsmsg_h, htsmsg_binary_c):
+        require_api_bridge_source_facts(
+            server_c,
+            api_c or "",
+            api_idnode_c or "",
+            htsmsg_h or "",
+            htsmsg_binary_c or "",
+        )
 
     for entry in table:
         name = entry["name"]
@@ -4598,6 +4756,29 @@ def derive_client_methods(server_c: str) -> list[dict[str, Any]]:
                         ("uilevel", "u32"), ("uilanguage", "str"),
                     )
                 ],
+            ]
+        if name == "api":
+            request_fields = [
+                exact_field(
+                    "path", "str", "request", "required",
+                    "htsp_method_api reads the exact required string path and api_exec rejects a null subsystem",
+                ),
+                exact_field(
+                    "args", "msg", "request", "optional",
+                    "htsp_method_api reads an optional map and substitutes an empty map only when omitted",
+                ),
+            ]
+            reply_fields = [
+                exact_field(
+                    "response", "msg", "reply", "alternative",
+                    "successful api_exec callbacks may return a map or list, attached unchanged as response",
+                    condition="present only when a successful endpoint callback supplies a map or list payload",
+                ),
+                exact_field(
+                    "noaccess", "u32", "reply", "alternative",
+                    "htsp_method_api maps EPERM and EACCES to noaccess=1",
+                    condition="present alone for endpoint access denial",
+                ),
             ]
         if name in {"getChannel"}:
             require_channel_builder_source_facts(server_c)
@@ -5021,6 +5202,30 @@ def derive_client_methods(server_c: str) -> list[dict[str, Any]]:
                     "granted rights and negotiated version <=25: empty method payload",
                 ],
             }
+        if name == "api":
+            method["acceptedVocabulary"] = copy.deepcopy(API_ACCEPTED_VOCABULARY)
+            method["requestShape"] = {
+                "kind": "fields",
+                "completeness": "complete",
+                "evidence": "bounded htsp_method_api accepts exact required path and optional args map only",
+            }
+            method["replyShape"] = {
+                "kind": "alternative",
+                "completeness": "complete",
+                "evidence": "bounded htsp_method_api complete response-map/list, noaccess, error-envelope, and no-payload topology",
+                "alternatives": [
+                    "success with response map",
+                    "success with response list",
+                    "EPERM or EACCES: noaccess=1",
+                    "ENOENT or ENOSYS, or successful callback with null response: no method payload",
+                    "other error: shared global error envelope",
+                ],
+            }
+            method["notes"] = [
+                "Dispatch requires ACCESS_ANONYMOUS and the method is annotated as available since HTSP version 24.",
+                "Unknown endpoint and successful no-response callbacks are intentionally indistinguishable as a successful no-payload HTSP reply.",
+                "The response is an opaque closed HTSP value tree; endpoint schemas and compatibility are not negotiated by HTSP.",
+            ]
         if name in {
             "enableAsyncMetadata", "unsubscribe", "subscriptionChangeWeight",
             "subscriptionSeek", "subscriptionSkip", "subscriptionSpeed",
@@ -5861,7 +6066,7 @@ def scan_sdk_coverage(
             "notes": [
                 "referenced counts exact string literals in SDK production main sources",
                 "outgoing counts method = \"...\" / method = CONST assignments only",
-                "api remains the sole unreferenced client method under the exact-literal metric",
+                "all pinned client methods are referenced and outgoing under the exact-literal metric",
                 "handled server messages use the same exact-literal metric",
                 "typed request coverage comes only from the reviewed deterministic generator catalog",
                 "typed server-message coverage comes only from its separate reviewed deterministic generator catalog",
@@ -5984,6 +6189,30 @@ def build_spec(
         files_meta["src/string_list.c"]["gitBlobSha1"],
         files_meta["src/string_list.c"]["bytes"],
     )
+    api_c = read_verified_source_file(
+        source_root,
+        "src/api.c",
+        files_meta["src/api.c"]["gitBlobSha1"],
+        files_meta["src/api.c"]["bytes"],
+    )
+    api_idnode_c = read_verified_source_file(
+        source_root,
+        "src/api/api_idnode.c",
+        files_meta["src/api/api_idnode.c"]["gitBlobSha1"],
+        files_meta["src/api/api_idnode.c"]["bytes"],
+    )
+    htsmsg_h = read_verified_source_file(
+        source_root,
+        "src/htsmsg.h",
+        files_meta["src/htsmsg.h"]["gitBlobSha1"],
+        files_meta["src/htsmsg.h"]["bytes"],
+    )
+    htsmsg_binary_c = read_verified_source_file(
+        source_root,
+        "src/htsmsg_binary.c",
+        files_meta["src/htsmsg_binary.c"]["gitBlobSha1"],
+        files_meta["src/htsmsg_binary.c"]["bytes"],
+    )
 
     proto = parse_proto_version(server_c)
     if proto != manifest["htspProtoVersion"]:
@@ -5993,7 +6222,9 @@ def build_spec(
     if proto != EXPECTED_PROTO_VERSION:
         raise ValueError(f"expected HTSP_PROTO_VERSION 44, got {proto}")
 
-    client_methods = derive_client_methods(server_c)
+    client_methods = derive_client_methods(
+        server_c, api_c, api_idnode_c, htsmsg_h, htsmsg_binary_c
+    )
     require_get_epg_object_source_facts(
         server_c,
         epg_c,
@@ -6356,6 +6587,46 @@ static htsmsg_t *
   htsp->htsp_version = MIN(HTSP_PROTO_VERSION, v);
   htsp_update_logname(htsp);
   return r;
+}}
+"""
+            )
+            continue
+        if name == "api":
+            handlers.append(
+                f"""
+static htsmsg_t *
+{handler}(htsp_connection_t *htsp, htsmsg_t *in)
+{{
+  htsmsg_t *resp = NULL, *ret = htsmsg_create_map();
+  htsmsg_t *args, *args2 = NULL;
+  const char *remain;
+  int r;
+  tvh_mutex_unlock(&global_lock);
+  args = htsmsg_get_map(in, "args");
+  remain = htsmsg_get_str(in, "path");
+  if (args == NULL)
+    args = args2 = htsmsg_create_map();
+  r = api_exec(htsp->htsp_granted_access, remain, args, &resp);
+  if (r) {{
+    switch (r) {{
+    case EPERM:
+    case EACCES:
+      htsmsg_add_u32(ret, "noaccess", 1);
+      break;
+    case ENOENT:
+    case ENOSYS:
+      break;
+    default:
+      htsmsg_destroy(args2);
+      htsmsg_destroy(ret);
+      return htsp_error(htsp, N_("Bad request"));
+    }}
+  }} else if (resp) {{
+    htsmsg_add_msg(ret, "response", resp);
+  }}
+  htsmsg_destroy(args2);
+  tvh_mutex_lock(&global_lock);
+  return ret;
 }}
 """
             )
@@ -7377,6 +7648,92 @@ def _pin_bytes_and_sha(content: str) -> tuple[bytes, str, int]:
     return data, git_blob_sha1(data), len(data)
 
 
+def _minimal_api_sources() -> tuple[str, str, str, str]:
+    api_c = """
+int api_exec(access_t *perm, const char *subsystem, htsmsg_t *args, htsmsg_t **resp) {
+  api_hook_t h; api_link_t *ah, skel; const char *op; uint32_t access;
+  if (!args || !resp || !subsystem) return EINVAL;
+  h.ah_subsystem = subsystem; skel.hook = &h;
+  ah = RB_FIND(&api_hook_tree, &skel, link, ah_cmp);
+  if (!ah) { tvhwarn(LS_API, "failed"); return ENOSYS; }
+  access = ah->hook->ah_access;
+  if ((access & ACCESS_NO_EMPTY_ARGS) != 0 && htsmsg_is_empty(args)) return EPERM;
+  if (access_verify2(perm, access & ~ACCESS_INTERNAL)) return EPERM;
+  op = htsmsg_get_str(args, "method");
+  if (!op) op = htsmsg_get_str(args, "op");
+  return ah->hook->ah_callback(perm, ah->hook->ah_opaque, op, args, resp);
+}
+"""
+    api_idnode_c = """
+static int api_idnode_save(access_t *perm, void *opaque, const char *op, htsmsg_t *args, htsmsg_t **resp) {
+  int err = 0; idnode_update(opaque, args); return err;
+}
+int api_idnode_save_simple(access_t *perm, void *opaque, const char *op, htsmsg_t *args, htsmsg_t **resp) {
+  int err = 0; idnode_update(opaque, args); return err;
+}
+"""
+    htsmsg_h = """
+#define HMF_MAP  1
+#define HMF_S64  2
+#define HMF_STR  3
+#define HMF_BIN  4
+#define HMF_LIST 5
+#define HMF_DBL  6
+#define HMF_BOOL 7
+#define HMF_UUID 8
+typedef struct htsmsg_field { union { int64_t  s64; const char *str; const uint8_t *uuid; struct { const char *data; size_t len; } bin; htsmsg_t *msg; double dbl; int boolean; } u; } htsmsg_field_t;
+"""
+    htsmsg_binary_c = """
+static int htsmsg_binary_des0(int type, int datalen) {
+  if (type == HMF_STR) { tlen += datalen + 1; } else if (type == HMF_LIST || type == HMF_MAP) { tlen += sizeof(htsmsg_t); } else if (type == HMF_UUID) { tlen = UUID_BIN_SIZE; if (tlen != datalen) return -1; }
+  switch(type) {
+  case HMF_STR: f->hmf_str = ptr; memcpy((char *)f->hmf_str, buf, datalen); break;
+  case HMF_UUID: f->hmf_uuid = ptr; memcpy((char *)f->hmf_uuid, buf, UUID_BIN_SIZE); break;
+  case HMF_BIN: f->hmf_bin = buf; f->hmf_binsize = datalen; break;
+  case HMF_S64: for(i = datalen - 1; i >= 0; i--) u64 = (u64 << 8) | buf[i]; f->hmf_s64 = u64; break;
+  case HMF_MAP:
+  case HMF_LIST: sub = f->hmf_msg; sub->hm_islist = type == HMF_LIST; i = htsmsg_binary_des0(sub, buf, datalen); if (i < 0) return -1; break;
+  case HMF_BOOL: f->hmf_bool = datalen == 1 ? buf[0] : 0; break;
+  default: free(f); return -1;
+  }
+}
+static size_t htsmsg_binary_count(void) {
+  switch(f->hmf_type) {
+  case HMF_MAP:
+  case HMF_LIST: len += htsmsg_binary_count(f->hmf_msg); break;
+  case HMF_STR: len += strlen(f->hmf_str); break;
+  case HMF_UUID: len += UUID_BIN_SIZE; break;
+  case HMF_BIN: len += f->hmf_binsize; break;
+  case HMF_S64: u64 = f->hmf_s64; while(u64 != 0) { len++; u64 = u64 >> 8; } break;
+  case HMF_BOOL: if (f->hmf_bool) len++; break;
+  }
+}
+static void htsmsg_binary_write(void) {
+  *ptr++ = f->hmf_type;
+  switch(f->hmf_type) {
+  case HMF_MAP:
+  case HMF_LIST: l = htsmsg_binary_count(f->hmf_msg); break;
+  case HMF_STR: l = strlen(f->hmf_str); break;
+  case HMF_BIN: l = f->hmf_binsize; break;
+  case HMF_S64: u64 = f->hmf_s64; l = 0; while(u64 != 0) { l++; u64 = u64 >> 8; } break;
+  case HMF_BOOL: l = f->hmf_bool ? 1 : 0; break;
+  case HMF_UUID: l = UUID_BIN_SIZE; break;
+  default: abort();
+  }
+  switch(f->hmf_type) {
+  case HMF_MAP:
+  case HMF_LIST: htsmsg_binary_write(f->hmf_msg, ptr); break;
+  case HMF_STR: memcpy(ptr, f->hmf_str, l); break;
+  case HMF_BIN: memcpy(ptr, f->hmf_bin, l); break;
+  case HMF_S64: for(i = 0; i < l; i++) { ptr[i] = u64; u64 = u64 >> 8; } break;
+  case HMF_BOOL: if (f->hmf_bool) ptr[0] = 1; break;
+  case HMF_UUID: memcpy(ptr, f->hmf_uuid, UUID_BIN_SIZE); break;
+  }
+}
+"""
+    return api_c, api_idnode_c, htsmsg_h, htsmsg_binary_c
+
+
 def _minimal_epg_sources() -> tuple[str, str, str, str]:
     epg_h = """
 typedef enum epg_object_type { EPG_UNDEF, EPG_BROADCAST, } epg_object_type_t;
@@ -7900,7 +8257,9 @@ def self_test() -> None:
             live_coverage["serverMessages"]["handledCount"],
             live_coverage["typedClientRequests"]["count"],
             live_coverage["typedServerMessages"]["count"],
-        ) == (38, 38, 30, 38, 29)
+        ) == (39, 39, 30, 39, 29)
+        and "api" in live_coverage["clientMethods"]["referenced"]
+        and "api" in live_coverage["clientMethods"]["outgoingRequests"]
         and "getEpgObject" in live_coverage["clientMethods"]["referenced"]
         and "getEpgObject" in live_coverage["clientMethods"]["outgoingRequests"]
         and "epgQuery" in live_coverage["clientMethods"]["referenced"]
@@ -7964,7 +8323,7 @@ def self_test() -> None:
             live_coverage["clientMethods"]["referencedCount"],
             live_coverage["clientMethods"]["outgoingRequestCount"],
             live_coverage["serverMessages"]["handledCount"],
-        ) == (38, 38, 30)
+        ) == (39, 39, 30)
         and "getChannel" in live_coverage["clientMethods"]["referenced"]
         and "getChannel" in live_coverage["clientMethods"]["outgoingRequests"],
         str(live_coverage.get("metrics")),
@@ -8017,7 +8376,7 @@ def self_test() -> None:
             live_coverage["clientMethods"]["referencedCount"],
             live_coverage["clientMethods"]["outgoingRequestCount"],
             live_coverage["serverMessages"]["handledCount"],
-        ) == (38, 38, 30)
+        ) == (39, 39, 30)
         and "getEvents" in live_coverage["clientMethods"]["referenced"]
         and "getEvents" in live_coverage["clientMethods"]["outgoingRequests"],
     )
@@ -8174,7 +8533,7 @@ def self_test() -> None:
                 if name == "subscriptionFilterStream"
                 else f"htsp_method_{name}"
                 if name in {
-                    "hello", "authenticate", "getEvent", "getEvents", "getEpgObject", "epgQuery", "stopDvrEntry",
+                    "hello", "authenticate", "api", "getEvent", "getEvents", "getEpgObject", "epgQuery", "stopDvrEntry",
                     "getDvrCutpoints", "getTicket", "fileOpen", "fileRead", "fileClose",
                     "fileStat", "fileSeek", *RECORDING_RULE_METHODS,
                 }
@@ -8199,6 +8558,70 @@ def self_test() -> None:
     server_h = "/* header fixture */\nvoid htsp_init(const char *bindaddr);\n"
     htsp_py = "HTSP_PROTO_VERSION = 33\nclass HTSPClient(object):\n    def hello(self):\n        self.send('hello')\n"
     epg_c, epg_h, lang_str_c, string_list_c = _minimal_epg_sources()
+    api_c, api_idnode_c, htsmsg_h, htsmsg_binary_c = _minimal_api_sources()
+
+    try:
+        require_api_bridge_source_facts(
+            server_c, api_c, api_idnode_c, htsmsg_h, htsmsg_binary_c
+        )
+        check("api-bridge-source-positive-fixture", True)
+    except ValueError as exc:
+        check("api-bridge-source-positive-fixture", False, str(exc))
+
+    api_source_mutations = (
+        ("handler-path", "server", 'htsmsg_get_str(in, "path")', 'htsmsg_get_str(in, "endpoint")'),
+        ("handler-args", "server", 'htsmsg_get_map(in, "args")', 'htsmsg_get_list(in, "args")'),
+        ("handler-empty-args", "server", 'args = args2 = htsmsg_create_map()', 'args = args2 = htsmsg_create_list()'),
+        ("handler-api-exec", "server", 'api_exec(htsp->htsp_granted_access, remain, args, &resp)', 'api_exec(htsp->htsp_granted_access, "prefix", args, &resp)'),
+        ("handler-noaccess", "server", 'htsmsg_add_u32(ret, "noaccess", 1)', 'htsmsg_add_u32(ret, "denied", 1)'),
+        ("handler-unknown", "server", 'case ENOENT:', 'case EEXIST:'),
+        ("handler-error", "server", 'return htsp_error(htsp, N_("Bad request"))', 'return ret'),
+        ("handler-response", "server", 'htsmsg_add_msg(ret, "response", resp)', 'htsmsg_add_msg(ret, "payload", resp)'),
+        ("executor-null-guard", "api", '!args || !resp || !subsystem', '!args || !resp'),
+        ("executor-lookup", "api", 'RB_FIND(&api_hook_tree, &skel, link, ah_cmp)', 'RB_MIN(&api_hook_tree, link)'),
+        ("executor-unknown", "api", 'return ENOSYS', 'return ENOENT'),
+        ("executor-access", "api", 'access_verify2(perm, access & ~ACCESS_INTERNAL)', 'access_verify2(perm, access)'),
+        ("executor-callback", "api", 'ah->hook->ah_callback(perm, ah->hook->ah_opaque, op, args, resp)', 'ah->hook->ah_callback(perm, NULL, op, args, resp)'),
+        ("no-response-save", "idnode", 'idnode_update(opaque, args); return err;', 'idnode_update(opaque, args); *resp = htsmsg_create_map(); return err;'),
+        ("type-uuid", "types", '#define HMF_UUID 8', '#define HMF_UUID 4'),
+        ("uuid-width", "binary", 'if (tlen != datalen) return -1;', 'if (tlen > datalen) return -1;'),
+        ("map-decode", "binary", 'case HMF_MAP:\n  case HMF_LIST: sub = f->hmf_msg;', 'case HMF_LIST:\n  case HMF_LIST: sub = f->hmf_msg;'),
+        ("list-decode-discriminator", "binary", 'sub->hm_islist = type == HMF_LIST;', 'sub->hm_islist = 0;'),
+        ("str-decode", "binary", 'memcpy((char *)f->hmf_str, buf, datalen)', 'memcpy((char *)f->hmf_str, buf, 0)'),
+        ("s64-decode", "binary", 'u64 = (u64 << 8) | buf[i]', 'u64 = (u64 << 8)'),
+        ("binary-decode", "binary", 'f->hmf_binsize = datalen', 'f->hmf_binsize = 0'),
+        ("bool-decode", "binary", 'f->hmf_bool = datalen == 1 ? buf[0] : 0', 'f->hmf_bool = 0'),
+        ("uuid-decode", "binary", 'memcpy((char *)f->hmf_uuid, buf, UUID_BIN_SIZE)', 'memcpy((char *)f->hmf_uuid, buf, 0)'),
+        ("map-list-write-recursion", "binary", 'htsmsg_binary_write(f->hmf_msg, ptr)', 'htsmsg_binary_count(f->hmf_msg)'),
+        ("map-list-write-discriminator", "binary", '*ptr++ = f->hmf_type;', '*ptr++ = HMF_MAP;'),
+        ("str-write", "binary", 'memcpy(ptr, f->hmf_str, l)', 'memcpy(ptr, f->hmf_str, 0)'),
+        ("s64-write", "binary", 'ptr[i] = u64', 'ptr[i] = 0'),
+        ("binary-write", "binary", 'memcpy(ptr, f->hmf_bin, l)', 'memcpy(ptr, f->hmf_uuid, l)'),
+        ("bool-write", "binary", 'if (f->hmf_bool) ptr[0] = 1', 'ptr[0] = 1'),
+        ("uuid-write", "binary", 'memcpy(ptr, f->hmf_uuid, UUID_BIN_SIZE)', 'memcpy(ptr, f->hmf_bin, UUID_BIN_SIZE)'),
+        ("dbl-decode-exclusion", "binary", 'default: free(f); return -1;', 'case HMF_DBL: return 0; default: free(f); return -1;'),
+        ("dbl-write-exclusion", "binary", 'default: abort();', 'case HMF_DBL: break; default: abort();'),
+    )
+    sources = {
+        "server": server_c,
+        "api": api_c,
+        "idnode": api_idnode_c,
+        "types": htsmsg_h,
+        "binary": htsmsg_binary_c,
+    }
+    for label, owner, old, new in api_source_mutations:
+        check(f"api-source-mutation-target-{label}", sources[owner].count(old) >= 1)
+        mutated_sources = dict(sources)
+        mutated_sources[owner] = sources[owner].replace(old, new, 1)
+        try:
+            require_api_bridge_source_facts(
+                mutated_sources["server"], mutated_sources["api"],
+                mutated_sources["idnode"], mutated_sources["types"],
+                mutated_sources["binary"],
+            )
+            check(f"reject-api-source-mutation-{label}", False, "mutation accepted")
+        except ValueError:
+            check(f"reject-api-source-mutation-{label}", True)
 
     try:
         require_handshake_source_facts(server_c)
@@ -9006,7 +9429,12 @@ def self_test() -> None:
         eh_data, eh_sha, eh_len = _pin_bytes_and_sha(epg_h)
         ls_data, ls_sha, ls_len = _pin_bytes_and_sha(lang_str_c)
         sl_data, sl_sha, sl_len = _pin_bytes_and_sha(string_list_c)
+        ac_data, ac_sha, ac_len = _pin_bytes_and_sha(api_c)
+        ai_data, ai_sha, ai_len = _pin_bytes_and_sha(api_idnode_c)
+        hh_data, hh_sha, hh_len = _pin_bytes_and_sha(htsmsg_h)
+        hb_data, hb_sha, hb_len = _pin_bytes_and_sha(htsmsg_binary_c)
         (root / "src").mkdir()
+        (root / "src" / "api").mkdir()
         (root / "lib" / "py" / "tvh").mkdir(parents=True)
         (root / "src" / "htsp_server.c").write_bytes(c_data)
         (root / "src" / "htsp_server.h").write_bytes(h_data)
@@ -9015,6 +9443,10 @@ def self_test() -> None:
         (root / "src" / "epg.h").write_bytes(eh_data)
         (root / "src" / "lang_str.c").write_bytes(ls_data)
         (root / "src" / "string_list.c").write_bytes(sl_data)
+        (root / "src" / "api.c").write_bytes(ac_data)
+        (root / "src" / "api" / "api_idnode.c").write_bytes(ai_data)
+        (root / "src" / "htsmsg.h").write_bytes(hh_data)
+        (root / "src" / "htsmsg_binary.c").write_bytes(hb_data)
 
         manifest = {
             "schemaVersion": 1,
@@ -9029,6 +9461,10 @@ def self_test() -> None:
                 "src/epg.h": {"gitBlobSha1": eh_sha, "bytes": eh_len},
                 "src/lang_str.c": {"gitBlobSha1": ls_sha, "bytes": ls_len},
                 "src/string_list.c": {"gitBlobSha1": sl_sha, "bytes": sl_len},
+                "src/api.c": {"gitBlobSha1": ac_sha, "bytes": ac_len},
+                "src/api/api_idnode.c": {"gitBlobSha1": ai_sha, "bytes": ai_len},
+                "src/htsmsg.h": {"gitBlobSha1": hh_sha, "bytes": hh_len},
+                "src/htsmsg_binary.c": {"gitBlobSha1": hb_sha, "bytes": hb_len},
             },
             "docsUrls": {},
         }
@@ -11900,7 +12336,7 @@ def main(argv: list[str] | None = None) -> int:
     source_group.add_argument(
         "--source-root",
         type=Path,
-        help="External TVHeadend source root containing the seven pinned files",
+        help="External TVHeadend source root containing the eleven pinned files",
     )
     parser.add_argument(
         "--write",
