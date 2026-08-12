@@ -89,6 +89,64 @@ public data class HtspDvrCutpoint(
 /** Explicit successful empty RPC acknowledgement. */
 public data object HtspEmptyResponse
 
+/** Successful `hello` observations. The challenge bytes remain redacted by [HtspBinary]. */
+public class HelloResponse(
+    public val htspVersion: Long,
+    public val serverName: String?,
+    public val serverVersion: String?,
+    public val challenge: HtspBinary,
+    public val webRoot: String?,
+    public val language: String?,
+    serverCapabilities: List<String>?,
+    public val apiVersion: Long?,
+) {
+    public val serverCapabilities: List<String>? = serverCapabilities?.immutableSnapshot()
+
+    override fun equals(other: Any?): Boolean =
+        this === other ||
+            other is HelloResponse &&
+            htspVersion == other.htspVersion &&
+            serverName == other.serverName &&
+            serverVersion == other.serverVersion &&
+            challenge == other.challenge &&
+            webRoot == other.webRoot &&
+            language == other.language &&
+            serverCapabilities == other.serverCapabilities &&
+            apiVersion == other.apiVersion
+
+    override fun hashCode(): Int {
+        var result = htspVersion.hashCode()
+        result = 31 * result + (serverName?.hashCode() ?: 0)
+        result = 31 * result + (serverVersion?.hashCode() ?: 0)
+        result = 31 * result + challenge.hashCode()
+        result = 31 * result + (webRoot?.hashCode() ?: 0)
+        result = 31 * result + (language?.hashCode() ?: 0)
+        result = 31 * result + (serverCapabilities?.hashCode() ?: 0)
+        result = 31 * result + (apiVersion?.hashCode() ?: 0)
+        return result
+    }
+
+    override fun toString(): String =
+        "HelloResponse(htspVersion=$htspVersion, serverName=$serverName, " +
+            "serverVersion=$serverVersion, challenge=$challenge, webRoot=$webRoot, " +
+            "language=$language, serverCapabilities=$serverCapabilities, apiVersion=$apiVersion)"
+}
+
+/** Successful `authenticate` access observations; absent or malformed optional fields are null. */
+public data class AuthenticateResponse(
+    public val noAccess: Boolean?,
+    public val admin: Boolean?,
+    public val streaming: Boolean?,
+    public val dvr: Boolean?,
+    public val failedDvr: Boolean?,
+    public val anonymous: Boolean?,
+    public val limitAll: Long?,
+    public val limitDvr: Long?,
+    public val limitStreaming: Long?,
+    public val uiLevel: Long?,
+    public val uiLanguage: String?,
+)
+
 public data class GetProfilesResponse(public val profiles: List<HtspProfile>?)
 
 public data class GetDiskSpaceResponse(
@@ -310,6 +368,27 @@ public data class SubscribeResponse(
     public val normalizedTimestamps: Long?,
     public val weight: Long?,
     public val timeshiftPeriodSeconds: Long?,
+)
+
+/** Exact current-source `hello` request. Empty client names remain representable. */
+public data class HelloRequest(
+    public val htspVersion: Long,
+    public val clientName: String,
+) : HtspRequest<HelloResponse>(
+    method = "hello",
+    access = HtspAccess.ACCESS_ANONYMOUS,
+    minimumProtocolVersion = null,
+) {
+    init {
+        requireU32("htspVersion", htspVersion)
+    }
+}
+
+/** Bare public authentication request. Credentials are connection-envelope data, not parameters. */
+public class AuthenticateRequest : HtspRequest<AuthenticateResponse>(
+    method = "authenticate",
+    access = HtspAccess.ACCESS_ANONYMOUS,
+    minimumProtocolVersion = null,
 )
 
 public class GetProfilesRequest : HtspRequest<GetProfilesResponse>(
@@ -959,6 +1038,12 @@ public data class FileSeekRequest(
 internal object `HtspRequestCodecs-internal` {
     @JvmSynthetic
     internal fun encode(request: HtspRequest<*>): LinkedHashMap<String, Any?> = when (request) {
+        is HelloRequest -> linkedMapOf(
+            "htspversion" to request.htspVersion,
+            "clientname" to request.clientName,
+        )
+
+        is AuthenticateRequest -> linkedMapOf()
         is GetProfilesRequest,
         is GetDiskSpaceRequest,
         is GetSysTimeRequest,
@@ -1215,6 +1300,35 @@ internal object `HtspRequestCodecs-internal` {
         fields: Map<String, Any?>,
         protocolVersion: Int,
     ): R = when (request) {
+        is HelloRequest -> HelloResponse(
+            htspVersion = fields.requiredU32("htspversion"),
+            serverName = fields.observedString("servername"),
+            serverVersion = fields.observedString("serverversion"),
+            challenge = HtspBinary(
+                fields.requiredBinary("challenge").also { challenge ->
+                    if (challenge.size != 32) malformedReply()
+                },
+            ),
+            webRoot = fields.observedString("webroot"),
+            language = fields.observedString("language"),
+            serverCapabilities = fields.observedStringList("servercapability"),
+            apiVersion = fields.observedU32("api_version"),
+        )
+
+        is AuthenticateRequest -> AuthenticateResponse(
+            noAccess = fields.observedFlag("noaccess"),
+            admin = fields.observedFlag("admin"),
+            streaming = fields.observedFlag("streaming"),
+            dvr = fields.observedFlag("dvr"),
+            failedDvr = fields.observedFlag("faileddvr"),
+            anonymous = fields.observedFlag("anonymous"),
+            limitAll = fields.observedU32("limitall"),
+            limitDvr = fields.observedU32("limitdvr"),
+            limitStreaming = fields.observedU32("limitstreaming"),
+            uiLevel = fields.observedU32("uilevel"),
+            uiLanguage = fields.observedString("uilanguage"),
+        )
+
         is GetProfilesRequest ->
             GetProfilesResponse(fields.optionalObjectList("profiles", ::profileFromFields))
 
@@ -1542,6 +1656,23 @@ private fun Map<*, *>.requiredBinary(name: String): ByteArray =
 
 private fun Map<*, *>.optionalString(name: String): String? =
     if (containsKey(name)) requiredString(name) else null
+
+private fun Map<*, *>.observedString(name: String): String? = this[name] as? String
+
+private fun Map<*, *>.observedU32(name: String): Long? =
+    (this[name] as? Long)?.takeIf { it in 0L..U32_MAX }
+
+private fun Map<*, *>.observedFlag(name: String): Boolean? = when (this[name]) {
+    0L -> false
+    1L -> true
+    else -> null
+}
+
+private fun Map<*, *>.observedStringList(name: String): List<String>? {
+    val source = this[name] as? List<*> ?: return null
+    if (source.any { it !is String }) return null
+    return source.map { it as String }.immutableSnapshot()
+}
 
 private fun Map<*, *>.requiredU32List(name: String): List<Long> {
     val source = this[name] as? List<*> ?: malformedReply()

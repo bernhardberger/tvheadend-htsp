@@ -445,6 +445,135 @@ class HtspProtocolCoreTest {
     }
 
     @Test
+    fun typedHandshakeRequestsPreserveFiniteWireDecodingAndGlobalOutcomes() = runTest {
+        val helloRequest = HelloRequest(0xffff_ffffL, "")
+        val authenticateRequest = AuthenticateRequest()
+        assertEquals(
+            linkedMapOf("htspversion" to 0xffff_ffffL, "clientname" to ""),
+            HtspRequestCodecs.encode(helloRequest),
+        )
+        assertEquals(linkedMapOf<String, Any?>(), HtspRequestCodecs.encode(authenticateRequest))
+        assertEquals("hello", helloRequest.method)
+        assertEquals("authenticate", authenticateRequest.method)
+        assertSame(HtspAccess.ACCESS_ANONYMOUS, helloRequest.access)
+        assertSame(HtspAccess.ACCESS_ANONYMOUS, authenticateRequest.access)
+        assertEquals(null, helloRequest.minimumProtocolVersion)
+        assertEquals(null, authenticateRequest.minimumProtocolVersion)
+        assertIllegalArgument { HelloRequest(-1L, "client") }
+        assertIllegalArgument { HelloRequest(0x1_0000_0000L, "client") }
+
+        val challenge = ByteArray(32) { index -> index.toByte() }
+        val capabilities = mutableListOf("htsp", "timeshift")
+        val transport = FakeProtocolTransport(version = 44)
+        val connection = HtspTypedRequestCaller(transport)
+        transport.reply = HtspWireReply(
+            linkedMapOf(
+                "htspversion" to 0xffff_ffffL,
+                "servername" to "server",
+                "serverversion" to "version",
+                "challenge" to challenge,
+                "webroot" to "/web",
+                "language" to "en",
+                "servercapability" to capabilities,
+                "api_version" to 0xffff_ffffL,
+                "unknown" to "ignored",
+            ),
+        )
+        val hello = connection.call(HelloRequest(44L, "client"))
+        assertTrue(hello is HtspResult.Ok)
+        val response = (hello as HtspResult.Ok).value
+        assertEquals(0xffff_ffffL, response.htspVersion)
+        assertEquals(HtspBinary(ByteArray(32) { index -> index.toByte() }), response.challenge)
+        assertEquals(listOf("htsp", "timeshift"), response.serverCapabilities)
+        assertEquals(0xffff_ffffL, response.apiVersion)
+        challenge[0] = 99
+        capabilities += "mutated"
+        assertEquals(HtspBinary(ByteArray(32) { index -> index.toByte() }), response.challenge)
+        assertEquals(listOf("htsp", "timeshift"), response.serverCapabilities)
+        val exposedCapabilities = requireNotNull(response.serverCapabilities)
+        val capabilityMutation = runCatching {
+            @Suppress("UNCHECKED_CAST")
+            (exposedCapabilities as MutableList<String>).add("forbidden")
+        }.exceptionOrNull()
+        assertTrue(capabilityMutation is UnsupportedOperationException)
+        assertTrue(!response.toString().contains("0, 1, 2"))
+
+        listOf(
+            linkedMapOf<String, Any?>("challenge" to ByteArray(32)),
+            linkedMapOf<String, Any?>("htspversion" to 44L),
+            linkedMapOf<String, Any?>("htspversion" to 44L, "challenge" to ByteArray(31)),
+            linkedMapOf<String, Any?>("htspversion" to 44L, "challenge" to emptyList<Any?>()),
+            linkedMapOf<String, Any?>("htspversion" to -1L, "challenge" to ByteArray(32)),
+        ).forEach { fields ->
+            transport.reply = HtspWireReply(fields)
+            assertSame(HtspResult.ServerError, connection.call(HelloRequest(44L, "client")))
+        }
+
+        transport.reply = HtspWireReply(
+            linkedMapOf(
+                "htspversion" to 44L,
+                "challenge" to ByteArray(32),
+                "servername" to 1L,
+                "serverversion" to emptyList<Any?>(),
+                "webroot" to false,
+                "language" to ByteArray(0),
+                "servercapability" to listOf("ok", 1L),
+                "api_version" to "19",
+            ),
+        )
+        val malformedOptionals = connection.call(HelloRequest(44L, "client")) as HtspResult.Ok
+        assertEquals(null, malformedOptionals.value.serverName)
+        assertEquals(null, malformedOptionals.value.serverVersion)
+        assertEquals(null, malformedOptionals.value.webRoot)
+        assertEquals(null, malformedOptionals.value.language)
+        assertEquals(null, malformedOptionals.value.serverCapabilities)
+        assertEquals(null, malformedOptionals.value.apiVersion)
+
+        transport.reply = HtspWireReply(
+            linkedMapOf(
+                "noaccess" to 0L,
+                "admin" to 0L,
+                "streaming" to 1L,
+                "dvr" to 2L,
+                "faileddvr" to "1",
+                "anonymous" to -1L,
+                "limitall" to 0L,
+                "limitdvr" to 0xffff_ffffL,
+                "limitstreaming" to -1L,
+                "uilevel" to "1",
+                "uilanguage" to 1L,
+                "unknown" to ByteArray(3),
+            ),
+        )
+        assertEquals(
+            HtspResult.Ok(
+                AuthenticateResponse(
+                    noAccess = false,
+                    admin = false,
+                    streaming = true,
+                    dvr = null,
+                    failedDvr = null,
+                    anonymous = null,
+                    limitAll = 0L,
+                    limitDvr = 0xffff_ffffL,
+                    limitStreaming = null,
+                    uiLevel = null,
+                    uiLanguage = null,
+                ),
+            ),
+            connection.call(authenticateRequest),
+        )
+        transport.reply = HtspWireReply(linkedMapOf("noaccess" to 1L))
+        assertSame(HtspResult.AccessDenied, connection.call(authenticateRequest))
+        transport.reply = HtspWireReply(linkedMapOf("noaccess" to 1L, "connlimit" to 1L))
+        assertSame(HtspResult.ConnectionLimit, connection.call(authenticateRequest))
+        listOf<Any?>(1, 2L, "1", null).forEach { malformed ->
+            transport.reply = HtspWireReply(linkedMapOf("noaccess" to malformed))
+            assertSame(HtspResult.ServerError, connection.call(authenticateRequest))
+        }
+    }
+
+    @Test
     fun catalogContainsExactlyTheAssignedTypedRequests() {
         assertEquals(
             listOf(
@@ -484,6 +613,8 @@ class HtspProtocolCoreTest {
                 "fileClose",
                 "fileStat",
                 "fileSeek",
+                "hello",
+                "authenticate",
             ),
             typedHtspRequestCatalog.map { it.method },
         )
@@ -491,7 +622,8 @@ class HtspProtocolCoreTest {
             List(9) { HtspAccess.ACCESS_HTSP_STREAMING } +
                 List(13) { HtspAccess.ACCESS_HTSP_RECORDER } +
                 List(9) { HtspAccess.ACCESS_HTSP_STREAMING } +
-                List(5) { HtspAccess.ACCESS_HTSP_RECORDER },
+                List(5) { HtspAccess.ACCESS_HTSP_RECORDER } +
+                List(2) { HtspAccess.ACCESS_ANONYMOUS },
             typedHtspRequestCatalog.map { it.access },
         )
         val requests: List<HtspRequest<*>> = listOf(
@@ -531,6 +663,8 @@ class HtspProtocolCoreTest {
             FileCloseRequest(0L),
             FileStatRequest(0L),
             FileSeekRequest(0L, 0L),
+            HelloRequest(0L, ""),
+            AuthenticateRequest(),
         )
         assertEquals(
             typedHtspRequestCatalog.map { Triple(it.method, it.access, it.minimumProtocolVersion) },

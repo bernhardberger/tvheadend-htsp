@@ -5,6 +5,8 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /** Opaque identity of one live HTSP transport generation. */
 public class HtspConnectionGeneration private constructor() {
@@ -20,6 +22,7 @@ public class HtspConnectionGeneration private constructor() {
 public enum class HtspAccess {
     ACCESS_HTSP_STREAMING,
     ACCESS_HTSP_RECORDER,
+    ACCESS_ANONYMOUS,
 }
 
 /** A typed request whose raw HTSP envelope and reply mapping remain ABI-hidden. */
@@ -103,6 +106,8 @@ internal suspend fun <R> HtspConnection.call(
 internal class `HtspTypedRequestCaller-internal`(
     private val transport: HtspRequestTransport,
 ) {
+    private val handshakeMutex = Mutex()
+
     val generation: HtspConnectionGeneration?
         get() = transport.captureGeneration()?.token
 
@@ -123,7 +128,26 @@ internal class `HtspTypedRequestCaller-internal`(
             return HtspResult.NotSupported
         }
 
+        return if (request.isDirectHandshake()) {
+            handshakeMutex.withLock {
+                ensureActiveGeneration(generation)
+                callCaptured(request, timeoutMs, generation, protocolVersion, isHandshake = true)
+            }
+        } else {
+            callCaptured(request, timeoutMs, generation, protocolVersion, isHandshake = false)
+        }
+    }
+
+    private suspend fun <R> callCaptured(
+        request: HtspRequest<R>,
+        timeoutMs: Long,
+        generation: HtspCapturedGeneration,
+        protocolVersion: Int?,
+        isHandshake: Boolean,
+    ): HtspResult<R> {
+        var dispatchStarted = false
         return try {
+            dispatchStarted = true
             val reply = transport.dispatch(
                 generation = generation,
                 method = request.method,
@@ -131,11 +155,19 @@ internal class `HtspTypedRequestCaller-internal`(
                 timeoutMs = timeoutMs,
             )
             ensureActiveGeneration(generation)
-            classifyReply(reply, request, protocolVersion ?: 0)
+            classifyHtspReply(reply, request, protocolVersion ?: 0).also { result ->
+                transport.recapture(generation, request, result)
+                if (request is HelloRequest && result !is HtspResult.Ok) {
+                    transport.retire(generation)
+                }
+            }
         } catch (cancelled: CancellationException) {
+            if (isHandshake && dispatchStarted) transport.retire(generation)
             throw cancelled
         } catch (_: HtspCallTimeoutException) {
-            ensureActiveGeneration(generation)
+            ensureCurrentGeneration(generation)
+            if (isHandshake) transport.retire(generation)
+            currentCoroutineContext().ensureActive()
             HtspResult.Timeout
         } catch (_: HtspProtocolMappingException) {
             ensureActiveGeneration(generation)
@@ -146,50 +178,52 @@ internal class `HtspTypedRequestCaller-internal`(
         }
     }
 
+    private fun HtspRequest<*>.isDirectHandshake(): Boolean =
+        this is HelloRequest || this is AuthenticateRequest
+
     private suspend fun ensureActiveGeneration(generation: HtspCapturedGeneration) {
         currentCoroutineContext().ensureActive()
+        ensureCurrentGeneration(generation)
+    }
+
+    private fun ensureCurrentGeneration(generation: HtspCapturedGeneration) {
         if (!transport.isCurrent(generation)) {
             throw CancellationException("Stale HTSP connection generation")
         }
     }
 
-    private fun <R> classifyReply(
-        reply: HtspWireReply,
-        request: HtspRequest<R>,
-        protocolVersion: Int,
-    ): HtspResult<R> {
-        if (reply.fields.containsKey("noaccess")) {
-            val noAccess = reply.fields["noaccess"]
-            if (noAccess !is Long) return HtspResult.ServerError
-            when (noAccess) {
-                0L -> Unit
-                1L -> {
-                    if (!reply.fields.containsKey("connlimit")) return HtspResult.AccessDenied
-                    val connectionLimit = reply.fields["connlimit"]
-                    if (connectionLimit !is Long) return HtspResult.ServerError
-                    return if (connectionLimit == 1L) {
-                        HtspResult.ConnectionLimit
-                    } else {
-                        HtspResult.AccessDenied
-                    }
-                }
-                else -> return HtspResult.ServerError
-            }
-        }
-        if (reply.fields.containsKey("error")) {
-            val error = reply.fields["error"] as? String ?: return HtspResult.ServerError
-            if (error.lowercase().isUnknownMethodError()) return HtspResult.NotSupported
-            if (request !is HtspDvrMutationRequest) return HtspResult.ServerError
-        }
-        return decodeReply(request, reply.fields, protocolVersion)
-    }
+}
 
-    private fun <R> decodeReply(
-        request: HtspRequest<R>,
-        fields: Map<String, Any?>,
-        protocolVersion: Int,
-    ): HtspResult<R> = try {
-        HtspResult.Ok(HtspRequestCodecs.decode(request, fields, protocolVersion))
+internal fun <R> classifyHtspReply(
+    reply: HtspWireReply,
+    request: HtspRequest<R>,
+    protocolVersion: Int,
+): HtspResult<R> {
+    if (reply.fields.containsKey("noaccess")) {
+        val noAccess = reply.fields["noaccess"]
+        if (noAccess !is Long) return HtspResult.ServerError
+        when (noAccess) {
+            0L -> Unit
+            1L -> {
+                if (!reply.fields.containsKey("connlimit")) return HtspResult.AccessDenied
+                val connectionLimit = reply.fields["connlimit"]
+                if (connectionLimit !is Long) return HtspResult.ServerError
+                return if (connectionLimit == 1L) {
+                    HtspResult.ConnectionLimit
+                } else {
+                    HtspResult.AccessDenied
+                }
+            }
+            else -> return HtspResult.ServerError
+        }
+    }
+    if (reply.fields.containsKey("error")) {
+        val error = reply.fields["error"] as? String ?: return HtspResult.ServerError
+        if (error.lowercase().isUnknownMethodError()) return HtspResult.NotSupported
+        if (request !is HtspDvrMutationRequest) return HtspResult.ServerError
+    }
+    return try {
+        HtspResult.Ok(HtspRequestCodecs.decode(request, reply.fields, protocolVersion))
     } catch (_: HtspProtocolMappingException) {
         HtspResult.ServerError
     } catch (_: RuntimeException) {
@@ -240,6 +274,15 @@ internal interface `HtspRequestTransport-internal` {
     ): HtspWireReply
 
     fun isCurrent(generation: HtspCapturedGeneration): Boolean
+
+    /** Makes only the exact captured generation immediately non-admissible. */
+    fun retire(generation: HtspCapturedGeneration) = Unit
+
+    suspend fun <R> recapture(
+        generation: HtspCapturedGeneration,
+        request: HtspRequest<R>,
+        result: HtspResult<R>,
+    ) = Unit
 }
 
 internal typealias HtspRequestTransport = `HtspRequestTransport-internal`

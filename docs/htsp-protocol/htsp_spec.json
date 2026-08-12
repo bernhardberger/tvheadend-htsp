@@ -683,9 +683,9 @@
           "name": "htspversion",
           "type": "u32",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_u32",
-          "confidence": "mechanical",
+          "presence": "required",
+          "evidence": "htsp_method_hello rejects a missing or malformed requested protocol version",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 1
         },
@@ -693,9 +693,9 @@
           "name": "clientname",
           "type": "str",
           "direction": "request",
-          "presence": "unknown",
-          "evidence": "htsmsg_get_str",
-          "confidence": "mechanical",
+          "presence": "required",
+          "evidence": "htsp_method_hello rejects a missing client name while preserving an empty value",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 2
         }
@@ -705,9 +705,9 @@
           "name": "htspversion",
           "type": "u32",
           "direction": "reply",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_u32",
-          "confidence": "mechanical",
+          "presence": "required",
+          "evidence": "htsp_method_hello unconditionally emits server protocol version",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 1
         },
@@ -715,9 +715,9 @@
           "name": "servername",
           "type": "str",
           "direction": "reply",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_str",
-          "confidence": "mechanical",
+          "presence": "required",
+          "evidence": "htsp_method_hello unconditionally emits configured server name",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 2
         },
@@ -725,9 +725,9 @@
           "name": "serverversion",
           "type": "str",
           "direction": "reply",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_str",
-          "confidence": "mechanical",
+          "presence": "required",
+          "evidence": "htsp_method_hello unconditionally emits server software version",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
           "order": 3
         },
@@ -735,79 +735,70 @@
           "name": "challenge",
           "type": "bin",
           "direction": "reply",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_bin",
-          "confidence": "mechanical",
+          "presence": "required",
+          "evidence": "htsp_method_hello unconditionally emits the connection challenge",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
+          "condition": "exactly 32 bytes",
           "order": 4
         },
         {
           "name": "webroot",
           "type": "str",
           "direction": "reply",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_str",
+          "presence": "conditional",
+          "evidence": "htsp_method_hello emits webroot only when configured",
           "confidence": "mechanical+annotated",
-          "minVersion": 8,
-          "notes": [
-            "minVersion from annotated catalog"
-          ],
+          "minVersion": null,
+          "condition": "present when tvheadend_webroot is non-null",
           "order": 5
         },
         {
           "name": "language",
           "type": "str",
           "direction": "reply",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_str",
+          "presence": "conditional",
+          "evidence": "htsp_method_hello emits language only when configured",
           "confidence": "mechanical+annotated",
-          "minVersion": 1,
-          "notes": [
-            "minVersion from annotated catalog"
-          ],
+          "minVersion": null,
+          "condition": "present when config_get_language returns non-null",
           "order": 6
         },
         {
           "name": "servercapability",
           "type": "msg",
           "direction": "reply",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_msg",
+          "presence": "required",
+          "evidence": "htsp_method_hello unconditionally emits tvheadend_capabilities_list(1)",
           "confidence": "mechanical+annotated",
-          "minVersion": 6,
-          "notes": [
-            "minVersion from annotated catalog"
-          ],
+          "minVersion": null,
           "order": 7
         },
         {
           "name": "api_version",
           "type": "u32",
           "direction": "reply",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_u32",
+          "presence": "required",
+          "evidence": "htsp_method_hello unconditionally emits TVH_API_VERSION",
           "confidence": "mechanical+annotated",
-          "minVersion": 1,
-          "notes": [
-            "minVersion from annotated catalog"
-          ],
+          "minVersion": null,
           "order": 8
         }
       ],
       "requestShape": {
         "kind": "fields",
-        "completeness": "partial",
-        "evidence": "bounded handler/helper extraction plus exact-pin annotations"
+        "completeness": "complete",
+        "evidence": "bounded htsp_method_hello reads exactly required htspversion and clientname and never clientversion"
       },
       "replyShape": {
         "kind": "fields",
-        "completeness": "partial",
-        "evidence": "bounded handler/helper extraction plus exact-pin annotations"
+        "completeness": "complete",
+        "evidence": "bounded htsp_method_hello complete unconditional/conditional output topology and exact 32-byte challenge"
       },
       "sdk": {
         "referenced": true,
         "outgoingRequest": true,
-        "typedRequest": false
+        "typedRequest": true
       }
     },
     {
@@ -822,20 +813,22 @@
           "name": "noaccess",
           "type": "u32",
           "direction": "reply",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_u32",
-          "confidence": "mechanical",
+          "presence": "alternative",
+          "evidence": "htsp_method_authenticate emits only noaccess=1 when no privilege mask is granted",
+          "confidence": "mechanical+annotated",
           "minVersion": null,
+          "condition": "present only when granted rights have no HTSP_PRIV_MASK bit",
           "order": 1
         },
         {
           "name": "admin",
           "type": "u32",
           "direction": "reply",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_u32",
+          "presence": "conditional",
+          "evidence": "htsp_method_authenticate complete rights branch emits admin",
           "confidence": "mechanical+annotated",
           "minVersion": 26,
+          "condition": "present with granted rights only when negotiated protocol version is greater than 25",
           "notes": [
             "minVersion from annotated catalog"
           ],
@@ -845,10 +838,11 @@
           "name": "streaming",
           "type": "u32",
           "direction": "reply",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_u32",
+          "presence": "conditional",
+          "evidence": "htsp_method_authenticate complete rights branch emits streaming",
           "confidence": "mechanical+annotated",
           "minVersion": 26,
+          "condition": "present with granted rights only when negotiated protocol version is greater than 25",
           "notes": [
             "minVersion from annotated catalog"
           ],
@@ -858,10 +852,11 @@
           "name": "dvr",
           "type": "u32",
           "direction": "reply",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_u32",
+          "presence": "conditional",
+          "evidence": "htsp_method_authenticate complete rights branch emits dvr",
           "confidence": "mechanical+annotated",
           "minVersion": 26,
+          "condition": "present with granted rights only when negotiated protocol version is greater than 25",
           "notes": [
             "minVersion from annotated catalog"
           ],
@@ -871,10 +866,11 @@
           "name": "faileddvr",
           "type": "u32",
           "direction": "reply",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_u32",
+          "presence": "conditional",
+          "evidence": "htsp_method_authenticate complete rights branch emits faileddvr",
           "confidence": "mechanical+annotated",
           "minVersion": 26,
+          "condition": "present with granted rights only when negotiated protocol version is greater than 25",
           "notes": [
             "minVersion from annotated catalog"
           ],
@@ -884,10 +880,11 @@
           "name": "anonymous",
           "type": "u32",
           "direction": "reply",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_u32",
+          "presence": "conditional",
+          "evidence": "htsp_method_authenticate complete rights branch emits anonymous",
           "confidence": "mechanical+annotated",
           "minVersion": 26,
+          "condition": "present with granted rights only when negotiated protocol version is greater than 25",
           "notes": [
             "minVersion from annotated catalog"
           ],
@@ -897,10 +894,11 @@
           "name": "limitall",
           "type": "u32",
           "direction": "reply",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_u32",
+          "presence": "conditional",
+          "evidence": "htsp_method_authenticate complete rights branch emits limitall",
           "confidence": "mechanical+annotated",
           "minVersion": 26,
+          "condition": "present with granted rights only when negotiated protocol version is greater than 25",
           "notes": [
             "minVersion from annotated catalog"
           ],
@@ -910,10 +908,11 @@
           "name": "limitdvr",
           "type": "u32",
           "direction": "reply",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_u32",
+          "presence": "conditional",
+          "evidence": "htsp_method_authenticate complete rights branch emits limitdvr",
           "confidence": "mechanical+annotated",
           "minVersion": 26,
+          "condition": "present with granted rights only when negotiated protocol version is greater than 25",
           "notes": [
             "minVersion from annotated catalog"
           ],
@@ -923,10 +922,11 @@
           "name": "limitstreaming",
           "type": "u32",
           "direction": "reply",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_u32",
+          "presence": "conditional",
+          "evidence": "htsp_method_authenticate complete rights branch emits limitstreaming",
           "confidence": "mechanical+annotated",
           "minVersion": 26,
+          "condition": "present with granted rights only when negotiated protocol version is greater than 25",
           "notes": [
             "minVersion from annotated catalog"
           ],
@@ -936,10 +936,11 @@
           "name": "uilevel",
           "type": "u32",
           "direction": "reply",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_u32",
+          "presence": "conditional",
+          "evidence": "htsp_method_authenticate complete rights branch emits uilevel",
           "confidence": "mechanical+annotated",
           "minVersion": 26,
+          "condition": "present with granted rights only when negotiated protocol version is greater than 25",
           "notes": [
             "minVersion from annotated catalog"
           ],
@@ -949,10 +950,11 @@
           "name": "uilanguage",
           "type": "str",
           "direction": "reply",
-          "presence": "unknown",
-          "evidence": "htsmsg_add_str",
+          "presence": "conditional",
+          "evidence": "htsp_method_authenticate complete rights branch emits uilanguage",
           "confidence": "mechanical+annotated",
           "minVersion": 26,
+          "condition": "present with granted rights only when negotiated protocol version is greater than 25",
           "notes": [
             "minVersion from annotated catalog"
           ],
@@ -962,17 +964,22 @@
       "requestShape": {
         "kind": "knownEmpty",
         "completeness": "complete",
-        "evidence": "bounded handler and official method page define no method-specific request fields"
+        "evidence": "bounded htsp_method_authenticate reads no method-specific request fields"
       },
       "replyShape": {
-        "kind": "fields",
-        "completeness": "partial",
-        "evidence": "bounded handler/helper extraction plus exact-pin annotations"
+        "kind": "alternative",
+        "completeness": "complete",
+        "evidence": "bounded htsp_method_authenticate noaccess, rights>25 complete fields, and rights<=25 empty topology",
+        "alternatives": [
+          "no privilege mask: noaccess=1 only",
+          "granted rights and negotiated version >25: complete access observation fields",
+          "granted rights and negotiated version <=25: empty method payload"
+        ]
       },
       "sdk": {
         "referenced": true,
         "outgoingRequest": true,
-        "typedRequest": false
+        "typedRequest": true
       }
     },
     {
@@ -9439,7 +9446,7 @@
     },
     "typedClientRequests": {
       "catalog": "docs/htsp-protocol/generate_typed_requests.py",
-      "count": 36,
+      "count": 38,
       "methods": [
         {
           "name": "getProfiles",
@@ -9620,6 +9627,16 @@
           "name": "fileSeek",
           "accessMask": "ACCESS_HTSP_RECORDER",
           "methodMinVersion": 8
+        },
+        {
+          "name": "hello",
+          "accessMask": "ACCESS_ANONYMOUS",
+          "methodMinVersion": null
+        },
+        {
+          "name": "authenticate",
+          "accessMask": "ACCESS_ANONYMOUS",
+          "methodMinVersion": null
         }
       ],
       "meaning": "Public typed HtspRequest models and generated HtspConnection extensions; not a support or completeness claim"
@@ -9817,7 +9834,7 @@
       "referencedClientMethods": 38,
       "outgoingClientMethods": 38,
       "handledServerMessages": 30,
-      "typedClientRequests": 36,
+      "typedClientRequests": 38,
       "typedServerMessages": 29,
       "notes": [
         "referenced counts exact string literals in SDK production main sources",

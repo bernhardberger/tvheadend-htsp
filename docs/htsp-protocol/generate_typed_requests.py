@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate the reviewed 36-request HTSP convenience/catalog surface."""
+"""Generate the reviewed 38-request HTSP convenience/catalog surface."""
 
 from __future__ import annotations
 
@@ -278,6 +278,11 @@ CATALOG: tuple[Entry, ...] = (
         parameter("offset", "Long"),
         parameter("whence", "FileSeekWhence?", "null"),
     )),
+    Entry("hello", "HelloRequest", "HelloResponse", "ACCESS_ANONYMOUS", None, (
+        parameter("htspVersion", "Long"),
+        parameter("clientName", "String"),
+    )),
+    Entry("authenticate", "AuthenticateRequest", "AuthenticateResponse", "ACCESS_ANONYMOUS", None),
 )
 
 
@@ -420,11 +425,11 @@ def validate_catalog() -> None:
         "getDvrCutpoints", "getTicket", "subscribe", "unsubscribe",
         "subscriptionChangeWeight", "subscriptionSeek", "subscriptionSkip", "subscriptionSpeed",
         "subscriptionLive", "subscriptionFilterStream", "fileOpen", "fileRead", "fileClose",
-        "fileStat", "fileSeek",
+        "fileStat", "fileSeek", "hello", "authenticate",
     )
     methods = tuple(entry.method for entry in CATALOG)
-    if methods != expected or len(set(methods)) != 36:
-        raise ValueError("typed request catalog must contain exactly the reviewed 36 methods")
+    if methods != expected or len(set(methods)) != 38:
+        raise ValueError("typed request catalog must contain exactly the reviewed 38 methods")
     epg_query = CATALOG[7]
     if epg_query != Entry(
         "epgQuery", "EpgQueryRequest", "EpgQueryResponse", "ACCESS_HTSP_STREAMING", 4, (
@@ -488,7 +493,16 @@ def validate_catalog() -> None:
         )),
     ):
         raise ValueError("file operation catalog entries must preserve the reviewed constructor contract")
-    forbidden = {"hello", "authenticate", "api"}
+    handshake = CATALOG[36:38]
+    if handshake != (
+        Entry("hello", "HelloRequest", "HelloResponse", "ACCESS_ANONYMOUS", None, (
+            parameter("htspVersion", "Long"),
+            parameter("clientName", "String"),
+        )),
+        Entry("authenticate", "AuthenticateRequest", "AuthenticateResponse", "ACCESS_ANONYMOUS", None),
+    ):
+        raise ValueError("handshake catalog entries must preserve the reviewed constructor contract")
+    forbidden = {"api"}
     if forbidden.intersection(methods):
         raise ValueError("typed request catalog contains an excluded method")
     if tuple(overload.method for overload in SELECTOR_OVERLOADS) != (
@@ -506,13 +520,13 @@ def self_test() -> None:
     if first != second:
         raise AssertionError("generator output is not deterministic")
     extension_lines = [line for line in first.splitlines() if line.startswith("public suspend fun")]
-    if len(extension_lines) != 46:
-        raise AssertionError("generated extensions must contain 36 canonical and 10 selector overloads")
+    if len(extension_lines) != 48:
+        raise AssertionError("generated extensions must contain 38 canonical and 10 selector overloads")
     if "    request:" in first:
         raise AssertionError("generated extensions must not accept request objects")
-    if first.count("timeoutMs: Long = 5_000L") != 46:
+    if first.count("timeoutMs: Long = 5_000L") != 48:
         raise AssertionError("every generated extension must expose the default request timeout")
-    if first.count("expectedGeneration: HtspConnectionGeneration? = null") != 46:
+    if first.count("expectedGeneration: HtspConnectionGeneration? = null") != 48:
         raise AssertionError("every generated extension must expose the optional generation fence")
     required_signatures = (
         "public suspend fun HtspConnection.getEvents(\n    channelId: Long? = null,",
@@ -549,18 +563,22 @@ def self_test() -> None:
         "public suspend fun HtspConnection.addTimerecEntry(\n    title: String,\n    channel: HtspRecordingRuleChannel? = null,",
         "public suspend fun HtspConnection.updateTimerecEntry(\n    id: String,\n    channel: HtspRecordingRuleChannel? = null,",
         "public suspend fun HtspConnection.deleteTimerecEntry(\n    id: String,",
+        "public suspend fun HtspConnection.hello(\n    htspVersion: Long,\n    clientName: String,",
+        "public suspend fun HtspConnection.authenticate(\n    timeoutMs: Long = 5_000L,",
     )
     missing = [signature for signature in required_signatures if signature not in first]
     if missing:
         raise AssertionError(f"generated extension signatures are incomplete: {missing}")
-    if first.count("    call(") != 46:
+    if first.count("    call(") != 48:
         raise AssertionError("every generated extension must contain exactly one call delegation")
-    if first.count("        timeoutMs = timeoutMs,") != 46:
+    if first.count("        timeoutMs = timeoutMs,") != 48:
         raise AssertionError("every generated extension must forward timeout exactly once")
-    if first.count("        expectedGeneration = expectedGeneration,") != 46:
+    if first.count("        expectedGeneration = expectedGeneration,") != 48:
         raise AssertionError("every generated extension must forward generation exactly once")
     if first.count("request = SubscriptionSkipRequest(") != 3:
         raise AssertionError("subscriptionSkip must emit one canonical and two selector overload request constructions")
+    if first.count("request = HelloRequest(") != 1 or first.count("request = AuthenticateRequest(),") != 1:
+        raise AssertionError("handshake extensions must each construct exactly one finite request")
     with tempfile.TemporaryDirectory() as directory:
         path = Path(directory) / "generated.kt"
         path.write_text(first, encoding="utf-8")

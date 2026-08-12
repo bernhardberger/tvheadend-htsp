@@ -295,10 +295,6 @@ AUTOREC_SERVER_MESSAGE_FIELDS: tuple[tuple[str, str, str, str], ...] = (
 
 # Field-level version gates that are well-evidenced (annotated, not guessed).
 FIELD_MIN_VERSION: dict[tuple[str, str, str], int] = {
-    ("clientMethod", "hello", "servercapability"): 6,
-    ("clientMethod", "hello", "webroot"): 8,
-    ("clientMethod", "hello", "language"): 1,
-    ("clientMethod", "hello", "api_version"): 1,
     ("clientMethod", "authenticate", "admin"): 26,
     ("clientMethod", "authenticate", "streaming"): 26,
     ("clientMethod", "authenticate", "dvr"): 26,
@@ -3020,6 +3016,120 @@ def require_get_dvr_cutpoints_source_facts(server_c: str) -> list[dict[str, Any]
     ]
 
 
+def require_handshake_source_facts(server_c: str) -> None:
+    """Validate exact hello/authenticate dispatch, request, reply, and branch topology."""
+    if METHOD_MIN_VERSION.get("hello") is not None or METHOD_MIN_VERSION.get("authenticate") is not None:
+        raise ValueError("handshake methods must have no annotated minimum protocol gate")
+    source = strip_c_comments(server_c)
+    dispatch = [
+        entry for entry in parse_methods_table(source)
+        if entry["name"] in {"hello", "authenticate"}
+    ]
+    if [entry["name"] for entry in dispatch] != ["hello", "authenticate"]:
+        raise ValueError("hello/authenticate dispatch order or presence drift")
+    hello_dispatch, authenticate_dispatch = dispatch
+    if hello_dispatch["handler"] != "htsp_method_hello":
+        raise ValueError("hello dispatch handler drift")
+    if hello_dispatch["accessMask"] != "ACCESS_ANONYMOUS":
+        raise ValueError("hello dispatch access drift")
+    if authenticate_dispatch["handler"] != "htsp_method_authenticate":
+        raise ValueError("authenticate dispatch handler drift")
+    if authenticate_dispatch["accessMask"] != "ACCESS_ANONYMOUS":
+        raise ValueError("authenticate dispatch access drift")
+
+    hello = find_function_body(source, "htsp_method_hello")
+    if hello is None:
+        raise ValueError("htsp_method_hello body not found")
+    hello_compact = re.sub(r"\s+", " ", hello).strip()
+    if len(re.findall(r'htsmsg_get_u32\(\s*in\s*,\s*"htspversion"\s*,\s*&v\s*\)', hello)) != 1:
+        raise ValueError("hello must read exact required u32 htspversion once")
+    if re.search(
+        r'if\s*\(\s*htsmsg_get_u32\(\s*in\s*,\s*"htspversion"\s*,\s*&v\s*\)\s*\)\s*'
+        r'return\s+htsp_error\(\s*htsp\s*,\s*N_\(\s*"Invalid arguments"\s*\)\s*\)\s*;',
+        hello_compact,
+    ) is None:
+        raise ValueError("hello htspversion getter must remain required")
+    if len(re.findall(r'htsmsg_get_str\(\s*in\s*,\s*"clientname"\s*\)', hello)) != 2:
+        raise ValueError("hello must require clientname then reuse only that exact field")
+    if re.search(
+        r'if\s*\(\s*\(\s*name\s*=\s*htsmsg_get_str\(\s*in\s*,\s*"clientname"\s*\)\s*\)\s*'
+        r'==\s*NULL\s*\)\s*return\s+htsp_error\(\s*htsp\s*,\s*N_\(\s*"Invalid arguments"\s*\)\s*\)\s*;',
+        hello_compact,
+    ) is None:
+        raise ValueError("hello clientname getter must remain required")
+    if "clientversion" in hello.lower():
+        raise ValueError("hello current source must not read clientversion")
+    hello_getters = [(field["name"], field["type"]) for field in extract_get_fields(hello, "in")]
+    if hello_getters != [("htspversion", "u32"), ("clientname", "str")]:
+        raise ValueError("hello request inventory must contain only htspversion and clientname")
+    hello_adds = [(field["name"], field["type"]) for field in extract_add_fields(hello)]
+    if hello_adds != [
+        ("htspversion", "u32"), ("servername", "str"), ("serverversion", "str"),
+        ("challenge", "bin"), ("webroot", "str"), ("language", "str"),
+        ("servercapability", "msg"), ("api_version", "u32"),
+    ]:
+        raise ValueError("hello reply field inventory or order drift")
+    if len(re.findall(r'htsmsg_add_bin\(\s*r\s*,\s*"challenge"\s*,\s*htsp->htsp_challenge\s*,\s*32\s*\)', hello)) != 1:
+        raise ValueError("hello challenge must remain exactly 32 bytes")
+    if re.search(
+        r'htsmsg_add_u32\(\s*r\s*,\s*"htspversion"\s*,\s*HTSP_PROTO_VERSION\s*\)\s*;\s*'
+        r'htsmsg_add_str\(\s*r\s*,\s*"servername"\s*,\s*config_get_server_name\(\s*\)\s*\)\s*;\s*'
+        r'htsmsg_add_str\(\s*r\s*,\s*"serverversion"\s*,\s*tvheadend_version\s*\)\s*;\s*'
+        r'htsmsg_add_bin\(\s*r\s*,\s*"challenge"\s*,\s*htsp->htsp_challenge\s*,\s*32\s*\)\s*;\s*'
+        r'if\s*\(\s*tvheadend_webroot\s*\)\s*htsmsg_add_str\(\s*r\s*,\s*"webroot"\s*,\s*tvheadend_webroot\s*\)\s*;\s*'
+        r'lang\s*=\s*config_get_language\(\s*\)\s*;\s*if\s*\(\s*lang\s*\)\s*'
+        r'htsmsg_add_str\(\s*r\s*,\s*"language"\s*,\s*lang\s*\)\s*;\s*'
+        r'htsmsg_add_msg\(\s*r\s*,\s*"servercapability"\s*,\s*tvheadend_capabilities_list\(\s*1\s*\)\s*\)\s*;\s*'
+        r'htsmsg_add_u32\(\s*r\s*,\s*"api_version"\s*,\s*TVH_API_VERSION\s*\)\s*;',
+        hello_compact,
+    ) is None:
+        raise ValueError("hello unconditional and conditional reply topology drift")
+    if len(re.findall(
+        r'htsp->htsp_version\s*=\s*MIN\(\s*HTSP_PROTO_VERSION\s*,\s*v\s*\)\s*;',
+        hello,
+    )) != 1:
+        raise ValueError("hello negotiated version must remain the requested/server minimum")
+
+    authenticate = find_function_body(source, "htsp_method_authenticate")
+    if authenticate is None:
+        raise ValueError("htsp_method_authenticate body not found")
+    auth_compact = re.sub(r"\s+", " ", authenticate).strip()
+    if re.search(r'\bhtsmsg_get_[a-z0-9_]+\s*\(', authenticate) is not None:
+        raise ValueError("authenticate must read no method-specific request fields")
+    auth_adds = [(field["name"], field["type"]) for field in extract_add_fields(authenticate)]
+    if auth_adds != [
+        ("noaccess", "u32"), ("admin", "u32"), ("streaming", "u32"),
+        ("dvr", "u32"), ("faileddvr", "u32"), ("anonymous", "u32"),
+        ("limitall", "u32"), ("limitdvr", "u32"), ("limitstreaming", "u32"),
+        ("uilevel", "u32"), ("uilanguage", "str"),
+    ]:
+        raise ValueError("authenticate reply field inventory or order drift")
+    if len(re.findall(r'htsmsg_t\s*\*r\s*=\s*htsmsg_create_map\(\s*\)\s*;', auth_compact)) != 1:
+        raise ValueError("authenticate must create exactly one initially empty reply map")
+    if re.search(
+        r'if\s*\(\s*!\s*\(\s*htsp->htsp_granted_access->aa_rights\s*&\s*HTSP_PRIV_MASK\s*\)\s*\)\s*'
+        r'htsmsg_add_u32\(\s*r\s*,\s*"noaccess"\s*,\s*1\s*\)\s*;\s*'
+        r'else\s+if\s*\(\s*htsp->htsp_version\s*>\s*25\s*\)\s*\{',
+        auth_compact,
+    ) is None:
+        raise ValueError("authenticate noaccess and version branches drift")
+    rights_fields = (
+        "admin", "streaming", "dvr", "faileddvr", "anonymous", "limitall",
+        "limitdvr", "limitstreaming", "uilevel", "uilanguage",
+    )
+    version_block = re.search(
+        r'else\s+if\s*\(\s*htsp->htsp_version\s*>\s*25\s*\)\s*\{(?P<body>.*)\}\s*return\s+r\s*;',
+        auth_compact,
+    )
+    if version_block is None:
+        raise ValueError("authenticate must preserve rights>25 and rights<=25 empty behavior")
+    emitted_names = re.findall(r'htsmsg_add_(?:u32|str)\(\s*r\s*,\s*"([^"]+)"', version_block.group("body"))
+    if tuple(emitted_names) != rights_fields:
+        raise ValueError("authenticate >25 complete field branch drift")
+    if len(re.findall(r'\breturn\s+r\s*;', authenticate)) != 1:
+        raise ValueError("authenticate must return its sole alternative reply map")
+
+
 def require_stop_dvr_entry_source_facts(server_c: str) -> None:
     """Validate the exact bounded stopDvrEntry helper/handler/success topology."""
     source = strip_c_comments(server_c)
@@ -4426,6 +4536,69 @@ def derive_client_methods(server_c: str) -> list[dict[str, Any]]:
                 )],
                 request_fields,
             )
+        if name == "hello":
+            require_handshake_source_facts(server_c)
+            request_fields = [
+                exact_field(
+                    "htspversion", "u32", "request", "required",
+                    "htsp_method_hello rejects a missing or malformed requested protocol version",
+                ),
+                exact_field(
+                    "clientname", "str", "request", "required",
+                    "htsp_method_hello rejects a missing client name while preserving an empty value",
+                ),
+            ]
+            reply_fields = [
+                exact_field("htspversion", "u32", "reply", "required", "htsp_method_hello unconditionally emits server protocol version"),
+                exact_field("servername", "str", "reply", "required", "htsp_method_hello unconditionally emits configured server name"),
+                exact_field("serverversion", "str", "reply", "required", "htsp_method_hello unconditionally emits server software version"),
+                exact_field(
+                    "challenge", "bin", "reply", "required",
+                    "htsp_method_hello unconditionally emits the connection challenge",
+                    condition="exactly 32 bytes",
+                ),
+                exact_field(
+                    "webroot", "str", "reply", "conditional",
+                    "htsp_method_hello emits webroot only when configured",
+                    condition="present when tvheadend_webroot is non-null",
+                ),
+                exact_field(
+                    "language", "str", "reply", "conditional",
+                    "htsp_method_hello emits language only when configured",
+                    condition="present when config_get_language returns non-null",
+                ),
+                exact_field(
+                    "servercapability", "msg", "reply", "required",
+                    "htsp_method_hello unconditionally emits tvheadend_capabilities_list(1)",
+                ),
+                exact_field("api_version", "u32", "reply", "required", "htsp_method_hello unconditionally emits TVH_API_VERSION"),
+            ]
+        if name == "authenticate":
+            require_handshake_source_facts(server_c)
+            request_fields = []
+            reply_fields = [
+                exact_field(
+                    "noaccess", "u32", "reply", "alternative",
+                    "htsp_method_authenticate emits only noaccess=1 when no privilege mask is granted",
+                    condition="present only when granted rights have no HTSP_PRIV_MASK bit",
+                ),
+                *[
+                    exact_field(
+                        field_name,
+                        wire_type,
+                        "reply",
+                        "conditional",
+                        f"htsp_method_authenticate complete rights branch emits {field_name}",
+                        condition="present with granted rights only when negotiated protocol version is greater than 25",
+                    )
+                    for field_name, wire_type in (
+                        ("admin", "u32"), ("streaming", "u32"), ("dvr", "u32"),
+                        ("faileddvr", "u32"), ("anonymous", "u32"), ("limitall", "u32"),
+                        ("limitdvr", "u32"), ("limitstreaming", "u32"),
+                        ("uilevel", "u32"), ("uilanguage", "str"),
+                    )
+                ],
+            ]
         if name in {"getChannel"}:
             require_channel_builder_source_facts(server_c)
             if [(field["name"], field["type"]) for field in request_fields] != [
@@ -4816,10 +4989,37 @@ def derive_client_methods(server_c: str) -> list[dict[str, Any]]:
         method["replyFields"] = reply_fields
         method["requestShape"] = field_shape(request_fields)
         method["replyShape"] = field_shape(reply_fields)
-        if name in {"authenticate", "getDiskSpace", "getSysTime", "getDvrConfigs", "getProfiles"}:
+        if name in {"getDiskSpace", "getSysTime", "getDvrConfigs", "getProfiles"}:
             method["requestShape"] = {
                 "kind": "knownEmpty", "completeness": "complete",
                 "evidence": "bounded handler and official method page define no method-specific request fields",
+            }
+        if name == "hello":
+            method["requestShape"] = {
+                "kind": "fields",
+                "completeness": "complete",
+                "evidence": "bounded htsp_method_hello reads exactly required htspversion and clientname and never clientversion",
+            }
+            method["replyShape"] = {
+                "kind": "fields",
+                "completeness": "complete",
+                "evidence": "bounded htsp_method_hello complete unconditional/conditional output topology and exact 32-byte challenge",
+            }
+        if name == "authenticate":
+            method["requestShape"] = {
+                "kind": "knownEmpty",
+                "completeness": "complete",
+                "evidence": "bounded htsp_method_authenticate reads no method-specific request fields",
+            }
+            method["replyShape"] = {
+                "kind": "alternative",
+                "completeness": "complete",
+                "evidence": "bounded htsp_method_authenticate noaccess, rights>25 complete fields, and rights<=25 empty topology",
+                "alternatives": [
+                    "no privilege mask: noaccess=1 only",
+                    "granted rights and negotiated version >25: complete access observation fields",
+                    "granted rights and negotiated version <=25: empty method payload",
+                ],
             }
         if name in {
             "enableAsyncMetadata", "unsubscribe", "subscriptionChangeWeight",
@@ -6126,6 +6326,66 @@ def _minimal_server_c(
     )
     handlers = []
     for name, handler, _access in methods:
+        if name == "hello":
+            handlers.append(
+                f"""
+static htsmsg_t *
+{handler}(htsp_connection_t *htsp, htsmsg_t *in)
+{{
+  htsmsg_t *r;
+  uint32_t v;
+  const char *name, *lang;
+  if(htsmsg_get_u32(in, "htspversion", &v))
+    return htsp_error(htsp, N_("Invalid arguments"));
+  if((name = htsmsg_get_str(in, "clientname")) == NULL)
+    return htsp_error(htsp, N_("Invalid arguments"));
+  r = htsmsg_create_map();
+  tvh_str_update(&htsp->htsp_clientname, htsmsg_get_str(in, "clientname"));
+  tvhinfo(LS_HTSP, "%s: Welcomed client software: %s (HTSPv%d)", htsp->htsp_logname, name, v);
+  htsmsg_add_u32(r, "htspversion", HTSP_PROTO_VERSION);
+  htsmsg_add_str(r, "servername", config_get_server_name());
+  htsmsg_add_str(r, "serverversion", tvheadend_version);
+  htsmsg_add_bin(r, "challenge", htsp->htsp_challenge, 32);
+  if (tvheadend_webroot)
+    htsmsg_add_str(r, "webroot", tvheadend_webroot);
+  lang = config_get_language();
+  if (lang)
+    htsmsg_add_str(r, "language", lang);
+  htsmsg_add_msg(r, "servercapability", tvheadend_capabilities_list(1));
+  htsmsg_add_u32(r, "api_version", TVH_API_VERSION);
+  htsp->htsp_version = MIN(HTSP_PROTO_VERSION, v);
+  htsp_update_logname(htsp);
+  return r;
+}}
+"""
+            )
+            continue
+        if name == "authenticate":
+            handlers.append(
+                f"""
+static htsmsg_t *
+{handler}(htsp_connection_t *htsp, htsmsg_t *in)
+{{
+  htsmsg_t *r = htsmsg_create_map();
+  if(!(htsp->htsp_granted_access->aa_rights & HTSP_PRIV_MASK))
+    htsmsg_add_u32(r, "noaccess", 1);
+  else if (htsp->htsp_version > 25) {{
+    htsmsg_add_u32(r, "admin", htsp->htsp_granted_access->aa_rights & ACCESS_ADMIN ? 1 : 0);
+    htsmsg_add_u32(r, "streaming", htsp->htsp_granted_access->aa_rights & ACCESS_HTSP_STREAMING ? 1 : 0);
+    htsmsg_add_u32(r, "dvr", htsp->htsp_granted_access->aa_rights & ACCESS_HTSP_RECORDER ? 1 : 0);
+    htsmsg_add_u32(r, "faileddvr", htsp->htsp_granted_access->aa_rights & ACCESS_FAILED_RECORDER ? 1 : 0);
+    htsmsg_add_u32(r, "anonymous", htsp->htsp_granted_access->aa_rights & ACCESS_HTSP_ANONYMIZE ? 1 : 0);
+    htsmsg_add_u32(r, "limitall", htsp->htsp_granted_access->aa_conn_limit);
+    htsmsg_add_u32(r, "limitdvr", htsp->htsp_granted_access->aa_conn_limit_dvr);
+    htsmsg_add_u32(r, "limitstreaming", htsp->htsp_granted_access->aa_conn_limit_streaming);
+    htsmsg_add_u32(r, "uilevel", htsp->htsp_granted_access->aa_uilevel == UILEVEL_DEFAULT ? config.uilevel : htsp->htsp_granted_access->aa_uilevel);
+    htsmsg_add_str(r, "uilanguage", htsp->htsp_granted_access->aa_lang_ui ? htsp->htsp_granted_access->aa_lang_ui : (config.language_ui ? config.language_ui : ""));
+  }}
+  return r;
+}}
+"""
+            )
+            continue
         if name == "fileStat":
             handlers.append(
                 f"""
@@ -7274,6 +7534,40 @@ def self_test() -> None:
     committed = json.loads(SPEC_PATH.read_text(encoding="utf-8"))
     methods_by_name = {item["name"]: item for item in committed["clientMethods"]}
     messages_by_name = {item["name"]: item for item in committed["serverMessages"]}
+    hello = methods_by_name["hello"]
+    authenticate = methods_by_name["authenticate"]
+    check(
+        "handshake-committed-exact-contract",
+        hello.get("handler") == "htsp_method_hello"
+        and hello.get("accessMask") == "ACCESS_ANONYMOUS"
+        and hello.get("minVersion") is None
+        and [(field["name"], field["type"], field["presence"]) for field in hello["requestFields"]] == [
+            ("htspversion", "u32", "required"), ("clientname", "str", "required"),
+        ]
+        and [(field["name"], field["type"], field["presence"]) for field in hello["replyFields"]] == [
+            ("htspversion", "u32", "required"), ("servername", "str", "required"),
+            ("serverversion", "str", "required"), ("challenge", "bin", "required"),
+            ("webroot", "str", "conditional"), ("language", "str", "conditional"),
+            ("servercapability", "msg", "required"), ("api_version", "u32", "required"),
+        ]
+        and hello.get("requestShape", {}).get("completeness") == "complete"
+        and hello.get("replyShape", {}).get("completeness") == "complete"
+        and hello.get("sdk", {}).get("typedRequest") is True
+        and authenticate.get("handler") == "htsp_method_authenticate"
+        and authenticate.get("accessMask") == "ACCESS_ANONYMOUS"
+        and authenticate.get("minVersion") is None
+        and authenticate.get("requestFields") == []
+        and authenticate.get("requestShape", {}).get("kind") == "knownEmpty"
+        and authenticate.get("requestShape", {}).get("completeness") == "complete"
+        and authenticate.get("replyShape", {}).get("kind") == "alternative"
+        and authenticate.get("replyShape", {}).get("completeness") == "complete"
+        and authenticate.get("replyShape", {}).get("alternatives") == [
+            "no privilege mask: noaccess=1 only",
+            "granted rights and negotiated version >25: complete access observation fields",
+            "granted rights and negotiated version <=25: empty method payload",
+        ]
+        and authenticate.get("sdk", {}).get("typedRequest") is True,
+    )
     for method_name in ("fileRead", "fileClose", "fileStat", "fileSeek"):
         request_names = {f["name"] for f in methods_by_name[method_name]["requestFields"]}
         check(f"{method_name}-helper-id", "id" in request_names)
@@ -7606,7 +7900,7 @@ def self_test() -> None:
             live_coverage["serverMessages"]["handledCount"],
             live_coverage["typedClientRequests"]["count"],
             live_coverage["typedServerMessages"]["count"],
-        ) == (38, 38, 30, 36, 29)
+        ) == (38, 38, 30, 38, 29)
         and "getEpgObject" in live_coverage["clientMethods"]["referenced"]
         and "getEpgObject" in live_coverage["clientMethods"]["outgoingRequests"]
         and "epgQuery" in live_coverage["clientMethods"]["referenced"]
@@ -7880,7 +8174,7 @@ def self_test() -> None:
                 if name == "subscriptionFilterStream"
                 else f"htsp_method_{name}"
                 if name in {
-                    "getEvent", "getEvents", "getEpgObject", "epgQuery", "stopDvrEntry",
+                    "hello", "authenticate", "getEvent", "getEvents", "getEpgObject", "epgQuery", "stopDvrEntry",
                     "getDvrCutpoints", "getTicket", "fileOpen", "fileRead", "fileClose",
                     "fileStat", "fileSeek", *RECORDING_RULE_METHODS,
                 }
@@ -7905,6 +8199,83 @@ def self_test() -> None:
     server_h = "/* header fixture */\nvoid htsp_init(const char *bindaddr);\n"
     htsp_py = "HTSP_PROTO_VERSION = 33\nclass HTSPClient(object):\n    def hello(self):\n        self.send('hello')\n"
     epg_c, epg_h, lang_str_c, string_list_c = _minimal_epg_sources()
+
+    try:
+        require_handshake_source_facts(server_c)
+        check("handshake-source-positive-fixture", True)
+    except ValueError as exc:
+        check("handshake-source-positive-fixture", False, str(exc))
+    handshake_dispatch_mutations = (
+        (
+            "hello-handler-dispatch",
+            '{ "hello", htsp_method_hello, ACCESS_ANONYMOUS}',
+            '{ "hello", htsp_method_authenticate, ACCESS_ANONYMOUS}',
+            "hello dispatch handler drift",
+        ),
+        (
+            "hello-access-dispatch",
+            '{ "hello", htsp_method_hello, ACCESS_ANONYMOUS}',
+            '{ "hello", htsp_method_hello, ACCESS_HTSP_STREAMING}',
+            "hello dispatch access drift",
+        ),
+        (
+            "authenticate-handler-dispatch",
+            '{ "authenticate", htsp_method_authenticate, ACCESS_ANONYMOUS}',
+            '{ "authenticate", htsp_method_hello, ACCESS_ANONYMOUS}',
+            "authenticate dispatch handler drift",
+        ),
+        (
+            "authenticate-access-dispatch",
+            '{ "authenticate", htsp_method_authenticate, ACCESS_ANONYMOUS}',
+            '{ "authenticate", htsp_method_authenticate, ACCESS_HTSP_STREAMING}',
+            "authenticate dispatch access drift",
+        ),
+    )
+    for label, old, new, expected_diagnostic in handshake_dispatch_mutations:
+        check(f"handshake-dispatch-mutation-source-target-{label}", server_c.count(old) == 1)
+        mutated = server_c.replace(old, new, 1)
+        check(f"handshake-dispatch-mutation-target-{label}", mutated != server_c)
+        if mutated == server_c:
+            continue
+        try:
+            require_handshake_source_facts(mutated)
+        except ValueError as exc:
+            check(
+                f"reject-handshake-dispatch-mutation-{label}",
+                str(exc) == expected_diagnostic,
+                str(exc),
+            )
+        else:
+            check(f"reject-handshake-dispatch-mutation-{label}", False, "mutation accepted")
+
+    handshake_mutations = (
+        ("hello-version-required", 'htsmsg_get_u32(in, "htspversion", &v)', 'htsmsg_get_u32(in, "version", &v)'),
+        ("hello-clientname-required", 'if((name = htsmsg_get_str(in, "clientname")) == NULL)', 'if((name = htsmsg_get_str(in, "clientname")) != NULL)'),
+        ("hello-no-clientversion", 'tvh_str_update(&htsp->htsp_clientname, htsmsg_get_str(in, "clientname"));', 'tvh_str_update(&htsp->htsp_clientname, htsmsg_get_str(in, "clientversion"));'),
+        ("hello-challenge-size", 'htsmsg_add_bin(r, "challenge", htsp->htsp_challenge, 32);', 'htsmsg_add_bin(r, "challenge", htsp->htsp_challenge, 31);'),
+        ("hello-unconditional-api", 'htsmsg_add_u32(r, "api_version", TVH_API_VERSION);', 'if (v) htsmsg_add_u32(r, "api_version", TVH_API_VERSION);'),
+        ("hello-version-min", 'htsp->htsp_version = MIN(HTSP_PROTO_VERSION, v);', 'htsp->htsp_version = MAX(HTSP_PROTO_VERSION, v);'),
+        ("authenticate-no-fields", 'htsmsg_t *r = htsmsg_create_map();', 'htsmsg_t *r = htsmsg_create_map(); htsmsg_get_str(in, "username");'),
+        ("authenticate-noaccess-alternative", 'if(!(htsp->htsp_granted_access->aa_rights & HTSP_PRIV_MASK))', 'if((htsp->htsp_granted_access->aa_rights & HTSP_PRIV_MASK))'),
+        ("authenticate-version-branch", 'else if (htsp->htsp_version > 25)', 'else if (htsp->htsp_version > 24)'),
+        ("authenticate-complete-fields", 'htsmsg_add_u32(r, "dvr",', 'htsmsg_add_u32(r, "recording",'),
+        (
+            "authenticate-low-version-empty",
+            'htsmsg_add_str(r, "uilanguage", htsp->htsp_granted_access->aa_lang_ui ? htsp->htsp_granted_access->aa_lang_ui : (config.language_ui ? config.language_ui : ""));\n  }',
+            'htsmsg_add_str(r, "uilanguage", htsp->htsp_granted_access->aa_lang_ui ? htsp->htsp_granted_access->aa_lang_ui : (config.language_ui ? config.language_ui : ""));\n  } else htsmsg_add_u32(r, "noaccess", 0);',
+        ),
+    )
+    for label, old, new in handshake_mutations:
+        mutated = server_c.replace(old, new, 1)
+        check(f"handshake-mutation-target-{label}", mutated != server_c)
+        if mutated == server_c:
+            continue
+        try:
+            require_handshake_source_facts(mutated)
+        except ValueError:
+            check(f"reject-handshake-source-mutation-{label}", True)
+        else:
+            check(f"reject-handshake-source-mutation-{label}", False, "mutation accepted")
 
     try:
         require_recording_rule_source_facts(server_c)

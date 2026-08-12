@@ -97,6 +97,8 @@ EXPECTED_TYPED_CLIENT_REQUESTS: tuple[tuple[str, str, int | None], ...] = (
     ("fileClose", "ACCESS_HTSP_RECORDER", 8),
     ("fileStat", "ACCESS_HTSP_RECORDER", 8),
     ("fileSeek", "ACCESS_HTSP_RECORDER", 8),
+    ("hello", "ACCESS_ANONYMOUS", None),
+    ("authenticate", "ACCESS_ANONYMOUS", None),
 )
 
 EXPECTED_SERVER_MESSAGES: tuple[str, ...] = (
@@ -1165,6 +1167,100 @@ def validate_spec(spec: dict[str, Any], upstream: dict[str, Any] | None = None) 
 
     method_map = {m.get("name"): m for m in methods if isinstance(m, dict)}
     message_map = {m.get("name"): m for m in messages if isinstance(m, dict)}
+    hello = method_map.get("hello", {})
+    authenticate = method_map.get("authenticate", {})
+    hello_request = [
+        (field.get("name"), field.get("type"), field.get("presence"), field.get("minVersion"))
+        for field in hello.get("requestFields", [])
+    ]
+    if hello_request != [
+        ("htspversion", "u32", "required", None),
+        ("clientname", "str", "required", None),
+    ]:
+        errors.append("hello exact required request field evidence drift")
+    hello_reply = [
+        (field.get("name"), field.get("type"), field.get("presence"), field.get("condition"), field.get("minVersion"))
+        for field in hello.get("replyFields", [])
+    ]
+    if hello_reply != [
+        ("htspversion", "u32", "required", None, None),
+        ("servername", "str", "required", None, None),
+        ("serverversion", "str", "required", None, None),
+        ("challenge", "bin", "required", "exactly 32 bytes", None),
+        ("webroot", "str", "conditional", "present when tvheadend_webroot is non-null", None),
+        ("language", "str", "conditional", "present when config_get_language returns non-null", None),
+        ("servercapability", "msg", "required", None, None),
+        ("api_version", "u32", "required", None, None),
+    ]:
+        errors.append("hello exact unconditional/conditional reply topology drift")
+    if hello.get("handler") != "htsp_method_hello":
+        errors.append("hello handler dispatch drift")
+    if hello.get("accessMask") != "ACCESS_ANONYMOUS":
+        errors.append("hello access dispatch drift")
+    if hello.get("minVersion") is not None:
+        errors.append("hello minimum protocol version must remain unknown")
+    if (
+        hello.get("requestShape") != {
+            "kind": "fields",
+            "completeness": "complete",
+            "evidence": "bounded htsp_method_hello reads exactly required htspversion and clientname and never clientversion",
+        }
+        or hello.get("replyShape") != {
+            "kind": "fields",
+            "completeness": "complete",
+            "evidence": "bounded htsp_method_hello complete unconditional/conditional output topology and exact 32-byte challenge",
+        }
+    ):
+        errors.append("hello exact complete shape evidence drift")
+    authenticate_reply = [
+        (field.get("name"), field.get("type"), field.get("presence"), field.get("condition"), field.get("minVersion"))
+        for field in authenticate.get("replyFields", [])
+    ]
+    expected_authenticate_reply = [
+        ("noaccess", "u32", "alternative", "present only when granted rights have no HTSP_PRIV_MASK bit", None),
+        *[
+            (
+                name,
+                wire_type,
+                "conditional",
+                "present with granted rights only when negotiated protocol version is greater than 25",
+                26,
+            )
+            for name, wire_type in (
+                ("admin", "u32"), ("streaming", "u32"), ("dvr", "u32"),
+                ("faileddvr", "u32"), ("anonymous", "u32"), ("limitall", "u32"),
+                ("limitdvr", "u32"), ("limitstreaming", "u32"),
+                ("uilevel", "u32"), ("uilanguage", "str"),
+            )
+        ],
+    ]
+    if authenticate_reply != expected_authenticate_reply:
+        errors.append("authenticate exact noaccess/>25/<=25 reply field evidence drift")
+    if authenticate.get("handler") != "htsp_method_authenticate":
+        errors.append("authenticate handler dispatch drift")
+    if authenticate.get("accessMask") != "ACCESS_ANONYMOUS":
+        errors.append("authenticate access dispatch drift")
+    if authenticate.get("minVersion") is not None:
+        errors.append("authenticate minimum protocol version must remain unknown")
+    if (
+        authenticate.get("requestFields") != []
+        or authenticate.get("requestShape") != {
+            "kind": "knownEmpty",
+            "completeness": "complete",
+            "evidence": "bounded htsp_method_authenticate reads no method-specific request fields",
+        }
+        or authenticate.get("replyShape") != {
+            "kind": "alternative",
+            "completeness": "complete",
+            "evidence": "bounded htsp_method_authenticate noaccess, rights>25 complete fields, and rights<=25 empty topology",
+            "alternatives": [
+                "no privilege mask: noaccess=1 only",
+                "granted rights and negotiated version >25: complete access observation fields",
+                "granted rights and negotiated version <=25: empty method payload",
+            ],
+        }
+    ):
+        errors.append("authenticate exact no-fields or alternative shape evidence drift")
     expected_server_field_versions = {
         ("channelAdd", "channelIdStr"): 41,
         ("channelUpdate", "channelIdStr"): 41,
@@ -1986,8 +2082,8 @@ def validate_spec(spec: dict[str, Any], upstream: dict[str, Any] | None = None) 
             errors.append(f"{name}: typed catalog access mask disagrees with pinned method")
         if method.get("minVersion") != method_min_version:
             errors.append(f"{name}: typed catalog method minimum disagrees with pinned method")
-    if typed_count != len(typed_methods) or typed_count != 36:
-        errors.append("coverage typedClientRequests.count must match exactly 36 methods")
+    if typed_count != len(typed_methods) or typed_count != 38:
+        errors.append("coverage typedClientRequests.count must match exactly 38 methods")
     if typed_cov.get("catalog") != "docs/htsp-protocol/generate_typed_requests.py":
         errors.append("coverage typedClientRequests.catalog must name the reviewed generator")
     if typed_cov.get("meaning") != (
@@ -2924,7 +3020,7 @@ def _derive_fresh_self_test_spec(fresh_mutator: Any = None) -> dict[str, Any]:
             if name == "subscriptionFilterStream"
             else f"htsp_method_{name}"
             if name in {
-                "getEvent", "getEvents", "getEpgObject", "epgQuery", "stopDvrEntry",
+                "hello", "authenticate", "getEvent", "getEvents", "getEpgObject", "epgQuery", "stopDvrEntry",
                 "getDvrCutpoints", "getTicket", "fileOpen", "fileRead", "fileClose",
                 "fileStat", "fileSeek", *derive_module.RECORDING_RULE_METHODS,
             }
@@ -3002,7 +3098,7 @@ def _derive_fresh_self_test_spec(fresh_mutator: Any = None) -> dict[str, Any]:
     candidate["clientMethods"] = [
         fresh_methods[item["name"]]
         if item["name"] in {
-            "getEvents", "epgQuery", "getEpgObject", "getTicket", "fileOpen", "fileRead",
+            "hello", "authenticate", "getEvents", "epgQuery", "getEpgObject", "getTicket", "fileOpen", "fileRead",
             "fileClose", "fileStat", "fileSeek", "stopDvrEntry", "getDvrCutpoints",
             "addAutorecEntry", "updateAutorecEntry", "deleteAutorecEntry",
             "addTimerecEntry", "updateTimerecEntry", "deleteTimerecEntry",
@@ -3170,6 +3266,88 @@ def self_test() -> None:
 
     errors = validate_spec(good_spec)
     check("good-spec", errors == [], str(errors))
+
+    fresh_handshake = {
+        method["name"]: method
+        for method in good_spec["clientMethods"]
+        if method["name"] in {"hello", "authenticate"}
+    }
+    check(
+        "handshake-fresh-complete-contracts",
+        set(fresh_handshake) == {"hello", "authenticate"}
+        and all(
+            method.get("requestShape", {}).get("completeness") == "complete"
+            and method.get("replyShape", {}).get("completeness") == "complete"
+            and method.get("sdk") == {
+                "referenced": True,
+                "outgoingRequest": True,
+                "typedRequest": True,
+            }
+            for method in fresh_handshake.values()
+        ),
+    )
+    handshake_report_mutations = (
+        (
+            "hello-handler",
+            "hello",
+            lambda method: method.update({"handler": "htsp_method_authenticate"}),
+            "hello handler dispatch drift",
+        ),
+        (
+            "hello-access",
+            "hello",
+            lambda method: method.update({"accessMask": "ACCESS_HTSP_STREAMING"}),
+            "hello access dispatch drift",
+        ),
+        (
+            "hello-no-minimum",
+            "hello",
+            lambda method: method.update({"minVersion": 1}),
+            "hello minimum protocol version must remain unknown",
+        ),
+        (
+            "authenticate-handler",
+            "authenticate",
+            lambda method: method.update({"handler": "htsp_method_hello"}),
+            "authenticate handler dispatch drift",
+        ),
+        (
+            "authenticate-access",
+            "authenticate",
+            lambda method: method.update({"accessMask": "ACCESS_HTSP_STREAMING"}),
+            "authenticate access dispatch drift",
+        ),
+        (
+            "authenticate-no-minimum",
+            "authenticate",
+            lambda method: method.update({"minVersion": 1}),
+            "authenticate minimum protocol version must remain unknown",
+        ),
+        ("hello-required-request", "hello", lambda method: method["requestFields"][0].update({"presence": "optional"}), None),
+        ("hello-challenge-size", "hello", lambda method: method["replyFields"][3].update({"condition": "variable"}), None),
+        ("hello-complete-reply", "hello", lambda method: method["replyShape"].update({"completeness": "partial"}), None),
+        ("authenticate-no-fields", "authenticate", lambda method: method["requestShape"].update({"kind": "fields"}), None),
+        ("authenticate-noaccess", "authenticate", lambda method: method["replyFields"][0].update({"presence": "optional"}), None),
+        ("authenticate-version-branch", "authenticate", lambda method: method["replyFields"][1].update({"minVersion": 25}), None),
+        ("authenticate-low-version-empty", "authenticate", lambda method: method["replyShape"]["alternatives"].pop(), None),
+    )
+    for label, method_name, mutate, expected_diagnostic in handshake_report_mutations:
+        mutated = json.loads(json.dumps(good_spec))
+        method = next(method for method in mutated["clientMethods"] if method["name"] == method_name)
+        before = json.dumps(method, sort_keys=True)
+        mutate(method)
+        check(
+            f"handshake-report-mutation-target-{label}",
+            json.dumps(method, sort_keys=True) != before,
+        )
+        mutation_errors = validate_spec(mutated)
+        check(
+            f"handshake-report-mutation-rejected-{label}",
+            expected_diagnostic in mutation_errors
+            if expected_diagnostic is not None
+            else any(method_name in error for error in mutation_errors),
+            str(mutation_errors),
+        )
 
     fresh_autorec = {
         message["name"]: message

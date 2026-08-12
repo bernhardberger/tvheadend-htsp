@@ -51,6 +51,8 @@ internal val typedHtspRequestCatalog: List<TypedHtspRequestCatalogEntry> = listO
     TypedHtspRequestCatalogEntry("fileClose", "FileCloseRequest", "FileCloseResponse", HtspAccess.ACCESS_HTSP_RECORDER, 8),
     TypedHtspRequestCatalogEntry("fileStat", "FileStatRequest", "FileStatResponse", HtspAccess.ACCESS_HTSP_RECORDER, 8),
     TypedHtspRequestCatalogEntry("fileSeek", "FileSeekRequest", "FileSeekResponse", HtspAccess.ACCESS_HTSP_RECORDER, 8),
+    TypedHtspRequestCatalogEntry("hello", "HelloRequest", "HelloResponse", HtspAccess.ACCESS_ANONYMOUS, null),
+    TypedHtspRequestCatalogEntry("authenticate", "AuthenticateRequest", "AuthenticateResponse", HtspAccess.ACCESS_ANONYMOUS, null),
 )
 
 public suspend fun HtspConnection.getProfiles(
@@ -971,6 +973,31 @@ public suspend fun HtspConnection.fileSeek(
             offset = offset,
             whence = whence,
         ),
+        timeoutMs = timeoutMs,
+        expectedGeneration = expectedGeneration,
+    )
+
+public suspend fun HtspConnection.hello(
+    htspVersion: Long,
+    clientName: String,
+    timeoutMs: Long = 5_000L,
+    expectedGeneration: HtspConnectionGeneration? = null,
+): HtspResult<HelloResponse> =
+    call(
+        request = HelloRequest(
+            htspVersion = htspVersion,
+            clientName = clientName,
+        ),
+        timeoutMs = timeoutMs,
+        expectedGeneration = expectedGeneration,
+    )
+
+public suspend fun HtspConnection.authenticate(
+    timeoutMs: Long = 5_000L,
+    expectedGeneration: HtspConnectionGeneration? = null,
+): HtspResult<AuthenticateResponse> =
+    call(
+        request = AuthenticateRequest(),
         timeoutMs = timeoutMs,
         expectedGeneration = expectedGeneration,
     )

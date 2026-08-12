@@ -24,7 +24,7 @@ Primary authority is the pinned TVHeadend server source. Official HTSP documenta
 - Client→server methods referenced in production sources: **38 / 39**
 - Distinct outgoing request names: **38 / 39**
 - Server→client messages handled (exact literal): **30 / 30**
-- Public typed client requests from the reviewed catalog: **36 / 39**
+- Public typed client requests from the reviewed catalog: **38 / 39**
 - Public typed server messages from the separate reviewed catalog: **29 / 30**
 - Distinguish **referenced** from **outgoing** and from typed coverage: `api` remains unreferenced; both `subscriptionSeek` and `subscriptionSkip` are distinct outgoing wire names for one shared pinned handler.
 - Never claim methods are implemented/called merely because they are referenced.
@@ -47,8 +47,8 @@ These fields are protocol-wide and are **not** method-specific success fields.
 
 | # | Method | Access mask | Min ver | SDK ref | SDK out | SDK typed | Request fields | Reply fields |
 |---:|---|---|---:|:---:|:---:|:---:|---|---|
-| 1 | `hello` | `ACCESS_ANONYMOUS` | — | yes | yes |  | `htspversion`:u32 [unknown], `clientname`:str [unknown] — fields/partial | `htspversion`:u32 [unknown], `servername`:str [unknown], `serverversion`:str [unknown], `challenge`:bin [unknown], `webroot`:str [unknown] ≥v8, `language`:str [unknown] ≥v1, `servercapability`:msg [unknown] ≥v6, `api_version`:u32 [unknown] ≥v1 — fields/partial |
-| 2 | `authenticate` | `ACCESS_ANONYMOUS` | — | yes | yes |  | _knownEmpty/complete_ | `noaccess`:u32 [unknown], `admin`:u32 [unknown] ≥v26, `streaming`:u32 [unknown] ≥v26, `dvr`:u32 [unknown] ≥v26, `faileddvr`:u32 [unknown] ≥v26, `anonymous`:u32 [unknown] ≥v26, `limitall`:u32 [unknown] ≥v26, `limitdvr`:u32 [unknown] ≥v26, `limitstreaming`:u32 [unknown] ≥v26, `uilevel`:u32 [unknown] ≥v26, `uilanguage`:str [unknown] ≥v26 — fields/partial |
+| 1 | `hello` | `ACCESS_ANONYMOUS` | — | yes | yes | yes | `htspversion`:u32 [required], `clientname`:str [required] — fields/complete | `htspversion`:u32 [required], `servername`:str [required], `serverversion`:str [required], `challenge`:bin [required], `webroot`:str [conditional], `language`:str [conditional], `servercapability`:msg [required], `api_version`:u32 [required] — fields/complete |
+| 2 | `authenticate` | `ACCESS_ANONYMOUS` | — | yes | yes | yes | _knownEmpty/complete_ | `noaccess`:u32 [alternative], `admin`:u32 [conditional] ≥v26, `streaming`:u32 [conditional] ≥v26, `dvr`:u32 [conditional] ≥v26, `faileddvr`:u32 [conditional] ≥v26, `anonymous`:u32 [conditional] ≥v26, `limitall`:u32 [conditional] ≥v26, `limitdvr`:u32 [conditional] ≥v26, `limitstreaming`:u32 [conditional] ≥v26, `uilevel`:u32 [conditional] ≥v26, `uilanguage`:str [conditional] ≥v26 — alternative/complete |
 | 3 | `api` | `ACCESS_ANONYMOUS` | 24 (annotated) |  |  |  | `args`:msg [unknown], `path`:str [unknown] — fields/partial | `noaccess`:u32 [unknown], `response`:msg [unknown] — fields/partial |
 | 4 | `getDiskSpace` | `ACCESS_HTSP_STREAMING` | 3 (annotated) | yes | yes | yes | _knownEmpty/complete_ | `freediskspace`:s64 [unknown], `useddiskspace`:s64 [unknown], `totaldiskspace`:s64 [unknown] — fields/partial |
 | 5 | `getSysTime` | `ACCESS_HTSP_STREAMING` | 3 (annotated) | yes | yes | yes | _knownEmpty/complete_ | `time`:s32 [required], `timezone`:s32 [required], `gmtoffset`:s32 [optional] — fields/complete |

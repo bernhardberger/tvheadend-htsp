@@ -43,7 +43,7 @@ class HtspConnectionProbeTest {
             )
             assertTrue(server.transportClosed.await(1, TimeUnit.SECONDS))
             assertEquals("SDK probe test / 9.8.7", server.helloFields["clientname"])
-            assertEquals("9.8.7", server.helloFields["clientversion"])
+            assertEquals(false, server.helloFields.containsKey("clientversion"))
             assertEquals(listOf("hello", "authenticate", "enableAsyncMetadata"), server.methods)
         }
     }

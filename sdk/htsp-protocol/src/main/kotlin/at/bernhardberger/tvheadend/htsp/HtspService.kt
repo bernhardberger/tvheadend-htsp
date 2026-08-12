@@ -90,6 +90,7 @@ internal open class `HtspService-internal`(
     private val logger: HtspLogger = HtspLogger.None,
     private val socketFactory: () -> Socket = ::Socket,
     private val afterTeardownAdmission: suspend () -> Unit = {},
+    private val beforeTypedRecapture: suspend (HtspRequest<*>) -> Unit = {},
 ) : PlaybackHtspTransport, HtspRequestTransport, HtspConnection, HtspTypedRequestCapability {
     private val _state = MutableStateFlow<ConnectionState>(ConnectionState.Disconnected)
     override val state: StateFlow<ConnectionState> = _state
@@ -250,25 +251,27 @@ internal open class `HtspService-internal`(
                         )
                     }
 
-                    val hello = request(
-                        method = "hello",
-                        fields = mapOf(
-                            "htspversion" to htspVersion,
-                            "clientname" to clientName,
-                            "clientversion" to clientVersion
-                        ),
-                        timeoutMs = responseTimeoutMs,
-                        flush = true,
-                        disconnectOnTimeout = true
+                    val helloRequest = HelloRequest(
+                        htspVersion = htspVersion.toLong(),
+                        clientName = clientName,
                     )
-
-                    val serverMax = hello.int("htspversion")
-                        ?: throw IllegalStateException("HTSP hello reply is missing htspversion")
-                    val negotiatedVersion = min(htspVersion, serverMax)
-                    val sessionChallenge = hello.bin("challenge")
-                    if (sessionChallenge?.size != HTSP_CHALLENGE_SIZE_BYTES) {
-                        throw IllegalStateException("HTSP hello reply has an invalid challenge")
+                    val hello = when (
+                        val result = requestTypedHandshake(
+                            request = helloRequest,
+                            timeoutMs = responseTimeoutMs,
+                            protocolVersion = 0,
+                        )
+                    ) {
+                        is HtspResult.Ok -> result.value
+                        is HtspFailure -> throw IllegalStateException("HTSP hello failed")
                     }
+                    val negotiatedVersion = checkNotNull(
+                        negotiatedHtspVersion(
+                            requested = helloRequest.htspVersion,
+                            server = hello.htspVersion,
+                        ),
+                    )
+                    val sessionChallenge = hello.challenge.toByteArray()
                     challenge = sessionChallenge
                     negotiatedHtspVersion = negotiatedVersion
 
@@ -281,38 +284,44 @@ internal open class `HtspService-internal`(
                     val withCredentials =
                         HtspAuthenticationPolicy.shouldAuthenticate(username, password) &&
                             challenge != null
-                    val authFields = if (withCredentials) {
-                        mapOf("username" to user, "digest" to makeDigest(pass, challenge!!))
+                    val authEnvelopeFields = if (withCredentials) {
+                        mapOf<String, Any?>(
+                            "username" to user,
+                            "digest" to makeDigest(pass, challenge!!),
+                        )
                     } else {
                         emptyMap()
                     }
-                    val auth = request(
-                        method = "authenticate",
-                        fields = authFields,
-                        timeoutMs = responseTimeoutMs,
-                        flush = true,
-                        disconnectOnTimeout = true
-                    )
-                    if (auth.int("noaccess") == 1) {
-                        throw IllegalStateException(
+                    val auth = when (
+                        val result = requestTypedHandshake(
+                            request = AuthenticateRequest(),
+                            envelopeFields = authEnvelopeFields,
+                            timeoutMs = responseTimeoutMs,
+                            protocolVersion = negotiatedVersion,
+                        )
+                    ) {
+                        is HtspResult.Ok -> result.value
+                        HtspResult.AccessDenied,
+                        HtspResult.ConnectionLimit,
+                        -> throw IllegalStateException(
                             if (withCredentials) {
                                 "HTSP authentication failed (noaccess=1)"
                             } else {
                                 "HTSP server requires credentials (noaccess=1)"
-                            }
+                            },
                         )
-                    }
-                    if (auth.fields.containsKey("error")) {
-                        throw IllegalStateException("HTSP authentication failed")
+                        is HtspFailure -> throw IllegalStateException("HTSP authentication failed")
                     }
                     // HTSP ≥ 26 includes ACCESS_HTSP_RECORDER as "dvr".
                     val dvrAccess =
-                        if (negotiatedHtspVersion != null && negotiatedHtspVersion!! > 25) {
-                            auth.int("dvr")?.let { it == 1 }
+                        if (negotiatedVersion > 25) {
+                            auth.dvr
                         } else {
                             null
                         }
-                    val serverFacts = htspServerFactsFromHandshake(hello = hello, auth = auth)
+                    val serverFacts = HtspServerFacts()
+                        .withHelloObservations(hello)
+                        .withAuthenticateObservations(auth)
 
                     if (
                         !publishConnectedState(
@@ -429,6 +438,23 @@ internal open class `HtspService-internal`(
         timeoutMs: Long,
         expectedGeneration: HtspConnectionGeneration?,
     ): HtspResult<R> = typedRequestCaller.call(request, timeoutMs, expectedGeneration)
+
+    private suspend fun <R> requestTypedHandshake(
+        request: HtspRequest<R>,
+        envelopeFields: Map<String, Any?> = emptyMap(),
+        timeoutMs: Long,
+        protocolVersion: Int,
+    ): HtspResult<R> {
+        val fields = HtspRequestCodecs.encode(request).apply { putAll(envelopeFields) }
+        val reply = request(
+            method = request.method,
+            fields = fields,
+            timeoutMs = timeoutMs,
+            flush = true,
+            disconnectOnTimeout = true,
+        )
+        return classifyHtspReply(HtspWireReply(reply.fields), request, protocolVersion)
+    }
 
     override fun isCurrent(generation: HtspConnectionGeneration): Boolean =
         typedRequestCaller.generation === generation
@@ -1213,6 +1239,92 @@ internal open class `HtspService-internal`(
                 _state.value is ConnectionState.Connected
         }
 
+    override fun retire(generation: HtspCapturedGeneration) {
+        val target = synchronized(connectionAttemptLock) {
+            val serviceGeneration = generation.transportKey as? ServiceProtocolGeneration
+                ?: return@synchronized null
+            if (
+                protocolGeneration !== serviceGeneration ||
+                generation.token !== serviceGeneration.token ||
+                liveTransportAttempt != serviceGeneration.attemptId ||
+                connectionAttempt != serviceGeneration.attemptId
+            ) {
+                return@synchronized null
+            }
+            val target = socket
+            liveTransportAttempt = null
+            protocolGeneration = null
+            liveServerFacts = null
+            liveConnectionIdentity = null
+            challenge = null
+            negotiatedHtspVersion = null
+            _liveConnection.value = null
+            _state.value = ConnectionState.Disconnected
+            target
+        }
+        closeSocket(target)
+    }
+
+    override suspend fun <R> recapture(
+        generation: HtspCapturedGeneration,
+        request: HtspRequest<R>,
+        result: HtspResult<R>,
+    ) {
+        beforeTypedRecapture(request)
+        currentCoroutineContext().ensureActive()
+        synchronized(connectionAttemptLock) {
+            val serviceGeneration = generation.transportKey as? ServiceProtocolGeneration
+                ?: throw CancellationException("Stale HTSP connection generation")
+            val connectedState = _state.value as? ConnectionState.Connected
+                ?: throw CancellationException("Stale HTSP connection generation")
+            val live = _liveConnection.value
+                ?: throw CancellationException("Stale HTSP connection generation")
+            if (
+                protocolGeneration !== serviceGeneration ||
+                generation.token !== serviceGeneration.token ||
+                live.generation !== serviceGeneration.token ||
+                liveTransportAttempt != serviceGeneration.attemptId ||
+                connectionAttempt != serviceGeneration.attemptId
+            ) {
+                throw CancellationException("Stale HTSP connection generation")
+            }
+
+            when {
+                request is HelloRequest && result is HtspResult.Ok -> {
+                    val hello = result.value as HelloResponse
+                    val version = negotiatedHtspVersion(request.htspVersion, hello.htspVersion)
+                    val facts = (liveServerFacts ?: HtspServerFacts()).withHelloObservations(hello)
+                    challenge = hello.challenge.toByteArray()
+                    negotiatedHtspVersion = version
+                    liveServerFacts = facts
+                    _liveConnection.value = live.copy(
+                        protocolVersion = version,
+                        serverFacts = facts,
+                    )
+                    _state.value = connectedState.copy(htspVersion = version)
+                }
+                request is AuthenticateRequest && result is HtspResult.Ok -> {
+                    val auth = result.value as AuthenticateResponse
+                    val facts = (liveServerFacts ?: HtspServerFacts())
+                        .withAuthenticateObservations(auth)
+                    val dvrAccess = if ((negotiatedHtspVersion ?: 0) > 25) auth.dvr else null
+                    liveServerFacts = facts
+                    _liveConnection.value = live.copy(
+                        dvrAccess = dvrAccess,
+                        serverFacts = facts,
+                    )
+                    _state.value = connectedState.copy(dvrAccess = dvrAccess)
+                }
+                request is AuthenticateRequest && result === HtspResult.AccessDenied -> {
+                    val facts = (liveServerFacts ?: HtspServerFacts()).withoutAuthenticateObservations()
+                    liveServerFacts = facts
+                    _liveConnection.value = live.copy(dvrAccess = null, serverFacts = facts)
+                    _state.value = connectedState.copy(dvrAccess = null)
+                }
+            }
+        }
+    }
+
     override fun currentMuxSequenceForConnectionAttempt(attemptId: Long): Long? =
         synchronized(connectionAttemptLock) {
             if (connectionAttempt == attemptId && muxCursorAttempt == attemptId) {
@@ -1465,6 +1577,49 @@ internal open class `HtspService-internal`(
 }
 
 internal typealias HtspService = `HtspService-internal`
+
+private fun negotiatedHtspVersion(requested: Long, server: Long): Int? =
+    min(requested, server).takeIf { version -> version <= Int.MAX_VALUE.toLong() }?.toInt()
+
+private fun HtspServerFacts.withHelloObservations(hello: HelloResponse): HtspServerFacts = copy(
+    serverName = hello.serverName,
+    serverVersion = hello.serverVersion,
+    webRoot = hello.webRoot,
+    language = hello.language,
+    serverCapabilities = hello.serverCapabilities,
+    apiVersion = hello.apiVersion.toExistingIntObservation(),
+)
+
+private fun HtspServerFacts.withAuthenticateObservations(
+    auth: AuthenticateResponse,
+): HtspServerFacts = copy(
+    admin = auth.admin,
+    streaming = auth.streaming,
+    dvr = auth.dvr,
+    failedDvr = auth.failedDvr,
+    anonymous = auth.anonymous,
+    limitAll = auth.limitAll.toExistingIntObservation(),
+    limitDvr = auth.limitDvr.toExistingIntObservation(),
+    limitStreaming = auth.limitStreaming.toExistingIntObservation(),
+    uiLevel = auth.uiLevel.toExistingIntObservation(),
+    uiLanguage = auth.uiLanguage,
+)
+
+private fun HtspServerFacts.withoutAuthenticateObservations(): HtspServerFacts = copy(
+    admin = null,
+    streaming = null,
+    dvr = null,
+    failedDvr = null,
+    anonymous = null,
+    limitAll = null,
+    limitDvr = null,
+    limitStreaming = null,
+    uiLevel = null,
+    uiLanguage = null,
+)
+
+private fun Long?.toExistingIntObservation(): Int? =
+    this?.takeIf { it <= Int.MAX_VALUE.toLong() }?.toInt()
 
 /**
  * Strict hello/authenticate observation mapping for public [HtspServerFacts].
