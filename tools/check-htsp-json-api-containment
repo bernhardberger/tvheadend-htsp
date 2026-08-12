@@ -1,0 +1,635 @@
+#!/usr/bin/env python3
+"""Contain the HTSP JSON API bridge to its protocol-module owner."""
+
+from __future__ import annotations
+
+import os
+import re
+import shutil
+import stat
+import sys
+import tempfile
+from pathlib import Path
+
+
+REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
+SDK_ROOT = Path("sdk")
+OWNER = "htsp-protocol"
+STANDALONE_FIXTURES = {
+    "protocol-consumer-contract",
+    "htsp-consumer-contract",
+    "playback-consumer-contract",
+}
+SCANNED_MODULES = {
+    "client-testing",
+    "decoder-ffmpeg-binary",
+    "domain",
+    "htsp",
+    "playback-android-session",
+    "playback-android-testing",
+    "playback-media3",
+}
+SOURCE_MODULES = SCANNED_MODULES - {"decoder-ffmpeg-binary"}
+EXPECTED_MODULES = SCANNED_MODULES | STANDALONE_FIXTURES | {OWNER}
+BRIDGE_SYMBOLS = (
+    "HtspJsonApi",
+    "HtspApiValue",
+    "HtspApiContainer",
+    "HtspApiObject",
+    "HtspApiList",
+    "HtspApiString",
+    "HtspApiLong",
+    "HtspApiBoolean",
+    "HtspApiBinary",
+    "HtspApiUuid",
+    "ApiRequest",
+    "ApiResponse",
+    "htspApiObject",
+    "htspApiList",
+)
+BRIDGE_SYMBOL_ALTERNATION = "|".join(map(re.escape, BRIDGE_SYMBOLS))
+BRIDGE_SPECIFIC_IMPORT = re.compile(
+    rf"\bimport\s+(?:static\s+)?at\s*\.\s*bernhardberger\s*\.\s*tvheadend\s*\.\s*htsp\s*\.\s*"
+    rf"(?P<symbol>{BRIDGE_SYMBOL_ALTERNATION})\b(?:\s+as\s+[A-Za-z_][A-Za-z0-9_]*)?"
+)
+BRIDGE_SYMBOL_FQN = re.compile(
+    rf"\bat\s*\.\s*bernhardberger\s*\.\s*tvheadend\s*\.\s*htsp\s*\.\s*"
+    rf"(?P<symbol>{BRIDGE_SYMBOL_ALTERNATION})\b"
+)
+BRIDGE_API_VISIBILITY = re.compile(
+    r"\bimport\s+at\s*\.\s*bernhardberger\s*\.\s*tvheadend\s*\.\s*htsp\s*\.\s*"
+    r"(?:api\b|\*(?=\s|$))"
+)
+HTSP_WILDCARD_IMPORT = re.compile(
+    r"\bimport\s+(?:static\s+)?at\s*\.\s*bernhardberger\s*\.\s*tvheadend\s*\.\s*htsp\s*\.\s*\*"
+)
+BRIDGE_API_REFERENCE = re.compile(
+    r"\b(?:import\s+)?at\s*\.\s*bernhardberger\s*\.\s*tvheadend\s*\.\s*htsp\s*\.\s*api\b"
+)
+BRIDGE_PACKAGE = re.compile(
+    r"\bpackage\s+at\s*\.\s*bernhardberger\s*\.\s*tvheadend\s*\.\s*htsp"
+    r"(?=[ \t]*(?:;|$))",
+    re.MULTILINE,
+)
+GENERATED_API_CALL = re.compile(r"\.\s*api\s*\(")
+GENERATED_API_REFERENCE = re.compile(r"::\s*api\b")
+GENERATED_API_JAVA_CALL = re.compile(r"\bGeneratedHtspExtensionsKt\s*\.\s*api\s*\(")
+GENERATED_API_JAVA_REFERENCE = re.compile(r"\bGeneratedHtspExtensionsKt\s*::\s*api\b")
+STATIC_API_IMPORT = re.compile(
+    r"\bimport\s+static\s+at\s*\.\s*bernhardberger\s*\.\s*tvheadend\s*\.\s*htsp\s*\.\s*"
+    r"GeneratedHtspExtensionsKt\s*\.\s*(?:api\b|\*(?=\s|;|$))"
+)
+UNQUALIFIED_API_CALL = re.compile(r"(?<![.\w])api\s*\(")
+EXPECTED_SOURCE_SETS = {"main", "test"}
+PRODUCTION_SOURCE_SETS = {"main"}
+EXCLUDED_SOURCE_SETS = {"test"}
+
+
+def mask_kotlin(text: str) -> str:
+    """Blank comments and literal text while retaining executable templates."""
+    masked = [character if character in "\r\n" else " " for character in text]
+    length = len(text)
+
+    def preserve(start: int, end: int) -> None:
+        masked[start:end] = text[start:end]
+
+    def skip_block_comment(index: int) -> int:
+        index += 2
+        depth = 1
+        while index < length and depth:
+            if text.startswith("/*", index):
+                depth += 1
+                index += 2
+            elif text.startswith("*/", index):
+                depth -= 1
+                index += 2
+            else:
+                index += 1
+        return index
+
+    def skip_character(index: int) -> int:
+        index += 1
+        while index < length:
+            if text[index] == "\\":
+                index = min(length, index + 2)
+            elif text[index] == "'":
+                return index + 1
+            else:
+                index += 1
+        return index
+
+    def scan_string(index: int, triple: bool) -> int:
+        delimiter = 3 if triple else 1
+        index += delimiter
+        while index < length:
+            if triple and text.startswith('\"\"\"', index):
+                return index + delimiter
+            if not triple and text[index] == '"':
+                return index + delimiter
+            if not triple and text[index] == "\\":
+                index = min(length, index + 2)
+                continue
+            if text[index] == "$" and index + 1 < length:
+                if text[index + 1] == "{":
+                    index = scan_code(index + 2, True)
+                    continue
+                identifier = re.match(r"[A-Za-z_][A-Za-z0-9_]*", text[index + 1 :])
+                if identifier:
+                    start = index + 1
+                    index = start + len(identifier.group(0))
+                    preserve(start, index)
+                    continue
+            index += 1
+        return index
+
+    def scan_code(index: int, stop_at_brace: bool = False) -> int:
+        while index < length:
+            if stop_at_brace and text[index] == "}":
+                return index + 1
+            if text.startswith("//", index):
+                newline = text.find("\n", index + 2)
+                index = length if newline < 0 else newline
+            elif text.startswith("/*", index):
+                index = skip_block_comment(index)
+            elif text.startswith('\"\"\"', index):
+                index = scan_string(index, True)
+            elif text[index] == '"':
+                index = scan_string(index, False)
+            elif text[index] == "'":
+                index = skip_character(index)
+            elif text[index] == "{":
+                preserve(index, index + 1)
+                index = scan_code(index + 1, True)
+            else:
+                preserve(index, index + 1)
+                index += 1
+        return index
+
+    scan_code(0)
+    return "".join(masked)
+
+
+def preprocess_java_unicode(text: str) -> tuple[str | None, str | None]:
+    """Apply Java Unicode escapes before token masking; reject malformed candidates."""
+    output: list[str] = []
+    index = 0
+    while index < len(text):
+        preceding_backslashes = 0
+        for character in reversed(output):
+            if character != "\\":
+                break
+            preceding_backslashes += 1
+        eligible = preceding_backslashes % 2 == 0
+        if (
+            text[index] != "\\"
+            or not eligible
+            or index + 1 >= len(text)
+            or text[index + 1] != "u"
+        ):
+            output.append(text[index])
+            index += 1
+            continue
+        cursor = index + 1
+        while cursor < len(text) and text[cursor] == "u":
+            cursor += 1
+        digits = text[cursor : cursor + 4]
+        if len(digits) != 4 or re.fullmatch(r"[0-9A-Fa-f]{4}", digits) is None:
+            line = text.count("\n", 0, index) + 1
+            return None, f"{line}: malformed Java Unicode escape"
+        decoded = chr(int(digits, 16))
+        output.append(decoded)
+        index = cursor + 4
+    return "".join(output), None
+
+
+def mask_java(text: str) -> str:
+    """Mask Java comments, character literals, strings, and text blocks."""
+    masked = [character if character in "\r\n" else " " for character in text]
+    index = 0
+    length = len(text)
+    while index < length:
+        if text.startswith("//", index):
+            newline = text.find("\n", index + 2)
+            index = length if newline < 0 else newline
+        elif text.startswith("/*", index):
+            end = text.find("*/", index + 2)
+            index = length if end < 0 else end + 2
+        elif text.startswith('\"\"\"', index):
+            index += 3
+            while index < length:
+                if text.startswith('\"\"\"', index):
+                    index += 3
+                    break
+                if text[index] == "\\":
+                    index = min(length, index + 2)
+                else:
+                    index += 1
+        elif text[index] in {'"', "'"}:
+            quote = text[index]
+            index += 1
+            while index < length:
+                if text[index] == "\\":
+                    index = min(length, index + 2)
+                elif text[index] == quote:
+                    index += 1
+                    break
+                else:
+                    index += 1
+        else:
+            masked[index] = text[index]
+            index += 1
+    return "".join(masked)
+
+
+def normalize_kotlin_identifiers(masked: str) -> str:
+    """Unquote simple Kotlin identifiers after comments/literals are masked."""
+    return re.sub(
+        r"`([A-Za-z_][A-Za-z0-9_]*)`",
+        lambda match: match.group(1),
+        masked,
+    )
+
+
+def scan_source(relative: str, text: str) -> list[str]:
+    is_java = relative.endswith(".java")
+    if is_java:
+        text, unicode_error = preprocess_java_unicode(text)
+        if unicode_error is not None:
+            return [f"{relative}:{unicode_error}: java-lexical: source cannot be Unicode-preprocessed"]
+        assert text is not None
+        masked = mask_java(text)
+    else:
+        masked = normalize_kotlin_identifiers(mask_kotlin(text))
+    symbol_pattern = re.compile(rf"\b(?:{BRIDGE_SYMBOL_ALTERNATION})\b")
+    findings: list[tuple[int, str]] = []
+    for match in HTSP_WILDCARD_IMPORT.finditer(masked):
+        line = masked.count("\n", 0, match.start()) + 1
+        findings.append((match.start(), f"{relative}:{line}: bridge-import: forbidden HTSP package wildcard import"))
+    exact_bridge_packages = list(BRIDGE_PACKAGE.finditer(masked))
+    for match in exact_bridge_packages:
+        line = masked.count("\n", 0, match.start()) + 1
+        findings.append(
+            (match.start(), f"{relative}:{line}: bridge-package: forbidden non-owner HTSP package declaration")
+        )
+    specific_imports = list(BRIDGE_SPECIFIC_IMPORT.finditer(masked))
+    occupied_symbol_ranges: list[tuple[int, int]] = []
+    visible_symbols = {match.group("symbol") for match in specific_imports}
+    for match in specific_imports:
+        occupied_symbol_ranges.append(match.span())
+        line = masked.count("\n", 0, match.start()) + 1
+        findings.append(
+            (match.start(), f"{relative}:{line}: bridge-import: forbidden HTSP JSON API bridge import")
+        )
+    for match in BRIDGE_SYMBOL_FQN.finditer(masked):
+        if any(start <= match.start() < end for start, end in occupied_symbol_ranges):
+            continue
+        occupied_symbol_ranges.append(match.span())
+        line = masked.count("\n", 0, match.start()) + 1
+        findings.append(
+            (match.start(), f"{relative}:{line}: bridge-symbol: forbidden fully qualified HTSP JSON API bridge symbol {match.group('symbol')}")
+        )
+    wildcard_visible = HTSP_WILDCARD_IMPORT.search(masked) is not None
+    unqualified_visibility = wildcard_visible or bool(exact_bridge_packages)
+    for match in symbol_pattern.finditer(masked):
+        if any(start <= match.start() < end for start, end in occupied_symbol_ranges):
+            continue
+        if not unqualified_visibility and match.group(0) not in visible_symbols:
+            continue
+        line = masked.count("\n", 0, match.start()) + 1
+        findings.append(
+            (match.start(), f"{relative}:{line}: bridge-symbol: forbidden HTSP JSON API bridge symbol {match.group(0)}")
+        )
+    bridge_api_visible = (
+        BRIDGE_API_VISIBILITY.search(masked) is not None
+        or bool(exact_bridge_packages)
+    )
+    for match in BRIDGE_API_REFERENCE.finditer(masked):
+        line = masked.count("\n", 0, match.start()) + 1
+        findings.append(
+            (match.start(), f"{relative}:{line}: generated-api-reference: forbidden generated HtspConnection.api bridge reference")
+        )
+    api_calls = list(GENERATED_API_CALL.finditer(masked)) if bridge_api_visible else []
+    if exact_bridge_packages:
+        api_calls.extend(UNQUALIFIED_API_CALL.finditer(masked))
+    seen_api_calls: set[int] = set()
+    for match in sorted(api_calls, key=lambda item: item.start()):
+        if match.start() in seen_api_calls:
+            continue
+        seen_api_calls.add(match.start())
+        line = masked.count("\n", 0, match.start()) + 1
+        findings.append(
+            (match.start(), f"{relative}:{line}: generated-api-call: forbidden HtspConnection.api bridge call")
+        )
+    for match in GENERATED_API_JAVA_CALL.finditer(masked):
+        line = masked.count("\n", 0, match.start()) + 1
+        findings.append(
+            (match.start(), f"{relative}:{line}: generated-api-call: forbidden HtspConnection.api bridge call")
+        )
+    for match in GENERATED_API_JAVA_REFERENCE.finditer(masked):
+        line = masked.count("\n", 0, match.start()) + 1
+        findings.append((match.start(), f"{relative}:{line}: generated-api-reference: forbidden HtspConnection.api bridge method reference"))
+    if bridge_api_visible:
+        for match in GENERATED_API_REFERENCE.finditer(masked):
+            line = masked.count("\n", 0, match.start()) + 1
+            findings.append((match.start(), f"{relative}:{line}: generated-api-reference: forbidden HtspConnection.api bridge method reference"))
+    static_api_imports = list(STATIC_API_IMPORT.finditer(masked)) if is_java else []
+    for match in static_api_imports:
+        line = masked.count("\n", 0, match.start()) + 1
+        findings.append((match.start(), f"{relative}:{line}: generated-api-reference: forbidden static import of HtspConnection.api bridge"))
+    if static_api_imports:
+        for match in UNQUALIFIED_API_CALL.finditer(masked):
+            line = masked.count("\n", 0, match.start()) + 1
+            findings.append((match.start(), f"{relative}:{line}: generated-api-call: forbidden static-imported HtspConnection.api bridge call"))
+        for match in GENERATED_API_REFERENCE.finditer(masked):
+            line = masked.count("\n", 0, match.start()) + 1
+            findings.append((match.start(), f"{relative}:{line}: generated-api-reference: forbidden static-imported HtspConnection.api bridge method reference"))
+    return [message for _, message in sorted(set(findings), key=lambda item: (item[0], item[1]))]
+
+
+def shown(path: Path, root: Path) -> str:
+    try:
+        return path.relative_to(REPOSITORY_ROOT).as_posix()
+    except ValueError:
+        relative = path.relative_to(root)
+        return root.name if relative == Path(".") else f"{root.name}/{relative.as_posix()}"
+
+
+def topology(path: Path, root: Path, detail: str) -> str:
+    return f"{shown(path, root)}:0: source-topology: {detail}"
+
+
+def safe_directory(path: Path, root: Path, label: str) -> list[str]:
+    try:
+        status = path.lstat()
+    except OSError as error:
+        return [topology(path, root, f"{label} is unavailable ({error.__class__.__name__})")]
+    if stat.S_ISLNK(status.st_mode):
+        return [topology(path, root, f"{label} must not be symlinked")]
+    if not stat.S_ISDIR(status.st_mode):
+        return [topology(path, root, f"{label} must be a directory")]
+    if status.st_mode & 0o444 == 0 or status.st_mode & 0o111 == 0:
+        return [topology(path, root, f"{label} must be readable and traversable")]
+    return []
+
+
+def scan_repository(root: Path, anchor: Path | None = None) -> list[str]:
+    findings: list[str] = []
+    if anchor is not None:
+        try:
+            root.relative_to(anchor)
+        except ValueError:
+            return [topology(root, root, "SDK root is outside its repository anchor")]
+    if failures := safe_directory(root, root, "SDK root"):
+        return failures
+    try:
+        module_entries = sorted(os.scandir(root), key=lambda entry: entry.name)
+    except OSError as error:
+        return [topology(root, root, f"SDK root cannot be enumerated ({error.__class__.__name__})")]
+    actual_modules = {entry.name for entry in module_entries}
+    for missing in sorted(EXPECTED_MODULES - actual_modules):
+        findings.append(topology(root / missing, root, "required SDK module is missing"))
+    for extra in sorted(actual_modules - EXPECTED_MODULES):
+        findings.append(topology(root / extra, root, "unexpected SDK module topology"))
+
+    for entry in module_entries:
+        if entry.name not in EXPECTED_MODULES:
+            continue
+        module = root / entry.name
+        if failures := safe_directory(module, root, "SDK module"):
+            findings.extend(failures)
+            continue
+        if entry.name not in SCANNED_MODULES:
+            continue
+        src = module / "src"
+        if not src.exists() and not src.is_symlink():
+            if entry.name in SOURCE_MODULES:
+                findings.append(topology(src, root, "required source root is missing"))
+            continue
+        if failures := safe_directory(src, root, "source root"):
+            findings.extend(failures)
+            continue
+        try:
+            source_sets = sorted(os.scandir(src), key=lambda item: item.name)
+        except OSError as error:
+            findings.append(topology(src, root, f"source root cannot be enumerated ({error.__class__.__name__})"))
+            continue
+        actual_source_sets = {item.name for item in source_sets}
+        for unexpected in sorted(actual_source_sets - EXPECTED_SOURCE_SETS):
+            findings.append(topology(src / unexpected, root, "unexpected source set topology"))
+        for missing in sorted(PRODUCTION_SOURCE_SETS - actual_source_sets):
+            findings.append(topology(src / missing, root, "required production source set is missing"))
+        for source_entry in source_sets:
+            source_set = src / source_entry.name
+            label = "source set" if source_entry.name in EXCLUDED_SOURCE_SETS else "production source set"
+            if failures := safe_directory(source_set, root, label):
+                findings.extend(failures)
+                continue
+            if source_entry.name not in PRODUCTION_SOURCE_SETS:
+                continue
+
+            def visit(directory: Path) -> None:
+                try:
+                    children = sorted(os.scandir(directory), key=lambda item: item.name)
+                except OSError as error:
+                    findings.append(topology(directory, root, f"production directory cannot be enumerated ({error.__class__.__name__})"))
+                    return
+                for child in children:
+                    path = directory / child.name
+                    try:
+                        status = child.stat(follow_symlinks=False)
+                    except OSError as error:
+                        findings.append(topology(path, root, f"production entry cannot be inspected ({error.__class__.__name__})"))
+                        continue
+                    mode = status.st_mode
+                    if stat.S_ISLNK(mode):
+                        findings.append(topology(path, root, "production entry must not be symlinked"))
+                    elif stat.S_ISDIR(mode):
+                        if mode & 0o444 == 0 or mode & 0o111 == 0:
+                            findings.append(topology(path, root, "production directory must be readable and traversable"))
+                        else:
+                            visit(path)
+                    elif not stat.S_ISREG(mode):
+                        findings.append(topology(path, root, "production entry must be a regular file or directory"))
+                    elif mode & 0o444 == 0:
+                        findings.append(topology(path, root, "production file must be readable"))
+                    elif path.suffix in {".kt", ".java"}:
+                        try:
+                            text = path.read_text(encoding="utf-8")
+                        except (OSError, UnicodeError) as error:
+                            findings.append(topology(path, root, f"production source cannot be read as UTF-8 ({error.__class__.__name__})"))
+                        else:
+                            findings.extend(scan_source(shown(path, root), text))
+
+            visit(source_set)
+    return sorted(findings)
+
+
+def self_test() -> int:
+    failures: list[str] = []
+    rejected = {
+        "annotation.kt": "import at.bernhardberger.tvheadend.htsp.HtspJsonApi\n@HtspJsonApi val bridge = Unit",
+        "alias.kt": "import at.bernhardberger.tvheadend.htsp.HtspApiObject as JsonObject",
+        "fqn.kt": "val value: at.bernhardberger.tvheadend.htsp.HtspApiUuid",
+        "request.kt": "import at.bernhardberger.tvheadend.htsp.ApiRequest\nval request: ApiRequest",
+        "factory.kt": "import at.bernhardberger.tvheadend.htsp.htspApiList\nval args = htspApiList()",
+        "template.kt": 'import at.bernhardberger.tvheadend.htsp.HtspApiLong\nval text = "${HtspApiLong(1)}"',
+        "api.kt": "import at.bernhardberger.tvheadend.htsp.api\nconnection.api(path)",
+        "wildcard-api.kt": "import at.bernhardberger.tvheadend.htsp.*\nconnection . api (path)",
+        "java-api.java": "GeneratedHtspExtensionsKt.api(connection, path);",
+        "same-package.kt": "package at.bernhardberger.tvheadend.htsp\ntransport.api(path)",
+        "exact-package.kt": "package at.bernhardberger.tvheadend.htsp\nval safe = Unit",
+        "exact-package-implicit.kt": "package at.bernhardberger.tvheadend.htsp\napi(path)",
+        "exact-package-template.kt": 'package at.bernhardberger.tvheadend.htsp\nval text = "${api(path)}"',
+        "kotlin-reference.kt": "import at.bernhardberger.tvheadend.htsp.api\nval call = connection::api",
+        "kotlin-escaped-package.kt": "import at.`bernhardberger`.tvheadend.htsp.*",
+        "kotlin-escaped-api.kt": "import at.bernhardberger.tvheadend.htsp.`api`\nconnection.`api`(path)",
+        "kotlin-escaped-symbol.kt": "import at.bernhardberger.tvheadend.htsp.`HtspApiValue`\nval value: `HtspApiValue`",
+        "kotlin-escaped-factory.kt": "import at.bernhardberger.tvheadend.htsp.`htspApiObject`\nval value = `htspApiObject`()",
+        "kotlin-escaped-alias.kt": "import at.bernhardberger.tvheadend.htsp.`HtspApiObject` as `JsonObject`",
+        "kotlin-escaped-reference.kt": "import at.bernhardberger.tvheadend.htsp.`api`\nval call = connection::`api`",
+        "java-static.java": "import static at.bernhardberger.tvheadend.htsp.GeneratedHtspExtensionsKt.api;\nclass X { void x() { api(connection, path); } }",
+        "java-static-reference.java": "import static at.bernhardberger.tvheadend.htsp.GeneratedHtspExtensionsKt.api;\nclass X { Object x = this::api; }",
+        "java-static-wildcard.java": "import static at.bernhardberger.tvheadend.htsp.GeneratedHtspExtensionsKt.*;\nclass X { void x() { api(connection, path); } }",
+        "java-wildcard.java": "import at.bernhardberger.tvheadend.htsp.*; class X {}",
+        "java-escaped-symbol.java": "class X { at.bernhardberger.tvheadend.htsp.HtspApi\\u0056alue value; }",
+        "java-escaped-import.java": "import at.bernhardberger.tvheadend.htsp.HtspApi\\u004fbject; class X {}",
+        "java-escaped-reference.java": "class X { Object x = GeneratedHtspExtensionsKt::\\u0061pi; }",
+        "java-escaped-line.java": "class X { // hidden \\u000a at.bernhardberger.tvheadend.htsp.ApiRequest value; }",
+    }
+    for relative, source in rejected.items():
+        if not scan_source(relative, source):
+            failures.append(f"positive lexical mutation was accepted: {relative}")
+    allowed = {
+        "literals.kt": '// HtspJsonApi\nval text = "ApiRequest HtspApiObject connection.api(path)"',
+        "unrelated.kt": "val api = service.apiVersion\nother.api(path)",
+        "unrelated-connections.kt": "connection.api(path)\nhtspConnection.api(path)",
+        "unrelated-escaped-api.kt": "connection.`api`(path)\nval call = connection::`api`",
+        "subpackage-api.kt": "package at.bernhardberger.tvheadend.htsp.consumer\nservice.api(path)",
+        "subpackage-template.kt": 'package at.bernhardberger.tvheadend.htsp.consumer\nval text = "${service.api(path)}"',
+        "literal-comment-backticks.kt": '// `HtspApiValue` connection.`api`(path)\nval text = "`ApiRequest` connection::`api`"',
+        "homonymous-class.kt": "package example\nclass ApiRequest\nclass HtspApiValue",
+        "homonymous-type.kt": "package example\ntypealias ApiResponse = String\nval value: HtspApiObject? = null",
+        "homonymous-function.kt": "package example\nfun htspApiObject() = Unit\nfun htspApiList() = Unit",
+        "homonymous-import.kt": "package example\nimport other.ApiRequest\nimport other.htspApiObject as localFactory\nval value: ApiRequest? = null",
+        "homonymous-template.kt": 'package example\nclass HtspApiLong(val value: Long)\nval text = "${HtspApiLong(1)}"',
+        "longer.kt": "val HtspApiObjectFactory = true\nval ApiRequester = Unit",
+        "test.kt": "val typed = HtspResult.Ok(Unit)",
+        "java-string.java": 'class X { String s = "${ApiRequest} connection.api(path)"; }',
+        "java-text-block.java": 'class X { String s = """\n${HtspApiValue} GeneratedHtspExtensionsKt::api\n"""; }',
+        "java-ineligible-unicode.java": r'class X { String s = "\\u0041 ${ApiRequest}"; }',
+    }
+    for relative, source in allowed.items():
+        if findings := scan_source(relative, source):
+            failures.append(f"negative lexical mutation was rejected: {relative}: {findings}")
+    malformed_java = scan_source("malformed.java", "class X { \\u12G4 value; }")
+    if len(malformed_java) != 1 or "malformed Java Unicode escape" not in malformed_java[0]:
+        failures.append(f"malformed Java Unicode escape did not fail closed: {malformed_java}")
+
+    with tempfile.TemporaryDirectory() as temporary:
+        sandbox = Path(temporary)
+
+        def make_topology(base: Path) -> None:
+            base.mkdir()
+            for module in EXPECTED_MODULES:
+                (base / module).mkdir()
+            for module in SOURCE_MODULES - {"htsp"}:
+                (base / module / "src" / "main").mkdir(parents=True)
+            main = base / "htsp" / "src" / "main" / "kotlin"
+            main.mkdir(parents=True)
+            (main / "Safe.kt").write_text("val safe = true\n", encoding="utf-8")
+            test = base / "htsp" / "src" / "test" / "kotlin"
+            test.mkdir(parents=True)
+            (test / "Excluded.kt").write_text("val bridge: ApiRequest\n", encoding="utf-8")
+            owner = base / OWNER / "src" / "main" / "kotlin"
+            owner.mkdir(parents=True)
+            (owner / "Owned.kt").write_text("val bridge: ApiRequest\n", encoding="utf-8")
+            fixture = base / "protocol-consumer-contract" / "src" / "main" / "kotlin"
+            fixture.mkdir(parents=True)
+            (fixture / "Direct.kt").write_text("val bridge: ApiRequest\n", encoding="utf-8")
+
+        valid = sandbox / "valid-sdk"
+        make_topology(valid)
+        if findings := scan_repository(valid):
+            failures.append(f"valid/excluded topology produced findings: {findings}")
+        mutation = valid / "domain" / "src" / "main" / "java"
+        mutation.mkdir(parents=True)
+        (mutation / "Bridge.java").write_text(
+            "import at.bernhardberger.tvheadend.htsp.ApiResponse; class Bridge { ApiResponse value; }\n",
+            encoding="utf-8",
+        )
+        if not any("bridge-symbol" in finding for finding in scan_repository(valid)):
+            failures.append("production Java lexical mutation was accepted")
+
+        missing = sandbox / "missing"
+        if not scan_repository(missing):
+            failures.append("missing SDK root was accepted")
+        malformed = sandbox / "malformed"
+        malformed.write_text("not a directory", encoding="utf-8")
+        if not scan_repository(malformed):
+            failures.append("malformed SDK root was accepted")
+        linked = sandbox / "linked"
+        linked.symlink_to(valid, target_is_directory=True)
+        if not scan_repository(linked):
+            failures.append("symlinked SDK root was accepted")
+        unreadable = sandbox / "unreadable"
+        unreadable.mkdir(mode=0o600)
+        if not scan_repository(unreadable):
+            failures.append("unreadable SDK root was accepted")
+        unreadable.chmod(0o700)
+        incomplete = sandbox / "incomplete"
+        make_topology(incomplete)
+        shutil.rmtree(incomplete / "domain")
+        if not scan_repository(incomplete):
+            failures.append("missing module topology was accepted")
+        source_link = sandbox / "source-link"
+        make_topology(source_link)
+        outside = sandbox / "outside.kt"
+        outside.write_text("val bridge: ApiRequest\n", encoding="utf-8")
+        (source_link / "htsp" / "src" / "main" / "Linked.kt").symlink_to(outside)
+        if not any("must not be symlinked" in finding for finding in scan_repository(source_link)):
+            failures.append("symlinked production entry was accepted")
+        for hidden_name in ("latest", "contest"):
+            hidden = sandbox / f"hidden-{hidden_name}"
+            make_topology(hidden)
+            hidden_set = hidden / "htsp" / "src" / hidden_name
+            hidden_set.mkdir()
+            (hidden_set / "Bridge.kt").write_text("val bridge: ApiRequest\n", encoding="utf-8")
+            hidden_findings = scan_repository(hidden)
+            if not any("unexpected source set topology" in finding for finding in hidden_findings):
+                failures.append(f"unexpected {hidden_name} source set hid production bridge use")
+        excluded_link = sandbox / "excluded-link"
+        make_topology(excluded_link)
+        shutil.rmtree(excluded_link / "htsp" / "src" / "test")
+        (excluded_link / "htsp" / "src" / "test").symlink_to(valid / "htsp" / "src" / "test", target_is_directory=True)
+        if not any("source set must not be symlinked" in finding for finding in scan_repository(excluded_link)):
+            failures.append("excluded symlinked test source set was accepted")
+        excluded_file = sandbox / "excluded-file"
+        make_topology(excluded_file)
+        shutil.rmtree(excluded_file / "htsp" / "src" / "test")
+        (excluded_file / "htsp" / "src" / "test").write_text("not a directory", encoding="utf-8")
+        if not any("source set must be a directory" in finding for finding in scan_repository(excluded_file)):
+            failures.append("excluded malformed test source set was accepted")
+
+    for failure in failures:
+        print(f"error: {failure}", file=sys.stderr)
+    if failures:
+        return 1
+    print("HTSP JSON API containment self-test passed")
+    return 0
+
+
+def main(arguments: list[str]) -> int:
+    if arguments == ["--self-test"]:
+        return self_test()
+    if arguments:
+        print("usage: check-htsp-json-api-containment [--self-test]", file=sys.stderr)
+        return 2
+    findings = scan_repository(REPOSITORY_ROOT / SDK_ROOT, REPOSITORY_ROOT)
+    for finding in findings:
+        print(finding, file=sys.stderr)
+    print(f"HTSP JSON API containment findings: {len(findings)}")
+    return 1 if findings else 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv[1:]))
