@@ -20,6 +20,7 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -44,6 +45,7 @@ import java.net.InetSocketAddress
 import java.net.Socket
 import java.net.SocketTimeoutException
 import java.security.MessageDigest
+import java.util.ArrayDeque
 import java.util.Collections
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
@@ -53,7 +55,7 @@ import kotlin.text.Charsets.UTF_8
 @JvmSynthetic
 internal const val DVR_PLAY_COUNT_KEEP: Int = Int.MAX_VALUE - 1
 private const val HTSP_CHALLENGE_SIZE_BYTES: Int = 32
-private val TYPED_TRANSPORT_PUBLICATION_EXCLUSIONS: Set<String> = setOf("descrambleInfo")
+private const val TYPED_EVENT_QUEUE_CAPACITY: Int = 8192
 
 internal class `HtspRequestTimeoutException-internal`(
     val requestMethod: String,
@@ -95,6 +97,7 @@ internal open class `HtspService-internal`(
     private val afterTransportInstallation: suspend () -> Unit = {},
     private val afterTeardownAdmission: suspend () -> Unit = {},
     private val beforeTypedRecapture: suspend (HtspRequest<*>) -> Unit = {},
+    private val beforeTypedEventPublication: (HtspTransportEvent.ServerMessage) -> Unit = {},
 ) : PlaybackHtspTransport, HtspRequestTransport, HtspConnection, HtspTypedRequestCapability {
     private val _state = MutableStateFlow<ConnectionState>(ConnectionState.Disconnected)
     override val state: StateFlow<ConnectionState> = _state
@@ -114,6 +117,10 @@ internal open class `HtspService-internal`(
     private val serviceJob = SupervisorJob()
     private val scope = CoroutineScope(serviceJob + ioDispatcher)
     private val lifecycle = TerminalLifecycleGate("HTSP service is closed")
+    private val typedEventQueue = ArrayDeque<HtspTransportEvent>()
+    private val typedEventAvailable = Channel<Unit>(Channel.CONFLATED)
+    private val typedEventSpaceAvailable = Channel<Unit>(Channel.CONFLATED)
+    private var typedEventPublisherJob: Job? = null
 
     private val controlEventStream = HtspEventStream()
     override val controlEvents: Flow<HtspControlEvent> = controlEventStream.events.filter { event ->
@@ -1076,23 +1083,21 @@ internal open class `HtspService-internal`(
                                 connectionAttemptId = attemptId,
                                 messageSequence = currentMessageSequence,
                             )
-                            val generation = protocolGeneration?.token
-                            val decoded = decodeHtspServerMessage(msg.fields)
-                            if (
-                                generation != null &&
-                                msg.method !in TYPED_TRANSPORT_PUBLICATION_EXCLUSIONS &&
-                                decoded is HtspServerMessageDecoded
-                            ) {
-                                typedEvent = HtspTransportEvent.ServerMessage(
-                                    message = decoded.message,
-                                    generation = generation,
-                                )
-                            }
+                        }
+
+                        val generation = protocolGeneration?.token
+                        val decoded = decodeHtspServerMessage(msg.fields)
+                        if (generation != null && decoded is HtspServerMessageDecoded) {
+                            typedEvent = HtspTransportEvent.ServerMessage(
+                                message = decoded.message,
+                                generation = generation,
+                                messageSequence = currentMessageSequence,
+                            )
                         }
                     } != null
                     if (!published) return
                     controlEvent?.let { controlEventStream.emit(it) }
-                    typedEvent?.let { _events.emit(it) }
+                    typedEvent?.let { event -> publishTypedServerEvent(attemptId, event) }
                 } catch (t: SocketTimeoutException) {
                     val now = System.currentTimeMillis()
                     if (pending.isNotEmpty()) {
@@ -1186,7 +1191,92 @@ internal open class `HtspService-internal`(
             publication
         } ?: return
         controlEventStream.emit(event)
-        typedEvent?.let { _events.emit(it) }
+        typedEvent?.let { publishTypedEvent(attemptId, it) }
+    }
+
+    private suspend fun publishTypedServerEvent(
+        attemptId: Long,
+        event: HtspTransportEvent.ServerMessage,
+    ) {
+        beforeTypedEventPublication(event)
+        publishTypedEvent(attemptId, event)
+    }
+
+    private suspend fun publishTypedEvent(
+        attemptId: Long,
+        event: HtspTransportEvent,
+    ) {
+        while (currentCoroutineContext().isActive) {
+            val result = synchronized(connectionAttemptLock) {
+                if (connectionAttempt != attemptId || !event.matchesCurrentGenerationLocked()) {
+                    return
+                }
+                enqueueTypedEventLocked(event)
+            }
+            when (result) {
+                TypedEventEnqueueResult.ACCEPTED,
+                TypedEventEnqueueResult.DROPPED_MUX,
+                -> return
+                TypedEventEnqueueResult.WAIT_FOR_ORDINARY_SPACE -> typedEventSpaceAvailable.receive()
+            }
+        }
+    }
+
+    /** Called only while [connectionAttemptLock] is held. */
+    private fun enqueueTypedEventLocked(event: HtspTransportEvent): TypedEventEnqueueResult {
+        if (typedEventQueue.size >= TYPED_EVENT_QUEUE_CAPACITY) {
+            val oldestMux = typedEventQueue.iterator().let { iterator ->
+                var removed = false
+                while (iterator.hasNext()) {
+                    if (iterator.next().isTypedMuxEvent()) {
+                        iterator.remove()
+                        removed = true
+                        break
+                    }
+                }
+                removed
+            }
+            if (!oldestMux) {
+                return if (event.isTypedMuxEvent()) {
+                    TypedEventEnqueueResult.DROPPED_MUX
+                } else {
+                    TypedEventEnqueueResult.WAIT_FOR_ORDINARY_SPACE
+                }
+            }
+        }
+        typedEventQueue.addLast(event)
+        if (typedEventPublisherJob == null) {
+            typedEventPublisherJob = scope.launch { publishTypedEvents() }
+        }
+        typedEventAvailable.trySend(Unit)
+        return TypedEventEnqueueResult.ACCEPTED
+    }
+
+    private suspend fun publishTypedEvents() {
+        for (ignored in typedEventAvailable) {
+            while (currentCoroutineContext().isActive) {
+                val event = synchronized(connectionAttemptLock) {
+                    typedEventQueue.pollFirst()
+                } ?: break
+                typedEventSpaceAvailable.trySend(Unit)
+                _events.emit(event)
+            }
+        }
+    }
+
+    private fun HtspTransportEvent.matchesCurrentGenerationLocked(): Boolean = when (this) {
+        is HtspTransportEvent.ServerMessage -> protocolGeneration?.token === generation
+        is HtspTransportEvent.ConnectionFailure ->
+            generation == null || protocolGeneration?.token === generation
+    }
+
+    private fun HtspTransportEvent.isTypedMuxEvent(): Boolean =
+        this is HtspTransportEvent.ServerMessage && message is HtspMuxPacketMessage
+
+    private enum class TypedEventEnqueueResult {
+        ACCEPTED,
+        DROPPED_MUX,
+        WAIT_FOR_ORDINARY_SPACE,
     }
 
     private fun ensureCurrentConnectionAttempt(attemptId: Long) {

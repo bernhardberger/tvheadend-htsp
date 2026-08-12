@@ -75,7 +75,13 @@ public sealed interface HtspTransportEvent {
     public data class ServerMessage(
         public val message: HtspServerMessage,
         override val generation: HtspConnectionGeneration,
-    ) : HtspTransportEvent
+        /** One-based reader-observed position within [generation]. */
+        public val messageSequence: Long,
+    ) : HtspTransportEvent {
+        init {
+            require(messageSequence > 0L) { "messageSequence must be positive" }
+        }
+    }
 
     public data class ConnectionFailure(
         public val failure: HtspTransportFailure,

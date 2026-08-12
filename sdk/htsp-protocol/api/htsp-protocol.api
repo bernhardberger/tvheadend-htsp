@@ -2614,14 +2614,16 @@ public final class at/bernhardberger/tvheadend/htsp/HtspTransportEvent$Connectio
 }
 
 public final class at/bernhardberger/tvheadend/htsp/HtspTransportEvent$ServerMessage : at/bernhardberger/tvheadend/htsp/HtspTransportEvent {
-	public fun <init> (Lat/bernhardberger/tvheadend/htsp/HtspServerMessage;Lat/bernhardberger/tvheadend/htsp/HtspConnectionGeneration;)V
+	public fun <init> (Lat/bernhardberger/tvheadend/htsp/HtspServerMessage;Lat/bernhardberger/tvheadend/htsp/HtspConnectionGeneration;J)V
 	public final fun component1 ()Lat/bernhardberger/tvheadend/htsp/HtspServerMessage;
 	public final fun component2 ()Lat/bernhardberger/tvheadend/htsp/HtspConnectionGeneration;
-	public final fun copy (Lat/bernhardberger/tvheadend/htsp/HtspServerMessage;Lat/bernhardberger/tvheadend/htsp/HtspConnectionGeneration;)Lat/bernhardberger/tvheadend/htsp/HtspTransportEvent$ServerMessage;
-	public static synthetic fun copy$default (Lat/bernhardberger/tvheadend/htsp/HtspTransportEvent$ServerMessage;Lat/bernhardberger/tvheadend/htsp/HtspServerMessage;Lat/bernhardberger/tvheadend/htsp/HtspConnectionGeneration;ILjava/lang/Object;)Lat/bernhardberger/tvheadend/htsp/HtspTransportEvent$ServerMessage;
+	public final fun component3 ()J
+	public final fun copy (Lat/bernhardberger/tvheadend/htsp/HtspServerMessage;Lat/bernhardberger/tvheadend/htsp/HtspConnectionGeneration;J)Lat/bernhardberger/tvheadend/htsp/HtspTransportEvent$ServerMessage;
+	public static synthetic fun copy$default (Lat/bernhardberger/tvheadend/htsp/HtspTransportEvent$ServerMessage;Lat/bernhardberger/tvheadend/htsp/HtspServerMessage;Lat/bernhardberger/tvheadend/htsp/HtspConnectionGeneration;JILjava/lang/Object;)Lat/bernhardberger/tvheadend/htsp/HtspTransportEvent$ServerMessage;
 	public fun equals (Ljava/lang/Object;)Z
 	public fun getGeneration ()Lat/bernhardberger/tvheadend/htsp/HtspConnectionGeneration;
 	public final fun getMessage ()Lat/bernhardberger/tvheadend/htsp/HtspServerMessage;
+	public final fun getMessageSequence ()J
 	public fun hashCode ()I
 	public fun toString ()Ljava/lang/String;
 }
