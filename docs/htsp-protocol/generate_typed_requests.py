@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import argparse
 import tempfile
-from dataclasses import dataclass
+from dataclasses import dataclass, replace as dataclass_replace
 from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -37,6 +37,7 @@ class SelectorOverload:
     method: str
     parameters: tuple[Parameter, ...]
     request_arguments: tuple[str, ...]
+    function_name: str | None = None
 
 
 def parameter(name: str, type: str, default: str | None = None) -> Parameter:
@@ -351,6 +352,15 @@ SELECTOR_OVERLOADS: tuple[SelectorOverload, ...] = (
     SelectorOverload("getTicket", (
         parameter("selector", "GetTicketSelector.Dvr"),
     ), ("selector = selector",)),
+    SelectorOverload("fileClose", (
+        parameter("id", "Long"),
+        parameter("playPositionSeconds", "Long?"),
+        parameter("playCount", "Long?"),
+    ), (
+        "id = id",
+        "playPositionSeconds = playPositionSeconds",
+        "playCount = playCount",
+    ), "fileCloseWithProgress"),
 )
 
 
@@ -358,9 +368,10 @@ def render_extension(
     entry: Entry,
     parameters: tuple[Parameter, ...],
     request_arguments: tuple[str, ...],
+    function_name: str | None = None,
 ) -> list[str]:
     lines = (["@HtspJsonApi"] if entry.method == "api" else []) + [
-        f"public suspend fun HtspConnection.{entry.method}("
+        f"public suspend fun HtspConnection.{function_name or entry.method}("
     ]
     for value in parameters:
         default = "" if value.default is None else f" = {value.default}"
@@ -418,8 +429,41 @@ def render() -> str:
         lines.extend(render_extension(entry, entry.parameters, request_arguments))
         for overload in SELECTOR_OVERLOADS:
             if overload.method == entry.method:
-                lines.extend(render_extension(entry, overload.parameters, overload.request_arguments))
+                lines.extend(
+                    render_extension(
+                        entry,
+                        overload.parameters,
+                        overload.request_arguments,
+                        overload.function_name,
+                    )
+                )
     return "\n".join(lines)
+
+
+def validate_file_close_progress_overload(
+    overloads: tuple[SelectorOverload, ...],
+) -> None:
+    matching = tuple(
+        overload for overload in overloads
+        if overload.function_name == "fileCloseWithProgress"
+    )
+    if matching != (
+        SelectorOverload(
+            method="fileClose",
+            parameters=(
+                parameter("id", "Long"),
+                parameter("playPositionSeconds", "Long?"),
+                parameter("playCount", "Long?"),
+            ),
+            request_arguments=(
+                "id = id",
+                "playPositionSeconds = playPositionSeconds",
+                "playCount = playCount",
+            ),
+            function_name="fileCloseWithProgress",
+        ),
+    ):
+        raise ValueError("fileCloseWithProgress must preserve its exact reviewed overload mapping")
 
 
 def validate_catalog() -> None:
@@ -514,28 +558,91 @@ def validate_catalog() -> None:
         Entry("authenticate", "AuthenticateRequest", "AuthenticateResponse", "ACCESS_ANONYMOUS", None),
     ):
         raise ValueError("handshake catalog entries must preserve the reviewed constructor contract")
-    if tuple(overload.method for overload in SELECTOR_OVERLOADS) != (
-        "addDvrEntry", "addDvrEntry", "subscribe", "subscribe",
-        "subscriptionSeek", "subscriptionSeek", "subscriptionSkip", "subscriptionSkip",
-        "getTicket", "getTicket",
+    if tuple((overload.method, overload.function_name) for overload in SELECTOR_OVERLOADS) != (
+        ("addDvrEntry", None), ("addDvrEntry", None), ("subscribe", None), ("subscribe", None),
+        ("subscriptionSeek", None), ("subscriptionSeek", None),
+        ("subscriptionSkip", None), ("subscriptionSkip", None),
+        ("getTicket", None), ("getTicket", None), ("fileClose", "fileCloseWithProgress"),
     ):
-        raise ValueError("typed request selector overload catalog must contain exactly ten reviewed cases")
+        raise ValueError("typed request overload catalog must contain exactly eleven reviewed cases")
+    validate_file_close_progress_overload(SELECTOR_OVERLOADS)
 
 
 def self_test() -> None:
     validate_catalog()
+    file_close_progress = SELECTOR_OVERLOADS[-1]
+    invalid_file_close_progress_catalogs = (
+        SELECTOR_OVERLOADS[:-1] + (
+            dataclass_replace(
+                file_close_progress,
+                parameters=(
+                    parameter("id", "Long"),
+                    parameter("playCount", "Long?"),
+                    parameter("playPositionSeconds", "Long?"),
+                ),
+            ),
+        ),
+        SELECTOR_OVERLOADS[:-1] + (
+            dataclass_replace(
+                file_close_progress,
+                request_arguments=(
+                    "id = id",
+                    "playCount = playCount",
+                    "playPositionSeconds = playPositionSeconds",
+                ),
+            ),
+        ),
+        SELECTOR_OVERLOADS[:-1] + (
+            dataclass_replace(
+                file_close_progress,
+                request_arguments=("id = id", "playPositionSeconds = playPositionSeconds"),
+            ),
+        ),
+        SELECTOR_OVERLOADS[:-1] + (
+            dataclass_replace(
+                file_close_progress,
+                request_arguments=(
+                    "id = id",
+                    "playPositionSeconds = playPositionSeconds",
+                    "playPositionSeconds = playPositionSeconds",
+                    "playCount = playCount",
+                ),
+            ),
+        ),
+        SELECTOR_OVERLOADS[:-1] + (
+            dataclass_replace(
+                file_close_progress,
+                request_arguments=(
+                    "id = id",
+                    "playPosition = playPositionSeconds",
+                    "playCount = playCount",
+                ),
+            ),
+        ),
+        SELECTOR_OVERLOADS[:-1] + (dataclass_replace(file_close_progress, method="fileRead"),),
+        SELECTOR_OVERLOADS[:-1] + (
+            dataclass_replace(file_close_progress, function_name="fileCloseProgress"),
+        ),
+    )
+    for invalid_overloads in invalid_file_close_progress_catalogs:
+        try:
+            validate_file_close_progress_overload(invalid_overloads)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("fileCloseWithProgress mapping mutation was accepted")
     first = render()
     second = render()
     if first != second:
         raise AssertionError("generator output is not deterministic")
     extension_lines = [line for line in first.splitlines() if line.startswith("public suspend fun")]
-    if len(extension_lines) != 49:
-        raise AssertionError("generated extensions must contain 39 canonical and 10 selector overloads")
+    if len(extension_lines) != 50:
+        raise AssertionError("generated extensions must contain 39 canonical and 11 reviewed overloads")
     if "    request:" in first:
         raise AssertionError("generated extensions must not accept request objects")
-    if first.count("timeoutMs: Long = 5_000L") != 49:
+    if first.count("timeoutMs: Long = 5_000L") != 50:
         raise AssertionError("every generated extension must expose the default request timeout")
-    if first.count("expectedGeneration: HtspConnectionGeneration? = null") != 49:
+    if first.count("expectedGeneration: HtspConnectionGeneration? = null") != 50:
         raise AssertionError("every generated extension must expose the optional generation fence")
     required_signatures = (
         "public suspend fun HtspConnection.getEvents(\n    channelId: Long? = null,",
@@ -548,6 +655,7 @@ def self_test() -> None:
         "public suspend fun HtspConnection.fileOpen(\n    file: String,",
         "public suspend fun HtspConnection.fileRead(\n    id: Long,\n    size: Long,\n    offset: Long? = null,",
         "public suspend fun HtspConnection.fileClose(\n    id: Long,",
+        "public suspend fun HtspConnection.fileCloseWithProgress(\n    id: Long,\n    playPositionSeconds: Long?,\n    playCount: Long?,",
         "public suspend fun HtspConnection.fileSeek(\n    id: Long,\n    offset: Long,\n    whence: FileSeekWhence? = null,",
         "@HtspJsonApi\npublic suspend fun HtspConnection.api(\n    path: String,\n    args: HtspApiObject? = null,",
         "    fullText: Boolean? = null,\n    mergeText: Boolean? = null,\n    full: Long? = null,\n    minDurationSeconds: Long? = null,\n    maxDurationSeconds: Long? = null,",
@@ -579,11 +687,11 @@ def self_test() -> None:
     missing = [signature for signature in required_signatures if signature not in first]
     if missing:
         raise AssertionError(f"generated extension signatures are incomplete: {missing}")
-    if first.count("    call(") != 49:
+    if first.count("    call(") != 50:
         raise AssertionError("every generated extension must contain exactly one call delegation")
-    if first.count("        timeoutMs = timeoutMs,") != 49:
+    if first.count("        timeoutMs = timeoutMs,") != 50:
         raise AssertionError("every generated extension must forward timeout exactly once")
-    if first.count("        expectedGeneration = expectedGeneration,") != 49:
+    if first.count("        expectedGeneration = expectedGeneration,") != 50:
         raise AssertionError("every generated extension must forward generation exactly once")
     if first.count("request = SubscriptionSkipRequest(") != 3:
         raise AssertionError("subscriptionSkip must emit one canonical and two selector overload request constructions")

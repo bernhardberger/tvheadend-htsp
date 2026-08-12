@@ -683,15 +683,15 @@ BOUNDED_FILE_OPERATIONS_AUTHORITY = (
 )
 FILE_CLOSE_REQUEST_CONTRACT = (
     (
-        "id", "u32", "required", None,
+        "id", "u32", "required", None, None,
         "bounded htsp_file_find performs a default-zero current-connection handle lookup",
     ),
     (
-        "playposition", "u32", "optional", None,
+        "playposition", "u32", "optional", None, 27,
         "pinned close updates DVR play position only for a recording-backed handle at protocol v27 or newer when supplied; omission never updates position",
     ),
     (
-        "playcount", "u32", "optional", None,
+        "playcount", "u32", "optional", None, 27,
         "pinned close increments DVR playcount unconditionally before v27 and, at v27 or newer, defaults omission to HTSP_DVR_PLAYCOUNT_INCR and increments when equal",
     ),
 )
@@ -710,8 +710,9 @@ FILE_CLOSE_REPLY_SHAPE = {
 }
 FILE_CLOSE_NOTES = [
     "The id uses the default-zero lookup helper and is meaningful only in the connection that opened it.",
-    "The ordinary typed fileClose request is the exact raw v8 id-only surface and exposes no playcount or playposition controls, but an id-only close of a recording-backed handle increments playcount unconditionally before v27 and, at v27 or newer, omission defaults to HTSP_DVR_PLAYCOUNT_INCR and also increments.",
-    "Omitted playposition never updates position; non-recording and image handles have no associated DVR entry to mutate. Success destroys the matched handle and returns an empty map; the existing opted-in recording close, client lifecycle, and SDK-owned progress policy remain separate.",
+    "The typed fileClose request preserves the raw id-only v8 surface and adds nullable full-u32 playposition and playcount controls whose presence requires negotiated v27; null omits the field and explicit zero remains a wire value.",
+    "At v27 or newer, supplied playposition updates recording position and supplied HTSP_DVR_PLAYCOUNT_INCR increments playcount; omitted playcount defaults to that increment sentinel, while every other supplied u32 suppresses the increment. Before v27 the server ignores controls and increments playcount unconditionally.",
+    "Only a recording-backed handle with a resolved DVR entry mutates recording state. Success destroys the matched handle and returns an empty map; the existing opted-in recording close, client lifecycle, and SDK-owned progress policy remain separate.",
 ]
 FILE_STAT_LIMITATION_SUMMARY = (
     "Official docs describe independently optional u64 size and mtime fields, while "
@@ -1830,13 +1831,14 @@ def validate_spec(spec: dict[str, Any], upstream: dict[str, Any] | None = None) 
             or method.get("replyShape", {}).get("completeness") != "complete"
         ):
             errors.append(f"{method_name} must preserve complete bounded request/reply shapes")
-        if len(method.get("notes", [])) != 3:
+        expected_note_count = 4 if method_name == "fileClose" else 3
+        if len(method.get("notes", [])) != expected_note_count:
             errors.append(f"{method_name} notes must preserve exact bounded file-operation facts")
     file_close = method_map.get("fileClose", {})
     if [
         (
             field.get("name"), field.get("type"), field.get("presence"),
-            field.get("condition"), field.get("evidence"),
+            field.get("condition"), field.get("minVersion"), field.get("evidence"),
         )
         for field in file_close.get("requestFields", [])
     ] != list(FILE_CLOSE_REQUEST_CONTRACT):
@@ -1846,7 +1848,7 @@ def validate_spec(spec: dict[str, Any], upstream: dict[str, Any] | None = None) 
     if file_close.get("replyShape") != FILE_CLOSE_REPLY_SHAPE:
         errors.append("fileClose reply must preserve exact empty acknowledgement evidence")
     if file_close.get("notes") != FILE_CLOSE_NOTES:
-        errors.append("fileClose notes must preserve exact id-only server-default mutation and separation facts")
+        errors.append("fileClose notes must preserve exact typed-control and server-default separation facts")
     file_stat = method_map.get("fileStat", {})
     if (
         file_stat.get("handler") != "htsp_method_file_stat"
@@ -3981,7 +3983,7 @@ def self_test() -> None:
         (
             "fileClose-server-default-notes", "fileClose",
             lambda method: method["notes"].__setitem__(1, "drifted fileClose server-default note"),
-            "fileClose notes must preserve exact id-only server-default mutation and separation facts",
+            "fileClose notes must preserve exact typed-control and server-default separation facts",
         ),
         (
             "fileSeek-required-offset", "fileSeek",

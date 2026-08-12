@@ -948,6 +948,23 @@ public suspend fun HtspConnection.fileClose(
         expectedGeneration = expectedGeneration,
     )
 
+public suspend fun HtspConnection.fileCloseWithProgress(
+    id: Long,
+    playPositionSeconds: Long?,
+    playCount: Long?,
+    timeoutMs: Long = 5_000L,
+    expectedGeneration: HtspConnectionGeneration? = null,
+): HtspResult<FileCloseResponse> =
+    call(
+        request = FileCloseRequest(
+            id = id,
+            playPositionSeconds = playPositionSeconds,
+            playCount = playCount,
+        ),
+        timeoutMs = timeoutMs,
+        expectedGeneration = expectedGeneration,
+    )
+
 public suspend fun HtspConnection.fileStat(
     id: Long,
     timeoutMs: Long = 5_000L,

@@ -1022,14 +1022,26 @@ public data class FileReadRequest(
     }
 }
 
-/** Generic file close; intentionally emits only [id] and no DVR progress fields. */
-public data class FileCloseRequest(public val id: Long) : HtspRequest<FileCloseResponse>(
+/**
+ * Generic file close with optional recording-backed progress controls.
+ *
+ * [playPositionSeconds] maps to wire `playposition` in whole recording-position seconds.
+ * [playCount] maps to wire `playcount` without higher-level interpretation. Either control
+ * requires HTSP v27; null omits that field. An id-only request remains available from v8.
+ */
+public data class FileCloseRequest(
+    public val id: Long,
+    public val playPositionSeconds: Long? = null,
+    public val playCount: Long? = null,
+) : HtspRequest<FileCloseResponse>(
     method = "fileClose",
     access = HtspAccess.ACCESS_HTSP_RECORDER,
-    minimumProtocolVersion = 8,
+    minimumProtocolVersion = if (playPositionSeconds != null || playCount != null) 27 else 8,
 ) {
     init {
         requireU32("id", id)
+        playPositionSeconds?.let { requireU32("playPositionSeconds", it) }
+        playCount?.let { requireU32("playCount", it) }
     }
 }
 
@@ -1300,7 +1312,9 @@ internal object `HtspRequestCodecs-internal` {
             "id" to request.id,
             "size" to request.size,
         ).putIfNotNull("offset", request.offset)
-        is FileCloseRequest -> linkedMapOf("id" to request.id)
+        is FileCloseRequest -> linkedMapOf<String, Any?>("id" to request.id)
+            .putIfNotNull("playposition", request.playPositionSeconds)
+            .putIfNotNull("playcount", request.playCount)
         is FileStatRequest -> linkedMapOf("id" to request.id)
         is FileSeekRequest -> linkedMapOf<String, Any?>(
             "id" to request.id,

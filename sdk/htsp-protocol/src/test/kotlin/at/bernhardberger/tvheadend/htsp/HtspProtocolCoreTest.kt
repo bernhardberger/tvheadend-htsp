@@ -20,9 +20,65 @@ class HtspProtocolCoreTest {
             assertSame(HtspResult.TransportUnavailable, disconnected.fileOpen(file = ""))
             assertSame(HtspResult.TransportUnavailable, disconnected.fileRead(id = 0L, size = 0L))
             assertSame(HtspResult.TransportUnavailable, disconnected.fileClose(id = 0L))
+            assertTrue(
+                runCatching { disconnected.fileClose(0L, 0L) }.exceptionOrNull() is
+                    IllegalArgumentException,
+            )
+            assertSame(
+                HtspResult.TransportUnavailable,
+                disconnected.fileCloseWithProgress(
+                    id = 0L,
+                    playPositionSeconds = 0L,
+                    playCount = null,
+                ),
+            )
             assertSame(HtspResult.TransportUnavailable, disconnected.fileSeek(id = 0L, offset = 0L))
         } finally {
             disconnected.close()
+        }
+
+        val extensionTransport = FakeProtocolTransport(version = 26).apply {
+            reply = HtspWireReply(linkedMapOf("seq" to 7L))
+        }
+        val extensionOwner = createHtspConnection(Dispatchers.Unconfined)
+        val extensionCaller = HtspTypedRequestCaller(extensionTransport)
+        val extensionConnection = object :
+            HtspConnection by extensionOwner,
+            HtspTypedRequestCapability {
+            override suspend fun <R> callTypedRequest(
+                request: HtspRequest<R>,
+                timeoutMs: Long,
+                expectedGeneration: HtspConnectionGeneration?,
+            ): HtspResult<R> = extensionCaller.call(request, timeoutMs, expectedGeneration)
+        }
+        try {
+            assertSame(
+                HtspResult.NotSupported,
+                extensionConnection.fileCloseWithProgress(
+                    id = 17L,
+                    playPositionSeconds = 23L,
+                    playCount = 29L,
+                ),
+            )
+            assertEquals(0, extensionTransport.dispatches)
+
+            extensionTransport.version = 27
+            assertEquals(
+                HtspResult.Ok(FileCloseResponse),
+                extensionConnection.fileCloseWithProgress(
+                    id = 17L,
+                    playPositionSeconds = 23L,
+                    playCount = 29L,
+                ),
+            )
+            assertEquals(1, extensionTransport.dispatches)
+            assertEquals("fileClose", extensionTransport.lastMethod)
+            assertEquals(
+                linkedMapOf("id" to 17L, "playposition" to 23L, "playcount" to 29L),
+                extensionTransport.lastFields,
+            )
+        } finally {
+            extensionOwner.close()
         }
 
         val pathBearingOpen = FileOpenRequest("//private/recording.ts")
@@ -43,6 +99,31 @@ class HtspProtocolCoreTest {
             linkedMapOf("id" to 0xffff_ffffL),
             HtspRequestCodecs.encode(FileCloseRequest(0xffff_ffffL)),
         )
+        assertEquals(8, FileCloseRequest(0L).minimumProtocolVersion)
+        assertEquals(
+            linkedMapOf("id" to 1L, "playposition" to 0L),
+            HtspRequestCodecs.encode(FileCloseRequest(1L, playPositionSeconds = 0L)),
+        )
+        assertEquals(
+            linkedMapOf("id" to 1L, "playcount" to 0L),
+            HtspRequestCodecs.encode(FileCloseRequest(1L, playCount = 0L)),
+        )
+        assertEquals(
+            linkedMapOf(
+                "id" to 1L,
+                "playposition" to 0xffff_ffffL,
+                "playcount" to 0xffff_ffffL,
+            ),
+            HtspRequestCodecs.encode(
+                FileCloseRequest(
+                    id = 1L,
+                    playPositionSeconds = 0xffff_ffffL,
+                    playCount = 0xffff_ffffL,
+                ),
+            ),
+        )
+        assertEquals(27, FileCloseRequest(0L, playPositionSeconds = 0L).minimumProtocolVersion)
+        assertEquals(27, FileCloseRequest(0L, playCount = 0L).minimumProtocolVersion)
         assertEquals(
             linkedMapOf("id" to 0L, "offset" to Long.MIN_VALUE),
             HtspRequestCodecs.encode(FileSeekRequest(0L, offset = Long.MIN_VALUE)),
@@ -59,6 +140,10 @@ class HtspProtocolCoreTest {
             { FileReadRequest(0L, -1L) },
             { FileReadRequest(0L, 16_777_217L) },
             { FileCloseRequest(-1L) },
+            { FileCloseRequest(0L, playPositionSeconds = -1L) },
+            { FileCloseRequest(0L, playPositionSeconds = 0x1_0000_0000L) },
+            { FileCloseRequest(0L, playCount = -1L) },
+            { FileCloseRequest(0L, playCount = 0x1_0000_0000L) },
             { FileSeekRequest(0x1_0000_0000L, 0L) },
         ).forEach(::assertIllegalArgument)
 
@@ -133,6 +218,31 @@ class HtspProtocolCoreTest {
 
         transport.reply = HtspWireReply(linkedMapOf("seq" to 7L))
         assertEquals(HtspResult.Ok(FileCloseResponse), connection.call(FileCloseRequest(0L)))
+        val dispatchesBeforeProgressPreflight = transport.dispatches
+        assertSame(
+            HtspResult.NotSupported,
+            connection.call(FileCloseRequest(0L, playPositionSeconds = 0L)),
+        )
+        assertSame(
+            HtspResult.NotSupported,
+            connection.call(FileCloseRequest(0L, playCount = 0L)),
+        )
+        assertEquals(dispatchesBeforeProgressPreflight, transport.dispatches)
+        transport.version = 27
+        assertEquals(
+            HtspResult.Ok(FileCloseResponse),
+            connection.call(
+                FileCloseRequest(
+                    id = 0L,
+                    playPositionSeconds = 0xffff_ffffL,
+                    playCount = 0L,
+                ),
+            ),
+        )
+        assertEquals(
+            linkedMapOf("id" to 0L, "playposition" to 0xffff_ffffL, "playcount" to 0L),
+            transport.lastFields,
+        )
         transport.reply = HtspWireReply(linkedMapOf("unexpected" to 1L))
         assertSame(HtspResult.ServerError, connection.call(FileCloseRequest(0L)))
 
@@ -157,18 +267,19 @@ class HtspProtocolCoreTest {
         transport.reply = HtspWireReply(linkedMapOf("noaccess" to 1L))
         assertSame(HtspResult.AccessDenied, connection.call(FileCloseRequest(0L)))
         transport.reply = HtspWireReply(linkedMapOf("error" to "synthetic rejection"))
+        assertSame(HtspResult.ServerError, connection.call(FileCloseRequest(0L)))
         assertSame(HtspResult.ServerError, connection.call(FileReadRequest(0L, 1L)))
 
         val staleGeneration = connection.generation
         transport.replace()
         val staleFailure = runCatching {
-            connection.call(FileOpenRequest(""), expectedGeneration = staleGeneration)
+            connection.call(FileCloseRequest(0L), expectedGeneration = staleGeneration)
         }.exceptionOrNull()
         assertTrue(staleFailure is CancellationException)
 
         val cancellation = CancellationException("synthetic file operation cancellation")
         transport.failure = cancellation
-        val cancellationFailure = runCatching { connection.call(FileSeekRequest(0L, 0L)) }.exceptionOrNull()
+        val cancellationFailure = runCatching { connection.call(FileCloseRequest(0L)) }.exceptionOrNull()
         assertSame(cancellation, cancellationFailure)
     }
 

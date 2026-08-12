@@ -94,7 +94,7 @@ These fields are protocol-wide and are **not** method-specific success fields.
 | 34 | `getProfiles` | `ACCESS_HTSP_STREAMING` | 16 (annotated) | yes | yes | yes | _knownEmpty/complete_ | `profiles`:list [unknown] → `profile` — fields/partial |
 | 35 | `fileOpen` | `ACCESS_HTSP_RECORDER` | 8 (annotated) | yes | yes | yes | `file`:str [required] — fields/complete | `id`:u32 [required], `size`:s64 [conditional], `mtime`:s64 [conditional] — alternative/complete |
 | 36 | `fileRead` | `ACCESS_HTSP_RECORDER` | 8 (annotated) | yes | yes | yes | `id`:u32 [required], `size`:s64 [required], `offset`:s64 [optional] — fields/complete | `data`:bin [required] — fields/complete |
-| 37 | `fileClose` | `ACCESS_HTSP_RECORDER` | 8 (annotated) | yes | yes | yes | `id`:u32 [required], `playposition`:u32 [optional], `playcount`:u32 [optional] — fields/complete | _knownEmpty/complete_ |
+| 37 | `fileClose` | `ACCESS_HTSP_RECORDER` | 8 (annotated) | yes | yes | yes | `id`:u32 [required], `playposition`:u32 [optional] ≥v27, `playcount`:u32 [optional] ≥v27 — fields/complete | _knownEmpty/complete_ |
 | 38 | `fileStat` | `ACCESS_HTSP_RECORDER` | 8 (annotated) | yes | yes | yes | `id`:u32 [required] — fields/complete | `size`:s64 [conditional], `mtime`:s64 [conditional] — alternative/complete |
 | 39 | `fileSeek` | `ACCESS_HTSP_RECORDER` | 8 (annotated) | yes | yes | yes | `id`:u32 [required], `offset`:s64 [required], `whence`:str [optional] — fields/complete | `offset`:s64 [required] — fields/complete |
 

@@ -4984,10 +4984,12 @@ def derive_client_methods(
                 exact_field(
                     "playposition", "u32", "request", "optional",
                     "pinned close updates DVR play position only for a recording-backed handle at protocol v27 or newer when supplied; omission never updates position",
+                    min_version=27,
                 ),
                 exact_field(
                     "playcount", "u32", "request", "optional",
                     "pinned close increments DVR playcount unconditionally before v27 and, at v27 or newer, defaults omission to HTSP_DVR_PLAYCOUNT_INCR and increments when equal",
+                    min_version=27,
                 ),
             ]
             reply_fields = []
@@ -5559,8 +5561,9 @@ def derive_client_methods(
         if name == "fileClose":
             method["notes"] = [
                 "The id uses the default-zero lookup helper and is meaningful only in the connection that opened it.",
-                "The ordinary typed fileClose request is the exact raw v8 id-only surface and exposes no playcount or playposition controls, but an id-only close of a recording-backed handle increments playcount unconditionally before v27 and, at v27 or newer, omission defaults to HTSP_DVR_PLAYCOUNT_INCR and also increments.",
-                "Omitted playposition never updates position; non-recording and image handles have no associated DVR entry to mutate. Success destroys the matched handle and returns an empty map; the existing opted-in recording close, client lifecycle, and SDK-owned progress policy remain separate.",
+                "The typed fileClose request preserves the raw id-only v8 surface and adds nullable full-u32 playposition and playcount controls whose presence requires negotiated v27; null omits the field and explicit zero remains a wire value.",
+                "At v27 or newer, supplied playposition updates recording position and supplied HTSP_DVR_PLAYCOUNT_INCR increments playcount; omitted playcount defaults to that increment sentinel, while every other supplied u32 suppresses the increment. Before v27 the server ignores controls and increments playcount unconditionally.",
+                "Only a recording-backed handle with a resolved DVR entry mutates recording state. Success destroys the matched handle and returns an empty map; the existing opted-in recording close, client lifecycle, and SDK-owned progress policy remain separate.",
             ]
         if name == "fileStat":
             method["notes"] = [
