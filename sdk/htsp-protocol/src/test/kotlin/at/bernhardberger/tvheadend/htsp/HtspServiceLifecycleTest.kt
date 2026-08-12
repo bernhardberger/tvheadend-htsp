@@ -95,6 +95,188 @@ class HtspServiceLifecycleTest {
     }
 
     @Test
+    fun replacementBetweenTransportInstallAndReaderOwnershipLeavesOnlyReplacementReader() {
+        val firstTransportInstalled = CompletableDeferred<Unit>()
+        val replacementAdmitted = CompletableDeferred<Unit>()
+        val resumeFirst = CompletableDeferred<Unit>()
+        val admissions = AtomicInteger()
+        val installations = AtomicInteger()
+        FakeHtspServer(respondToHello = true).use { firstServer ->
+            FakeHtspServer(respondToHello = true).use { replacementServer ->
+                val service = service(
+                    afterConnectionAdmission = {
+                        if (admissions.incrementAndGet() == 2) {
+                            replacementAdmitted.complete(Unit)
+                        }
+                    },
+                    afterTransportInstallation = {
+                        if (installations.incrementAndGet() == 1) {
+                            firstTransportInstalled.complete(Unit)
+                            resumeFirst.await()
+                        }
+                    },
+                )
+                runBlocking {
+                    val events = CopyOnWriteArrayList<HtspControlEvent>()
+                    val collector = launch(start = CoroutineStart.UNDISPATCHED) {
+                        service.controlEvents.collect { events += it }
+                    }
+                    val stale = async(Dispatchers.IO) {
+                        runCatching {
+                            service.connect(HtspEndpoint("127.0.0.1", firstServer.port))
+                        }.exceptionOrNull()
+                    }
+                    withTimeout(1_000L) { firstTransportInstalled.await() }
+
+                    val replacement = async(Dispatchers.IO) {
+                        service.connect(HtspEndpoint("127.0.0.1", replacementServer.port))
+                    }
+                    withTimeout(1_000L) { replacementAdmitted.await() }
+                    runCatching { firstServer.sendServerMessage("staleInstalledMarker") }
+                    resumeFirst.complete(Unit)
+
+                    assertTrue(withTimeout(1_000L) { stale.await() } is CancellationException)
+                    val connected = withTimeout(1_000L) { replacement.await() }
+                        as HtspConnectOutcome.Connected
+                    assertSame(connected.connection, service.liveConnection.value)
+                    assertEquals(1, serviceOwnedJobCount(service))
+
+                    replacementServer.sendServerMessage("replacementMarker")
+                    withTimeout(1_000L) {
+                        while (events.none {
+                                it is HtspControlEvent.ServerMessage &&
+                                    it.msg.method == "replacementMarker"
+                            }) {
+                            delay(1L)
+                        }
+                    }
+                    assertTrue(
+                        events.none {
+                            it is HtspControlEvent.ServerMessage &&
+                                it.msg.method == "staleInstalledMarker"
+                        },
+                    )
+
+                    service.close(connected.connection.generation)
+                    collector.cancelAndJoin()
+                }
+            }
+        }
+    }
+
+    @Test
+    fun admittedReplacementImmediatelyDetachesOldLiveStateAndNeverRevivesItsToken() {
+        val replacementAdmitted = CompletableDeferred<Unit>()
+        val resumeReplacement = CompletableDeferred<Unit>()
+        val admissions = AtomicInteger()
+        FakeHtspServer(respondToHello = true, expectedConnections = 2).use { firstServer ->
+            FakeHtspServer(respondToHello = true).use { queuedServer ->
+                val service = service(
+                    afterConnectionAdmission = {
+                        if (admissions.incrementAndGet() == 2) {
+                            replacementAdmitted.complete(Unit)
+                            resumeReplacement.await()
+                        }
+                    },
+                )
+                runBlocking {
+                    val old = (service.connect(
+                        HtspEndpoint("127.0.0.1", firstServer.port),
+                    ) as HtspConnectOutcome.Connected).connection.generation
+                    val replacement = async(Dispatchers.IO) {
+                        runCatching {
+                            service.connect(HtspEndpoint("127.0.0.1", queuedServer.port))
+                        }.exceptionOrNull()
+                    }
+                    withTimeout(1_000L) { replacementAdmitted.await() }
+
+                    assertNull(service.liveConnection.value)
+                    assertTrue(!service.isCurrent(old))
+                    assertNull(service.commitIfCurrent(old) { "revived" })
+                    assertNull(service.commitIfLive(old) { it })
+
+                    val newest = service.connect(HtspEndpoint("127.0.0.1", firstServer.port))
+                        as HtspConnectOutcome.Connected
+                    assertTrue(!service.isCurrent(old))
+                    assertNull(service.commitIfCurrent(old) { "revived" })
+                    assertSame(newest.connection, service.liveConnection.value)
+
+                    resumeReplacement.complete(Unit)
+                    assertTrue(withTimeout(1_000L) { replacement.await() } is CancellationException)
+                    assertSame(newest.connection, service.liveConnection.value)
+                    service.disconnect(newest.connection.generation)
+                }
+            }
+        }
+    }
+
+    @Test
+    fun staleForcedAdmissionCannotRetireNewerTransportRequestOrEvent() {
+        val forcedAdmitted = CompletableDeferred<Unit>()
+        val resumeForced = CompletableDeferred<Unit>()
+        val admissions = AtomicInteger()
+        FakeHtspServer(respondToHello = true).use { firstServer ->
+            FakeHtspServer(respondToHello = true).use { forcedServer ->
+                FakeHtspServer(
+                    respondToHello = true,
+                    captureOnePostHandshakeRequest = true,
+                ).use { newestServer ->
+                    val service = service(
+                        afterConnectionAdmission = {
+                            if (admissions.incrementAndGet() == 2) {
+                                forcedAdmitted.complete(Unit)
+                                resumeForced.await()
+                            }
+                        },
+                    )
+                    runBlocking {
+                        service.connect(HtspEndpoint("127.0.0.1", firstServer.port))
+                        val forced = async(Dispatchers.IO) {
+                            runCatching {
+                                service.connect(
+                                    HtspEndpoint("127.0.0.1", forcedServer.port),
+                                    HtspConnectOptions(forceReconnect = true),
+                                )
+                            }.exceptionOrNull()
+                        }
+                        withTimeout(1_000L) { forcedAdmitted.await() }
+
+                        val newest = service.connect(HtspEndpoint("127.0.0.1", newestServer.port))
+                            as HtspConnectOutcome.Connected
+                        val pendingRequest = async(Dispatchers.IO) {
+                            service.request(
+                                method = "newestRequest",
+                                timeoutMs = 5_000L,
+                                disconnectOnTimeout = false,
+                            )
+                        }
+                        assertTrue(newestServer.postHandshakeRequestReceived.await(1, TimeUnit.SECONDS))
+
+                        resumeForced.complete(Unit)
+                        assertTrue(withTimeout(1_000L) { forced.await() } is CancellationException)
+                        assertSame(newest.connection, service.liveConnection.value)
+                        newestServer.replyToCapturedPostHandshakeRequest()
+                        assertEquals(
+                            "newestRequest",
+                            withTimeout(1_000L) { pendingRequest.await() }.method,
+                        )
+
+                        val event = async(start = CoroutineStart.UNDISPATCHED) {
+                            service.controlEvents.first { candidate ->
+                                candidate is HtspControlEvent.ServerMessage &&
+                                    candidate.msg.method == "newestMarker"
+                            }
+                        }
+                        newestServer.sendServerMessage("newestMarker")
+                        assertTrue(withTimeout(1_000L) { event.await() } is HtspControlEvent.ServerMessage)
+                        service.disconnect(newest.connection.generation)
+                    }
+                }
+            }
+        }
+    }
+
+    @Test
     fun changedAddressReconnectsWithoutExplicitForce() {
         FakeHtspServer(respondToHello = true).use { firstServer ->
             FakeHtspServer(respondToHello = true).use { replacementServer ->
@@ -272,6 +454,230 @@ class HtspServiceLifecycleTest {
         assertTrue(runBlocking {
             ownerGlobal.connect(HtspEndpoint("127.0.0.1", 9982)) is HtspConnectOutcome.Failed
         })
+    }
+
+    @Test
+    fun currentGenerationSurvivesGoneUntilReplacementInvalidatesIt() {
+        FakeHtspServer(respondToHello = true).use { firstServer ->
+            FakeHtspServer(respondToHello = true).use { replacementServer ->
+                val service = service()
+                runBlocking {
+                    val first = (service.connect(
+                        HtspEndpoint("127.0.0.1", firstServer.port),
+                    ) as HtspConnectOutcome.Connected).connection
+                    val generation = first.generation
+                    val liveSnapshot = service.commitIfLive(generation) { live -> live }
+                    assertSame(first, liveSnapshot)
+                    assertTrue(service.isCurrent(generation))
+                    assertEquals("live", service.commitIfCurrent(generation) { "live" })
+
+                    firstServer.closeClientTransport()
+                    withTimeout(1_000L) {
+                        service.liveConnection.first { snapshot -> snapshot == null }
+                    }
+
+                    assertNull(service.liveConnection.value)
+                    assertTrue(service.isCurrent(generation))
+                    assertEquals("gone", service.commitIfCurrent(generation) { "gone" })
+                    assertNull(service.commitIfLive(generation) { it })
+
+                    val replacement = (service.connect(
+                        HtspEndpoint("127.0.0.1", replacementServer.port),
+                    ) as HtspConnectOutcome.Connected).connection
+                    assertTrue(!service.isCurrent(generation))
+                    assertNull(service.commitIfCurrent(generation) { "replaced" })
+                    assertNull(service.commitIfLive(generation) { it })
+                    assertTrue(service.isCurrent(replacement.generation))
+                    assertSame(
+                        replacement,
+                        service.commitIfLive(replacement.generation) { live -> live },
+                    )
+                    service.disconnect()
+                }
+            }
+        }
+    }
+
+    @Test
+    fun expectedDisconnectLeavesCurrentGoneGenerationUntilNewerAttemptReplacesIt() {
+        FakeHtspServer(respondToHello = true, expectedConnections = 2).use { server ->
+            val service = service()
+            runBlocking {
+                val generation = (service.connect(
+                    HtspEndpoint("127.0.0.1", server.port),
+                ) as HtspConnectOutcome.Connected).connection.generation
+
+                service.disconnect(generation)
+                assertNull(service.liveConnection.value)
+                assertTrue(service.isCurrent(generation))
+                assertEquals("gone", service.commitIfCurrent(generation) { "gone" })
+                assertNull(service.commitIfLive(generation) { it })
+
+                val replacement = (service.connect(
+                    HtspEndpoint("127.0.0.1", server.port),
+                ) as HtspConnectOutcome.Connected).connection
+                assertTrue(!service.isCurrent(generation))
+                assertNull(service.commitIfCurrent(generation) { "replaced" })
+                assertNull(service.commitIfLive(generation) { it })
+                assertNotSame(generation, replacement.generation)
+                assertTrue(service.isCurrent(replacement.generation))
+                assertSame(
+                    replacement,
+                    service.commitIfLive(replacement.generation) { live -> live },
+                )
+                service.disconnect()
+            }
+        }
+    }
+
+    @Test
+    fun failedReplacementLeavesReplacementGoneAndDoesNotReviveOldGeneration() {
+        FakeHtspServer(respondToHello = true, expectedConnections = 2).use { server ->
+            val refusedPort = ServerSocket(0).use { closed -> closed.localPort }
+            val service = service()
+            runBlocking {
+                val first = (service.connect(
+                    HtspEndpoint("127.0.0.1", server.port),
+                ) as HtspConnectOutcome.Connected).connection.generation
+
+                val failed = service.connect(
+                    HtspEndpoint("127.0.0.1", refusedPort),
+                    HtspConnectOptions(connectTimeoutMs = 200),
+                )
+                assertTrue(failed is HtspConnectOutcome.Failed)
+                assertNull(service.liveConnection.value)
+                assertTrue(!service.isCurrent(first))
+                assertNull(service.commitIfCurrent(first) { "revived" })
+                assertNull(service.commitIfLive(first) { it })
+                val staleDisconnect = runCatching { service.disconnect(first) }.exceptionOrNull()
+                assertTrue(staleDisconnect is CancellationException)
+                assertNull(service.liveConnection.value)
+
+                service.disconnect()
+                assertNull(service.liveConnection.value)
+                assertTrue(!service.isCurrent(first))
+
+                val later = (service.connect(
+                    HtspEndpoint("127.0.0.1", server.port),
+                ) as HtspConnectOutcome.Connected).connection
+                assertTrue(!service.isCurrent(first))
+                assertNotSame(first, later.generation)
+                assertTrue(service.isCurrent(later.generation))
+                assertSame(later, service.commitIfLive(later.generation) { live -> live })
+                service.disconnect()
+            }
+        }
+    }
+
+    @Test
+    fun concurrentLossAndReplacementLinearizeWithoutStaleLiveCommit() {
+        FakeHtspServer(respondToHello = true).use { firstServer ->
+            FakeHtspServer(respondToHello = true).use { replacementServer ->
+                val service = service()
+                runBlocking {
+                    val first = (service.connect(
+                        HtspEndpoint("127.0.0.1", firstServer.port),
+                    ) as HtspConnectOutcome.Connected).connection.generation
+                    val staleSnapshots = CopyOnWriteArrayList<HtspLiveConnection>()
+                    val stopProbing = CountDownLatch(1)
+                    val probeStarted = CountDownLatch(1)
+                    val probe = thread(name = "generation-live-probe") {
+                        probeStarted.countDown()
+                        while (!stopProbing.await(0, TimeUnit.MILLISECONDS)) {
+                            service.commitIfLive(first) { live ->
+                                if (live.generation !== first) {
+                                    staleSnapshots += live
+                                }
+                            }
+                        }
+                    }
+                    assertTrue(probeStarted.await(1, TimeUnit.SECONDS))
+
+                    firstServer.closeClientTransport()
+                    val replacement = (service.connect(
+                        HtspEndpoint("127.0.0.1", replacementServer.port),
+                    ) as HtspConnectOutcome.Connected).connection
+                    stopProbing.countDown()
+                    probe.join(1_000L)
+
+                    assertTrue(staleSnapshots.isEmpty())
+                    assertTrue(!service.isCurrent(first))
+                    assertNull(service.commitIfLive(first) { it })
+                    assertSame(
+                        replacement,
+                        service.commitIfLive(replacement.generation) { live -> live },
+                    )
+                    service.disconnect()
+                }
+            }
+        }
+    }
+
+    @Test
+    fun staleTeardownCancelsAndCurrentGoneGenerationRemainsEligible() {
+        FakeHtspServer(respondToHello = true).use { firstServer ->
+            FakeHtspServer(respondToHello = true, expectedConnections = 2).use { replacementServer ->
+                val service = service()
+                runBlocking {
+                    val stale = (service.connect(
+                        HtspEndpoint("127.0.0.1", firstServer.port),
+                    ) as HtspConnectOutcome.Connected).connection.generation
+                    val current = (service.connect(
+                        HtspEndpoint("127.0.0.1", replacementServer.port),
+                    ) as HtspConnectOutcome.Connected).connection.generation
+
+                    val staleDisconnect = runCatching { service.disconnect(stale) }.exceptionOrNull()
+                    assertTrue(staleDisconnect is CancellationException)
+                    assertSame(current, service.liveConnection.value?.generation)
+
+                    val staleClose = runCatching { service.close(stale) }.exceptionOrNull()
+                    assertTrue(staleClose is CancellationException)
+                    assertSame(current, service.liveConnection.value?.generation)
+
+                    service.disconnect(current)
+                    assertNull(service.liveConnection.value)
+                    assertTrue(service.isCurrent(current))
+                    assertEquals("gone", service.commitIfCurrent(current) { "gone" })
+                    assertNull(service.commitIfLive(current) { it })
+
+                    service.disconnect(current)
+                    assertNull(service.liveConnection.value)
+                    assertTrue(service.isCurrent(current))
+
+                    service.close(current)
+                    assertNull(service.liveConnection.value)
+                    assertTrue(
+                        service.connect(HtspEndpoint("127.0.0.1", replacementServer.port)) is
+                            HtspConnectOutcome.Failed,
+                    )
+                }
+            }
+        }
+    }
+
+    @Test
+    fun commitIfLiveSuppliesExactSnapshotAndRejectsStaleGeneration() {
+        FakeHtspServer(respondToHello = true).use { server ->
+            val service = service()
+            runBlocking {
+                val connected = service.connect(
+                    HtspEndpoint("127.0.0.1", server.port),
+                ) as HtspConnectOutcome.Connected
+                val live = requireNotNull(service.liveConnection.value)
+                assertSame(connected.connection, live)
+                assertSame(live, service.commitIfLive(live.generation) { snapshot -> snapshot })
+                assertSame(
+                    live.generation,
+                    service.commitIfLive(live.generation) { snapshot -> snapshot.generation },
+                )
+
+                val foreign = HtspConnectionGeneration.create()
+                assertNull(service.commitIfLive(foreign) { it })
+                service.disconnect(live.generation)
+                assertNull(service.commitIfLive(live.generation) { it })
+                assertTrue(service.isCurrent(live.generation))
+            }
+        }
     }
 
     @Test
@@ -928,7 +1334,7 @@ class HtspServiceLifecycleTest {
                 )
                 service.disconnect()
                 assertEquals(
-                    HtspConnectionAttemptStatus.REPLACED,
+                    HtspConnectionAttemptStatus.GONE,
                     service.connectionAttemptStatus(attemptId),
                 )
             }
@@ -1532,7 +1938,9 @@ class HtspServiceLifecycleTest {
 
                 assertSame(HtspResult.Timeout, service.hello(44L, "timeout-client", 100L, generation))
                 assertTrue(server.awaitPostHandshakeRequestCount(1, 1_000L))
-                assertTrue(!service.isCurrent(generation))
+                assertTrue(service.isCurrent(generation))
+                assertNull(service.liveConnection.value)
+                assertNull(service.commitIfLive(generation) { it })
                 assertSame(HtspResult.TransportUnavailable, service.getProfiles())
                 assertEquals(1, server.postHandshakeMethods().size)
                 withTimeout(1_000L) {
@@ -1572,7 +1980,9 @@ class HtspServiceLifecycleTest {
                 call.cancel()
                 call.join()
                 assertTrue(withTimeout(1_000L) { observedCancellation.await() } is CancellationException)
-                assertTrue(!service.isCurrent(generation))
+                assertTrue(service.isCurrent(generation))
+                assertNull(service.liveConnection.value)
+                assertNull(service.commitIfLive(generation) { it })
                 assertSame(HtspResult.TransportUnavailable, service.getProfiles())
                 assertEquals(1, server.postHandshakeMethods().size)
                 withTimeout(1_000L) {
@@ -1602,7 +2012,9 @@ class HtspServiceLifecycleTest {
                 val generation = requireNotNull(service.liveConnection.value).generation
 
                 assertSame(HtspResult.ServerError, service.hello(44L, "malformed-client", 1_000L, generation))
-                assertTrue(!service.isCurrent(generation))
+                assertTrue(service.isCurrent(generation))
+                assertNull(service.liveConnection.value)
+                assertNull(service.commitIfLive(generation) { it })
                 assertSame(HtspResult.TransportUnavailable, service.getProfiles())
                 withTimeout(1_000L) {
                     service.state.first { state -> state is ConnectionState.Disconnected }
@@ -2007,13 +2419,23 @@ class HtspServiceLifecycleTest {
     }
 
     private fun service(
+        afterConnectionAdmission: suspend () -> Unit = {},
+        afterTransportInstallation: suspend () -> Unit = {},
         afterTeardownAdmission: suspend () -> Unit = {},
         beforeTypedRecapture: suspend (HtspRequest<*>) -> Unit = {},
     ) = HtspService(
         ioDispatcher = Dispatchers.IO,
+        afterConnectionAdmission = afterConnectionAdmission,
+        afterTransportInstallation = afterTransportInstallation,
         afterTeardownAdmission = afterTeardownAdmission,
         beforeTypedRecapture = beforeTypedRecapture,
     )
+
+    private fun serviceOwnedJobCount(service: HtspService): Int =
+        service.javaClass.getDeclaredField("serviceJob").let { field ->
+            field.isAccessible = true
+            (field.get(service) as kotlinx.coroutines.Job).children.count()
+        }
 
     private class FakeHtspServer(
         private val respondToHello: Boolean,

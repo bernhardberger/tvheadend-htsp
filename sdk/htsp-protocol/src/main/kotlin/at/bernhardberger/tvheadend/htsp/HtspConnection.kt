@@ -8,7 +8,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
-/** Opaque identity of one live HTSP transport generation. */
+/** Opaque identity of one current HTSP transport generation, whether live or gone. */
 public class HtspConnectionGeneration private constructor() {
     override fun toString(): String = "HtspConnectionGeneration"
 
@@ -63,15 +63,22 @@ public interface HtspConnection {
         block: () -> T,
     ): T?
 
+    public fun <T> commitIfLive(
+        generation: HtspConnectionGeneration,
+        block: (HtspLiveConnection) -> T,
+    ): T?
+
     /**
-     * Disconnects the expected live generation, or performs owner-global cleanup when null.
-     * A stale non-null generation propagates [CancellationException] without mutating transport state.
+     * Disconnects the expected current generation, or performs owner-global cleanup when null.
+     * A current generation remains eligible after transport loss. A stale non-null generation
+     * propagates [CancellationException] without mutating transport state.
      */
     public suspend fun disconnect(expectedGeneration: HtspConnectionGeneration? = null)
 
     /**
-     * Terminally closes the expected live generation, or performs owner-global close when null.
-     * A stale non-null generation propagates [CancellationException] without closing the owner.
+     * Terminally closes the expected current generation, or performs owner-global close when null.
+     * A current generation remains eligible after transport loss. A stale non-null generation
+     * propagates [CancellationException] without closing the owner.
      */
     public suspend fun close(expectedGeneration: HtspConnectionGeneration? = null)
 }
