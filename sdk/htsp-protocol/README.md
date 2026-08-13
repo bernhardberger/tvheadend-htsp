@@ -3,12 +3,14 @@
 `:sdk:htsp-protocol` publishes the checkout-local JVM artifact
 `at.bernhardberger.tvheadend:htsp-protocol:0.1.0-SNAPSHOT`. It owns the
 provisional typed request, outcome, and server-message declarations in
-`at.bernhardberger.tvheadend.htsp`, plus the public typed client transport and
-probe seams, internal raw HTSP codec/service and lifecycle machinery, transport
+`at.bernhardberger.tvheadend.htsp`, plus the public typed connection transport,
+internal raw HTSP codec/service and lifecycle machinery, transport
 facts, plus the narrow
 `@HtspJsonApi` bridge. Every production declaration is in that one
 package; this module does not declare `at.bernhardberger.tvheadend.client`.
-The protocol-package raw playback ABI has been removed.
+The protocol-package raw playback ABI and former connection-probe API have been
+removed. The probe and its result family are owned by `client-htsp` in
+`at.bernhardberger.tvheadend.client`.
 
 Ordinary `client-htsp` consumes this artifact only through public API; there is
 no Gradle friend wiring. `HtspConnection`, its factory/options, opaque

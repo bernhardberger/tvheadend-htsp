@@ -1415,12 +1415,6 @@ public final class at/bernhardberger/tvheadend/htsp/HtspConnectionKt {
 	public static synthetic fun execute$default (Lat/bernhardberger/tvheadend/htsp/HtspConnection;Lat/bernhardberger/tvheadend/htsp/HtspRequest;JLat/bernhardberger/tvheadend/htsp/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
 }
 
-public final class at/bernhardberger/tvheadend/htsp/HtspConnectionProbe {
-	public fun <init> (Lkotlinx/coroutines/CoroutineDispatcher;Lat/bernhardberger/tvheadend/htsp/HtspClientIdentity;Lat/bernhardberger/tvheadend/htsp/HtspLogger;)V
-	public synthetic fun <init> (Lkotlinx/coroutines/CoroutineDispatcher;Lat/bernhardberger/tvheadend/htsp/HtspClientIdentity;Lat/bernhardberger/tvheadend/htsp/HtspLogger;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
-	public final fun test (Ljava/lang/String;ILjava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
-}
-
 public final class at/bernhardberger/tvheadend/htsp/HtspDescrambleInfoMessage : at/bernhardberger/tvheadend/htsp/HtspServerMessage {
 	public fun <init> (JJJJJJLjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V
 	public synthetic fun <init> (JJJJJJLjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
@@ -1953,33 +1947,6 @@ public final class at/bernhardberger/tvheadend/htsp/HtspMuxPacketMessage : at/be
 	public final fun getPresentationTimestamp ()Ljava/lang/Long;
 	public final fun getStreamIndex ()J
 	public final fun getSubscriptionId ()J
-	public fun hashCode ()I
-	public fun toString ()Ljava/lang/String;
-}
-
-public final class at/bernhardberger/tvheadend/htsp/HtspProbeFailure : at/bernhardberger/tvheadend/htsp/HtspProbeResult {
-	public fun <init> (Lat/bernhardberger/tvheadend/htsp/HtspTransportFailure;)V
-	public final fun component1 ()Lat/bernhardberger/tvheadend/htsp/HtspTransportFailure;
-	public final fun copy (Lat/bernhardberger/tvheadend/htsp/HtspTransportFailure;)Lat/bernhardberger/tvheadend/htsp/HtspProbeFailure;
-	public static synthetic fun copy$default (Lat/bernhardberger/tvheadend/htsp/HtspProbeFailure;Lat/bernhardberger/tvheadend/htsp/HtspTransportFailure;ILjava/lang/Object;)Lat/bernhardberger/tvheadend/htsp/HtspProbeFailure;
-	public fun equals (Ljava/lang/Object;)Z
-	public final fun getFailure ()Lat/bernhardberger/tvheadend/htsp/HtspTransportFailure;
-	public fun hashCode ()I
-	public fun toString ()Ljava/lang/String;
-}
-
-public abstract interface class at/bernhardberger/tvheadend/htsp/HtspProbeResult {
-}
-
-public final class at/bernhardberger/tvheadend/htsp/HtspProbeSuccess : at/bernhardberger/tvheadend/htsp/HtspProbeResult {
-	public fun <init> (II)V
-	public final fun component1 ()I
-	public final fun component2 ()I
-	public final fun copy (II)Lat/bernhardberger/tvheadend/htsp/HtspProbeSuccess;
-	public static synthetic fun copy$default (Lat/bernhardberger/tvheadend/htsp/HtspProbeSuccess;IIILjava/lang/Object;)Lat/bernhardberger/tvheadend/htsp/HtspProbeSuccess;
-	public fun equals (Ljava/lang/Object;)Z
-	public final fun getChannelCount ()I
-	public final fun getServerVersion ()I
 	public fun hashCode ()I
 	public fun toString ()Ljava/lang/String;
 }
