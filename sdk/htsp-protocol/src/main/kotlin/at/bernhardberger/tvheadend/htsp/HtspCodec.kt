@@ -25,7 +25,7 @@ internal object `HtspCodec-internal` {
     fun readMessage(
         input: InputStream,
         logger: HtspLogger = HtspLogger.None,
-    ): HtspMessage {
+    ): HtspWireMessage {
         // ---- Root 4B length ----
         val hdr = ByteArray(4)
         readFullySoft(input, hdr, len = 4, what = "rootLen", logger = logger)
@@ -60,11 +60,11 @@ internal object `HtspCodec-internal` {
         val seq = (fields["seq"] as? Number)?.toInt()
         val rawPayload = if (method == "muxpkt") fields["payload"] as? ByteArray else null
 
-        return HtspMessage(
+        return HtspWireMessage(
             method = method,
             seq = seq,
             fields = fields,
-            rawPayload = rawPayload
+            rawPayload = rawPayload,
         )
     }
 
@@ -78,9 +78,9 @@ internal object `HtspCodec-internal` {
         output.write(body)
     }
 
-    fun isMuxPkt(msg: HtspMessage): Boolean = msg.method == "muxpkt"
+    fun isMuxPkt(msg: HtspWireMessage): Boolean = msg.method == "muxpkt"
 
-    fun tsPayload(msg: HtspMessage): ByteArray? =
+    fun tsPayload(msg: HtspWireMessage): ByteArray? =
         msg.rawPayload ?: (msg.fields["payload"] as? ByteArray)
 
     // ----------------------------

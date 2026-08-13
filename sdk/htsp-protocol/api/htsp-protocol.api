@@ -1392,7 +1392,6 @@ public abstract interface class at/bernhardberger/tvheadend/htsp/HtspConnection 
 	public static synthetic fun disconnect$default (Lat/bernhardberger/tvheadend/htsp/HtspConnection;Lat/bernhardberger/tvheadend/htsp/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
 	public abstract fun getEvents ()Lkotlinx/coroutines/flow/Flow;
 	public abstract fun getLiveConnection ()Lkotlinx/coroutines/flow/StateFlow;
-	public abstract fun getPlaybackTransport ()Lat/bernhardberger/tvheadend/htsp/PlaybackHtspTransport;
 	public abstract fun isCurrent (Lat/bernhardberger/tvheadend/htsp/HtspConnectionGeneration;)Z
 }
 
@@ -1400,15 +1399,6 @@ public final class at/bernhardberger/tvheadend/htsp/HtspConnection$DefaultImpls 
 	public static synthetic fun close$default (Lat/bernhardberger/tvheadend/htsp/HtspConnection;Lat/bernhardberger/tvheadend/htsp/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
 	public static synthetic fun connect$default (Lat/bernhardberger/tvheadend/htsp/HtspConnection;Lat/bernhardberger/tvheadend/htsp/HtspEndpoint;Lat/bernhardberger/tvheadend/htsp/HtspConnectOptions;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
 	public static synthetic fun disconnect$default (Lat/bernhardberger/tvheadend/htsp/HtspConnection;Lat/bernhardberger/tvheadend/htsp/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
-}
-
-public final class at/bernhardberger/tvheadend/htsp/HtspConnectionAttemptStatus : java/lang/Enum {
-	public static final field GONE Lat/bernhardberger/tvheadend/htsp/HtspConnectionAttemptStatus;
-	public static final field LIVE Lat/bernhardberger/tvheadend/htsp/HtspConnectionAttemptStatus;
-	public static final field REPLACED Lat/bernhardberger/tvheadend/htsp/HtspConnectionAttemptStatus;
-	public static fun getEntries ()Lkotlin/enums/EnumEntries;
-	public static fun valueOf (Ljava/lang/String;)Lat/bernhardberger/tvheadend/htsp/HtspConnectionAttemptStatus;
-	public static fun values ()[Lat/bernhardberger/tvheadend/htsp/HtspConnectionAttemptStatus;
 }
 
 public final class at/bernhardberger/tvheadend/htsp/HtspConnectionFactoryKt {
@@ -1424,40 +1414,6 @@ public final class at/bernhardberger/tvheadend/htsp/HtspConnectionProbe {
 	public fun <init> (Lkotlinx/coroutines/CoroutineDispatcher;Lat/bernhardberger/tvheadend/htsp/HtspClientIdentity;Lat/bernhardberger/tvheadend/htsp/HtspLogger;)V
 	public synthetic fun <init> (Lkotlinx/coroutines/CoroutineDispatcher;Lat/bernhardberger/tvheadend/htsp/HtspClientIdentity;Lat/bernhardberger/tvheadend/htsp/HtspLogger;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public final fun test (Ljava/lang/String;ILjava/lang/String;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
-}
-
-public abstract interface class at/bernhardberger/tvheadend/htsp/HtspControlEvent {
-	public abstract fun getConnectionAttemptId ()J
-}
-
-public final class at/bernhardberger/tvheadend/htsp/HtspControlEvent$ConnectionError : at/bernhardberger/tvheadend/htsp/HtspControlEvent {
-	public fun <init> (Ljava/lang/Throwable;J)V
-	public synthetic fun <init> (Ljava/lang/Throwable;JILkotlin/jvm/internal/DefaultConstructorMarker;)V
-	public final fun component1 ()Ljava/lang/Throwable;
-	public final fun component2 ()J
-	public final fun copy (Ljava/lang/Throwable;J)Lat/bernhardberger/tvheadend/htsp/HtspControlEvent$ConnectionError;
-	public static synthetic fun copy$default (Lat/bernhardberger/tvheadend/htsp/HtspControlEvent$ConnectionError;Ljava/lang/Throwable;JILjava/lang/Object;)Lat/bernhardberger/tvheadend/htsp/HtspControlEvent$ConnectionError;
-	public fun equals (Ljava/lang/Object;)Z
-	public fun getConnectionAttemptId ()J
-	public final fun getError ()Ljava/lang/Throwable;
-	public fun hashCode ()I
-	public fun toString ()Ljava/lang/String;
-}
-
-public final class at/bernhardberger/tvheadend/htsp/HtspControlEvent$ServerMessage : at/bernhardberger/tvheadend/htsp/HtspControlEvent {
-	public fun <init> (Lat/bernhardberger/tvheadend/htsp/HtspMessage;JJ)V
-	public synthetic fun <init> (Lat/bernhardberger/tvheadend/htsp/HtspMessage;JJILkotlin/jvm/internal/DefaultConstructorMarker;)V
-	public final fun component1 ()Lat/bernhardberger/tvheadend/htsp/HtspMessage;
-	public final fun component2 ()J
-	public final fun component3 ()J
-	public final fun copy (Lat/bernhardberger/tvheadend/htsp/HtspMessage;JJ)Lat/bernhardberger/tvheadend/htsp/HtspControlEvent$ServerMessage;
-	public static synthetic fun copy$default (Lat/bernhardberger/tvheadend/htsp/HtspControlEvent$ServerMessage;Lat/bernhardberger/tvheadend/htsp/HtspMessage;JJILjava/lang/Object;)Lat/bernhardberger/tvheadend/htsp/HtspControlEvent$ServerMessage;
-	public fun equals (Ljava/lang/Object;)Z
-	public fun getConnectionAttemptId ()J
-	public final fun getMessageSequence ()J
-	public final fun getMsg ()Lat/bernhardberger/tvheadend/htsp/HtspMessage;
-	public fun hashCode ()I
-	public fun toString ()Ljava/lang/String;
 }
 
 public final class at/bernhardberger/tvheadend/htsp/HtspDescrambleInfoMessage : at/bernhardberger/tvheadend/htsp/HtspServerMessage {
@@ -1971,49 +1927,6 @@ public abstract interface class at/bernhardberger/tvheadend/htsp/HtspLogger {
 
 public final class at/bernhardberger/tvheadend/htsp/HtspLogger$Companion {
 	public final fun getNone ()Lat/bernhardberger/tvheadend/htsp/HtspLogger;
-}
-
-public final class at/bernhardberger/tvheadend/htsp/HtspMessage {
-	public fun <init> (Ljava/lang/String;Ljava/lang/Integer;Ljava/util/Map;[B)V
-	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/Integer;Ljava/util/Map;[BILkotlin/jvm/internal/DefaultConstructorMarker;)V
-	public final fun bin (Ljava/lang/String;)[B
-	public final fun bool (Ljava/lang/String;)Ljava/lang/Boolean;
-	public final fun component1 ()Ljava/lang/String;
-	public final fun component2 ()Ljava/lang/Integer;
-	public final fun component3 ()Ljava/util/Map;
-	public final fun component4 ()[B
-	public final fun copy (Ljava/lang/String;Ljava/lang/Integer;Ljava/util/Map;[B)Lat/bernhardberger/tvheadend/htsp/HtspMessage;
-	public static synthetic fun copy$default (Lat/bernhardberger/tvheadend/htsp/HtspMessage;Ljava/lang/String;Ljava/lang/Integer;Ljava/util/Map;[BILjava/lang/Object;)Lat/bernhardberger/tvheadend/htsp/HtspMessage;
-	public fun equals (Ljava/lang/Object;)Z
-	public final fun getFields ()Ljava/util/Map;
-	public final fun getMethod ()Ljava/lang/String;
-	public final fun getRawPayload ()[B
-	public final fun getSeq ()Ljava/lang/Integer;
-	public fun hashCode ()I
-	public final fun int (Ljava/lang/String;)Ljava/lang/Integer;
-	public final fun list (Ljava/lang/String;)Ljava/util/List;
-	public final fun long (Ljava/lang/String;)Ljava/lang/Long;
-	public final fun map (Ljava/lang/String;)Ljava/util/Map;
-	public final fun str (Ljava/lang/String;)Ljava/lang/String;
-	public fun toString ()Ljava/lang/String;
-}
-
-public final class at/bernhardberger/tvheadend/htsp/HtspMuxEvent {
-	public fun <init> (Lat/bernhardberger/tvheadend/htsp/HtspMessage;JJJ)V
-	public synthetic fun <init> (Lat/bernhardberger/tvheadend/htsp/HtspMessage;JJJILkotlin/jvm/internal/DefaultConstructorMarker;)V
-	public final fun component1 ()Lat/bernhardberger/tvheadend/htsp/HtspMessage;
-	public final fun component2 ()J
-	public final fun component3 ()J
-	public final fun component4 ()J
-	public final fun copy (Lat/bernhardberger/tvheadend/htsp/HtspMessage;JJJ)Lat/bernhardberger/tvheadend/htsp/HtspMuxEvent;
-	public static synthetic fun copy$default (Lat/bernhardberger/tvheadend/htsp/HtspMuxEvent;Lat/bernhardberger/tvheadend/htsp/HtspMessage;JJJILjava/lang/Object;)Lat/bernhardberger/tvheadend/htsp/HtspMuxEvent;
-	public fun equals (Ljava/lang/Object;)Z
-	public final fun getConnectionAttemptId ()J
-	public final fun getMessageSequence ()J
-	public final fun getMsg ()Lat/bernhardberger/tvheadend/htsp/HtspMessage;
-	public final fun getMuxSequence ()J
-	public fun hashCode ()I
-	public fun toString ()Ljava/lang/String;
 }
 
 public final class at/bernhardberger/tvheadend/htsp/HtspMuxPacketMessage : at/bernhardberger/tvheadend/htsp/HtspServerMessage {
@@ -2659,62 +2572,6 @@ public final class at/bernhardberger/tvheadend/htsp/HtspTransportFailureKind : j
 	public static fun getEntries ()Lkotlin/enums/EnumEntries;
 	public static fun valueOf (Ljava/lang/String;)Lat/bernhardberger/tvheadend/htsp/HtspTransportFailureKind;
 	public static fun values ()[Lat/bernhardberger/tvheadend/htsp/HtspTransportFailureKind;
-}
-
-public abstract interface class at/bernhardberger/tvheadend/htsp/PlaybackHtspTransport {
-	public abstract fun commitIfCurrentConnectionAttempt (JLkotlin/jvm/functions/Function0;)Ljava/lang/Object;
-	public abstract fun commitIfLiveConnectionAttempt (JLkotlin/jvm/functions/Function0;)Ljava/lang/Object;
-	public abstract fun connectionAttemptStatus (J)Lat/bernhardberger/tvheadend/htsp/HtspConnectionAttemptStatus;
-	public abstract fun currentConnectionAttemptId ()J
-	public abstract fun currentMuxSequenceForConnectionAttempt (J)Ljava/lang/Long;
-	public fun fileClose (IJLjava/lang/Long;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
-	public static synthetic fun fileClose$default (Lat/bernhardberger/tvheadend/htsp/PlaybackHtspTransport;IJLjava/lang/Long;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
-	public abstract fun fileCloseRecording (ILjava/lang/Integer;JLjava/lang/Long;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
-	public static synthetic fun fileCloseRecording$default (Lat/bernhardberger/tvheadend/htsp/PlaybackHtspTransport;ILjava/lang/Integer;JLjava/lang/Long;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
-	public abstract fun fileOpen (Ljava/lang/String;JLjava/lang/Long;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
-	public static synthetic fun fileOpen$default (Lat/bernhardberger/tvheadend/htsp/PlaybackHtspTransport;Ljava/lang/String;JLjava/lang/Long;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
-	public abstract fun fileRead (IIJLjava/lang/Long;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
-	public static synthetic fun fileRead$default (Lat/bernhardberger/tvheadend/htsp/PlaybackHtspTransport;IIJLjava/lang/Long;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
-	public abstract fun fileSeek (IJLjava/lang/String;JLjava/lang/Long;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
-	public static synthetic fun fileSeek$default (Lat/bernhardberger/tvheadend/htsp/PlaybackHtspTransport;IJLjava/lang/String;JLjava/lang/Long;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
-	public fun fileStat (IJLjava/lang/Long;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
-	public static synthetic fun fileStat$default (Lat/bernhardberger/tvheadend/htsp/PlaybackHtspTransport;IJLjava/lang/Long;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
-	public abstract fun getControlEvents ()Lkotlinx/coroutines/flow/Flow;
-	public abstract fun getMuxEvents ()Lkotlinx/coroutines/flow/Flow;
-	public abstract fun getState ()Lkotlinx/coroutines/flow/StateFlow;
-	public abstract fun isCurrentConnectionAttemptId (J)Z
-	public abstract fun returnSubscriptionToLive (JILkotlin/coroutines/Continuation;)Ljava/lang/Object;
-	public abstract fun seekSubscription (JIJZLkotlin/coroutines/Continuation;)Ljava/lang/Object;
-	public abstract fun setSubscriptionSpeed (JIILkotlin/coroutines/Continuation;)Ljava/lang/Object;
-	public abstract fun setSubscriptionWeight (JIILkotlin/coroutines/Continuation;)Ljava/lang/Object;
-	public abstract fun startSubscription (JIIILjava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
-	public abstract fun stopSubscription (JILkotlin/coroutines/Continuation;)Ljava/lang/Object;
-	public abstract fun updateSubscriptionStreamFilter (JILjava/util/List;Ljava/util/List;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
-}
-
-public final class at/bernhardberger/tvheadend/htsp/PlaybackHtspTransport$DefaultImpls {
-	public static fun fileClose (Lat/bernhardberger/tvheadend/htsp/PlaybackHtspTransport;IJLjava/lang/Long;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
-	public static synthetic fun fileClose$default (Lat/bernhardberger/tvheadend/htsp/PlaybackHtspTransport;IJLjava/lang/Long;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
-	public static synthetic fun fileCloseRecording$default (Lat/bernhardberger/tvheadend/htsp/PlaybackHtspTransport;ILjava/lang/Integer;JLjava/lang/Long;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
-	public static synthetic fun fileOpen$default (Lat/bernhardberger/tvheadend/htsp/PlaybackHtspTransport;Ljava/lang/String;JLjava/lang/Long;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
-	public static synthetic fun fileRead$default (Lat/bernhardberger/tvheadend/htsp/PlaybackHtspTransport;IIJLjava/lang/Long;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
-	public static synthetic fun fileSeek$default (Lat/bernhardberger/tvheadend/htsp/PlaybackHtspTransport;IJLjava/lang/String;JLjava/lang/Long;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
-	public static fun fileStat (Lat/bernhardberger/tvheadend/htsp/PlaybackHtspTransport;IJLjava/lang/Long;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
-	public static synthetic fun fileStat$default (Lat/bernhardberger/tvheadend/htsp/PlaybackHtspTransport;IJLjava/lang/Long;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
-}
-
-public abstract interface annotation class at/bernhardberger/tvheadend/htsp/PlaybackIntegrationApi : java/lang/annotation/Annotation {
-}
-
-public final class at/bernhardberger/tvheadend/htsp/PlaybackSubscriptionStart {
-	public fun <init> (Ljava/lang/Integer;)V
-	public final fun component1 ()Ljava/lang/Integer;
-	public final fun copy (Ljava/lang/Integer;)Lat/bernhardberger/tvheadend/htsp/PlaybackSubscriptionStart;
-	public static synthetic fun copy$default (Lat/bernhardberger/tvheadend/htsp/PlaybackSubscriptionStart;Ljava/lang/Integer;ILjava/lang/Object;)Lat/bernhardberger/tvheadend/htsp/PlaybackSubscriptionStart;
-	public fun equals (Ljava/lang/Object;)Z
-	public final fun getAvailableTimeshiftPeriodSec ()Ljava/lang/Integer;
-	public fun hashCode ()I
-	public fun toString ()Ljava/lang/String;
 }
 
 public final class at/bernhardberger/tvheadend/htsp/StopDvrEntryRequest : at/bernhardberger/tvheadend/htsp/HtspRequest, at/bernhardberger/tvheadend/htsp/HtspDvrMutationRequest {

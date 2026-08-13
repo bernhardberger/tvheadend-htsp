@@ -10,9 +10,6 @@ kotlin {
     abiValidation {
         enabled.set(true)
     }
-    compilerOptions {
-        optIn.add("at.bernhardberger.tvheadend.htsp.PlaybackIntegrationApi")
-    }
 }
 
 dependencies {

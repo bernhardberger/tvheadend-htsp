@@ -5,17 +5,18 @@
 provisional typed request, outcome, and server-message declarations in
 `at.bernhardberger.tvheadend.htsp`, plus the public typed client transport and
 probe seams, internal raw HTSP codec/service and lifecycle machinery, transport
-facts, and opt-in `@PlaybackIntegrationApi` SPI plus the narrow
+facts, plus the narrow
 `@HtspJsonApi` bridge. Every production declaration is in that one
 package; this module does not declare `at.bernhardberger.tvheadend.client`.
+The protocol-package raw playback ABI has been removed.
 
 Ordinary `client-htsp` consumes this artifact only through public API; there is
 no Gradle friend wiring. `HtspConnection`, its factory/options, opaque
 generation, typed events/failures/outcomes, and generation-fenced lifecycle are
 the ordinary transport boundary. `HtspService`, `HtspCodec`, raw per-message
 mappers, and the catalog helper remain internal. The public 29-message finite
-decoder is the explicit raw-map input boundary, while pre-existing raw playback
-events remain available only through `@PlaybackIntegrationApi` opt-in.
+decoder is the explicit raw-map input boundary. Playback integration uses the
+client-package typed `@PlaybackIntegrationApi` transport.
 
 Generated parameter-based `HtspConnection` extensions are the only supported
 public request path. Public request and response models remain data contracts,

@@ -1,14 +1,13 @@
 package at.bernhardberger.tvheadend.htsp
 
-@PlaybackIntegrationApi
-public data class HtspMessage(
-    val method: String?,               // null pro reply, pokud to tak máš
-    val seq: Int?,                     // seq pro korelaci
-    val fields: Map<String, Any?>,     // decoded map
-    val rawPayload: ByteArray? = null  // pro muxpkt TS bytes (pokud rovnou vytáhneš)
+internal data class HtspWireMessage(
+    val method: String?,
+    val seq: Int?,
+    val fields: Map<String, Any?>,
+    val rawPayload: ByteArray? = null,
 ) {
 
-    public fun int(key: String): Int? = when (val v = fields[key]) {
+    fun int(key: String): Int? = when (val v = fields[key]) {
         is Int -> v
         is Long -> v.toInt()
         is Short -> v.toInt()
@@ -18,7 +17,7 @@ public data class HtspMessage(
         else -> null
     }
 
-    public fun long(key: String): Long? = when (val v = fields[key]) {
+    fun long(key: String): Long? = when (val v = fields[key]) {
         is Long -> v
         is Int -> v.toLong()
         is Short -> v.toLong()
@@ -28,7 +27,7 @@ public data class HtspMessage(
         else -> null
     }
 
-    public fun bool(key: String): Boolean? = when (val v = fields[key]) {
+    fun bool(key: String): Boolean? = when (val v = fields[key]) {
         is Boolean -> v
         is Int -> v != 0
         is Long -> v != 0L
@@ -41,25 +40,25 @@ public data class HtspMessage(
         else -> null
     }
 
-    public fun str(key: String): String? = when (val v = fields[key]) {
+    fun str(key: String): String? = when (val v = fields[key]) {
         is String -> v
         else -> null
     }
 
-    public fun bin(key: String): ByteArray? = when (val v = fields[key]) {
+    fun bin(key: String): ByteArray? = when (val v = fields[key]) {
         is ByteArray -> v
         else -> null
     }
 
     @Suppress("UNCHECKED_CAST")
-    public fun map(key: String): Map<String, Any?>? = fields[key] as? Map<String, Any?>
+    fun map(key: String): Map<String, Any?>? = fields[key] as? Map<String, Any?>
 
     @Suppress("UNCHECKED_CAST")
-    public fun list(key: String): List<Any?>? = fields[key] as? List<Any?>
+    fun list(key: String): List<Any?>? = fields[key] as? List<Any?>
 
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
-        if (other !is HtspMessage) return false
+        if (other !is HtspWireMessage) return false
 
         if (seq != other.seq) return false
         if (method != other.method) return false
@@ -83,34 +82,9 @@ public data class HtspMessage(
     }
 }
 
-@PlaybackIntegrationApi
-public sealed interface HtspControlEvent {
-    public val connectionAttemptId: Long
-
-    public data class ServerMessage(
-        val msg: HtspMessage,
-        override val connectionAttemptId: Long = 0L,
-        val messageSequence: Long = 0L,
-    ) : HtspControlEvent
-
-    public data class ConnectionError(
-        val error: Throwable,
-        override val connectionAttemptId: Long = 0L,
-    ) : HtspControlEvent
-}
-
-@PlaybackIntegrationApi
-public data class HtspMuxEvent(
-    val msg: HtspMessage,
-    val connectionAttemptId: Long,
-    val messageSequence: Long = 0L,
-    val muxSequence: Long = 0L,
-)
-
-internal data class `SubscriptionStatus-internal`
-    (
+internal data class `SubscriptionStatus-internal`(
     val id: Int,
-    val state: String? = null,   // "Running" / "No input" / "Scrambled" / ...
+    val state: String? = null,
     val subscriptionError: String? = null,
 )
 
@@ -118,5 +92,5 @@ internal typealias SubscriptionStatus = `SubscriptionStatus-internal`
 
 public data class StreamProfile(
     val id: String,
-    val name: String
+    val name: String,
 )

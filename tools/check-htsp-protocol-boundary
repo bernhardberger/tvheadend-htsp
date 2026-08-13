@@ -512,12 +512,12 @@ def self_test_errors() -> list[str]:
         (
             "valid shape",
             "package at.bernhardberger.tvheadend.htsp\n"
-            "import at.bernhardberger.tvheadend.htsp.HtspMessage\n"
+            "import at.bernhardberger.tvheadend.htsp.HtspConnection\n"
             "import java.util.Collections\n"
             "import kotlinx.coroutines.CancellationException\n"
             "class Valid {\n"
-            "    val message: at.bernhardberger.tvheadend.htsp.HtspMessage? = null\n"
-            "    val nested: at.bernhardberger.tvheadend.htsp.HtspMessage.Field? = null\n"
+            "    val connection: at.bernhardberger.tvheadend.htsp.HtspConnection? = null\n"
+            "    val nested: at.bernhardberger.tvheadend.htsp.HtspConnectionGeneration? = null\n"
             "}\n",
             None,
             None,

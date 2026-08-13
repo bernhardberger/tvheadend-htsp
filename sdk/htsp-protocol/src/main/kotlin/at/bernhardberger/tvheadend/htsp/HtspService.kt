@@ -19,15 +19,12 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancelAndJoin
-import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.currentCoroutineContext
-import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -81,13 +78,6 @@ public sealed class ConnectionState {
     public data class Error(val throwable: Throwable) : ConnectionState()
 }
 
-@PlaybackIntegrationApi
-public enum class HtspConnectionAttemptStatus {
-    LIVE,
-    GONE,
-    REPLACED,
-}
-
 internal open class `HtspService-internal`(
     ioDispatcher: CoroutineDispatcher,
     private val clientIdentity: HtspClientIdentity = HtspClientIdentity.Default,
@@ -98,19 +88,15 @@ internal open class `HtspService-internal`(
     private val afterTeardownAdmission: suspend () -> Unit = {},
     private val beforeTypedRecapture: suspend (HtspRequest<*>) -> Unit = {},
     private val beforeTypedEventPublication: (HtspTransportEvent.ServerMessage) -> Unit = {},
-) : PlaybackHtspTransport, HtspRequestTransport, HtspConnection, HtspTypedRequestCapability {
+) : HtspRequestTransport, HtspConnection, HtspTypedRequestCapability {
     private val _state = MutableStateFlow<ConnectionState>(ConnectionState.Disconnected)
-    override val state: StateFlow<ConnectionState> = _state
+    val state: StateFlow<ConnectionState> = _state
 
     private val _liveConnection = MutableStateFlow<HtspLiveConnection?>(null)
     override val liveConnection: StateFlow<HtspLiveConnection?> = _liveConnection
 
     private val _events = MutableSharedFlow<HtspTransportEvent>()
     override val events: SharedFlow<HtspTransportEvent> = _events
-
-    @PlaybackIntegrationApi
-    override val playbackTransport: PlaybackHtspTransport
-        get() = this
 
     open fun currentConnectionState(): ConnectionState = state.value
 
@@ -122,22 +108,10 @@ internal open class `HtspService-internal`(
     private val typedEventSpaceAvailable = Channel<Unit>(Channel.CONFLATED)
     private var typedEventPublisherJob: Job? = null
 
-    private val controlEventStream = HtspEventStream()
-    override val controlEvents: Flow<HtspControlEvent> = controlEventStream.events.filter { event ->
-        event.connectionAttemptId == 0L ||
-            isCurrentConnectionAttempt(event.connectionAttemptId)
-    }
-
-    private val _muxEvents = MutableSharedFlow<HtspMuxEvent>(
-        extraBufferCapacity = 8192,
-        onBufferOverflow = BufferOverflow.DROP_OLDEST
-    )
-    override val muxEvents: SharedFlow<HtspMuxEvent> = _muxEvents
-
     private val pending = ConcurrentHashMap<Int, PendingReq>()
 
     private data class PendingReq(
-        val def: CompletableDeferred<HtspMessage>,
+        val def: CompletableDeferred<HtspWireMessage>,
         val startedAtMs: Long
     )
 
@@ -159,12 +133,6 @@ internal open class `HtspService-internal`(
     private var liveServerFacts: HtspServerFacts? = null
 
     private var liveConnectionIdentity: HtspConnectionIdentity? = null
-
-    @Volatile
-    private var muxCursorAttempt = 0L
-
-    @Volatile
-    private var muxCursorSequence = 0L
 
     @Volatile
     private var socket: Socket? = null
@@ -506,7 +474,7 @@ internal open class `HtspService-internal`(
         timeoutMs: Long = 5_000,
         flush: Boolean = true,
         disconnectOnTimeout: Boolean = true
-    ): HtspMessage = requestInternal(
+    ): HtspWireMessage = requestInternal(
         expectedConnectionAttemptId = null,
         method = method,
         fields = fields,
@@ -515,196 +483,6 @@ internal open class `HtspService-internal`(
         disconnectOnTimeout = disconnectOnTimeout,
     )
 
-    override suspend fun startSubscription(
-        expectedConnectionAttemptId: Long,
-        subscriptionId: Int,
-        channelId: Int,
-        timeshiftPeriodSec: Int,
-        profile: String?,
-    ): PlaybackSubscriptionStart {
-        val response = requestForConnectionAttempt(
-            expectedConnectionAttemptId = expectedConnectionAttemptId,
-            method = "subscribe",
-            fields = mapOf(
-                "subscriptionId" to subscriptionId,
-                "channelId" to channelId,
-                "timeshiftPeriod" to timeshiftPeriodSec,
-                "profile" to profile,
-            ),
-        )
-        response.requireSuccessfulSubscriptionReply("subscribe")
-        return PlaybackSubscriptionStart(
-            availableTimeshiftPeriodSec = response.int("timeshiftPeriod"),
-        )
-    }
-
-    override suspend fun stopSubscription(
-        expectedConnectionAttemptId: Long,
-        subscriptionId: Int,
-    ) {
-        requestForConnectionAttempt(
-            expectedConnectionAttemptId = expectedConnectionAttemptId,
-            method = "unsubscribe",
-            fields = mapOf("subscriptionId" to subscriptionId),
-        ).requireSuccessfulSubscriptionReply("unsubscribe")
-    }
-
-    override suspend fun setSubscriptionWeight(
-        expectedConnectionAttemptId: Long,
-        subscriptionId: Int,
-        weight: Int,
-    ) {
-        currentCoroutineContext().ensureActive()
-        val htspVersion = liveHtspVersionForConnectionAttempt(expectedConnectionAttemptId)
-        if (htspVersion == null || htspVersion < 5) {
-            throw UnsupportedOperationException(
-                "HTSP subscriptionChangeWeight requires protocol version 5 or newer",
-            )
-        }
-        require(subscriptionId >= 0) { "subscriptionId must be non-negative" }
-        require(weight >= 0) { "weight must be non-negative" }
-
-        val response = requestForConnectionAttempt(
-            expectedConnectionAttemptId = expectedConnectionAttemptId,
-            method = "subscriptionChangeWeight",
-            fields = mapOf(
-                "subscriptionId" to subscriptionId,
-                "weight" to weight,
-            ),
-        )
-        currentCoroutineContext().ensureActive()
-        commitIfLiveConnectionAttempt(expectedConnectionAttemptId) {
-            response.requireSuccessfulSubscriptionWeightReply()
-        } ?: throw CancellationException("Stale HTSP connection attempt")
-    }
-
-    override suspend fun updateSubscriptionStreamFilter(
-        expectedConnectionAttemptId: Long,
-        subscriptionId: Int,
-        enabledStreamIndices: List<Int>,
-        disabledStreamIndices: List<Int>,
-    ) {
-        currentCoroutineContext().ensureActive()
-        val htspVersion = liveHtspVersionForConnectionAttempt(expectedConnectionAttemptId)
-        if (htspVersion == null || htspVersion < 12) {
-            throw UnsupportedOperationException(
-                "HTSP subscriptionFilterStream requires protocol version 12 or newer",
-            )
-        }
-        require(subscriptionId >= 0) { "subscriptionId must be non-negative" }
-        val enabledSnapshot = enabledStreamIndices.toList()
-        val disabledSnapshot = disabledStreamIndices.toList()
-        require(enabledSnapshot.all { streamIndex -> streamIndex >= 0 }) {
-            "enabledStreamIndices must contain only non-negative values"
-        }
-        require(disabledSnapshot.all { streamIndex -> streamIndex >= 0 }) {
-            "disabledStreamIndices must contain only non-negative values"
-        }
-
-        val response = requestForConnectionAttempt(
-            expectedConnectionAttemptId = expectedConnectionAttemptId,
-            method = "subscriptionFilterStream",
-            fields = buildMap {
-                put("subscriptionId", subscriptionId)
-                if (enabledSnapshot.isNotEmpty()) put("enable", enabledSnapshot)
-                if (disabledSnapshot.isNotEmpty()) put("disable", disabledSnapshot)
-            },
-        )
-        currentCoroutineContext().ensureActive()
-        commitIfLiveConnectionAttempt(expectedConnectionAttemptId) {
-            response.requireSuccessfulSubscriptionFilterReply()
-        } ?: throw CancellationException("Stale HTSP connection attempt")
-    }
-
-    override suspend fun returnSubscriptionToLive(
-        expectedConnectionAttemptId: Long,
-        subscriptionId: Int,
-    ) {
-        currentCoroutineContext().ensureActive()
-        val htspVersion = liveHtspVersionForConnectionAttempt(expectedConnectionAttemptId)
-        if (htspVersion == null || htspVersion < 9) {
-            throw UnsupportedOperationException(
-                "HTSP subscriptionLive requires protocol version 9 or newer",
-            )
-        }
-        require(subscriptionId >= 0) { "subscriptionId must be non-negative" }
-
-        val response = requestForConnectionAttempt(
-            expectedConnectionAttemptId = expectedConnectionAttemptId,
-            method = "subscriptionLive",
-            fields = mapOf("subscriptionId" to subscriptionId),
-        )
-        currentCoroutineContext().ensureActive()
-        commitIfLiveConnectionAttempt(expectedConnectionAttemptId) {
-            response.requireSuccessfulSubscriptionLiveReply()
-        } ?: throw CancellationException("Stale HTSP connection attempt")
-    }
-
-    override suspend fun setSubscriptionSpeed(
-        expectedConnectionAttemptId: Long,
-        subscriptionId: Int,
-        speed: Int,
-    ) {
-        requestForConnectionAttempt(
-            expectedConnectionAttemptId = expectedConnectionAttemptId,
-            method = "subscriptionSpeed",
-            fields = mapOf(
-                "subscriptionId" to subscriptionId,
-                "speed" to speed,
-            ),
-        ).requireSuccessfulSubscriptionReply("subscriptionSpeed")
-    }
-
-    override suspend fun seekSubscription(
-        expectedConnectionAttemptId: Long,
-        subscriptionId: Int,
-        timeUs: Long,
-        absolute: Boolean,
-    ) {
-        requestForConnectionAttempt(
-            expectedConnectionAttemptId = expectedConnectionAttemptId,
-            method = "subscriptionSeek",
-            fields = mapOf(
-                "subscriptionId" to subscriptionId,
-                "time" to timeUs,
-                "absolute" to if (absolute) 1 else 0,
-            ),
-        ).requireSuccessfulSubscriptionReply("subscriptionSeek")
-    }
-
-    private fun HtspMessage.requireSuccessfulSubscriptionReply(method: String) {
-        if (int("noaccess") == 1 || fields.containsKey("error")) {
-            throw IOException("HTSP $method failed")
-        }
-    }
-
-    private fun HtspMessage.requireSuccessfulSubscriptionWeightReply() {
-        if (
-            fields.containsKey("error") ||
-            (fields.containsKey("noaccess") && fields["noaccess"] != 0L)
-        ) {
-            throw IOException("HTSP subscriptionChangeWeight failed")
-        }
-    }
-
-    private fun HtspMessage.requireSuccessfulSubscriptionFilterReply() {
-        if (
-            fields.containsKey("error") ||
-            (fields.containsKey("noaccess") && fields["noaccess"] != 0L)
-        ) {
-            throw IOException("HTSP subscriptionFilterStream failed")
-        }
-    }
-
-    private fun HtspMessage.requireSuccessfulSubscriptionLiveReply() {
-        if (
-            fields.containsKey("error") ||
-            (fields.containsKey("noaccess") && fields["noaccess"] != 0L)
-        ) {
-            throw IOException("HTSP subscriptionLive failed")
-        }
-    }
-
     internal open suspend fun requestForConnectionAttempt(
         expectedConnectionAttemptId: Long,
         method: String,
@@ -712,7 +490,7 @@ internal open class `HtspService-internal`(
         timeoutMs: Long = 5_000,
         flush: Boolean = true,
         disconnectOnTimeout: Boolean = true,
-    ): HtspMessage = requestInternal(
+    ): HtspWireMessage = requestInternal(
         expectedConnectionAttemptId = expectedConnectionAttemptId,
         method = method,
         fields = fields,
@@ -733,7 +511,7 @@ internal open class `HtspService-internal`(
         timeoutMs: Long = 5_000,
         flush: Boolean = true,
         disconnectOnTimeout: Boolean = true,
-    ): HtspMessage = requestInternal(
+    ): HtspWireMessage = requestInternal(
         expectedConnectionAttemptId = expectedConnectionAttemptId,
         method = method,
         fields = fields,
@@ -751,7 +529,7 @@ internal open class `HtspService-internal`(
         flush: Boolean,
         disconnectOnTimeout: Boolean,
         isRequestAdmitted: (() -> Boolean)? = null,
-    ): HtspMessage {
+    ): HtspWireMessage {
         val admission = lifecycle.admit {
             synchronized(connectionAttemptLock) {
                 val transport = if (expectedConnectionAttemptId == null) {
@@ -768,7 +546,7 @@ internal open class `HtspService-internal`(
                 }
                 val requestOutput = transport.second ?: throw IllegalStateException("Not connected")
                 val requestSequence = seq.getAndIncrement()
-                val response = CompletableDeferred<HtspMessage>()
+                val response = CompletableDeferred<HtspWireMessage>()
                 pending[requestSequence] = PendingReq(response, System.currentTimeMillis())
                 RequestAdmission(
                     sequence = requestSequence,
@@ -817,158 +595,6 @@ internal open class `HtspService-internal`(
             pending.remove(s)
             throw t
         }
-    }
-
-    override suspend fun fileOpen(
-        path: String,
-        timeoutMs: Long,
-        expectedConnectionAttemptId: Long?,
-    ): Int {
-        val p = if (path.startsWith("/")) path else "/$path"
-        val msg = fileRequest(
-            expectedConnectionAttemptId = expectedConnectionAttemptId,
-            method = "fileOpen",
-            fields = mapOf("file" to p),
-            timeoutMs = timeoutMs,
-            flush = true,
-            disconnectOnTimeout = false
-        )
-        msg.requireSuccessfulFileReply("fileOpen")
-        return msg.int("id")
-            ?: throw IOException("HTSP fileOpen reply missing id")
-    }
-
-    override suspend fun fileRead(
-        id: Int,
-        size: Int,
-        timeoutMs: Long,
-        expectedConnectionAttemptId: Long?,
-    ): ByteArray {
-        val msg = fileRequest(
-            expectedConnectionAttemptId = expectedConnectionAttemptId,
-            method = "fileRead",
-            fields = mapOf("id" to id, "size" to size),
-            timeoutMs = timeoutMs,
-            flush = true,
-            disconnectOnTimeout = false
-        )
-        msg.requireSuccessfulFileReply("fileRead")
-        return msg.bin("data")
-            ?: throw IOException("HTSP fileRead reply missing data")
-    }
-
-    override suspend fun fileSeek(
-        id: Int,
-        offset: Long,
-        whence: String,
-        timeoutMs: Long,
-        expectedConnectionAttemptId: Long?,
-    ): Long {
-        val msg = fileRequest(
-            expectedConnectionAttemptId = expectedConnectionAttemptId,
-            method = "fileSeek",
-            fields = mapOf("id" to id, "offset" to offset, "whence" to whence),
-            timeoutMs = timeoutMs,
-            flush = true,
-            disconnectOnTimeout = false,
-        )
-        msg.requireSuccessfulFileReply("fileSeek")
-        return msg.long("offset") ?: offset
-    }
-
-    override suspend fun fileStat(
-        id: Int,
-        timeoutMs: Long,
-        expectedConnectionAttemptId: Long?,
-    ): Long? {
-        val msg = fileRequest(
-            expectedConnectionAttemptId = expectedConnectionAttemptId,
-            method = "fileStat",
-            fields = mapOf("id" to id),
-            timeoutMs = timeoutMs,
-            flush = true,
-            disconnectOnTimeout = false,
-        )
-        msg.requireSuccessfulFileReply("fileStat")
-        return fileStatSize(msg)
-    }
-
-    private fun fileStatSize(msg: HtspMessage): Long? {
-        if (!msg.fields.containsKey("size")) return null
-        val size = when (val value = msg.fields["size"]) {
-            is Byte -> value.toLong()
-            is Short -> value.toLong()
-            is Int -> value.toLong()
-            is Long -> value
-            else -> throw IOException("HTSP fileStat reply invalid size")
-        }
-        if (size < 0) throw IOException("HTSP fileStat reply invalid size")
-        return size
-    }
-
-    override suspend fun fileClose(
-        id: Int,
-        timeoutMs: Long,
-        expectedConnectionAttemptId: Long?,
-    ) {
-        fileRequest(
-            expectedConnectionAttemptId = expectedConnectionAttemptId,
-            method = "fileClose",
-            fields = mapOf("id" to id),
-            timeoutMs = timeoutMs,
-            flush = true,
-            disconnectOnTimeout = false
-        ).requireSuccessfulFileReply("fileClose")
-    }
-
-    override suspend fun fileCloseRecording(
-        id: Int,
-        htspVersion: Int?,
-        timeoutMs: Long,
-        expectedConnectionAttemptId: Long?,
-    ) {
-        val fields = if (htspVersion != null && htspVersion >= 27) {
-            mapOf(
-                "id" to id,
-                "playcount" to DVR_PLAY_COUNT_KEEP,
-            )
-        } else {
-            mapOf("id" to id)
-        }
-        fileRequest(
-            expectedConnectionAttemptId = expectedConnectionAttemptId,
-            method = "fileClose",
-            fields = fields,
-            timeoutMs = timeoutMs,
-            flush = true,
-            disconnectOnTimeout = false,
-        ).requireSuccessfulFileReply("fileClose")
-    }
-
-    private fun HtspMessage.requireSuccessfulFileReply(method: String) {
-        if (int("noaccess") == 1 || fields.containsKey("error")) {
-            throw IOException("HTSP $method failed")
-        }
-    }
-
-    private suspend fun fileRequest(
-        expectedConnectionAttemptId: Long?,
-        method: String,
-        fields: Map<String, Any?>,
-        timeoutMs: Long,
-        flush: Boolean,
-        disconnectOnTimeout: Boolean,
-    ): HtspMessage = if (expectedConnectionAttemptId == null) {
-        request(method, fields, timeoutMs, flush, disconnectOnTimeout)
-    } else {
-        requestForConnectionAttempt(
-            expectedConnectionAttemptId,
-            method,
-            fields,
-            timeoutMs,
-            flush,
-            disconnectOnTimeout,
-        )
     }
 
     override suspend fun disconnect(
@@ -1033,19 +659,11 @@ internal open class `HtspService-internal`(
     ) {
         val pendingMaxSilentMs = responseTimeoutMs * 2
         var messageSequence = 0L
-        var muxSequence = 0L
-        if (
-            withCurrentConnectionAttempt(attemptId) {
-                muxCursorAttempt = attemptId
-                muxCursorSequence = 0L
-            } == null
-        ) return
         try {
             while (currentCoroutineContext().isActive) {
                 try {
                     val msg = HtspCodec.readMessage(transportInput, logger)
                     val currentMessageSequence = ++messageSequence
-                    var controlEvent: HtspControlEvent.ServerMessage? = null
                     var typedEvent: HtspTransportEvent.ServerMessage? = null
                     val published = withCurrentConnectionAttempt(attemptId) {
                         lastReadAtMs = System.currentTimeMillis()
@@ -1066,25 +684,6 @@ internal open class `HtspService-internal`(
                             return@withCurrentConnectionAttempt
                         }
 
-                        if (msg.method == "muxpkt") {
-                            val currentMuxSequence = ++muxSequence
-                            muxCursorSequence = currentMuxSequence
-                            _muxEvents.tryEmit(
-                                HtspMuxEvent(
-                                    msg = msg,
-                                    connectionAttemptId = attemptId,
-                                    messageSequence = currentMessageSequence,
-                                    muxSequence = currentMuxSequence,
-                                )
-                            )
-                        } else {
-                            controlEvent = HtspControlEvent.ServerMessage(
-                                msg = msg,
-                                connectionAttemptId = attemptId,
-                                messageSequence = currentMessageSequence,
-                            )
-                        }
-
                         val generation = protocolGeneration?.token
                         val decoded = decodeHtspServerMessage(msg.fields)
                         if (generation != null && decoded is HtspServerMessageDecoded) {
@@ -1096,7 +695,6 @@ internal open class `HtspService-internal`(
                         }
                     } != null
                     if (!published) return
-                    controlEvent?.let { controlEventStream.emit(it) }
                     typedEvent?.let { event -> publishTypedServerEvent(attemptId, event) }
                 } catch (t: SocketTimeoutException) {
                     val now = System.currentTimeMillis()
@@ -1170,27 +768,24 @@ internal open class `HtspService-internal`(
     private suspend fun failAll(t: Throwable, attemptId: Long) {
         if (!isCurrentConnectionAttempt(attemptId)) return
         var typedEvent: HtspTransportEvent.ConnectionFailure? = null
-        val event = connectMutex.withLock<HtspControlEvent.ConnectionError?> {
-            if (!isCurrentConnectionAttempt(attemptId)) return@withLock null
+        val published = connectMutex.withLock {
+            if (!isCurrentConnectionAttempt(attemptId)) return@withLock false
             val publication = withCurrentConnectionAttempt(attemptId) {
                 _state.value = ConnectionState.Error(t)
                 typedEvent = HtspTransportEvent.ConnectionFailure(
                     failure = typedTransportFailure(t),
                     generation = protocolGeneration?.token,
                 )
-                HtspControlEvent.ConnectionError(
-                    error = t,
-                    connectionAttemptId = attemptId,
-                )
-            } ?: return@withLock null
+            } ?: return@withLock false
             disconnectInternal(
                 t = t,
                 attemptId = attemptId,
                 publishState = true,
             )
             publication
-        } ?: return
-        controlEventStream.emit(event)
+            true
+        }
+        if (!published) return
         typedEvent?.let { publishTypedEvent(attemptId, it) }
     }
 
@@ -1289,16 +884,7 @@ internal open class `HtspService-internal`(
         admitReplacementGenerationLocked()
     }
 
-    override fun currentConnectionAttemptId(): Long = connectionAttempt
-
-    override fun currentMuxSequenceForConnectionAttempt(attemptId: Long): Long? =
-        synchronized(connectionAttemptLock) {
-            if (connectionAttempt == attemptId && muxCursorAttempt == attemptId) {
-                muxCursorSequence
-            } else {
-                null
-            }
-        }
+    internal fun currentConnectionAttemptId(): Long = connectionAttempt
 
     override fun captureGeneration(): HtspCapturedGeneration? = synchronized(connectionAttemptLock) {
         val generation = protocolGeneration ?: return@synchronized null
@@ -1443,18 +1029,6 @@ internal open class `HtspService-internal`(
         }
     }
 
-    override fun isCurrentConnectionAttemptId(attemptId: Long): Boolean =
-        isCurrentConnectionAttempt(attemptId)
-
-    override fun connectionAttemptStatus(attemptId: Long): HtspConnectionAttemptStatus =
-        synchronized(connectionAttemptLock) {
-            when {
-                connectionAttempt != attemptId -> HtspConnectionAttemptStatus.REPLACED
-                liveTransportAttempt == attemptId -> HtspConnectionAttemptStatus.LIVE
-                else -> HtspConnectionAttemptStatus.GONE
-            }
-        }
-
     internal open fun serverFactsForLiveConnectionAttempt(
         expectedConnectionAttemptId: Long,
     ): HtspServerFacts? = synchronized(connectionAttemptLock) {
@@ -1510,7 +1084,7 @@ internal open class `HtspService-internal`(
         true
     }
 
-    override fun <T> commitIfCurrentConnectionAttempt(
+    internal fun <T> commitIfCurrentConnectionAttempt(
         attemptId: Long,
         block: () -> T,
     ): T? = synchronized(connectionAttemptLock) {
@@ -1519,7 +1093,7 @@ internal open class `HtspService-internal`(
         block()
     }
 
-    override fun <T> commitIfLiveConnectionAttempt(
+    internal fun <T> commitIfLiveConnectionAttempt(
         attemptId: Long,
         block: () -> T,
     ): T? = synchronized(connectionAttemptLock) {
@@ -1694,7 +1268,7 @@ internal open class `HtspService-internal`(
 
     private data class RequestAdmission(
         val sequence: Int,
-        val response: CompletableDeferred<HtspMessage>,
+        val response: CompletableDeferred<HtspWireMessage>,
         val socket: Socket?,
         val output: OutputStream,
     )
@@ -1766,15 +1340,15 @@ private fun Long?.toExistingIntObservation(): Int? =
 /**
  * Strict hello/authenticate observation mapping for public [HtspServerFacts].
  *
- * Unlike the permissive [HtspMessage] helpers used elsewhere, newly published facts reject
+ * Unlike the permissive [HtspWireMessage] helpers used elsewhere, newly published facts reject
  * string/floating-point coercion, truncation, and non-0/1 boolean synthesis. Missing or
  * malformed values stay unknown (`null`). Empty strings and empty capability lists are kept as
  * observed values. Capability lists are copied into an unmodifiable snapshot.
  */
 @JvmSynthetic
 internal fun htspServerFactsFromHandshake(
-    hello: HtspMessage,
-    auth: HtspMessage,
+    hello: HtspWireMessage,
+    auth: HtspWireMessage,
 ): HtspServerFacts = HtspServerFacts(
     serverName = observedHtspString(hello, "servername"),
     serverVersion = observedHtspString(hello, "serverversion"),
@@ -1794,12 +1368,12 @@ internal fun htspServerFactsFromHandshake(
     uiLanguage = observedHtspString(auth, "uilanguage"),
 )
 
-private fun observedHtspString(message: HtspMessage, key: String): String? {
+private fun observedHtspString(message: HtspWireMessage, key: String): String? {
     val value = message.fields[key] ?: return null
     return value as? String
 }
 
-private fun observedHtspU32(message: HtspMessage, key: String): Int? {
+private fun observedHtspU32(message: HtspWireMessage, key: String): Int? {
     val value = message.fields[key] ?: return null
     val integral = when (value) {
         is Byte -> value.toLong()
@@ -1811,7 +1385,7 @@ private fun observedHtspU32(message: HtspMessage, key: String): Int? {
     return integral.takeIf { it in 0L..Int.MAX_VALUE.toLong() }?.toInt()
 }
 
-private fun observedHtspAccessFlag(message: HtspMessage, key: String): Boolean? {
+private fun observedHtspAccessFlag(message: HtspWireMessage, key: String): Boolean? {
     val value = message.fields[key] ?: return null
     val integral = when (value) {
         is Byte -> value.toLong()
@@ -1827,7 +1401,7 @@ private fun observedHtspAccessFlag(message: HtspMessage, key: String): Boolean? 
     }
 }
 
-private fun observedHtspStringList(message: HtspMessage, key: String): List<String>? {
+private fun observedHtspStringList(message: HtspWireMessage, key: String): List<String>? {
     val value = message.fields[key] ?: return null
     val list = value as? List<*> ?: return null
     if (list.any { element -> element !is String }) return null

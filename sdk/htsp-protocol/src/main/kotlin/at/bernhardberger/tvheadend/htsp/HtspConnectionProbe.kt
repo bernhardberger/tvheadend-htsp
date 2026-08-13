@@ -61,17 +61,21 @@ public class HtspConnectionProbe(
         }
 
         override suspend fun syncChannelMetadata(): Int = coroutineScope {
-            val channelIds = ConcurrentHashMap.newKeySet<Int>()
+            val liveGeneration = service.liveConnection.value?.generation
+            val channelIds = ConcurrentHashMap.newKeySet<Long>()
             val completed = CompletableDeferred<Int>()
             val collector = launch(ioDispatcher, start = CoroutineStart.UNDISPATCHED) {
-                service.controlEvents.collect { event ->
-                    val message =
-                        (event as? HtspControlEvent.ServerMessage)?.msg ?: return@collect
-                    when (message.method) {
-                        "channelAdd", "channelUpdate" ->
-                            message.int("channelId")?.let(channelIds::add)
-                        "channelDelete" -> message.int("channelId")?.let(channelIds::remove)
-                        "initialSyncCompleted" -> completed.complete(channelIds.size)
+                service.events.collect { event ->
+                    val server = event as? HtspTransportEvent.ServerMessage ?: return@collect
+                    if (liveGeneration == null || server.generation !== liveGeneration) {
+                        return@collect
+                    }
+                    when (val message = server.message) {
+                        is HtspChannelAddMessage -> channelIds.add(message.channelId)
+                        is HtspChannelUpdateMessage -> channelIds.add(message.channelId)
+                        is HtspChannelDeleteMessage -> channelIds.remove(message.channelId)
+                        HtspInitialSyncCompletedMessage -> completed.complete(channelIds.size)
+                        else -> Unit
                     }
                 }
             }

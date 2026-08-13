@@ -41,18 +41,8 @@ class HtspServiceLifecycleTest {
             runBlocking {
                 service.connect(HtspEndpoint("127.0.0.1", server.port))
                 val typedEvents = CopyOnWriteArrayList<HtspTransportEvent>()
-                val rawControlEvents = CopyOnWriteArrayList<HtspControlEvent.ServerMessage>()
-                val rawMuxEvents = CopyOnWriteArrayList<HtspMuxEvent>()
                 val collector = launch(start = CoroutineStart.UNDISPATCHED) {
                     service.events.collect { typedEvents += it }
-                }
-                val controlCollector = launch(start = CoroutineStart.UNDISPATCHED) {
-                    service.controlEvents.collect { event ->
-                        if (event is HtspControlEvent.ServerMessage) rawControlEvents += event
-                    }
-                }
-                val muxCollector = launch(start = CoroutineStart.UNDISPATCHED) {
-                    service.muxEvents.collect { rawMuxEvents += it }
                 }
 
                 server.sendServerMessage("subscriptionStatus", mapOf("subscriptionId" to 1L))
@@ -79,11 +69,7 @@ class HtspServiceLifecycleTest {
                 )
 
                 withTimeout(1_000L) {
-                    while (
-                        typedEvents.filterIsInstance<HtspTransportEvent.ServerMessage>().size < 3 ||
-                        rawControlEvents.size < 2 ||
-                        rawMuxEvents.size < 1
-                    ) {
+                    while (typedEvents.filterIsInstance<HtspTransportEvent.ServerMessage>().size < 3) {
                         delay(1L)
                     }
                 }
@@ -100,29 +86,14 @@ class HtspServiceLifecycleTest {
                 assertTrue(messages.zipWithNext().all { (first, second) ->
                     first.messageSequence < second.messageSequence
                 })
-                assertEquals(
-                    listOf("subscriptionStatus", "descrambleInfo"),
-                    rawControlEvents.map { event -> event.msg.method },
-                )
-                assertEquals(listOf("muxpkt"), rawMuxEvents.map { event -> event.msg.method })
-                assertEquals(
-                    messages.map { event -> event.messageSequence },
-                    listOf(
-                        rawControlEvents[0].messageSequence,
-                        rawControlEvents[1].messageSequence,
-                        rawMuxEvents[0].messageSequence,
-                    ),
-                )
                 collector.cancelAndJoin()
-                controlCollector.cancelAndJoin()
-                muxCollector.cancelAndJoin()
                 service.disconnect()
             }
         }
     }
 
     @Test
-    fun blockedTypedMuxCollectorDoesNotBlockRawMuxOrRpcReplyProgress() {
+    fun blockedTypedMuxCollectorDoesNotBlockRpcReplyProgress() {
         FakeHtspServer(
             respondToHello = true,
             captureOnePostHandshakeRequest = true,
@@ -132,7 +103,6 @@ class HtspServiceLifecycleTest {
                 service.connect(HtspEndpoint("127.0.0.1", server.port))
                 val firstTypedMuxReceived = CompletableDeferred<Unit>()
                 val releaseTypedCollector = CompletableDeferred<Unit>()
-                val rawMuxEvents = CopyOnWriteArrayList<HtspMuxEvent>()
                 val typedCollector = launch(start = CoroutineStart.UNDISPATCHED) {
                     service.events.collect { event ->
                         if (event is HtspTransportEvent.ServerMessage &&
@@ -142,9 +112,6 @@ class HtspServiceLifecycleTest {
                             releaseTypedCollector.await()
                         }
                     }
-                }
-                val rawCollector = launch(start = CoroutineStart.UNDISPATCHED) {
-                    service.muxEvents.collect { event -> rawMuxEvents += event }
                 }
 
                 server.sendServerMessage("muxpkt", muxPacketFields(payloadByte = 1.toByte()))
@@ -164,14 +131,9 @@ class HtspServiceLifecycleTest {
                     "blockedCollectorProbe",
                     withTimeout(1_000L) { request.await() }.method,
                 )
-                withTimeout(1_000L) {
-                    while (rawMuxEvents.size < 2) delay(1L)
-                }
-                assertEquals(2, rawMuxEvents.size)
 
                 releaseTypedCollector.complete(Unit)
                 typedCollector.cancelAndJoin()
-                rawCollector.cancelAndJoin()
                 service.disconnect()
             }
         }
@@ -347,9 +309,9 @@ class HtspServiceLifecycleTest {
                     },
                 )
                 runBlocking {
-                    val events = CopyOnWriteArrayList<HtspControlEvent>()
+                    val events = CopyOnWriteArrayList<HtspTransportEvent>()
                     val collector = launch(start = CoroutineStart.UNDISPATCHED) {
-                        service.controlEvents.collect { events += it }
+                        service.events.collect { events += it }
                     }
                     val stale = async(Dispatchers.IO) {
                         runCatching {
@@ -362,7 +324,9 @@ class HtspServiceLifecycleTest {
                         service.connect(HtspEndpoint("127.0.0.1", replacementServer.port))
                     }
                     withTimeout(1_000L) { replacementAdmitted.await() }
-                    runCatching { firstServer.sendServerMessage("staleInstalledMarker") }
+                    runCatching {
+                        firstServer.sendServerMessage("channelAdd", mapOf("channelId" to 11L))
+                    }
                     resumeFirst.complete(Unit)
 
                     assertTrue(withTimeout(1_000L) { stale.await() } is CancellationException)
@@ -371,19 +335,21 @@ class HtspServiceLifecycleTest {
                     assertSame(connected.connection, service.liveConnection.value)
                     assertEquals(1, serviceOwnedJobCount(service))
 
-                    replacementServer.sendServerMessage("replacementMarker")
+                    replacementServer.sendServerMessage("channelAdd", mapOf("channelId" to 22L))
                     withTimeout(1_000L) {
-                        while (events.none {
-                                it is HtspControlEvent.ServerMessage &&
-                                    it.msg.method == "replacementMarker"
+                        while (events.none { event ->
+                                event is HtspTransportEvent.ServerMessage &&
+                                    event.message is HtspChannelAddMessage &&
+                                    event.message.channelId == 22L
                             }) {
                             delay(1L)
                         }
                     }
                     assertTrue(
-                        events.none {
-                            it is HtspControlEvent.ServerMessage &&
-                                it.msg.method == "staleInstalledMarker"
+                        events.none { event ->
+                            event is HtspTransportEvent.ServerMessage &&
+                                event.message is HtspChannelAddMessage &&
+                                event.message.channelId == 11L
                         },
                     )
 
@@ -492,13 +458,14 @@ class HtspServiceLifecycleTest {
                         )
 
                         val event = async(start = CoroutineStart.UNDISPATCHED) {
-                            service.controlEvents.first { candidate ->
-                                candidate is HtspControlEvent.ServerMessage &&
-                                    candidate.msg.method == "newestMarker"
+                            service.events.first { candidate ->
+                                candidate is HtspTransportEvent.ServerMessage &&
+                                    candidate.message is HtspChannelAddMessage &&
+                                    candidate.message.channelId == 33L
                             }
                         }
-                        newestServer.sendServerMessage("newestMarker")
-                        assertTrue(withTimeout(1_000L) { event.await() } is HtspControlEvent.ServerMessage)
+                        newestServer.sendServerMessage("channelAdd", mapOf("channelId" to 33L))
+                        assertTrue(withTimeout(1_000L) { event.await() } is HtspTransportEvent.ServerMessage)
                         service.disconnect(newest.connection.generation)
                     }
                 }
@@ -632,15 +599,16 @@ class HtspServiceLifecycleTest {
                     )
 
                     val replacementEvent = async(start = CoroutineStart.UNDISPATCHED) {
-                        service.controlEvents.first { event ->
-                            event is HtspControlEvent.ServerMessage &&
-                                event.msg.method == "replacementMarker"
+                        service.events.first { event ->
+                            event is HtspTransportEvent.ServerMessage &&
+                                event.message is HtspChannelAddMessage &&
+                                event.message.channelId == 44L
                         }
                     }
-                    replacementServer.sendServerMessage("replacementMarker")
+                    replacementServer.sendServerMessage("channelAdd", mapOf("channelId" to 44L))
                     assertTrue(
                         withTimeout(1_000L) { replacementEvent.await() } is
-                            HtspControlEvent.ServerMessage,
+                            HtspTransportEvent.ServerMessage,
                     )
 
                     service.disconnect()
@@ -1051,9 +1019,9 @@ class HtspServiceLifecycleTest {
             FakeHtspServer(respondToHello = true).use { replacementServer ->
                 val service = service()
                 runBlocking {
-                    val events = CopyOnWriteArrayList<HtspControlEvent>()
+                    val events = CopyOnWriteArrayList<HtspTransportEvent>()
                     val collector = launch {
-                        service.controlEvents.collect { events += it }
+                        service.events.collect { events += it }
                     }
                     val first = launch(Dispatchers.IO) {
                         service.connect(
@@ -1081,12 +1049,13 @@ class HtspServiceLifecycleTest {
                         while (service.currentConnectionAttemptId() == firstAttempt) delay(1L)
                     }
 
-                    firstServer.sendServerMessage("oldServerMarker")
+                    firstServer.sendServerMessage("channelAdd", mapOf("channelId" to 55L))
                     delay(50L)
                     assertTrue(
-                        events.none {
-                            it is HtspControlEvent.ServerMessage &&
-                                it.msg.method == "oldServerMarker"
+                        events.none { event ->
+                            event is HtspTransportEvent.ServerMessage &&
+                                event.message is HtspChannelAddMessage &&
+                                event.message.channelId == 55L
                         }
                     )
 
@@ -1139,45 +1108,6 @@ class HtspServiceLifecycleTest {
                     )
                     service.disconnect()
                 }
-            }
-        }
-    }
-
-    @Test
-    fun controlAndMuxEventsCarrySharedReaderOrder() {
-        FakeHtspServer(respondToHello = true).use { server ->
-            val service = service()
-            runBlocking {
-                service.connect(
-                    host = "127.0.0.1",
-                    port = server.port,
-                    connectTimeoutMs = 1_000,
-                    responseTimeoutMs = 1_000,
-                    soTimeoutMs = 50,
-                )
-                val control = async(start = CoroutineStart.UNDISPATCHED) {
-                    service.controlEvents.first {
-                        it is HtspControlEvent.ServerMessage &&
-                            it.msg.method == "subscriptionSkip"
-                    } as HtspControlEvent.ServerMessage
-                }
-                val mux = async(start = CoroutineStart.UNDISPATCHED) {
-                    service.muxEvents.first { it.msg.method == "muxpkt" }
-                }
-
-                server.sendServerMessage("subscriptionSkip")
-                server.sendServerMessage("muxpkt")
-
-                val controlEvent = withTimeout(1_000L) { control.await() }
-                val muxEvent = withTimeout(1_000L) { mux.await() }
-                assertEquals(controlEvent.connectionAttemptId, muxEvent.connectionAttemptId)
-                assertTrue(controlEvent.messageSequence < muxEvent.messageSequence)
-                assertTrue(muxEvent.muxSequence > 0L)
-                assertEquals(
-                    muxEvent.muxSequence,
-                    service.currentMuxSequenceForConnectionAttempt(muxEvent.connectionAttemptId),
-                )
-                service.disconnect()
             }
         }
     }
@@ -1295,15 +1225,11 @@ class HtspServiceLifecycleTest {
                 assertTrue(failure is HtspRequestTimeoutException)
                 assertTrue(server.postHandshakeRequestReceived.await(1, TimeUnit.SECONDS))
 
-                val unexpectedEvent = async(start = CoroutineStart.UNDISPATCHED) {
-                    withTimeoutOrNull(250L) { service.controlEvents.first() }
-                }
                 val unexpectedTypedEvent = async(start = CoroutineStart.UNDISPATCHED) {
                     withTimeoutOrNull(250L) { service.events.first() }
                 }
                 server.replyToCapturedPostHandshakeRequest()
 
-                assertNull(unexpectedEvent.await())
                 assertNull(unexpectedTypedEvent.await())
                 assertTrue(service.state.value is ConnectionState.Connected)
                 service.disconnect()
@@ -1562,15 +1488,11 @@ class HtspServiceLifecycleTest {
                 assertTrue(server.postHandshakeRequestReceived.await(1, TimeUnit.SECONDS))
                 request.cancelAndJoin()
 
-                assertEquals(
-                    HtspConnectionAttemptStatus.LIVE,
-                    service.connectionAttemptStatus(attemptId),
-                )
+                assertNotNull(service.liveConnection.value)
+                assertEquals(attemptId, service.currentConnectionAttemptId())
                 service.disconnect()
-                assertEquals(
-                    HtspConnectionAttemptStatus.GONE,
-                    service.connectionAttemptStatus(attemptId),
-                )
+                assertNull(service.liveConnection.value)
+                assertEquals(attemptId, service.currentConnectionAttemptId())
             }
         }
     }
@@ -1592,11 +1514,14 @@ class HtspServiceLifecycleTest {
                 )
                 val attemptId = service.currentConnectionAttemptId()
                 val update = async(Dispatchers.IO) {
-                    service.updateSubscriptionStreamFilter(
+                    service.requestForConnectionAttempt(
                         expectedConnectionAttemptId = attemptId,
-                        subscriptionId = 23,
-                        enabledStreamIndices = listOf(4, 1, 4),
-                        disabledStreamIndices = listOf(7, 2),
+                        method = "subscriptionFilterStream",
+                        fields = mapOf(
+                            "subscriptionId" to 23,
+                            "enable" to listOf(4, 1, 4),
+                            "disable" to listOf(7, 2),
+                        ),
                     )
                 }
 
@@ -1613,7 +1538,7 @@ class HtspServiceLifecycleTest {
                 assertEquals(listOf(7L, 2L), request.fields["disable"])
 
                 server.replyToCapturedPostHandshakeRequest()
-                assertEquals(Unit, update.await())
+                assertEquals("subscriptionFilterStream", update.await().method)
                 service.disconnect()
             }
         }
@@ -1635,18 +1560,13 @@ class HtspServiceLifecycleTest {
 
                 server.closeClientTransport()
                 withTimeout(1_000L) {
-                    while (
-                        service.connectionAttemptStatus(attemptId) ==
-                        HtspConnectionAttemptStatus.LIVE
-                    ) {
+                    while (service.liveConnection.value != null) {
                         delay(1L)
                     }
                 }
 
-                assertEquals(
-                    HtspConnectionAttemptStatus.GONE,
-                    service.connectionAttemptStatus(attemptId),
-                )
+                assertNull(service.liveConnection.value)
+                assertEquals(attemptId, service.currentConnectionAttemptId())
             }
         }
     }
@@ -2379,12 +2299,12 @@ class HtspServiceLifecycleTest {
     @Test
     fun negativeU32HandshakeFactsStayUnknown() {
         val facts = htspServerFactsFromHandshake(
-            hello = HtspMessage(
+            hello = HtspWireMessage(
                 method = "hello",
                 seq = 1,
                 fields = mapOf("api_version" to (-1).toByte()),
             ),
-            auth = HtspMessage(
+            auth = HtspWireMessage(
                 method = "authenticate",
                 seq = 2,
                 fields = mapOf(
@@ -2701,8 +2621,8 @@ class HtspServiceLifecycleTest {
         private var clientSocket: Socket? = null
         private val clientSockets = CopyOnWriteArrayList<Socket>()
         @Volatile
-        private var postHandshakeRequest: HtspMessage? = null
-        private val postHandshakeRequests = CopyOnWriteArrayList<HtspMessage>()
+        private var postHandshakeRequest: HtspWireMessage? = null
+        private val postHandshakeRequests = CopyOnWriteArrayList<HtspWireMessage>()
         val authenticateRequestReceived = CountDownLatch(1)
         val postHandshakeRequestReceived = CountDownLatch(1)
         /** Methods the client sent during the handshake, in order. */
@@ -2796,7 +2716,7 @@ class HtspServiceLifecycleTest {
             return postHandshakeRequests.size >= count
         }
 
-        fun postHandshakeRequest(index: Int): HtspMessage = postHandshakeRequests[index]
+        fun postHandshakeRequest(index: Int): HtspWireMessage = postHandshakeRequests[index]
 
         fun postHandshakeMethods(): List<String> =
             postHandshakeRequests.map { request -> requireNotNull(request.method) }
@@ -2809,7 +2729,7 @@ class HtspServiceLifecycleTest {
         }
 
         private fun replyToPostHandshakeRequest(
-            request: HtspMessage,
+            request: HtspWireMessage,
             replyFields: Map<String, Any?>,
         ) {
             val output = checkNotNull(clientSocket).getOutputStream()
@@ -2821,7 +2741,7 @@ class HtspServiceLifecycleTest {
             output.flush()
         }
 
-        fun capturedPostHandshakeRequest(): HtspMessage = checkNotNull(postHandshakeRequest)
+        fun capturedPostHandshakeRequest(): HtspWireMessage = checkNotNull(postHandshakeRequest)
 
         fun closeClientTransport() {
             runCatching { clientSocket?.close() }

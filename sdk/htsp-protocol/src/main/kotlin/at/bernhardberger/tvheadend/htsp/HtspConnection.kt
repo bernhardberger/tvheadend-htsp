@@ -47,10 +47,6 @@ public interface HtspConnection {
     public val liveConnection: StateFlow<HtspLiveConnection?>
     public val events: Flow<HtspTransportEvent>
 
-    /** The separately opted-in raw playback SPI backed by this connection owner. */
-    @PlaybackIntegrationApi
-    public val playbackTransport: PlaybackHtspTransport
-
     public suspend fun connect(
         endpoint: HtspEndpoint,
         options: HtspConnectOptions = HtspConnectOptions(),
