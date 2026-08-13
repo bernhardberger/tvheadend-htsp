@@ -28,6 +28,27 @@ class HtspGoldenCorpusTest {
     }
 
     @Test
+    fun booleanFalse_decodeOnlyPinsPinnedZeroLengthEncoding() {
+        val frame = loadHtspGoldenFrame("boolean-false.hex")
+        val decoded = HtspCodec.readMessage(ByteArrayInputStream(frame))
+
+        assertArrayEquals(
+            byteArrayOf(
+                0x00, 0x00, 0x00, 0x1e,
+                0x03, 0x06, 0x00, 0x00, 0x00, 0x05,
+                0x6d, 0x65, 0x74, 0x68, 0x6f, 0x64,
+                0x68, 0x65, 0x6c, 0x6c, 0x6f,
+                0x07, 0x07, 0x00, 0x00, 0x00, 0x00,
+                0x65, 0x6e, 0x61, 0x62, 0x6c, 0x65, 0x64,
+            ),
+            frame,
+        )
+        assertEquals(0x1e, frame.size - 4)
+        assertEquals("hello", decoded.method)
+        assertEquals(false, decoded.fields["enabled"])
+    }
+
+    @Test
     fun scalarTypes_pinS64Utf8BinaryDoubleBooleanAndUuidBytes() {
         val frame = loadHtspGoldenFrame("scalar-types.hex")
         val decoded = HtspCodec.readMessage(ByteArrayInputStream(frame))

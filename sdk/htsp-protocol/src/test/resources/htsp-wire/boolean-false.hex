@@ -1,0 +1,5 @@
+# Pinned server encodes false as zero-length; SDK intentionally encodes Boolean values as one byte, so this fixture is decode-only and exempt from byte-identical re-encode.
+# Root body length: 0x1e = method field (17 bytes) + enabled BOOL field (13 bytes).
+00 00 00 1e
+03 06 00 00 00 05 6d 65 74 68 6f 64 68 65 6c 6c 6f
+07 07 00 00 00 00 65 6e 61 62 6c 65 64
