@@ -141,11 +141,16 @@ class HtspResultCombinatorTest {
     }
 
     @Test
-    fun mapReducesRuntimeFailureButPropagatesCancellationAndOtherThrowablesExactly() {
-        assertSame(
-            HtspResult.ServerError,
-            HtspResult.Ok("value").map { throw IllegalArgumentException("malformed") },
-        )
+    fun mapPropagatesEveryTransformThrowableExactly() {
+        val runtimeFailure = IllegalStateException("consumer bug")
+        assertExactThrowable(runtimeFailure) {
+            HtspResult.Ok("value").map { throw runtimeFailure }
+        }
+
+        val otherRuntimeFailure = IllegalArgumentException("other runtime")
+        assertExactThrowable(otherRuntimeFailure) {
+            HtspResult.Ok("value").map { throw otherRuntimeFailure }
+        }
 
         val cancellation = CancellationException("cancelled")
         assertExactThrowable(cancellation) {

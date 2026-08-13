@@ -1,7 +1,5 @@
 package at.bernhardberger.tvheadend.htsp
 
-import kotlinx.coroutines.CancellationException
-
 /** Typed outcome for one HTSP request. Cancellation is never represented here. */
 public sealed interface HtspResult<out R> {
     /** The request completed successfully with [value]. */
@@ -53,15 +51,9 @@ public inline fun <R> HtspResult<R>.onFailure(action: (HtspFailure) -> Unit): Ht
     return this
 }
 
-/** Transforms success while preserving failures and reducing ordinary runtime mapping errors. */
+/** Transforms success while preserving failures. Transform failures propagate unchanged. */
 public inline fun <R, T> HtspResult<R>.map(transform: (R) -> T): HtspResult<T> = when (this) {
-    is HtspResult.Ok -> try {
-        HtspResult.Ok(transform(value))
-    } catch (cancellation: CancellationException) {
-        throw cancellation
-    } catch (_: RuntimeException) {
-        HtspResult.ServerError
-    }
+    is HtspResult.Ok -> HtspResult.Ok(transform(value))
     is HtspFailure -> this
 }
 
