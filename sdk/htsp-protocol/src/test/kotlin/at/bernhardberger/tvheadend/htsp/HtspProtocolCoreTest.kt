@@ -14,6 +14,57 @@ import java.lang.reflect.Modifier
 
 class HtspProtocolCoreTest {
     @Test
+    fun publicExecuteUsesThePreservedTypedRequestPath() = runTest {
+        val transport = FakeProtocolTransport(version = 44).apply {
+            reply = HtspWireReply(
+                linkedMapOf(
+                    "eventId" to 7L,
+                    "start" to 11L,
+                    "stop" to 13L,
+                ),
+            )
+        }
+        val owner = createHtspConnection(Dispatchers.Unconfined)
+        val caller = HtspTypedRequestCaller(transport)
+        val connection = object :
+            HtspConnection by owner,
+            HtspTypedRequestCapability {
+            override suspend fun <R> callTypedRequest(
+                request: HtspRequest<R>,
+                timeoutMs: Long,
+                expectedGeneration: HtspConnectionGeneration?,
+            ): HtspResult<R> = caller.call(request, timeoutMs, expectedGeneration)
+        }
+        try {
+            val request = GetEventRequest(eventId = 7L, language = "en")
+            val result = connection.execute(request)
+
+            assertTrue(result is HtspResult.Ok)
+            assertEquals(7L, (result as HtspResult.Ok).value.event.eventId)
+            assertEquals(1, transport.dispatches)
+            assertEquals("getEvent", transport.lastMethod)
+            assertEquals(linkedMapOf("eventId" to 7L, "language" to "en"), transport.lastFields)
+            assertEquals(5_000L, transport.lastTimeoutMs)
+
+            transport.version = 15
+            assertSame(HtspResult.NotSupported, connection.execute(GetProfilesRequest()))
+            assertEquals(1, transport.dispatches)
+
+            val staleGeneration = HtspConnectionGeneration.create()
+            val staleFailure = runCatching {
+                connection.execute(GetEventRequest(7L), expectedGeneration = staleGeneration)
+            }.exceptionOrNull()
+            assertTrue(staleFailure is CancellationException)
+            assertEquals(1, transport.dispatches)
+
+            val unsupported = object : HtspConnection by owner {}
+            assertSame(HtspResult.TransportUnavailable, unsupported.execute(GetEventRequest(7L)))
+        } finally {
+            owner.close()
+        }
+    }
+
+    @Test
     fun boundedFileOperationsPreserveFiniteWireAndAttemptContracts() = runTest {
         val disconnected = createHtspConnection(Dispatchers.Unconfined)
         try {
@@ -1866,6 +1917,7 @@ class HtspProtocolCoreTest {
         var failure: Exception? = null
         var lastMethod: String? = null
         var lastFields: LinkedHashMap<String, Any?>? = null
+        var lastTimeoutMs: Long? = null
         var reply: HtspWireReply = HtspWireReply(
             linkedMapOf("profiles" to emptyList<Any?>()),
         )
@@ -1882,6 +1934,7 @@ class HtspProtocolCoreTest {
             dispatches += 1
             lastMethod = method
             lastFields = LinkedHashMap(fields)
+            lastTimeoutMs = timeoutMs
             failure?.let {
                 if (replaceBeforeFailure) current = capturedGeneration(version)
                 throw it

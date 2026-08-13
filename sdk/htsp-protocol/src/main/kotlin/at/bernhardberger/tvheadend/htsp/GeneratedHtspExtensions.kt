@@ -60,7 +60,7 @@ public suspend fun HtspConnection.getProfiles(
     timeoutMs: Long = 5_000L,
     expectedGeneration: HtspConnectionGeneration? = null,
 ): HtspResult<GetProfilesResponse> =
-    call(
+    execute(
         request = GetProfilesRequest(),
         timeoutMs = timeoutMs,
         expectedGeneration = expectedGeneration,
@@ -70,7 +70,7 @@ public suspend fun HtspConnection.getDiskSpace(
     timeoutMs: Long = 5_000L,
     expectedGeneration: HtspConnectionGeneration? = null,
 ): HtspResult<GetDiskSpaceResponse> =
-    call(
+    execute(
         request = GetDiskSpaceRequest(),
         timeoutMs = timeoutMs,
         expectedGeneration = expectedGeneration,
@@ -80,7 +80,7 @@ public suspend fun HtspConnection.getSysTime(
     timeoutMs: Long = 5_000L,
     expectedGeneration: HtspConnectionGeneration? = null,
 ): HtspResult<GetSysTimeResponse> =
-    call(
+    execute(
         request = GetSysTimeRequest(),
         timeoutMs = timeoutMs,
         expectedGeneration = expectedGeneration,
@@ -94,7 +94,7 @@ public suspend fun HtspConnection.enableAsyncMetadata(
     timeoutMs: Long = 5_000L,
     expectedGeneration: HtspConnectionGeneration? = null,
 ): HtspResult<HtspEmptyResponse> =
-    call(
+    execute(
         request = EnableAsyncMetadataRequest(
             epg = epg,
             lastUpdate = lastUpdate,
@@ -110,7 +110,7 @@ public suspend fun HtspConnection.getChannel(
     timeoutMs: Long = 5_000L,
     expectedGeneration: HtspConnectionGeneration? = null,
 ): HtspResult<GetChannelResponse> =
-    call(
+    execute(
         request = GetChannelRequest(
             channelId = channelId,
         ),
@@ -124,7 +124,7 @@ public suspend fun HtspConnection.getEvent(
     timeoutMs: Long = 5_000L,
     expectedGeneration: HtspConnectionGeneration? = null,
 ): HtspResult<GetEventResponse> =
-    call(
+    execute(
         request = GetEventRequest(
             eventId = eventId,
             language = language,
@@ -142,7 +142,7 @@ public suspend fun HtspConnection.getEvents(
     timeoutMs: Long = 5_000L,
     expectedGeneration: HtspConnectionGeneration? = null,
 ): HtspResult<GetEventsResponse> =
-    call(
+    execute(
         request = GetEventsRequest(
             channelId = channelId,
             eventId = eventId,
@@ -168,7 +168,7 @@ public suspend fun HtspConnection.epgQuery(
     timeoutMs: Long = 5_000L,
     expectedGeneration: HtspConnectionGeneration? = null,
 ): HtspResult<EpgQueryResponse> =
-    call(
+    execute(
         request = EpgQueryRequest(
             query = query,
             channelId = channelId,
@@ -191,7 +191,7 @@ public suspend fun HtspConnection.getEpgObject(
     timeoutMs: Long = 5_000L,
     expectedGeneration: HtspConnectionGeneration? = null,
 ): HtspResult<GetEpgObjectResponse> =
-    call(
+    execute(
         request = GetEpgObjectRequest(
             id = id,
             objectType = objectType,
@@ -204,7 +204,7 @@ public suspend fun HtspConnection.getDvrConfigs(
     timeoutMs: Long = 5_000L,
     expectedGeneration: HtspConnectionGeneration? = null,
 ): HtspResult<GetDvrConfigsResponse> =
-    call(
+    execute(
         request = GetDvrConfigsRequest(),
         timeoutMs = timeoutMs,
         expectedGeneration = expectedGeneration,
@@ -222,7 +222,7 @@ public suspend fun HtspConnection.addDvrEntry(
     timeoutMs: Long = 5_000L,
     expectedGeneration: HtspConnectionGeneration? = null,
 ): HtspResult<AddDvrEntryResponse> =
-    call(
+    execute(
         request = AddDvrEntryRequest(
             selector = selector,
             configName = configName,
@@ -249,7 +249,7 @@ public suspend fun HtspConnection.addDvrEntry(
     timeoutMs: Long = 5_000L,
     expectedGeneration: HtspConnectionGeneration? = null,
 ): HtspResult<AddDvrEntryResponse> =
-    call(
+    execute(
         request = AddDvrEntryRequest(
             selector = AddDvrEntrySelector.Event(eventId),
             configName = configName,
@@ -278,7 +278,7 @@ public suspend fun HtspConnection.addDvrEntry(
     timeoutMs: Long = 5_000L,
     expectedGeneration: HtspConnectionGeneration? = null,
 ): HtspResult<AddDvrEntryResponse> =
-    call(
+    execute(
         request = AddDvrEntryRequest(
             selector = AddDvrEntrySelector.ExplicitChannelTime(channelId, start, stop),
             configName = configName,
@@ -317,7 +317,7 @@ public suspend fun HtspConnection.updateDvrEntry(
     timeoutMs: Long = 5_000L,
     expectedGeneration: HtspConnectionGeneration? = null,
 ): HtspResult<UpdateDvrEntryResponse> =
-    call(
+    execute(
         request = UpdateDvrEntryRequest(
             entryId = entryId,
             channelId = channelId,
@@ -349,7 +349,7 @@ public suspend fun HtspConnection.stopDvrEntry(
     timeoutMs: Long = 5_000L,
     expectedGeneration: HtspConnectionGeneration? = null,
 ): HtspResult<StopDvrEntryResponse> =
-    call(
+    execute(
         request = StopDvrEntryRequest(
             entryId = entryId,
         ),
@@ -362,7 +362,7 @@ public suspend fun HtspConnection.cancelDvrEntry(
     timeoutMs: Long = 5_000L,
     expectedGeneration: HtspConnectionGeneration? = null,
 ): HtspResult<CancelDvrEntryResponse> =
-    call(
+    execute(
         request = CancelDvrEntryRequest(
             entryId = entryId,
         ),
@@ -375,7 +375,7 @@ public suspend fun HtspConnection.deleteDvrEntry(
     timeoutMs: Long = 5_000L,
     expectedGeneration: HtspConnectionGeneration? = null,
 ): HtspResult<DeleteDvrEntryResponse> =
-    call(
+    execute(
         request = DeleteDvrEntryRequest(
             entryId = entryId,
         ),
@@ -411,7 +411,7 @@ public suspend fun HtspConnection.addAutorecEntry(
     timeoutMs: Long = 5_000L,
     expectedGeneration: HtspConnectionGeneration? = null,
 ): HtspResult<AddAutorecEntryResponse> =
-    call(
+    execute(
         request = AddAutorecEntryRequest(
             title = title,
             channel = channel,
@@ -470,7 +470,7 @@ public suspend fun HtspConnection.updateAutorecEntry(
     timeoutMs: Long = 5_000L,
     expectedGeneration: HtspConnectionGeneration? = null,
 ): HtspResult<UpdateAutorecEntryResponse> =
-    call(
+    execute(
         request = UpdateAutorecEntryRequest(
             id = id,
             channel = channel,
@@ -506,7 +506,7 @@ public suspend fun HtspConnection.deleteAutorecEntry(
     timeoutMs: Long = 5_000L,
     expectedGeneration: HtspConnectionGeneration? = null,
 ): HtspResult<DeleteAutorecEntryResponse> =
-    call(
+    execute(
         request = DeleteAutorecEntryRequest(
             id = id,
         ),
@@ -531,7 +531,7 @@ public suspend fun HtspConnection.addTimerecEntry(
     timeoutMs: Long = 5_000L,
     expectedGeneration: HtspConnectionGeneration? = null,
 ): HtspResult<AddTimerecEntryResponse> =
-    call(
+    execute(
         request = AddTimerecEntryRequest(
             title = title,
             channel = channel,
@@ -569,7 +569,7 @@ public suspend fun HtspConnection.updateTimerecEntry(
     timeoutMs: Long = 5_000L,
     expectedGeneration: HtspConnectionGeneration? = null,
 ): HtspResult<UpdateTimerecEntryResponse> =
-    call(
+    execute(
         request = UpdateTimerecEntryRequest(
             id = id,
             channel = channel,
@@ -595,7 +595,7 @@ public suspend fun HtspConnection.deleteTimerecEntry(
     timeoutMs: Long = 5_000L,
     expectedGeneration: HtspConnectionGeneration? = null,
 ): HtspResult<DeleteTimerecEntryResponse> =
-    call(
+    execute(
         request = DeleteTimerecEntryRequest(
             id = id,
         ),
@@ -608,7 +608,7 @@ public suspend fun HtspConnection.getDvrCutpoints(
     timeoutMs: Long = 5_000L,
     expectedGeneration: HtspConnectionGeneration? = null,
 ): HtspResult<GetDvrCutpointsResponse> =
-    call(
+    execute(
         request = GetDvrCutpointsRequest(
             entryId = entryId,
         ),
@@ -621,7 +621,7 @@ public suspend fun HtspConnection.getTicket(
     timeoutMs: Long = 5_000L,
     expectedGeneration: HtspConnectionGeneration? = null,
 ): HtspResult<GetTicketResponse> =
-    call(
+    execute(
         request = GetTicketRequest(
             selector = selector,
         ),
@@ -634,7 +634,7 @@ public suspend fun HtspConnection.getTicket(
     timeoutMs: Long = 5_000L,
     expectedGeneration: HtspConnectionGeneration? = null,
 ): HtspResult<GetTicketResponse> =
-    call(
+    execute(
         request = GetTicketRequest(
             selector = selector,
         ),
@@ -647,7 +647,7 @@ public suspend fun HtspConnection.getTicket(
     timeoutMs: Long = 5_000L,
     expectedGeneration: HtspConnectionGeneration? = null,
 ): HtspResult<GetTicketResponse> =
-    call(
+    execute(
         request = GetTicketRequest(
             selector = selector,
         ),
@@ -666,7 +666,7 @@ public suspend fun HtspConnection.subscribe(
     timeoutMs: Long = 5_000L,
     expectedGeneration: HtspConnectionGeneration? = null,
 ): HtspResult<SubscribeResponse> =
-    call(
+    execute(
         request = SubscribeRequest(
             subscriptionId = subscriptionId,
             channel = channel,
@@ -691,7 +691,7 @@ public suspend fun HtspConnection.subscribe(
     timeoutMs: Long = 5_000L,
     expectedGeneration: HtspConnectionGeneration? = null,
 ): HtspResult<SubscribeResponse> =
-    call(
+    execute(
         request = SubscribeRequest(
             subscriptionId = subscriptionId,
             channel = SubscribeChannel.Id(channelId),
@@ -716,7 +716,7 @@ public suspend fun HtspConnection.subscribe(
     timeoutMs: Long = 5_000L,
     expectedGeneration: HtspConnectionGeneration? = null,
 ): HtspResult<SubscribeResponse> =
-    call(
+    execute(
         request = SubscribeRequest(
             subscriptionId = subscriptionId,
             channel = SubscribeChannel.Name(channelName),
@@ -735,7 +735,7 @@ public suspend fun HtspConnection.unsubscribe(
     timeoutMs: Long = 5_000L,
     expectedGeneration: HtspConnectionGeneration? = null,
 ): HtspResult<HtspEmptyResponse> =
-    call(
+    execute(
         request = UnsubscribeRequest(
             subscriptionId = subscriptionId,
         ),
@@ -749,7 +749,7 @@ public suspend fun HtspConnection.subscriptionChangeWeight(
     timeoutMs: Long = 5_000L,
     expectedGeneration: HtspConnectionGeneration? = null,
 ): HtspResult<HtspEmptyResponse> =
-    call(
+    execute(
         request = SubscriptionChangeWeightRequest(
             subscriptionId = subscriptionId,
             weight = weight,
@@ -765,7 +765,7 @@ public suspend fun HtspConnection.subscriptionSeek(
     timeoutMs: Long = 5_000L,
     expectedGeneration: HtspConnectionGeneration? = null,
 ): HtspResult<HtspEmptyResponse> =
-    call(
+    execute(
         request = SubscriptionSeekRequest(
             subscriptionId = subscriptionId,
             position = position,
@@ -782,7 +782,7 @@ public suspend fun HtspConnection.subscriptionSeek(
     timeoutMs: Long = 5_000L,
     expectedGeneration: HtspConnectionGeneration? = null,
 ): HtspResult<HtspEmptyResponse> =
-    call(
+    execute(
         request = SubscriptionSeekRequest(
             subscriptionId = subscriptionId,
             position = position,
@@ -799,7 +799,7 @@ public suspend fun HtspConnection.subscriptionSeek(
     timeoutMs: Long = 5_000L,
     expectedGeneration: HtspConnectionGeneration? = null,
 ): HtspResult<HtspEmptyResponse> =
-    call(
+    execute(
         request = SubscriptionSeekRequest(
             subscriptionId = subscriptionId,
             position = position,
@@ -816,7 +816,7 @@ public suspend fun HtspConnection.subscriptionSkip(
     timeoutMs: Long = 5_000L,
     expectedGeneration: HtspConnectionGeneration? = null,
 ): HtspResult<HtspEmptyResponse> =
-    call(
+    execute(
         request = SubscriptionSkipRequest(
             subscriptionId = subscriptionId,
             position = position,
@@ -833,7 +833,7 @@ public suspend fun HtspConnection.subscriptionSkip(
     timeoutMs: Long = 5_000L,
     expectedGeneration: HtspConnectionGeneration? = null,
 ): HtspResult<HtspEmptyResponse> =
-    call(
+    execute(
         request = SubscriptionSkipRequest(
             subscriptionId = subscriptionId,
             position = position,
@@ -850,7 +850,7 @@ public suspend fun HtspConnection.subscriptionSkip(
     timeoutMs: Long = 5_000L,
     expectedGeneration: HtspConnectionGeneration? = null,
 ): HtspResult<HtspEmptyResponse> =
-    call(
+    execute(
         request = SubscriptionSkipRequest(
             subscriptionId = subscriptionId,
             position = position,
@@ -866,7 +866,7 @@ public suspend fun HtspConnection.subscriptionSpeed(
     timeoutMs: Long = 5_000L,
     expectedGeneration: HtspConnectionGeneration? = null,
 ): HtspResult<HtspEmptyResponse> =
-    call(
+    execute(
         request = SubscriptionSpeedRequest(
             subscriptionId = subscriptionId,
             speed = speed,
@@ -880,7 +880,7 @@ public suspend fun HtspConnection.subscriptionLive(
     timeoutMs: Long = 5_000L,
     expectedGeneration: HtspConnectionGeneration? = null,
 ): HtspResult<HtspEmptyResponse> =
-    call(
+    execute(
         request = SubscriptionLiveRequest(
             subscriptionId = subscriptionId,
         ),
@@ -895,7 +895,7 @@ public suspend fun HtspConnection.subscriptionFilterStream(
     timeoutMs: Long = 5_000L,
     expectedGeneration: HtspConnectionGeneration? = null,
 ): HtspResult<HtspEmptyResponse> =
-    call(
+    execute(
         request = SubscriptionFilterStreamRequest(
             subscriptionId = subscriptionId,
             enable = enable,
@@ -910,7 +910,7 @@ public suspend fun HtspConnection.fileOpen(
     timeoutMs: Long = 5_000L,
     expectedGeneration: HtspConnectionGeneration? = null,
 ): HtspResult<FileOpenResponse> =
-    call(
+    execute(
         request = FileOpenRequest(
             file = file,
         ),
@@ -925,7 +925,7 @@ public suspend fun HtspConnection.fileRead(
     timeoutMs: Long = 5_000L,
     expectedGeneration: HtspConnectionGeneration? = null,
 ): HtspResult<FileReadResponse> =
-    call(
+    execute(
         request = FileReadRequest(
             id = id,
             size = size,
@@ -940,7 +940,7 @@ public suspend fun HtspConnection.fileClose(
     timeoutMs: Long = 5_000L,
     expectedGeneration: HtspConnectionGeneration? = null,
 ): HtspResult<FileCloseResponse> =
-    call(
+    execute(
         request = FileCloseRequest(
             id = id,
         ),
@@ -955,7 +955,7 @@ public suspend fun HtspConnection.fileCloseWithProgress(
     timeoutMs: Long = 5_000L,
     expectedGeneration: HtspConnectionGeneration? = null,
 ): HtspResult<FileCloseResponse> =
-    call(
+    execute(
         request = FileCloseRequest(
             id = id,
             playPositionSeconds = playPositionSeconds,
@@ -970,7 +970,7 @@ public suspend fun HtspConnection.fileStat(
     timeoutMs: Long = 5_000L,
     expectedGeneration: HtspConnectionGeneration? = null,
 ): HtspResult<FileStatResponse> =
-    call(
+    execute(
         request = FileStatRequest(
             id = id,
         ),
@@ -985,7 +985,7 @@ public suspend fun HtspConnection.fileSeek(
     timeoutMs: Long = 5_000L,
     expectedGeneration: HtspConnectionGeneration? = null,
 ): HtspResult<FileSeekResponse> =
-    call(
+    execute(
         request = FileSeekRequest(
             id = id,
             offset = offset,
@@ -1002,7 +1002,7 @@ public suspend fun HtspConnection.api(
     timeoutMs: Long = 5_000L,
     expectedGeneration: HtspConnectionGeneration? = null,
 ): HtspResult<ApiResponse> =
-    call(
+    execute(
         request = ApiRequest(
             path = path,
             args = args,
@@ -1017,7 +1017,7 @@ public suspend fun HtspConnection.hello(
     timeoutMs: Long = 5_000L,
     expectedGeneration: HtspConnectionGeneration? = null,
 ): HtspResult<HelloResponse> =
-    call(
+    execute(
         request = HelloRequest(
             htspVersion = htspVersion,
             clientName = clientName,
@@ -1030,7 +1030,7 @@ public suspend fun HtspConnection.authenticate(
     timeoutMs: Long = 5_000L,
     expectedGeneration: HtspConnectionGeneration? = null,
 ): HtspResult<AuthenticateResponse> =
-    call(
+    execute(
         request = AuthenticateRequest(),
         timeoutMs = timeoutMs,
         expectedGeneration = expectedGeneration,

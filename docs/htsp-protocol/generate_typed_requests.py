@@ -380,7 +380,7 @@ def render_extension(
         "    timeoutMs: Long = 5_000L,",
         "    expectedGeneration: HtspConnectionGeneration? = null,",
         f"): HtspResult<{entry.response}> =",
-        "    call(",
+        "    execute(",
     ))
     if request_arguments:
         lines.append(f"        request = {entry.request}(")
@@ -687,8 +687,10 @@ def self_test() -> None:
     missing = [signature for signature in required_signatures if signature not in first]
     if missing:
         raise AssertionError(f"generated extension signatures are incomplete: {missing}")
-    if first.count("    call(") != 50:
-        raise AssertionError("every generated extension must contain exactly one call delegation")
+    if first.count("    execute(") != 50:
+        raise AssertionError("every generated extension must contain exactly one execute delegation")
+    if "    call(" in first:
+        raise AssertionError("generated extensions must not bypass public execute")
     if first.count("        timeoutMs = timeoutMs,") != 50:
         raise AssertionError("every generated extension must forward timeout exactly once")
     if first.count("        expectedGeneration = expectedGeneration,") != 50:

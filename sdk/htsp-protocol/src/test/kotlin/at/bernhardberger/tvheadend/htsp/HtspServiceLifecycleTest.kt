@@ -1599,7 +1599,7 @@ class HtspServiceLifecycleTest {
     }
 
     @Test
-    fun directHelloRecapturesCurrentGenerationWithoutDisturbingAccessOrFutureVersionGates() {
+    fun executingHelloRecapturesCurrentGenerationWithoutDisturbingAccessOrFutureVersionGates() {
         FakeHtspServer(
             respondToHello = true,
             authFields = mapOf("dvr" to 1, "streaming" to 1),
@@ -1634,9 +1634,11 @@ class HtspServiceLifecycleTest {
                             apiVersion = null,
                         ),
                     ),
-                    service.hello(
-                        htspVersion = 2L,
-                        clientName = "recapture-client",
+                    service.execute(
+                        request = HelloRequest(
+                            htspVersion = 2L,
+                            clientName = "recapture-client",
+                        ),
                         timeoutMs = 1_000L,
                         expectedGeneration = generation,
                     ),
@@ -1664,7 +1666,7 @@ class HtspServiceLifecycleTest {
     }
 
     @Test
-    fun directAuthenticateRecapturesOnlyAccessFactsOnTheCurrentGeneration() {
+    fun executingAuthenticateRecapturesOnlyAccessFactsOnTheCurrentGeneration() {
         FakeHtspServer(
             respondToHello = true,
             helloReplyFields = mapOf(
@@ -1709,7 +1711,8 @@ class HtspServiceLifecycleTest {
                             uiLanguage = null,
                         ),
                     ),
-                    service.authenticate(
+                    service.execute(
+                        request = AuthenticateRequest(),
                         timeoutMs = 1_000L,
                         expectedGeneration = before.generation,
                     ),

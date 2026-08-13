@@ -1410,6 +1410,11 @@ public final class at/bernhardberger/tvheadend/htsp/HtspConnectionGeneration {
 	public fun toString ()Ljava/lang/String;
 }
 
+public final class at/bernhardberger/tvheadend/htsp/HtspConnectionKt {
+	public static final fun execute (Lat/bernhardberger/tvheadend/htsp/HtspConnection;Lat/bernhardberger/tvheadend/htsp/HtspRequest;JLat/bernhardberger/tvheadend/htsp/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static synthetic fun execute$default (Lat/bernhardberger/tvheadend/htsp/HtspConnection;Lat/bernhardberger/tvheadend/htsp/HtspRequest;JLat/bernhardberger/tvheadend/htsp/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+}
+
 public final class at/bernhardberger/tvheadend/htsp/HtspConnectionProbe {
 	public fun <init> (Lkotlinx/coroutines/CoroutineDispatcher;Lat/bernhardberger/tvheadend/htsp/HtspClientIdentity;Lat/bernhardberger/tvheadend/htsp/HtspLogger;)V
 	public synthetic fun <init> (Lkotlinx/coroutines/CoroutineDispatcher;Lat/bernhardberger/tvheadend/htsp/HtspClientIdentity;Lat/bernhardberger/tvheadend/htsp/HtspLogger;ILkotlin/jvm/internal/DefaultConstructorMarker;)V

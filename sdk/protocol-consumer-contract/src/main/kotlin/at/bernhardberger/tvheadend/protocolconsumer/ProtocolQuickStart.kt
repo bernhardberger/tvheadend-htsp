@@ -4,10 +4,12 @@ import at.bernhardberger.tvheadend.htsp.HtspConnectOptions
 import at.bernhardberger.tvheadend.htsp.HtspConnectOutcome
 import at.bernhardberger.tvheadend.htsp.HtspEndpoint
 import at.bernhardberger.tvheadend.htsp.HtspFailure
+import at.bernhardberger.tvheadend.htsp.GetEventsRequest
 import at.bernhardberger.tvheadend.htsp.HtspResult
 import at.bernhardberger.tvheadend.htsp.HtspServerMessage
 import at.bernhardberger.tvheadend.htsp.HtspTransportEvent
 import at.bernhardberger.tvheadend.htsp.createHtspConnection
+import at.bernhardberger.tvheadend.htsp.execute
 import at.bernhardberger.tvheadend.htsp.fold
 import at.bernhardberger.tvheadend.htsp.getDiskSpace
 import at.bernhardberger.tvheadend.htsp.getOrElse
@@ -50,6 +52,9 @@ sealed interface ProtocolQuickStartOutcome {
 suspend fun runProtocolQuickStart(
     ioDispatcher: CoroutineDispatcher,
     endpoint: HtspEndpoint,
+    epgChannelId: Long,
+    epgMaximumEvents: Long,
+    epgLanguage: String?,
     options: HtspConnectOptions = HtspConnectOptions(),
     onServerMessage: suspend (HtspServerMessage) -> Unit,
 ): ProtocolQuickStartOutcome = coroutineScope {
@@ -66,6 +71,13 @@ suspend fun runProtocolQuickStart(
             is HtspConnectOutcome.Connected -> {
                 val generation = connectOutcome.connection.generation
                 val failures = mutableListOf<ProtocolFailurePolicy>()
+                val eventsRequest = GetEventsRequest(
+                    channelId = epgChannelId,
+                    language = epgLanguage,
+                    numFollowing = epgMaximumEvents,
+                )
+                connection.execute(eventsRequest, expectedGeneration = generation)
+                    .onFailure { failure -> failures += policyFor(failure) }
                 val diskSpace = connection.getDiskSpace(expectedGeneration = generation)
                     .onFailure { failure -> failures += policyFor(failure) }
                     .getOrNull()

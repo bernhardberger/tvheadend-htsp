@@ -90,7 +90,18 @@ internal interface `HtspTypedRequestCapability-internal` {
 
 internal typealias HtspTypedRequestCapability = `HtspTypedRequestCapability-internal`
 
-/** Internal bridge used exclusively by the generated parameter extensions. */
+/**
+ * Executes one already-constructed request from the finite typed HTSP catalog.
+ * Cancellation, generation fencing, version preflight, and typed failure classification are
+ * preserved by the connection's internal request capability.
+ */
+public suspend fun <R> HtspConnection.execute(
+    request: HtspRequest<R>,
+    timeoutMs: Long = 5_000L,
+    expectedGeneration: HtspConnectionGeneration? = null,
+): HtspResult<R> = call(request, timeoutMs, expectedGeneration)
+
+/** Internal bridge shared by public typed execution and generated convenience extensions. */
 @JvmSynthetic
 internal suspend fun <R> HtspConnection.call(
     request: HtspRequest<R>,

@@ -18,17 +18,21 @@ mappers, and the catalog helper remain internal. The public 29-message finite
 decoder is the explicit raw-map input boundary. Playback integration uses the
 client-package typed `@PlaybackIntegrationApi` transport.
 
-Generated parameter-based `HtspConnection` extensions are the only supported
-public request path. Public request and response models remain data contracts,
-but there is no public generic request primitive; missing methods belong in the
-reviewed typed request catalog and generated surface.
+`HtspConnection.execute` is the canonical public path for an already-constructed
+request from the finite catalog. Generated parameter-based extensions preserve
+their signatures as convenience delegates: each constructs one matching request
+and invokes `execute` once. External consumers cannot subclass `HtspRequest`, and
+there is no raw method/map/mapper request primitive; missing methods belong in the
+reviewed typed request catalog and generated surface. The internal `call` bridge
+remains absent from public Kotlin and Java-source ABI.
 
 The `api` request is an error-level opt-in bridge to TVHeadend's HTTP JSON API,
 not an endpoint SDK or compatibility promise. It accepts an exact path and a
 closed, ordered `HtspApiValue` tree, returns `HtspResult<ApiResponse>`, and has no
 generic dispatch, endpoint registry, schema models, path normalization, or HTTP
 fallback. Unknown endpoints and successful no-response callbacks both produce
-`ApiResponse.NoPayload`.
+`ApiResponse.NoPayload`. Constructing it for `execute` still requires
+`@HtspJsonApi`; ordinary `execute` calls require no opt-in.
 
 This mutable `0.x` snapshot has exactly one declared external dependency:
 `kotlinx-coroutines-core`, in addition to the implicit Kotlin and JDK runtimes.
