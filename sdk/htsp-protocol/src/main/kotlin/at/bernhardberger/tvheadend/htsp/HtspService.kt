@@ -54,6 +54,53 @@ internal const val DVR_PLAY_COUNT_KEEP: Int = Int.MAX_VALUE - 1
 private const val HTSP_CHALLENGE_SIZE_BYTES: Int = 32
 private const val TYPED_EVENT_QUEUE_CAPACITY: Int = 8192
 
+internal class HtspTransportInputStream(
+    private val delegate: InputStream,
+    private val logger: HtspLogger,
+) : InputStream() {
+    private var currentFrameBytesRead = 0
+    private var currentFrameTimeouts = 0
+
+    fun beginFrame() {
+        currentFrameBytesRead = 0
+        currentFrameTimeouts = 0
+    }
+
+    override fun read(): Int = retryMidFrameTimeout {
+        delegate.read().also { value ->
+            if (value >= 0) currentFrameBytesRead++
+        }
+    }
+
+    override fun read(buffer: ByteArray, offset: Int, length: Int): Int = retryMidFrameTimeout {
+        delegate.read(buffer, offset, length).also { count ->
+            if (count > 0) currentFrameBytesRead += count
+        }
+    }
+
+    override fun close() {
+        delegate.close()
+    }
+
+    private inline fun retryMidFrameTimeout(read: () -> Int): Int {
+        while (true) {
+            try {
+                return read()
+            } catch (timeout: SocketTimeoutException) {
+                if (currentFrameBytesRead == 0) throw timeout
+                currentFrameTimeouts++
+                if (currentFrameTimeouts == 1 || currentFrameTimeouts % 50 == 0) {
+                    logger.log(
+                        HtspLogLevel.WARNING,
+                        "SO_TIMEOUT after partial current HTSP frame; continuing exact read",
+                        timeout,
+                    )
+                }
+            }
+        }
+    }
+}
+
 internal class `HtspRequestTimeoutException-internal`(
     val requestMethod: String,
     val timeoutMs: Long,
@@ -658,11 +705,13 @@ internal open class `HtspService-internal`(
         attemptId: Long,
     ) {
         val pendingMaxSilentMs = responseTimeoutMs * 2
+        val framedInput = HtspTransportInputStream(transportInput, logger)
         var messageSequence = 0L
         try {
             while (currentCoroutineContext().isActive) {
                 try {
-                    val msg = HtspCodec.readMessage(transportInput, logger)
+                    framedInput.beginFrame()
+                    val msg = HtspCodec.readMessage(framedInput)
                     val currentMessageSequence = ++messageSequence
                     var typedEvent: HtspTransportEvent.ServerMessage? = null
                     val published = withCurrentConnectionAttempt(attemptId) {

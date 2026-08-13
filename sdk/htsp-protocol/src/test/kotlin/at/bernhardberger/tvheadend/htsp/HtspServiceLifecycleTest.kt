@@ -1200,6 +1200,81 @@ class HtspServiceLifecycleTest {
     }
 
     @Test
+    fun pendingRequestIdleWatchdogFailsTransportBeforeRequestTimeout() {
+        FakeHtspServer(
+            respondToHello = true,
+            captureOnePostHandshakeRequest = true,
+        ).use { server ->
+            val service = service()
+            runBlocking {
+                service.connect(
+                    host = "127.0.0.1",
+                    port = server.port,
+                    connectTimeoutMs = 1_000,
+                    responseTimeoutMs = 100,
+                    soTimeoutMs = 25,
+                )
+
+                val request = async(Dispatchers.IO) {
+                    runCatching {
+                        service.request(
+                            method = "silentWatchdogProbe",
+                            timeoutMs = 2_000L,
+                            disconnectOnTimeout = false,
+                        )
+                    }.exceptionOrNull()
+                }
+                assertTrue(server.postHandshakeRequestReceived.await(1, TimeUnit.SECONDS))
+
+                val failure = withTimeout(1_000L) { request.await() }
+                assertTrue(failure is SocketTimeoutException)
+                assertTrue(failure !is HtspRequestTimeoutException)
+                withTimeout(1_000L) {
+                    service.state.first { state -> state is ConnectionState.Disconnected }
+                }
+                assertNull(service.liveConnection.value)
+            }
+        }
+    }
+
+    @Test
+    fun noPendingIdleTimeoutCyclesKeepConnectionLiveAndResponsive() {
+        FakeHtspServer(
+            respondToHello = true,
+            captureOnePostHandshakeRequest = true,
+        ).use { server ->
+            val service = service()
+            runBlocking {
+                service.connect(
+                    host = "127.0.0.1",
+                    port = server.port,
+                    connectTimeoutMs = 1_000,
+                    responseTimeoutMs = 100,
+                    soTimeoutMs = 25,
+                )
+
+                val leftConnected = withTimeoutOrNull(350L) {
+                    service.state.first { state -> state !is ConnectionState.Connected }
+                }
+                assertNull(leftConnected)
+                assertTrue(service.state.value is ConnectionState.Connected)
+
+                val request = async(Dispatchers.IO) {
+                    service.request(
+                        method = "afterIdleProbe",
+                        timeoutMs = 1_000L,
+                        disconnectOnTimeout = false,
+                    )
+                }
+                assertTrue(server.postHandshakeRequestReceived.await(1, TimeUnit.SECONDS))
+                server.replyToCapturedPostHandshakeRequest()
+                assertEquals("afterIdleProbe", withTimeout(1_000L) { request.await() }.method)
+                service.disconnect()
+            }
+        }
+    }
+
+    @Test
     fun lateReplyAfterOptionalRequestTimeoutIsNotPublishedAsControlEvent() {
         FakeHtspServer(
             respondToHello = true,

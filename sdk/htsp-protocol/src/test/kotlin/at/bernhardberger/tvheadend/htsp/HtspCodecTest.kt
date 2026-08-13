@@ -2,8 +2,6 @@ package at.bernhardberger.tvheadend.htsp
 
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
-import java.io.InputStream
-import java.net.SocketTimeoutException
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
@@ -57,73 +55,28 @@ class HtspCodecTest {
     }
 
     @Test
-    fun softSocketTimeout_isLoggedAndReadingContinuesWithoutLosingFraming() {
-        val encoded = ByteArrayOutputStream().also { output ->
-            HtspCodec.writeMessage(output, "hello", mapOf("seq" to 3))
-        }.toByteArray()
-        val entries = mutableListOf<LogEntry>()
-        val logger = HtspLogger { level, message, cause ->
-            entries += LogEntry(level, message, cause)
+    fun invalidRootLength_isFramingFailureWithoutTransportPolicy() {
+        val failure = assertThrows(HtspFramingException::class.java) {
+            HtspCodec.readMessage(ByteArrayInputStream(byteArrayOf(0, 0, 0, 0)))
         }
 
-        val decoded = HtspCodec.readMessage(
-            input = TimeoutOnceInputStream(ByteArrayInputStream(encoded)),
-            logger = logger,
-        )
-
-        assertEquals("hello", decoded.method)
-        assertEquals(3, decoded.seq)
-        assertEquals(1, entries.size)
-        assertEquals(HtspLogLevel.WARNING, entries.single().level)
-        assertTrue(entries.single().message.contains("rootLen"))
-        assertTrue(entries.single().cause is SocketTimeoutException)
+        assertEquals("invalid root length", failure.failure)
+        assertEquals(0, failure.byteOffset)
     }
 
     @Test
-    fun invalidRootLength_isLoggedAndRejected() {
-        val entries = mutableListOf<LogEntry>()
-        val logger = HtspLogger { level, message, cause ->
-            entries += LogEntry(level, message, cause)
+    fun fieldWhoseNameAndDataExceedRoot_isFramingFailureNotEof() {
+        val malformed = byteArrayOf(
+            0, 0, 0, 8,
+            3, 2, 0, 0, 0, 1,
+            'a'.code.toByte(), 'b'.code.toByte(),
+        )
+
+        val failure = assertThrows(HtspFramingException::class.java) {
+            HtspCodec.readMessage(ByteArrayInputStream(malformed))
         }
 
-        assertThrows(IllegalStateException::class.java) {
-            HtspCodec.readMessage(
-                input = ByteArrayInputStream(byteArrayOf(0, 0, 0, 0)),
-                logger = logger,
-            )
-        }
-
-        assertEquals(HtspLogLevel.ERROR, entries.single().level)
-        assertTrue(entries.single().message.contains("invalid root length"))
-        assertEquals(null, entries.single().cause)
-    }
-
-    private data class LogEntry(
-        val level: HtspLogLevel,
-        val message: String,
-        val cause: Throwable?,
-    )
-
-    private class TimeoutOnceInputStream(
-        private val delegate: InputStream,
-    ) : InputStream() {
-        private var timeoutPending = true
-
-        override fun read(): Int {
-            throwTimeoutOnce()
-            return delegate.read()
-        }
-
-        override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
-            throwTimeoutOnce()
-            return delegate.read(buffer, offset, length)
-        }
-
-        private fun throwTimeoutOnce() {
-            if (timeoutPending) {
-                timeoutPending = false
-                throw SocketTimeoutException("expected test timeout")
-            }
-        }
+        assertEquals("field name and data exceed enclosing frame", failure.failure)
+        assertEquals(10, failure.byteOffset)
     }
 }

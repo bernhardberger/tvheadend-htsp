@@ -2,10 +2,15 @@ package at.bernhardberger.tvheadend.htsp
 
 import java.io.EOFException
 import java.io.InputStream
+import java.io.IOException
 import java.io.OutputStream
-import java.net.SocketTimeoutException
 import java.nio.charset.StandardCharsets
 import kotlin.math.min
+
+internal class HtspFramingException(
+    val failure: String,
+    val byteOffset: Int,
+) : IOException("HTSP framing failure: $failure at byte offset $byteOffset")
 
 internal object `HtspCodec-internal` {
 
@@ -22,13 +27,10 @@ internal object `HtspCodec-internal` {
     private const val MAX_FIELD_NAME = 255
     private const val MAX_NESTING_DEPTH = 32
 
-    fun readMessage(
-        input: InputStream,
-        logger: HtspLogger = HtspLogger.None,
-    ): HtspWireMessage {
+    fun readMessage(input: InputStream): HtspWireMessage {
         // ---- Root 4B length ----
         val hdr = ByteArray(4)
-        readFullySoft(input, hdr, len = 4, what = "rootLen", logger = logger)
+        readFully(input, hdr, len = 4, what = "root length")
 
         val declaredLen =
             (((hdr[0].toLong() and 0xFF) shl 24) or
@@ -36,25 +38,18 @@ internal object `HtspCodec-internal` {
                     ((hdr[2].toLong() and 0xFF) shl 8)  or
                     ( hdr[3].toLong() and 0xFF)) and 0xFFFF_FFFFL
 
-        // ---- THE ONLY FATAL CONDITION (can't safely "just read to end") ----
         if (declaredLen <= 0L || declaredLen > MAX_MESSAGE_SIZE.toLong()) {
-            val hex = hdr.joinToString(" ") { "%02x".format(it) }
-            logger.log(
-                HtspLogLevel.ERROR,
-                "HTSP invalid root length=$declaredLen hdr=$hex (fatal -> reconnect)",
-                null,
-            )
-            throw IllegalStateException("Invalid HTSP message length: $declaredLen hdr=$hex")
+            throw HtspFramingException("invalid root length", byteOffset = 0)
         }
 
         val len = declaredLen.toInt()
-        val reader = BoundedReader(input, len, logger = logger)
+        val reader = BoundedReader(input, len, FramePosition(4))
 
         val fields = LinkedHashMap<String, Any?>()
         decodeMap(reader, fields, depth = 0)
 
         // Always drain any leftover bytes so next message stays aligned
-        reader.drainSoft(what = "messageTailDrain")
+        reader.drain(what = "message tail")
 
         val method = fields["method"] as? String
         val seq = (fields["seq"] as? Number)?.toInt()
@@ -88,7 +83,9 @@ internal object `HtspCodec-internal` {
     // ----------------------------
 
     private fun decodeMap(r: BoundedReader, out: MutableMap<String, Any?>, depth: Int) {
-        if (depth > MAX_NESTING_DEPTH) throw IllegalStateException("HTSP nesting too deep: $depth")
+        if (depth > MAX_NESTING_DEPTH) {
+            throw HtspFramingException("nesting exceeds limit", r.byteOffset)
+        }
         while (r.remaining > 0) {
             val (name, value) = decodeField(r, depth)
             if (name != null) out[name] = value
@@ -96,7 +93,9 @@ internal object `HtspCodec-internal` {
     }
 
     private fun decodeList(r: BoundedReader, out: MutableList<Any?>, depth: Int) {
-        if (depth > MAX_NESTING_DEPTH) throw IllegalStateException("HTSP nesting too deep: $depth")
+        if (depth > MAX_NESTING_DEPTH) {
+            throw HtspFramingException("nesting exceeds limit", r.byteOffset)
+        }
         while (r.remaining > 0) {
             val (_, value) = decodeField(r, depth)
             out.add(value)
@@ -104,16 +103,23 @@ internal object `HtspCodec-internal` {
     }
 
     private fun decodeField(r: BoundedReader, depth: Int): Pair<String?, Any?> {
-        val type = r.readU8Soft()
-        val nameLen = r.readU8Soft()
-        if (nameLen > MAX_FIELD_NAME) throw IllegalStateException("Field name too long: $nameLen")
+        val type = r.readU8()
+        val nameLen = r.readU8()
+        if (nameLen > MAX_FIELD_NAME) {
+            throw HtspFramingException("field name exceeds limit", r.byteOffset)
+        }
 
-        val dataLenU = r.readU32BESoft()
-        if (dataLenU > r.remaining.toLong()) throw IllegalStateException("Truncated HTSP field data")
+        val dataLenU = r.readU32BE()
+        if (nameLen.toLong() + dataLenU > r.remaining.toLong()) {
+            throw HtspFramingException(
+                "field name and data exceed enclosing frame",
+                r.byteOffset,
+            )
+        }
         val dataLen = dataLenU.toInt()
 
         val name = if (nameLen > 0) {
-            val nb = r.readExactlySoft(nameLen, what = "fieldName")
+            val nb = r.readExactly(nameLen, what = "field name")
             String(nb, StandardCharsets.UTF_8)
         } else null
 
@@ -123,16 +129,16 @@ internal object `HtspCodec-internal` {
             TYPE_MAP -> LinkedHashMap<String, Any?>().also { decodeMap(data, it, depth + 1) }
             TYPE_LIST -> ArrayList<Any?>().also { decodeList(data, it, depth + 1) }
             TYPE_S64 -> readS64VarLenLE(data)
-            TYPE_STR -> String(data.readExactlySoft(dataLen, what = "str"), StandardCharsets.UTF_8)
-            TYPE_BIN -> data.readExactlySoft(dataLen, what = "bin")
+            TYPE_STR -> String(data.readExactly(dataLen, what = "string"), StandardCharsets.UTF_8)
+            TYPE_BIN -> data.readExactly(dataLen, what = "binary")
             TYPE_DBL -> readDoubleLE(data, dataLen)
             TYPE_BOOL -> readBool(data, dataLen)
-            TYPE_UUID -> HtspWireUuid(data.readExactlySoft(dataLen, what = "uuid"))
-            else -> data.readExactlySoft(dataLen, what = "unknown")
+            TYPE_UUID -> HtspWireUuid(data.readExactly(dataLen, what = "uuid"))
+            else -> data.readExactly(dataLen, what = "unknown field")
         }
 
         // ensure slice fully consumed (keeps parent aligned)
-        data.drainSoft(what = "fieldDrain")
+        data.drain(what = "field tail")
 
         return name to value
     }
@@ -143,29 +149,29 @@ internal object `HtspCodec-internal` {
         val n = min(len, 8)
         var v = 0L
         for (i in 0 until n) {
-            v = v or ((r.readU8Soft().toLong() and 0xFFL) shl (8 * i))
+            v = v or ((r.readU8().toLong() and 0xFFL) shl (8 * i))
         }
         // consume any leftover bytes in this slice (if any)
-        r.drainSoft(what = "s64TailDrain")
+        r.drain(what = "signed integer tail")
         return v
     }
 
     private fun readDoubleLE(r: BoundedReader, len: Int): Double {
         if (len != 8) {
-            r.drainSoft(what = "dblLenMismatchDrain")
+            r.drain(what = "double length mismatch")
             return 0.0
         }
         var bits = 0L
         for (i in 0 until 8) {
-            bits = bits or ((r.readU8Soft().toLong() and 0xFFL) shl (8 * i))
+            bits = bits or ((r.readU8().toLong() and 0xFFL) shl (8 * i))
         }
         return java.lang.Double.longBitsToDouble(bits)
     }
 
     private fun readBool(r: BoundedReader, len: Int): Boolean {
         if (len <= 0) return false
-        val v = r.readU8Soft() != 0
-        r.drainSoft(what = "boolTailDrain")
+        val v = r.readU8() != 0
+        r.drain(what = "boolean tail")
         return v
     }
 
@@ -181,144 +187,119 @@ internal object `HtspCodec-internal` {
     }
 
     // ----------------------------
-    // SOFT read helpers (never throw on SO_TIMEOUT; only log + continue)
+    // Exact read helpers
     // ----------------------------
 
-    private fun readFullySoft(
+    private fun readFully(
         input: InputStream,
         buf: ByteArray,
         off: Int = 0,
         len: Int = buf.size,
         what: String,
-        logger: HtspLogger,
     ) {
         var readTotal = 0
-        var timeouts = 0
         while (readTotal < len) {
-            try {
-                val r = input.read(buf, off + readTotal, len - readTotal)
-                if (r < 0) throw EOFException("EOF while reading $what ($len bytes, readTotal=$readTotal)")
-                readTotal += r
-            } catch (e: SocketTimeoutException) {
-                timeouts++
-                if (timeouts == 1 || timeouts % 50 == 0) {
-                    logger.log(
-                        HtspLogLevel.WARNING,
-                        "SO_TIMEOUT during $what read len=$len after readTotal=$readTotal (continuing)",
-                        e,
-                    )
+            val count = input.read(buf, off + readTotal, len - readTotal)
+            if (count < 0) {
+                throw EOFException("EOF while reading $what ($len bytes, read=$readTotal)")
+            }
+            if (count == 0) {
+                val value = input.read()
+                if (value < 0) {
+                    throw EOFException("EOF while reading $what ($len bytes, read=$readTotal)")
                 }
-                // keep looping until we read all bytes or EOF
+                buf[off + readTotal] = value.toByte()
+                readTotal++
+            } else {
+                readTotal += count
             }
         }
     }
 
     // ----------------------------
-    // BoundedReader (soft timeouts, always consume exact bytes)
+    // BoundedReader (always consumes exact bytes)
     // ----------------------------
 
     private class BoundedReader(
         private val input: InputStream,
         initialLimit: Int,
+        private val position: FramePosition,
         private val parent: BoundedReader? = null,
-        private val logger: HtspLogger,
     ) {
         var remaining: Int = initialLimit
             private set
 
-        fun readU8Soft(): Int {
-            if (remaining <= 0) throw EOFException("EOF in bounded reader")
-            var timeouts = 0
-            while (true) {
-                try {
-                    val r = input.read()
-                    if (r < 0) throw EOFException("EOF in bounded reader")
-                    remaining -= 1
-                    parent?.consumeFromChild(1)
-                    return r and 0xFF
-                } catch (e: SocketTimeoutException) {
-                    timeouts++
-                    if (timeouts == 1 || timeouts % 200 == 0) {
-                        logger.log(
-                            HtspLogLevel.WARNING,
-                            "SO_TIMEOUT during readU8 remaining=$remaining (continuing)",
-                            e,
-                        )
-                    }
-                }
-            }
+        val byteOffset: Int
+            get() = position.byteOffset
+
+        fun readU8(): Int {
+            requireWithinBound(1, "field byte")
+            val value = input.read()
+            if (value < 0) throw EOFException("EOF while reading bounded HTSP frame")
+            consume(1)
+            return value and 0xFF
         }
 
-        fun readU32BESoft(): Long {
-            val b0 = readU8Soft().toLong()
-            val b1 = readU8Soft().toLong()
-            val b2 = readU8Soft().toLong()
-            val b3 = readU8Soft().toLong()
+        fun readU32BE(): Long {
+            val b0 = readU8().toLong()
+            val b1 = readU8().toLong()
+            val b2 = readU8().toLong()
+            val b3 = readU8().toLong()
             return (((b0 shl 24) or (b1 shl 16) or (b2 shl 8) or b3) and 0xFFFF_FFFFL)
         }
 
-        fun readExactlySoft(n: Int, what: String): ByteArray {
-            if (n < 0 || n > remaining) throw EOFException("Need $n bytes, remaining=$remaining ($what)")
+        fun readExactly(n: Int, what: String): ByteArray {
+            requireWithinBound(n, what)
             val buf = ByteArray(n)
-
-            var off = 0
-            var timeouts = 0
-            while (off < n) {
-                try {
-                    val r = input.read(buf, off, n - off)
-                    if (r < 0) throw EOFException("EOF while reading $what ($n bytes, off=$off)")
-                    off += r
-                    remaining -= r
-                    parent?.consumeFromChild(r)
-                } catch (e: SocketTimeoutException) {
-                    timeouts++
-                    if (timeouts == 1 || timeouts % 50 == 0) {
-                        logger.log(
-                            HtspLogLevel.WARNING,
-                            "SO_TIMEOUT during readExactly($what) n=$n off=$off remaining=$remaining (continuing)",
-                            e,
-                        )
-                    }
-                }
-            }
+            readFully(input, buf, len = n, what = what)
+            consume(n)
             return buf
         }
 
         fun slice(n: Int): BoundedReader {
-            if (n < 0 || n > remaining) throw EOFException("Slice $n bytes, remaining=$remaining")
-            return BoundedReader(input, n, parent = this, logger = logger)
+            requireWithinBound(n, "field data")
+            return BoundedReader(input, n, position = position, parent = this)
         }
 
-        fun drainSoft(what: String) {
+        fun drain(what: String) {
             if (remaining <= 0) return
             val tmp = ByteArray(8192)
-            var timeouts = 0
             while (remaining > 0) {
                 val toRead = min(remaining, tmp.size)
-                try {
-                    val r = input.read(tmp, 0, toRead)
-                    if (r < 0) throw EOFException("EOF while draining $what (remaining=$remaining)")
-                    remaining -= r
-                    parent?.consumeFromChild(r)
-                } catch (e: SocketTimeoutException) {
-                    timeouts++
-                    if (timeouts == 1 || timeouts % 50 == 0) {
-                        logger.log(
-                            HtspLogLevel.WARNING,
-                            "SO_TIMEOUT during drain($what) remaining=$remaining (continuing)",
-                            e,
-                        )
-                    }
+                val count = input.read(tmp, 0, toRead)
+                if (count < 0) throw EOFException("EOF while draining $what")
+                if (count == 0) {
+                    val value = input.read()
+                    if (value < 0) throw EOFException("EOF while draining $what")
+                    consume(1)
+                } else {
+                    consume(count)
                 }
             }
         }
 
+        private fun requireWithinBound(n: Int, what: String) {
+            if (n < 0 || n > remaining) {
+                throw HtspFramingException("$what exceeds enclosing frame", byteOffset)
+            }
+        }
+
+        private fun consume(n: Int) {
+            remaining -= n
+            position.byteOffset += n
+            parent?.consumeFromChild(n)
+        }
+
         private fun consumeFromChild(n: Int) {
             remaining -= n
-            if (remaining < 0) throw IllegalStateException("Child over-consumed parent bounded reader")
+            if (remaining < 0) {
+                throw HtspFramingException("child over-consumed enclosing frame", byteOffset)
+            }
             parent?.consumeFromChild(n)
         }
     }
+
+    private class FramePosition(var byteOffset: Int)
 
     // ----------------------------
     // Encoding (unchanged)
@@ -345,7 +326,9 @@ internal object `HtspCodec-internal` {
     private fun encodeField(name: String?, value: Any): ByteArray {
         val nameBytes = name?.toByteArray(StandardCharsets.UTF_8) ?: ByteArray(0)
         val nameLen = nameBytes.size
-        if (nameLen > 255) error("Field name too long: $nameLen")
+        if (nameLen > MAX_FIELD_NAME) {
+            throw HtspFramingException("encoded field name exceeds one-byte bound", byteOffset = 0)
+        }
 
         val (typeId, dataBytes) = encodeValue(value)
 
