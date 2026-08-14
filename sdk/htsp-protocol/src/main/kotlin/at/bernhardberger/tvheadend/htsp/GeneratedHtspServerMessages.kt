@@ -35,19 +35,19 @@ public class HtspChannelAddMessage(
     services: List<HtspChannelService>? = null,
     tagIds: List<Long>? = null,
 ) : HtspServerMessage {
-    public val services: List<HtspChannelService>? = services?.immutableServerSnapshot()
-    public val tagIds: List<Long>? = tagIds?.immutableServerSnapshot()
+    public val services: List<HtspChannelService>? = services?.immutableSnapshot()
+    public val tagIds: List<Long>? = tagIds?.immutableSnapshot()
 
     init {
-        requireServerU32("channelId", channelId)
-        channelNumber?.let { requireServerU32("channelNumber", it) }
-        channelNumberMinor?.let { requireServerU32("channelNumberMinor", it) }
-        currentEventId?.let { requireServerU32("currentEventId", it) }
-        nextEventId?.let { requireServerU32("nextEventId", it) }
-        this.tagIds?.forEach { requireServerU32("tagIds", it) }
+        requireU32("channelId", channelId)
+        channelNumber?.let { requireU32("channelNumber", it) }
+        channelNumberMinor?.let { requireU32("channelNumberMinor", it) }
+        currentEventId?.let { requireU32("currentEventId", it) }
+        nextEventId?.let { requireU32("nextEventId", it) }
+        this.tagIds?.forEach { requireU32("tagIds", it) }
         this.services?.forEach { service ->
-            requireServerU32("service.content", service.content)
-            service.conditionalAccessId?.let { requireServerU32("service.conditionalAccessId", it) }
+            requireU32("service.content", service.content)
+            service.conditionalAccessId?.let { requireU32("service.conditionalAccessId", it) }
         }
     }
 }
@@ -64,19 +64,19 @@ public class HtspChannelUpdateMessage(
     services: List<HtspChannelService>? = null,
     tagIds: List<Long>? = null,
 ) : HtspServerMessage {
-    public val services: List<HtspChannelService>? = services?.immutableServerSnapshot()
-    public val tagIds: List<Long>? = tagIds?.immutableServerSnapshot()
+    public val services: List<HtspChannelService>? = services?.immutableSnapshot()
+    public val tagIds: List<Long>? = tagIds?.immutableSnapshot()
 
     init {
-        requireServerU32("channelId", channelId)
-        channelNumber?.let { requireServerU32("channelNumber", it) }
-        channelNumberMinor?.let { requireServerU32("channelNumberMinor", it) }
-        currentEventId?.let { requireServerU32("currentEventId", it) }
-        nextEventId?.let { requireServerU32("nextEventId", it) }
-        this.tagIds?.forEach { requireServerU32("tagIds", it) }
+        requireU32("channelId", channelId)
+        channelNumber?.let { requireU32("channelNumber", it) }
+        channelNumberMinor?.let { requireU32("channelNumberMinor", it) }
+        currentEventId?.let { requireU32("currentEventId", it) }
+        nextEventId?.let { requireU32("nextEventId", it) }
+        this.tagIds?.forEach { requireU32("tagIds", it) }
         this.services?.forEach { service ->
-            requireServerU32("service.content", service.content)
-            service.conditionalAccessId?.let { requireServerU32("service.conditionalAccessId", it) }
+            requireU32("service.content", service.content)
+            service.conditionalAccessId?.let { requireU32("service.conditionalAccessId", it) }
         }
     }
 }
@@ -85,7 +85,7 @@ public data class HtspChannelDeleteMessage(
     public val channelId: Long,
 ) : HtspServerMessage {
     init {
-        requireServerU32("channelId", channelId)
+        requireU32("channelId", channelId)
     }
 }
 
@@ -98,13 +98,13 @@ public class HtspTagAddMessage(
     public val tagTitledIcon: Long? = null,
     channelIds: List<Long>? = null,
 ) : HtspServerMessage {
-    public val channelIds: List<Long>? = channelIds?.immutableServerSnapshot()
+    public val channelIds: List<Long>? = channelIds?.immutableSnapshot()
 
     init {
-        requireServerU32("tagId", tagId)
-        tagIndex?.let { requireServerU32("tagIndex", it) }
-        tagTitledIcon?.let { requireServerU32("tagTitledIcon", it) }
-        this.channelIds?.forEach { requireServerU32("channelIds", it) }
+        requireU32("tagId", tagId)
+        tagIndex?.let { requireU32("tagIndex", it) }
+        tagTitledIcon?.let { requireU32("tagTitledIcon", it) }
+        this.channelIds?.forEach { requireU32("channelIds", it) }
     }
 }
 
@@ -117,13 +117,13 @@ public class HtspTagUpdateMessage(
     public val tagTitledIcon: Long? = null,
     channelIds: List<Long>? = null,
 ) : HtspServerMessage {
-    public val channelIds: List<Long>? = channelIds?.immutableServerSnapshot()
+    public val channelIds: List<Long>? = channelIds?.immutableSnapshot()
 
     init {
-        requireServerU32("tagId", tagId)
-        tagIndex?.let { requireServerU32("tagIndex", it) }
-        tagTitledIcon?.let { requireServerU32("tagTitledIcon", it) }
-        this.channelIds?.forEach { requireServerU32("channelIds", it) }
+        requireU32("tagId", tagId)
+        tagIndex?.let { requireU32("tagIndex", it) }
+        tagTitledIcon?.let { requireU32("tagTitledIcon", it) }
+        this.channelIds?.forEach { requireU32("channelIds", it) }
     }
 }
 
@@ -131,7 +131,7 @@ public data class HtspTagDeleteMessage(
     public val tagId: Long,
 ) : HtspServerMessage {
     init {
-        requireServerU32("tagId", tagId)
+        requireU32("tagId", tagId)
     }
 }
 
@@ -144,7 +144,7 @@ public data class HtspDvrRecordingFile(
     public val sizeBytes: Long?,
 ) {
     init {
-        fileId?.let { requireServerU32("fileId", it) }
+        fileId?.let { requireU32("fileId", it) }
     }
 }
 
@@ -198,29 +198,29 @@ public class HtspDvrEntryAddMessage(
     public val dataErrors: Long? = null,
     public val dataSizeBytes: Long? = null,
 ) : HtspServerMessage {
-    public val files: List<HtspDvrRecordingFile>? = files?.immutableServerSnapshot()
+    public val files: List<HtspDvrRecordingFile>? = files?.immutableSnapshot()
 
     init {
-        requireServerU32("entryId", entryId)
-        enabled?.let { requireServerU32("enabled", it) }
-        channelId?.let { requireServerU32("channelId", it) }
-        eventId?.let { requireServerU32("eventId", it) }
-        retentionDays?.let { requireServerU32("retentionDays", it) }
-        removalDays?.let { requireServerU32("removalDays", it) }
-        priority?.let { requireServerU32("priority", it) }
-        contentType?.let { requireServerU32("contentType", it) }
-        ageRating?.let { requireServerU32("ageRating", it) }
-        playCount?.let { requireServerU32("playCount", it) }
-        playPositionSeconds?.let { requireServerU32("playPositionSeconds", it) }
-        seasonNumber?.let { requireServerU32("seasonNumber", it) }
-        episodeNumber?.let { requireServerU32("episodeNumber", it) }
-        episodeCount?.let { requireServerU32("episodeCount", it) }
-        partNumber?.let { requireServerU32("partNumber", it) }
-        partCount?.let { requireServerU32("partCount", it) }
-        copyrightYear?.let { requireServerU32("copyrightYear", it) }
-        duplicate?.let { requireServerU32("duplicate", it) }
-        streamErrors?.let { requireServerU32("streamErrors", it) }
-        dataErrors?.let { requireServerU32("dataErrors", it) }
+        requireU32("entryId", entryId)
+        enabled?.let { requireU32("enabled", it) }
+        channelId?.let { requireU32("channelId", it) }
+        eventId?.let { requireU32("eventId", it) }
+        retentionDays?.let { requireU32("retentionDays", it) }
+        removalDays?.let { requireU32("removalDays", it) }
+        priority?.let { requireU32("priority", it) }
+        contentType?.let { requireU32("contentType", it) }
+        ageRating?.let { requireU32("ageRating", it) }
+        playCount?.let { requireU32("playCount", it) }
+        playPositionSeconds?.let { requireU32("playPositionSeconds", it) }
+        seasonNumber?.let { requireU32("seasonNumber", it) }
+        episodeNumber?.let { requireU32("episodeNumber", it) }
+        episodeCount?.let { requireU32("episodeCount", it) }
+        partNumber?.let { requireU32("partNumber", it) }
+        partCount?.let { requireU32("partCount", it) }
+        copyrightYear?.let { requireU32("copyrightYear", it) }
+        duplicate?.let { requireU32("duplicate", it) }
+        streamErrors?.let { requireU32("streamErrors", it) }
+        dataErrors?.let { requireU32("dataErrors", it) }
     }
 }
 
@@ -274,29 +274,29 @@ public class HtspDvrEntryUpdateMessage(
     public val dataErrors: Long? = null,
     public val dataSizeBytes: Long? = null,
 ) : HtspServerMessage {
-    public val files: List<HtspDvrRecordingFile>? = files?.immutableServerSnapshot()
+    public val files: List<HtspDvrRecordingFile>? = files?.immutableSnapshot()
 
     init {
-        requireServerU32("entryId", entryId)
-        enabled?.let { requireServerU32("enabled", it) }
-        channelId?.let { requireServerU32("channelId", it) }
-        eventId?.let { requireServerU32("eventId", it) }
-        retentionDays?.let { requireServerU32("retentionDays", it) }
-        removalDays?.let { requireServerU32("removalDays", it) }
-        priority?.let { requireServerU32("priority", it) }
-        contentType?.let { requireServerU32("contentType", it) }
-        ageRating?.let { requireServerU32("ageRating", it) }
-        playCount?.let { requireServerU32("playCount", it) }
-        playPositionSeconds?.let { requireServerU32("playPositionSeconds", it) }
-        seasonNumber?.let { requireServerU32("seasonNumber", it) }
-        episodeNumber?.let { requireServerU32("episodeNumber", it) }
-        episodeCount?.let { requireServerU32("episodeCount", it) }
-        partNumber?.let { requireServerU32("partNumber", it) }
-        partCount?.let { requireServerU32("partCount", it) }
-        copyrightYear?.let { requireServerU32("copyrightYear", it) }
-        duplicate?.let { requireServerU32("duplicate", it) }
-        streamErrors?.let { requireServerU32("streamErrors", it) }
-        dataErrors?.let { requireServerU32("dataErrors", it) }
+        requireU32("entryId", entryId)
+        enabled?.let { requireU32("enabled", it) }
+        channelId?.let { requireU32("channelId", it) }
+        eventId?.let { requireU32("eventId", it) }
+        retentionDays?.let { requireU32("retentionDays", it) }
+        removalDays?.let { requireU32("removalDays", it) }
+        priority?.let { requireU32("priority", it) }
+        contentType?.let { requireU32("contentType", it) }
+        ageRating?.let { requireU32("ageRating", it) }
+        playCount?.let { requireU32("playCount", it) }
+        playPositionSeconds?.let { requireU32("playPositionSeconds", it) }
+        seasonNumber?.let { requireU32("seasonNumber", it) }
+        episodeNumber?.let { requireU32("episodeNumber", it) }
+        episodeCount?.let { requireU32("episodeCount", it) }
+        partNumber?.let { requireU32("partNumber", it) }
+        partCount?.let { requireU32("partCount", it) }
+        copyrightYear?.let { requireU32("copyrightYear", it) }
+        duplicate?.let { requireU32("duplicate", it) }
+        streamErrors?.let { requireU32("streamErrors", it) }
+        dataErrors?.let { requireU32("dataErrors", it) }
     }
 }
 
@@ -304,7 +304,7 @@ public data class HtspDvrEntryDeleteMessage(
     public val entryId: Long,
 ) : HtspServerMessage {
     init {
-        requireServerU32("entryId", entryId)
+        requireU32("entryId", entryId)
     }
 }
 
@@ -339,16 +339,16 @@ public data class HtspAutorecEntryAddMessage(
     public val configId: String? = null,
 ) : HtspServerMessage {
     init {
-        requireServerU32("maxDurationSeconds", maxDurationSeconds)
-        requireServerU32("minDurationSeconds", minDurationSeconds)
-        requireServerU32("retentionDays", retentionDays)
-        requireServerU32("removalDays", removalDays)
-        requireServerU32("daysOfWeekMask", daysOfWeekMask)
-        requireServerU32("priority", priority)
-        requireServerU32("duplicateDetection", duplicateDetection)
-        requireServerU32("maximumRecordingCount", maximumRecordingCount)
-        requireServerU32("broadcastType", broadcastType)
-        channelId?.let { requireServerU32("channelId", it) }
+        requireU32("maxDurationSeconds", maxDurationSeconds)
+        requireU32("minDurationSeconds", minDurationSeconds)
+        requireU32("retentionDays", retentionDays)
+        requireU32("removalDays", removalDays)
+        requireU32("daysOfWeekMask", daysOfWeekMask)
+        requireU32("priority", priority)
+        requireU32("duplicateDetection", duplicateDetection)
+        requireU32("maximumRecordingCount", maximumRecordingCount)
+        requireU32("broadcastType", broadcastType)
+        channelId?.let { requireU32("channelId", it) }
     }
 }
 
@@ -383,16 +383,16 @@ public data class HtspAutorecEntryUpdateMessage(
     public val configId: String? = null,
 ) : HtspServerMessage {
     init {
-        maxDurationSeconds?.let { requireServerU32("maxDurationSeconds", it) }
-        minDurationSeconds?.let { requireServerU32("minDurationSeconds", it) }
-        retentionDays?.let { requireServerU32("retentionDays", it) }
-        removalDays?.let { requireServerU32("removalDays", it) }
-        daysOfWeekMask?.let { requireServerU32("daysOfWeekMask", it) }
-        priority?.let { requireServerU32("priority", it) }
-        duplicateDetection?.let { requireServerU32("duplicateDetection", it) }
-        maximumRecordingCount?.let { requireServerU32("maximumRecordingCount", it) }
-        broadcastType?.let { requireServerU32("broadcastType", it) }
-        channelId?.let { requireServerU32("channelId", it) }
+        maxDurationSeconds?.let { requireU32("maxDurationSeconds", it) }
+        minDurationSeconds?.let { requireU32("minDurationSeconds", it) }
+        retentionDays?.let { requireU32("retentionDays", it) }
+        removalDays?.let { requireU32("removalDays", it) }
+        daysOfWeekMask?.let { requireU32("daysOfWeekMask", it) }
+        priority?.let { requireU32("priority", it) }
+        duplicateDetection?.let { requireU32("duplicateDetection", it) }
+        maximumRecordingCount?.let { requireU32("maximumRecordingCount", it) }
+        broadcastType?.let { requireU32("broadcastType", it) }
+        channelId?.let { requireU32("channelId", it) }
     }
 }
 
@@ -424,9 +424,9 @@ public data class HtspTimerecEntryAddMessage(
         require(stopMinutesSinceMidnight in 0..1_440) {
             "stopMinutesSinceMidnight must be between 0 and 1440"
         }
-        daysOfWeekMask?.let { requireServerU32("daysOfWeekMask", it) }
-        priority?.let { requireServerU32("priority", it) }
-        retentionDays?.let { requireServerU32("retentionDays", it) }
+        daysOfWeekMask?.let { requireU32("daysOfWeekMask", it) }
+        priority?.let { requireU32("priority", it) }
+        retentionDays?.let { requireU32("retentionDays", it) }
     }
 }
 
@@ -456,9 +456,9 @@ public data class HtspTimerecEntryUpdateMessage(
         require(stopMinutesSinceMidnight == null || stopMinutesSinceMidnight in 0..1_440) {
             "stopMinutesSinceMidnight must be between 0 and 1440"
         }
-        daysOfWeekMask?.let { requireServerU32("daysOfWeekMask", it) }
-        priority?.let { requireServerU32("priority", it) }
-        retentionDays?.let { requireServerU32("retentionDays", it) }
+        daysOfWeekMask?.let { requireU32("daysOfWeekMask", it) }
+        priority?.let { requireU32("priority", it) }
+        retentionDays?.let { requireU32("retentionDays", it) }
     }
 }
 
@@ -471,12 +471,12 @@ public class HtspEventAddMessage(
     public val seriesLinkId: Long? = null,
 ) : HtspServerMessage {
     public val event: HtspEvent = event.copy(
-            categories = event.categories?.immutableServerSnapshot(),
-            keywords = event.keywords?.immutableServerSnapshot(),
+            categories = event.categories?.immutableSnapshot(),
+            keywords = event.keywords?.immutableSnapshot(),
         )
 
     init {
-        requireServerU32("eventId", this.event.eventId)
+        requireU32("eventId", this.event.eventId)
         listOfNotNull(
                     this.event.channelId,
                     this.event.contentType,
@@ -494,7 +494,7 @@ public class HtspEventAddMessage(
                     this.event.nextEventId,
                     episodeId,
                     seriesLinkId,
-                ).forEach { requireServerU32("event field", it) }
+                ).forEach { requireU32("event field", it) }
     }
 }
 
@@ -535,27 +535,27 @@ public class HtspEventUpdateMessage(
     public val dvrId: Long? = null,
     public val nextEventId: Long? = null,
 ) : HtspServerMessage {
-    public val categories: List<String>? = categories?.immutableServerSnapshot()
-    public val keywords: List<String>? = keywords?.immutableServerSnapshot()
+    public val categories: List<String>? = categories?.immutableSnapshot()
+    public val keywords: List<String>? = keywords?.immutableSnapshot()
 
     init {
-        requireServerU32("eventId", eventId)
-        channelId?.let { requireServerU32("channelId", it) }
-        contentType?.let { requireServerU32("contentType", it) }
-        ageRating?.let { requireServerU32("ageRating", it) }
-        starRating?.let { requireServerU32("starRating", it) }
-        copyrightYear?.let { requireServerU32("copyrightYear", it) }
-        isNew?.let { requireServerU32("isNew", it) }
-        seasonNumber?.let { requireServerU32("seasonNumber", it) }
-        seasonCount?.let { requireServerU32("seasonCount", it) }
-        episodeNumber?.let { requireServerU32("episodeNumber", it) }
-        episodeCount?.let { requireServerU32("episodeCount", it) }
-        partNumber?.let { requireServerU32("partNumber", it) }
-        partCount?.let { requireServerU32("partCount", it) }
-        episodeId?.let { requireServerU32("episodeId", it) }
-        seriesLinkId?.let { requireServerU32("seriesLinkId", it) }
-        dvrId?.let { requireServerU32("dvrId", it) }
-        nextEventId?.let { requireServerU32("nextEventId", it) }
+        requireU32("eventId", eventId)
+        channelId?.let { requireU32("channelId", it) }
+        contentType?.let { requireU32("contentType", it) }
+        ageRating?.let { requireU32("ageRating", it) }
+        starRating?.let { requireU32("starRating", it) }
+        copyrightYear?.let { requireU32("copyrightYear", it) }
+        isNew?.let { requireU32("isNew", it) }
+        seasonNumber?.let { requireU32("seasonNumber", it) }
+        seasonCount?.let { requireU32("seasonCount", it) }
+        episodeNumber?.let { requireU32("episodeNumber", it) }
+        episodeCount?.let { requireU32("episodeCount", it) }
+        partNumber?.let { requireU32("partNumber", it) }
+        partCount?.let { requireU32("partCount", it) }
+        episodeId?.let { requireU32("episodeId", it) }
+        seriesLinkId?.let { requireU32("seriesLinkId", it) }
+        dvrId?.let { requireU32("dvrId", it) }
+        nextEventId?.let { requireU32("nextEventId", it) }
     }
 }
 
@@ -563,7 +563,7 @@ public data class HtspEventDeleteMessage(
     public val eventId: Long,
 ) : HtspServerMessage {
     init {
-        requireServerU32("eventId", eventId)
+        requireU32("eventId", eventId)
     }
 }
 
@@ -579,10 +579,10 @@ public data class HtspMuxPacketMessage(
     public val payload: HtspBinary,
 ) : HtspServerMessage {
     init {
-        requireServerU32("subscriptionId", subscriptionId)
-        requireServerU32("frameType", frameType)
-        requireServerU32("streamIndex", streamIndex)
-        requireServerU32("duration", duration)
+        requireU32("subscriptionId", subscriptionId)
+        requireU32("frameType", frameType)
+        requireU32("streamIndex", streamIndex)
+        requireU32("duration", duration)
     }
 }
 
@@ -596,12 +596,12 @@ public data class HtspQueueStatusMessage(
     public val iFrameDropCount: Long,
 ) : HtspServerMessage {
     init {
-        requireServerU32("subscriptionId", subscriptionId)
-        requireServerU32("packetCount", packetCount)
-        requireServerU32("byteCount", byteCount)
-        requireServerU32("bFrameDropCount", bFrameDropCount)
-        requireServerU32("pFrameDropCount", pFrameDropCount)
-        requireServerU32("iFrameDropCount", iFrameDropCount)
+        requireU32("subscriptionId", subscriptionId)
+        requireU32("packetCount", packetCount)
+        requireU32("byteCount", byteCount)
+        requireU32("bFrameDropCount", bFrameDropCount)
+        requireU32("pFrameDropCount", pFrameDropCount)
+        requireU32("iFrameDropCount", iFrameDropCount)
     }
 }
 
@@ -624,7 +624,7 @@ public data class HtspSubscriptionStream(
     public val codecMetadata: HtspBinary? = null,
 ) {
     init {
-        requireServerU32("streamIndex", streamIndex)
+        requireU32("streamIndex", streamIndex)
         listOfNotNull(
                     compositionId,
                     ancillaryId,
@@ -638,7 +638,7 @@ public data class HtspSubscriptionStream(
                     channelCount,
                     sampleRate,
                     rdsUecp,
-                ).forEach { requireServerU32("stream field", it) }
+                ).forEach { requireU32("stream field", it) }
     }
 }
 
@@ -663,10 +663,10 @@ public class HtspSubscriptionStartMessage(
     public val status: String? = null,
     public val subscriptionError: String? = null,
 ) : HtspServerMessage {
-    public val streams: List<HtspSubscriptionStream>? = streams?.immutableServerSnapshot()
+    public val streams: List<HtspSubscriptionStream>? = streams?.immutableSnapshot()
 
     init {
-        requireServerU32("subscriptionId", subscriptionId)
+        requireU32("subscriptionId", subscriptionId)
     }
 }
 
@@ -676,7 +676,7 @@ public data class HtspSubscriptionStopMessage(
     public val subscriptionError: String?,
 ) : HtspServerMessage {
     init {
-        requireServerU32("subscriptionId", subscriptionId)
+        requireU32("subscriptionId", subscriptionId)
     }
 }
 
@@ -685,8 +685,8 @@ public data class HtspSubscriptionGraceMessage(
     public val graceTimeoutSeconds: Long,
 ) : HtspServerMessage {
     init {
-        requireServerU32("subscriptionId", subscriptionId)
-        requireServerU32("graceTimeoutSeconds", graceTimeoutSeconds)
+        requireU32("subscriptionId", subscriptionId)
+        requireU32("graceTimeoutSeconds", graceTimeoutSeconds)
     }
 }
 
@@ -696,7 +696,7 @@ public data class HtspSubscriptionStatusMessage(
     public val subscriptionError: String?,
 ) : HtspServerMessage {
     init {
-        requireServerU32("subscriptionId", subscriptionId)
+        requireU32("subscriptionId", subscriptionId)
     }
 }
 
@@ -711,13 +711,13 @@ public data class HtspSignalStatusMessage(
     public val uncorrectedBlockCount: Long?,
 ) : HtspServerMessage {
     init {
-        requireServerU32("subscriptionId", subscriptionId)
+        requireU32("subscriptionId", subscriptionId)
         listOfNotNull(
                     relativeSnr,
                     relativeSignal,
                     bitErrorRate,
                     uncorrectedBlockCount,
-                ).forEach { requireServerU32("signal field", it) }
+                ).forEach { requireU32("signal field", it) }
     }
 }
 
@@ -742,7 +742,7 @@ public data class HtspDescrambleInfoMessage(
                     providerId,
                     ecmTime,
                     hopCount,
-                ).forEach { requireServerU32("descramble field", it) }
+                ).forEach { requireU32("descramble field", it) }
     }
 }
 
@@ -751,7 +751,7 @@ public data class HtspSubscriptionSpeedMessage(
     public val speed: Int,
 ) : HtspServerMessage {
     init {
-        requireServerU32("subscriptionId", subscriptionId)
+        requireU32("subscriptionId", subscriptionId)
     }
 }
 
@@ -764,8 +764,8 @@ public data class HtspTimeshiftStatusMessage(
     public val speed: Int? = null,
 ) : HtspServerMessage {
     init {
-        requireServerU32("subscriptionId", subscriptionId)
-        requireServerU32("full", full)
+        requireU32("subscriptionId", subscriptionId)
+        requireU32("full", full)
     }
 }
 
@@ -777,9 +777,9 @@ public data class HtspSubscriptionSkipMessage(
     public val sizeBytes: Long?,
 ) : HtspServerMessage {
     init {
-        requireServerU32("subscriptionId", subscriptionId)
-        absolute?.let { requireServerU32("absolute", it) }
-        error?.let { requireServerU32("error", it) }
+        requireU32("subscriptionId", subscriptionId)
+        absolute?.let { requireU32("absolute", it) }
+        error?.let { requireU32("error", it) }
     }
 }
 
@@ -1418,7 +1418,7 @@ private fun Map<*, *>.optionalServerFlag(name: String): Boolean? =
 
 private fun Map<*, *>.requiredServerU32(name: String): Long {
     val value = requiredServerS64(name)
-    if (value !in 0L..SERVER_MESSAGE_U32_MAX) throw HtspServerMessageMappingException()
+    if (value !in 0L..HTSP_U32_MAX) throw HtspServerMessageMappingException()
     return value
 }
 
@@ -1444,9 +1444,9 @@ private fun Map<*, *>.requiredServerU32List(name: String): List<Long> {
     val source = this[name] as? List<*> ?: throw HtspServerMessageMappingException()
     return source.map { value ->
         val decoded = value as? Long ?: throw HtspServerMessageMappingException()
-        if (decoded !in 0L..SERVER_MESSAGE_U32_MAX) throw HtspServerMessageMappingException()
+        if (decoded !in 0L..HTSP_U32_MAX) throw HtspServerMessageMappingException()
         decoded
-    }.immutableServerSnapshot()
+    }.immutableSnapshot()
 }
 
 private fun Map<*, *>.optionalServerU32List(name: String): List<Long>? =
@@ -1455,7 +1455,7 @@ private fun Map<*, *>.optionalServerU32List(name: String): List<Long>? =
 private fun Map<*, *>.requiredServerStringList(name: String): List<String> {
     val source = this[name] as? List<*> ?: throw HtspServerMessageMappingException()
     return source.map { it as? String ?: throw HtspServerMessageMappingException() }
-        .immutableServerSnapshot()
+        .immutableSnapshot()
 }
 
 private fun Map<*, *>.optionalServerStringList(name: String): List<String>? =
@@ -1468,7 +1468,7 @@ private fun <T> Map<*, *>.requiredServerObjectList(
     val source = this[name] as? List<*> ?: throw HtspServerMessageMappingException()
     return source.map { value ->
         mapper(value as? Map<*, *> ?: throw HtspServerMessageMappingException())
-    }.immutableServerSnapshot()
+    }.immutableSnapshot()
 }
 
 private fun <T> Map<*, *>.optionalServerObjectList(

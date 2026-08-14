@@ -11,6 +11,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 GENERATORS = (
     "docs/htsp-protocol/generate_typed_requests.py",
+    "docs/htsp-protocol/generate_typed_request_models.py",
     "docs/htsp-protocol/generate_typed_server_messages.py",
     "docs/htsp-protocol/generate_typed_server_message_models.py",
 )

@@ -4,363 +4,19 @@
 from __future__ import annotations
 
 import argparse
+import sys
 import tempfile
-from dataclasses import dataclass, replace as dataclass_replace
+from dataclasses import replace as dataclass_replace
 from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent
+sys.path.insert(0, str(SCRIPT_DIR))
+
+from htsp_surface import CATALOG, SELECTOR_OVERLOADS, Entry, Parameter, SelectorOverload, parameter
+
 OUTPUT = (
     SCRIPT_DIR.parents[1]
     / "sdk/htsp-protocol/src/main/kotlin/at/bernhardberger/tvheadend/htsp/GeneratedHtspExtensions.kt"
-)
-
-
-@dataclass(frozen=True)
-class Parameter:
-    name: str
-    type: str
-    default: str | None = None
-
-
-@dataclass(frozen=True)
-class Entry:
-    method: str
-    request: str
-    response: str
-    access: str
-    minimum_version: int | None
-    parameters: tuple[Parameter, ...] = ()
-
-
-@dataclass(frozen=True)
-class SelectorOverload:
-    method: str
-    parameters: tuple[Parameter, ...]
-    request_arguments: tuple[str, ...]
-    function_name: str | None = None
-
-
-def parameter(name: str, type: str, default: str | None = None) -> Parameter:
-    return Parameter(name, type, default)
-
-
-# Reviewed constructor/type authority. Never derive this catalog from source literals.
-CATALOG: tuple[Entry, ...] = (
-    Entry("getProfiles", "GetProfilesRequest", "GetProfilesResponse", "ACCESS_HTSP_STREAMING", 16),
-    Entry("getDiskSpace", "GetDiskSpaceRequest", "GetDiskSpaceResponse", "ACCESS_HTSP_STREAMING", 3),
-    Entry("getSysTime", "GetSysTimeRequest", "GetSysTimeResponse", "ACCESS_HTSP_STREAMING", 3),
-    Entry("enableAsyncMetadata", "EnableAsyncMetadataRequest", "HtspEmptyResponse", "ACCESS_HTSP_STREAMING", None, (
-        parameter("epg", "Long?", "null"),
-        parameter("lastUpdate", "Long?", "null"),
-        parameter("epgMaxTime", "Long?", "null"),
-        parameter("language", "String?", "null"),
-    )),
-    Entry("getChannel", "GetChannelRequest", "GetChannelResponse", "ACCESS_HTSP_STREAMING", 14, (
-        parameter("channelId", "Long"),
-    )),
-    Entry("getEvent", "GetEventRequest", "GetEventResponse", "ACCESS_HTSP_STREAMING", None, (
-        parameter("eventId", "Long"),
-        parameter("language", "String?", "null"),
-    )),
-    Entry("getEvents", "GetEventsRequest", "GetEventsResponse", "ACCESS_HTSP_STREAMING", 4, (
-        parameter("channelId", "Long?", "null"),
-        parameter("eventId", "Long?", "null"),
-        parameter("language", "String?", "null"),
-        parameter("numFollowing", "Long?", "null"),
-        parameter("maxTime", "Long?", "null"),
-    )),
-    Entry("epgQuery", "EpgQueryRequest", "EpgQueryResponse", "ACCESS_HTSP_STREAMING", 4, (
-        parameter("query", "String"),
-        parameter("channelId", "Long?", "null"),
-        parameter("tagId", "Long?", "null"),
-        parameter("contentType", "Long?", "null"),
-        parameter("language", "String?", "null"),
-        parameter("fullText", "Boolean?", "null"),
-        parameter("mergeText", "Boolean?", "null"),
-        parameter("full", "Long?", "null"),
-        parameter("minDurationSeconds", "Long?", "null"),
-        parameter("maxDurationSeconds", "Long?", "null"),
-    )),
-    Entry("getEpgObject", "GetEpgObjectRequest", "GetEpgObjectResponse", "ACCESS_HTSP_STREAMING", None, (
-        parameter("id", "Long"),
-        parameter("objectType", "HtspEpgObjectType?", "HtspEpgObjectType.BROADCAST"),
-    )),
-    Entry("getDvrConfigs", "GetDvrConfigsRequest", "GetDvrConfigsResponse", "ACCESS_HTSP_RECORDER", 16),
-    Entry("addDvrEntry", "AddDvrEntryRequest", "AddDvrEntryResponse", "ACCESS_HTSP_RECORDER", 4, (
-        parameter("selector", "AddDvrEntrySelector"),
-        parameter("configName", "String?", "null"),
-        parameter("language", "String?", "null"),
-        parameter("title", "String?", "null"),
-        parameter("subtitle", "String?", "null"),
-        parameter("summary", "String?", "null"),
-        parameter("description", "String?", "null"),
-        parameter("ageRating", "Long?", "null"),
-    )),
-    Entry("updateDvrEntry", "UpdateDvrEntryRequest", "UpdateDvrEntryResponse", "ACCESS_HTSP_RECORDER", 5, (
-        parameter("entryId", "Long"),
-        parameter("channelId", "Long?", "null"),
-        parameter("configName", "String?", "null"),
-        parameter("title", "String?", "null"),
-        parameter("subtitle", "String?", "null"),
-        parameter("summary", "String?", "null"),
-        parameter("description", "String?", "null"),
-        parameter("language", "String?", "null"),
-        parameter("comment", "String?", "null"),
-        parameter("playCount", "Long?", "null"),
-        parameter("playPosition", "Long?", "null"),
-        parameter("enabled", "Long?", "null"),
-        parameter("start", "Long?", "null"),
-        parameter("stop", "Long?", "null"),
-        parameter("startExtra", "Long?", "null"),
-        parameter("stopExtra", "Long?", "null"),
-        parameter("retention", "Long?", "null"),
-        parameter("removal", "Long?", "null"),
-        parameter("priority", "Long?", "null"),
-        parameter("ageRating", "Long?", "null"),
-    )),
-    Entry("stopDvrEntry", "StopDvrEntryRequest", "StopDvrEntryResponse", "ACCESS_HTSP_RECORDER", None, (
-        parameter("entryId", "Long"),
-    )),
-    Entry("cancelDvrEntry", "CancelDvrEntryRequest", "CancelDvrEntryResponse", "ACCESS_HTSP_RECORDER", 5, (
-        parameter("entryId", "Long"),
-    )),
-    Entry("deleteDvrEntry", "DeleteDvrEntryRequest", "DeleteDvrEntryResponse", "ACCESS_HTSP_RECORDER", 4, (
-        parameter("entryId", "Long"),
-    )),
-    Entry("addAutorecEntry", "AddAutorecEntryRequest", "AddAutorecEntryResponse", "ACCESS_HTSP_RECORDER", 13, (
-        parameter("title", "String"),
-        parameter("channel", "HtspRecordingRuleChannel?", "null"),
-        parameter("minDurationSeconds", "Long?", "null"),
-        parameter("maxDurationSeconds", "Long?", "null"),
-        parameter("fullText", "Long?", "null"),
-        parameter("mergeText", "Long?", "null"),
-        parameter("duplicateDetection", "Long?", "null"),
-        parameter("maximumRecordingCount", "Long?", "null"),
-        parameter("broadcastType", "Long?", "null"),
-        parameter("startExtraMinutes", "Long?", "null"),
-        parameter("stopExtraMinutes", "Long?", "null"),
-        parameter("seriesLinkUri", "String?", "null"),
-        parameter("approximateStartMinutesSinceMidnight", "Int?", "null"),
-        parameter("startMinutesSinceMidnight", "Int?", "null"),
-        parameter("startWindowEndMinutesSinceMidnight", "Int?", "null"),
-        parameter("enabled", "Boolean?", "null"),
-        parameter("retentionDays", "Long?", "null"),
-        parameter("removalDays", "Long?", "null"),
-        parameter("priority", "Long?", "null"),
-        parameter("name", "String?", "null"),
-        parameter("comment", "String?", "null"),
-        parameter("directory", "String?", "null"),
-        parameter("configName", "String?", "null"),
-        parameter("daysOfWeekMask", "Long?", "null"),
-    )),
-    Entry("updateAutorecEntry", "UpdateAutorecEntryRequest", "UpdateAutorecEntryResponse", "ACCESS_HTSP_RECORDER", 25, (
-        parameter("id", "String"),
-        parameter("channel", "HtspRecordingRuleChannel?", "null"),
-        parameter("minDurationSeconds", "Long?", "null"),
-        parameter("maxDurationSeconds", "Long?", "null"),
-        parameter("fullText", "Long?", "null"),
-        parameter("mergeText", "Long?", "null"),
-        parameter("duplicateDetection", "Long?", "null"),
-        parameter("maximumRecordingCount", "Long?", "null"),
-        parameter("broadcastType", "Long?", "null"),
-        parameter("startExtraMinutes", "Long?", "null"),
-        parameter("stopExtraMinutes", "Long?", "null"),
-        parameter("seriesLinkUri", "String?", "null"),
-        parameter("startMinutesSinceMidnight", "Int?", "null"),
-        parameter("startWindowEndMinutesSinceMidnight", "Int?", "null"),
-        parameter("enabled", "Boolean?", "null"),
-        parameter("retentionDays", "Long?", "null"),
-        parameter("removalDays", "Long?", "null"),
-        parameter("priority", "Long?", "null"),
-        parameter("name", "String?", "null"),
-        parameter("comment", "String?", "null"),
-        parameter("directory", "String?", "null"),
-        parameter("title", "String?", "null"),
-        parameter("configName", "String?", "null"),
-        parameter("daysOfWeekMask", "Long?", "null"),
-    )),
-    Entry("deleteAutorecEntry", "DeleteAutorecEntryRequest", "DeleteAutorecEntryResponse", "ACCESS_HTSP_RECORDER", 13, (
-        parameter("id", "String"),
-    )),
-    Entry("addTimerecEntry", "AddTimerecEntryRequest", "AddTimerecEntryResponse", "ACCESS_HTSP_RECORDER", 18, (
-        parameter("title", "String"),
-        parameter("channel", "HtspRecordingRuleChannel?", "null"),
-        parameter("startMinutesSinceMidnight", "Long?", "null"),
-        parameter("stopMinutesSinceMidnight", "Long?", "null"),
-        parameter("enabled", "Boolean?", "null"),
-        parameter("retentionDays", "Long?", "null"),
-        parameter("removalDays", "Long?", "null"),
-        parameter("priority", "Long?", "null"),
-        parameter("name", "String?", "null"),
-        parameter("comment", "String?", "null"),
-        parameter("directory", "String?", "null"),
-        parameter("configName", "String?", "null"),
-        parameter("daysOfWeekMask", "Long?", "null"),
-    )),
-    Entry("updateTimerecEntry", "UpdateTimerecEntryRequest", "UpdateTimerecEntryResponse", "ACCESS_HTSP_RECORDER", 25, (
-        parameter("id", "String"),
-        parameter("channel", "HtspRecordingRuleChannel?", "null"),
-        parameter("startMinutesSinceMidnight", "Long?", "null"),
-        parameter("stopMinutesSinceMidnight", "Long?", "null"),
-        parameter("enabled", "Boolean?", "null"),
-        parameter("retentionDays", "Long?", "null"),
-        parameter("removalDays", "Long?", "null"),
-        parameter("priority", "Long?", "null"),
-        parameter("name", "String?", "null"),
-        parameter("comment", "String?", "null"),
-        parameter("directory", "String?", "null"),
-        parameter("title", "String?", "null"),
-        parameter("configName", "String?", "null"),
-        parameter("daysOfWeekMask", "Long?", "null"),
-    )),
-    Entry("deleteTimerecEntry", "DeleteTimerecEntryRequest", "DeleteTimerecEntryResponse", "ACCESS_HTSP_RECORDER", 18, (
-        parameter("id", "String"),
-    )),
-    Entry("getDvrCutpoints", "GetDvrCutpointsRequest", "GetDvrCutpointsResponse", "ACCESS_HTSP_RECORDER", 12, (
-        parameter("entryId", "Long"),
-    )),
-    Entry("getTicket", "GetTicketRequest", "GetTicketResponse", "ACCESS_HTSP_STREAMING", 5, (
-        parameter("selector", "GetTicketSelector"),
-    )),
-    Entry("subscribe", "SubscribeRequest", "SubscribeResponse", "ACCESS_HTSP_STREAMING", None, (
-        parameter("subscriptionId", "Long"),
-        parameter("channel", "SubscribeChannel"),
-        parameter("profile", "String?", "null"),
-        parameter("weight", "Long?", "null"),
-        parameter("ninetyKhz", "Long?", "null"),
-        parameter("timeshiftPeriodSeconds", "Long?", "null"),
-        parameter("queueDepth", "Long?", "null"),
-    )),
-    Entry("unsubscribe", "UnsubscribeRequest", "HtspEmptyResponse", "ACCESS_HTSP_STREAMING", None, (
-        parameter("subscriptionId", "Long"),
-    )),
-    Entry("subscriptionChangeWeight", "SubscriptionChangeWeightRequest", "HtspEmptyResponse", "ACCESS_HTSP_STREAMING", 5, (
-        parameter("subscriptionId", "Long"),
-        parameter("weight", "Long?", "null"),
-    )),
-    Entry("subscriptionSeek", "SubscriptionSeekRequest", "HtspEmptyResponse", "ACCESS_HTSP_STREAMING", 9, (
-        parameter("subscriptionId", "Long"),
-        parameter("position", "SubscriptionSeekPosition"),
-        parameter("absolute", "Long?", "null"),
-    )),
-    Entry("subscriptionSkip", "SubscriptionSkipRequest", "HtspEmptyResponse", "ACCESS_HTSP_STREAMING", 9, (
-        parameter("subscriptionId", "Long"),
-        parameter("position", "SubscriptionSeekPosition"),
-        parameter("absolute", "Long?", "null"),
-    )),
-    Entry("subscriptionSpeed", "SubscriptionSpeedRequest", "HtspEmptyResponse", "ACCESS_HTSP_STREAMING", 9, (
-        parameter("subscriptionId", "Long"),
-        parameter("speed", "Int"),
-    )),
-    Entry("subscriptionLive", "SubscriptionLiveRequest", "HtspEmptyResponse", "ACCESS_HTSP_STREAMING", 9, (
-        parameter("subscriptionId", "Long"),
-    )),
-    Entry("subscriptionFilterStream", "SubscriptionFilterStreamRequest", "HtspEmptyResponse", "ACCESS_HTSP_STREAMING", 12, (
-        parameter("subscriptionId", "Long"),
-        parameter("enable", "List<Long>?", "null"),
-        parameter("disable", "List<Long>?", "null"),
-    )),
-    Entry("fileOpen", "FileOpenRequest", "FileOpenResponse", "ACCESS_HTSP_RECORDER", 8, (
-        parameter("file", "String"),
-    )),
-    Entry("fileRead", "FileReadRequest", "FileReadResponse", "ACCESS_HTSP_RECORDER", 8, (
-        parameter("id", "Long"),
-        parameter("size", "Long"),
-        parameter("offset", "Long?", "null"),
-    )),
-    Entry("fileClose", "FileCloseRequest", "FileCloseResponse", "ACCESS_HTSP_RECORDER", 8, (
-        parameter("id", "Long"),
-    )),
-    Entry("fileStat", "FileStatRequest", "FileStatResponse", "ACCESS_HTSP_RECORDER", 8, (
-        parameter("id", "Long"),
-    )),
-    Entry("fileSeek", "FileSeekRequest", "FileSeekResponse", "ACCESS_HTSP_RECORDER", 8, (
-        parameter("id", "Long"),
-        parameter("offset", "Long"),
-        parameter("whence", "FileSeekWhence?", "null"),
-    )),
-    Entry("api", "ApiRequest", "ApiResponse", "ACCESS_ANONYMOUS", 24, (
-        parameter("path", "String"),
-        parameter("args", "HtspApiObject?", "null"),
-    )),
-    Entry("hello", "HelloRequest", "HelloResponse", "ACCESS_ANONYMOUS", None, (
-        parameter("htspVersion", "Long"),
-        parameter("clientName", "String"),
-    )),
-    Entry("authenticate", "AuthenticateRequest", "AuthenticateResponse", "ACCESS_ANONYMOUS", None),
-)
-
-
-SELECTOR_OVERLOADS: tuple[SelectorOverload, ...] = (
-    SelectorOverload("addDvrEntry", (
-        parameter("eventId", "Long"),
-        *CATALOG[10].parameters[1:],
-    ), (
-        "selector = AddDvrEntrySelector.Event(eventId)",
-        *(f"{value.name} = {value.name}" for value in CATALOG[10].parameters[1:]),
-    )),
-    SelectorOverload("addDvrEntry", (
-        parameter("channelId", "Long"),
-        parameter("start", "Long"),
-        parameter("stop", "Long"),
-        *CATALOG[10].parameters[1:],
-    ), (
-        "selector = AddDvrEntrySelector.ExplicitChannelTime(channelId, start, stop)",
-        *(f"{value.name} = {value.name}" for value in CATALOG[10].parameters[1:]),
-    )),
-    SelectorOverload("subscribe", (
-        CATALOG[23].parameters[0],
-        parameter("channelId", "Long"),
-        *CATALOG[23].parameters[2:],
-    ), (
-        "subscriptionId = subscriptionId",
-        "channel = SubscribeChannel.Id(channelId)",
-        *(f"{value.name} = {value.name}" for value in CATALOG[23].parameters[2:]),
-    )),
-    SelectorOverload("subscribe", (
-        CATALOG[23].parameters[0],
-        parameter("channelName", "String"),
-        *CATALOG[23].parameters[2:],
-    ), (
-        "subscriptionId = subscriptionId",
-        "channel = SubscribeChannel.Name(channelName)",
-        *(f"{value.name} = {value.name}" for value in CATALOG[23].parameters[2:]),
-    )),
-    SelectorOverload("subscriptionSeek", (
-        CATALOG[26].parameters[0],
-        parameter("position", "SubscriptionSeekPosition.Time"),
-        *CATALOG[26].parameters[2:],
-    ), tuple(f"{value.name} = {value.name}" for value in CATALOG[26].parameters)),
-    SelectorOverload("subscriptionSeek", (
-        CATALOG[26].parameters[0],
-        parameter("position", "SubscriptionSeekPosition.Size"),
-        *CATALOG[26].parameters[2:],
-    ), tuple(f"{value.name} = {value.name}" for value in CATALOG[26].parameters)),
-    SelectorOverload("subscriptionSkip", (
-        CATALOG[27].parameters[0],
-        parameter("position", "SubscriptionSeekPosition.Time"),
-        *CATALOG[27].parameters[2:],
-    ), tuple(f"{value.name} = {value.name}" for value in CATALOG[27].parameters)),
-    SelectorOverload("subscriptionSkip", (
-        CATALOG[27].parameters[0],
-        parameter("position", "SubscriptionSeekPosition.Size"),
-        *CATALOG[27].parameters[2:],
-    ), tuple(f"{value.name} = {value.name}" for value in CATALOG[27].parameters)),
-    SelectorOverload("getTicket", (
-        parameter("selector", "GetTicketSelector.Channel"),
-    ), ("selector = selector",)),
-    SelectorOverload("getTicket", (
-        parameter("selector", "GetTicketSelector.Dvr"),
-    ), ("selector = selector",)),
-    SelectorOverload("fileClose", (
-        parameter("id", "Long"),
-        parameter("playPositionSeconds", "Long?"),
-        parameter("playCount", "Long?"),
-    ), (
-        "id = id",
-        "playPositionSeconds = playPositionSeconds",
-        "playCount = playCount",
-    ), "fileCloseWithProgress"),
 )
 
 
@@ -397,6 +53,49 @@ def render_extension(
     return lines
 
 
+def project_constructor_parameters(
+    entry: Entry,
+    parameter_names: tuple[str, ...],
+    *,
+    strip_defaults: bool = False,
+) -> tuple[Parameter, ...]:
+    if not parameter_names or len(parameter_names) != len(set(parameter_names)):
+        raise ValueError(f"{entry.method}: constructor projection must contain unique parameter names")
+    by_name = {value.name: value for value in entry.parameters}
+    if len(by_name) != len(entry.parameters):
+        raise ValueError(f"{entry.method}: constructor parameter names must be unique")
+    try:
+        projected = tuple(by_name[name] for name in parameter_names)
+    except KeyError as error:
+        raise ValueError(f"{entry.method}: projection references unknown constructor parameter {error.args[0]}") from error
+    if strip_defaults:
+        projected = tuple(dataclass_replace(value, default=None) for value in projected)
+    return projected
+
+
+def extension_parameters(entry: Entry) -> tuple[Parameter, ...]:
+    projection = entry.canonical_extension_projection
+    return entry.parameters if projection is None else project_constructor_parameters(entry, projection)
+
+
+def overload_parameters(
+    entry: Entry,
+    overload: SelectorOverload,
+) -> tuple[tuple[Parameter, ...], tuple[str, ...]]:
+    if overload.parameter_projection:
+        if overload.parameters or overload.request_arguments:
+            raise ValueError(f"{entry.method}: projected overload must derive parameters and request arguments")
+        parameters = project_constructor_parameters(
+            entry,
+            overload.parameter_projection,
+            strip_defaults=overload.strip_projection_defaults,
+        )
+        return parameters, tuple(f"{value.name} = {value.name}" for value in parameters)
+    if overload.strip_projection_defaults:
+        raise ValueError(f"{entry.method}: default stripping requires a constructor projection")
+    return overload.parameters, overload.request_arguments
+
+
 def render() -> str:
     lines = [
         "// Generated by docs/htsp-protocol/generate_typed_requests.py. DO NOT EDIT.",
@@ -425,45 +124,59 @@ def render() -> str:
         )
     lines.extend((")", ""))
     for entry in CATALOG:
-        request_arguments = tuple(f"{value.name} = {value.name}" for value in entry.parameters)
-        lines.extend(render_extension(entry, entry.parameters, request_arguments))
+        parameters = extension_parameters(entry)
+        request_arguments = tuple(f"{value.name} = {value.name}" for value in parameters)
+        lines.extend(render_extension(entry, parameters, request_arguments))
         for overload in SELECTOR_OVERLOADS:
             if overload.method == entry.method:
+                parameters, request_arguments = overload_parameters(entry, overload)
                 lines.extend(
                     render_extension(
                         entry,
-                        overload.parameters,
-                        overload.request_arguments,
+                        parameters,
+                        request_arguments,
                         overload.function_name,
                     )
                 )
     return "\n".join(lines)
 
 
-def validate_file_close_progress_overload(
+def validate_file_close_projections(
+    catalog: tuple[Entry, ...],
     overloads: tuple[SelectorOverload, ...],
 ) -> None:
+    matching_entries = tuple(entry for entry in catalog if entry.method == "fileClose")
+    if len(matching_entries) != 1:
+        raise ValueError("catalog must contain exactly one fileClose entry")
+    entry = matching_entries[0]
+    if entry.canonical_extension_projection != ("id",):
+        raise ValueError("canonical fileClose must be an explicit id-only constructor projection")
+    if len(entry.parameters) != 3 or tuple(value.name for value in entry.parameters[:1]) != entry.canonical_extension_projection:
+        raise ValueError("FileCloseRequest must retain one id plus two progress constructor parameters")
+    if entry.parameters[0].default is not None or any(value.default != "null" for value in entry.parameters[1:]):
+        raise ValueError("FileCloseRequest must retain its required id and optional progress defaults")
+    if extension_parameters(entry) != (entry.parameters[0],):
+        raise ValueError("canonical fileClose projection drifted from FileCloseRequest")
     matching = tuple(
         overload for overload in overloads
         if overload.function_name == "fileCloseWithProgress"
     )
-    if matching != (
-        SelectorOverload(
-            method="fileClose",
-            parameters=(
-                parameter("id", "Long"),
-                parameter("playPositionSeconds", "Long?"),
-                parameter("playCount", "Long?"),
-            ),
-            request_arguments=(
-                "id = id",
-                "playPositionSeconds = playPositionSeconds",
-                "playCount = playCount",
-            ),
-            function_name="fileCloseWithProgress",
-        ),
+    if len(matching) != 1:
+        raise ValueError("fileCloseWithProgress must preserve its exact reviewed constructor projection")
+    overload = matching[0]
+    if (
+        overload.method != entry.method
+        or overload.parameters
+        or overload.request_arguments
+        or overload.parameter_projection != tuple(value.name for value in entry.parameters)
+        or not overload.strip_projection_defaults
     ):
-        raise ValueError("fileCloseWithProgress must preserve its exact reviewed overload mapping")
+        raise ValueError("fileCloseWithProgress must derive its required parameters from FileCloseRequest")
+    parameters, arguments = overload_parameters(entry, overload)
+    if parameters != tuple(dataclass_replace(value, default=None) for value in entry.parameters):
+        raise ValueError("fileCloseWithProgress parameters must derive from the full constructor without defaults")
+    if arguments != tuple(f"{value.name} = {value.name}" for value in entry.parameters):
+        raise ValueError("fileCloseWithProgress request arguments must derive from the full constructor")
 
 
 def validate_catalog() -> None:
@@ -521,7 +234,7 @@ def validate_catalog() -> None:
     ):
         raise ValueError("subscriptionSkip catalog entry must preserve the reviewed constructor contract")
     file_operations = CATALOG[31:36]
-    if file_operations != (
+    if (*file_operations[:2], *file_operations[3:]) != (
         Entry("fileOpen", "FileOpenRequest", "FileOpenResponse", "ACCESS_HTSP_RECORDER", 8, (
             parameter("file", "String"),
         )),
@@ -529,9 +242,6 @@ def validate_catalog() -> None:
             parameter("id", "Long"),
             parameter("size", "Long"),
             parameter("offset", "Long?", "null"),
-        )),
-        Entry("fileClose", "FileCloseRequest", "FileCloseResponse", "ACCESS_HTSP_RECORDER", 8, (
-            parameter("id", "Long"),
         )),
         Entry("fileStat", "FileStatRequest", "FileStatResponse", "ACCESS_HTSP_RECORDER", 8, (
             parameter("id", "Long"),
@@ -543,6 +253,15 @@ def validate_catalog() -> None:
         )),
     ):
         raise ValueError("file operation catalog entries must preserve the reviewed constructor contract")
+    file_close = file_operations[2]
+    if (
+        file_close.method,
+        file_close.request,
+        file_close.response,
+        file_close.access,
+        file_close.minimum_version,
+    ) != ("fileClose", "FileCloseRequest", "FileCloseResponse", "ACCESS_HTSP_RECORDER", 8):
+        raise ValueError("fileClose catalog identity must preserve the reviewed contract")
     api_bridge = CATALOG[36]
     if api_bridge != Entry("api", "ApiRequest", "ApiResponse", "ACCESS_ANONYMOUS", 24, (
         parameter("path", "String"),
@@ -565,59 +284,61 @@ def validate_catalog() -> None:
         ("getTicket", None), ("getTicket", None), ("fileClose", "fileCloseWithProgress"),
     ):
         raise ValueError("typed request overload catalog must contain exactly eleven reviewed cases")
-    validate_file_close_progress_overload(SELECTOR_OVERLOADS)
+    validate_file_close_projections(CATALOG, SELECTOR_OVERLOADS)
 
 
 def self_test() -> None:
     validate_catalog()
+    try:
+        validate_file_close_projections(
+            tuple(
+                dataclass_replace(entry, canonical_extension_projection=None)
+                if entry.method == "fileClose" else entry
+                for entry in CATALOG
+            ),
+            SELECTOR_OVERLOADS,
+        )
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("fileClose canonical projection mutation was accepted")
     file_close_progress = SELECTOR_OVERLOADS[-1]
     invalid_file_close_progress_catalogs = (
         SELECTOR_OVERLOADS[:-1] + (
             dataclass_replace(
                 file_close_progress,
-                parameters=(
-                    parameter("id", "Long"),
-                    parameter("playCount", "Long?"),
-                    parameter("playPositionSeconds", "Long?"),
-                ),
+                parameter_projection=("id", "playCount", "playPositionSeconds"),
             ),
         ),
         SELECTOR_OVERLOADS[:-1] + (
             dataclass_replace(
                 file_close_progress,
-                request_arguments=(
-                    "id = id",
-                    "playCount = playCount",
-                    "playPositionSeconds = playPositionSeconds",
-                ),
+                parameter_projection=("id", "playPositionSeconds"),
             ),
         ),
         SELECTOR_OVERLOADS[:-1] + (
             dataclass_replace(
                 file_close_progress,
-                request_arguments=("id = id", "playPositionSeconds = playPositionSeconds"),
+                parameter_projection=("id", "playPositionSeconds", "playPositionSeconds", "playCount"),
             ),
         ),
         SELECTOR_OVERLOADS[:-1] + (
             dataclass_replace(
                 file_close_progress,
-                request_arguments=(
-                    "id = id",
-                    "playPositionSeconds = playPositionSeconds",
-                    "playPositionSeconds = playPositionSeconds",
-                    "playCount = playCount",
-                ),
+                parameter_projection=("id", "playPosition", "playCount"),
             ),
         ),
         SELECTOR_OVERLOADS[:-1] + (
             dataclass_replace(
                 file_close_progress,
-                request_arguments=(
-                    "id = id",
-                    "playPosition = playPositionSeconds",
-                    "playCount = playCount",
-                ),
+                strip_projection_defaults=False,
             ),
+        ),
+        SELECTOR_OVERLOADS[:-1] + (
+            dataclass_replace(file_close_progress, parameters=(parameter("id", "Long"),)),
+        ),
+        SELECTOR_OVERLOADS[:-1] + (
+            dataclass_replace(file_close_progress, request_arguments=("id = id",)),
         ),
         SELECTOR_OVERLOADS[:-1] + (dataclass_replace(file_close_progress, method="fileRead"),),
         SELECTOR_OVERLOADS[:-1] + (
@@ -626,7 +347,7 @@ def self_test() -> None:
     )
     for invalid_overloads in invalid_file_close_progress_catalogs:
         try:
-            validate_file_close_progress_overload(invalid_overloads)
+            validate_file_close_projections(CATALOG, invalid_overloads)
         except ValueError:
             pass
         else:

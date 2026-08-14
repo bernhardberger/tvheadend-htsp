@@ -18,6 +18,7 @@ class KotlinProperty:
     default: str | None = None
     stored: bool = True
     visibility: str | None = "public"
+    modifier: str = ""
 
 
 @dataclass(frozen=True)
@@ -56,6 +57,10 @@ class KotlinDeclaration:
     validations: tuple[ValidationFeature, ...] = ()
     equality: EqualityFeature | None = None
     visibility: str = "public"
+    annotations: tuple[str, ...] = ()
+    feature: str = "standard"
+    nested: tuple["KotlinDeclaration", ...] = ()
+    enum_values: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -74,6 +79,23 @@ class WireField:
     nested_wire_names: tuple[str, ...] = ()
     lenient_malformed: bool = False
     direction: str = "server-to-client"
+    source_expression: str | None = None
+
+
+@dataclass(frozen=True)
+class ConditionalPresenceRule:
+    owner: str
+    wire_name: str
+    kind: str
+    minimum_version: int
+
+
+@dataclass(frozen=True)
+class CoupledPresenceGroup:
+    owner: str
+    name: str
+    kind: str
+    wire_names: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -91,6 +113,55 @@ class ServerMessageEntry:
     decoder: str
     minimum_version: int | None
     fields: tuple[WireField, ...]
+
+
+@dataclass(frozen=True)
+class Parameter:
+    name: str
+    type: str
+    default: str | None = None
+
+
+@dataclass(frozen=True)
+class Entry:
+    method: str
+    request: str
+    response: str
+    access: str
+    minimum_version: int | None
+    parameters: tuple[Parameter, ...] = ()
+    canonical_extension_projection: tuple[str, ...] | None = None
+
+
+@dataclass(frozen=True)
+class RequestModelSpec:
+    method: str
+    constructor_parameters: tuple[Parameter, ...]
+    kind: str = "data class"
+    kdoc: str | None = None
+    annotations: tuple[str, ...] = ()
+    minimum_expression: str | None = None
+    interfaces: tuple[str, ...] = ()
+    validations: tuple[str, ...] = ()
+    unstored_parameters: tuple[str, ...] = ()
+    snapshots: tuple[str, ...] = ()
+    body_feature: str = "standard"
+    encoder_feature: str = "fields"
+    decoder_feature: str = "fields"
+
+
+@dataclass(frozen=True)
+class SelectorOverload:
+    method: str
+    parameters: tuple[Parameter, ...] = ()
+    request_arguments: tuple[str, ...] = ()
+    function_name: str | None = None
+    parameter_projection: tuple[str, ...] = ()
+    strip_projection_defaults: bool = False
+
+
+def parameter(name: str, type: str, default: str | None = None) -> Parameter:
+    return Parameter(name, type, default)
 
 
 def P(name: str, kotlin_type: str, default: str | None = None, *, stored: bool = True) -> KotlinProperty:
@@ -128,6 +199,32 @@ def W(
         nested_shape=nested_shape,
         nested_wire_names=nested_wire_names,
         lenient_malformed=lenient_malformed,
+    )
+
+
+def RW(
+    owner: str,
+    kotlin_property: str,
+    wire_type: str,
+    presence: str,
+    encoder: str,
+    wire_name: str,
+    *,
+    minimum_version: int | None = None,
+    nested_shape: str | None = None,
+    source_expression: str | None = None,
+) -> WireField:
+    return WireField(
+        owner=owner,
+        kotlin_property=kotlin_property,
+        wire_names=(wire_name,),
+        wire_type=wire_type,
+        presence=presence,
+        decoder=encoder,
+        minimum_version=minimum_version,
+        nested_shape=nested_shape,
+        direction="client-to-server",
+        source_expression=source_expression,
     )
 
 
@@ -294,20 +391,20 @@ EVENT_U32 = tuple((name, name) for name in (
 
 SERVER_DECLARATIONS: tuple[KotlinDeclaration, ...] = (
     KotlinDeclaration("HtspChannelAddMessage", "class", CHANNEL_PROPERTIES, supertype="HtspServerMessage",
-        snapshots=(S("services", "List<HtspChannelService>?", "services?.immutableServerSnapshot()"), S("tagIds", "List<Long>?", "tagIds?.immutableServerSnapshot()")),
+        snapshots=(S("services", "List<HtspChannelService>?", "services?.immutableSnapshot()"), S("tagIds", "List<Long>?", "tagIds?.immutableSnapshot()")),
         validations=(V("u32", ("channelId", "channelId"), ("channelNumber", "channelNumber"), ("channelNumberMinor", "channelNumberMinor"), ("currentEventId", "currentEventId"), ("nextEventId", "nextEventId")), V("u32-list", ("tagIds", "this.tagIds")), V("channel-services"))),
     KotlinDeclaration("HtspChannelUpdateMessage", "class", (
         CHANNEL_PROPERTIES[0], CHANNEL_PROPERTIES[2], CHANNEL_PROPERTIES[3], CHANNEL_PROPERTIES[4],
         CHANNEL_PROPERTIES[1], *CHANNEL_PROPERTIES[5:]), supertype="HtspServerMessage",
-        snapshots=(S("services", "List<HtspChannelService>?", "services?.immutableServerSnapshot()"), S("tagIds", "List<Long>?", "tagIds?.immutableServerSnapshot()")),
+        snapshots=(S("services", "List<HtspChannelService>?", "services?.immutableSnapshot()"), S("tagIds", "List<Long>?", "tagIds?.immutableSnapshot()")),
         validations=(V("u32", ("channelId", "channelId"), ("channelNumber", "channelNumber"), ("channelNumberMinor", "channelNumberMinor"), ("currentEventId", "currentEventId"), ("nextEventId", "nextEventId")), V("u32-list", ("tagIds", "this.tagIds")), V("channel-services"))),
     KotlinDeclaration("HtspChannelDeleteMessage", "data class", (P("channelId", "Long"),), supertype="HtspServerMessage", validations=(V("u32", ("channelId", "channelId")),)),
-    KotlinDeclaration("HtspTagAddMessage", "class", TAG_PROPERTIES, supertype="HtspServerMessage", snapshots=(S("channelIds", "List<Long>?", "channelIds?.immutableServerSnapshot()"),), validations=(V("u32", ("tagId", "tagId"), ("tagIndex", "tagIndex"), ("tagTitledIcon", "tagTitledIcon")), V("u32-list", ("channelIds", "this.channelIds")))),
-    KotlinDeclaration("HtspTagUpdateMessage", "class", (TAG_PROPERTIES[0], TAG_PROPERTIES[2], TAG_PROPERTIES[3], TAG_PROPERTIES[1], *TAG_PROPERTIES[4:]), supertype="HtspServerMessage", snapshots=(S("channelIds", "List<Long>?", "channelIds?.immutableServerSnapshot()"),), validations=(V("u32", ("tagId", "tagId"), ("tagIndex", "tagIndex"), ("tagTitledIcon", "tagTitledIcon")), V("u32-list", ("channelIds", "this.channelIds")))),
+    KotlinDeclaration("HtspTagAddMessage", "class", TAG_PROPERTIES, supertype="HtspServerMessage", snapshots=(S("channelIds", "List<Long>?", "channelIds?.immutableSnapshot()"),), validations=(V("u32", ("tagId", "tagId"), ("tagIndex", "tagIndex"), ("tagTitledIcon", "tagTitledIcon")), V("u32-list", ("channelIds", "this.channelIds")))),
+    KotlinDeclaration("HtspTagUpdateMessage", "class", (TAG_PROPERTIES[0], TAG_PROPERTIES[2], TAG_PROPERTIES[3], TAG_PROPERTIES[1], *TAG_PROPERTIES[4:]), supertype="HtspServerMessage", snapshots=(S("channelIds", "List<Long>?", "channelIds?.immutableSnapshot()"),), validations=(V("u32", ("tagId", "tagId"), ("tagIndex", "tagIndex"), ("tagTitledIcon", "tagTitledIcon")), V("u32-list", ("channelIds", "this.channelIds")))),
     KotlinDeclaration("HtspTagDeleteMessage", "data class", (P("tagId", "Long"),), supertype="HtspServerMessage", validations=(V("u32", ("tagId", "tagId")),)),
     KotlinDeclaration("HtspDvrRecordingFile", "data class", (P("fileId", "Long?"), P("path", "String?"), P("start", "Long?"), P("stop", "Long?"), P("sizeBytes", "Long?")), kdoc="Known bounded fields from one otherwise upstream-dynamic DVR recording-file map.", validations=(V("u32", ("fileId", "fileId")),)),
-    KotlinDeclaration("HtspDvrEntryAddMessage", "class", DVR_PROPERTIES, supertype="HtspServerMessage", snapshots=(S("files", "List<HtspDvrRecordingFile>?", "files?.immutableServerSnapshot()"),), validations=(V("u32", ("entryId", "entryId"), *DVR_U32),)),
-    KotlinDeclaration("HtspDvrEntryUpdateMessage", "class", DVR_PROPERTIES, supertype="HtspServerMessage", snapshots=(S("files", "List<HtspDvrRecordingFile>?", "files?.immutableServerSnapshot()"),), validations=(V("u32", ("entryId", "entryId"), *DVR_U32),)),
+    KotlinDeclaration("HtspDvrEntryAddMessage", "class", DVR_PROPERTIES, supertype="HtspServerMessage", snapshots=(S("files", "List<HtspDvrRecordingFile>?", "files?.immutableSnapshot()"),), validations=(V("u32", ("entryId", "entryId"), *DVR_U32),)),
+    KotlinDeclaration("HtspDvrEntryUpdateMessage", "class", DVR_PROPERTIES, supertype="HtspServerMessage", snapshots=(S("files", "List<HtspDvrRecordingFile>?", "files?.immutableSnapshot()"),), validations=(V("u32", ("entryId", "entryId"), *DVR_U32),)),
     KotlinDeclaration("HtspDvrEntryDeleteMessage", "data class", (P("entryId", "Long"),), supertype="HtspServerMessage", validations=(V("u32", ("entryId", "entryId")),)),
     KotlinDeclaration("HtspAutorecEntryAddMessage", "data class", AUTOREC_ADD_PROPERTIES, kdoc="A complete automatic DVR rule announced during asynchronous metadata sync.", supertype="HtspServerMessage", validations=(V("u32", *AUTOREC_U32),)),
     KotlinDeclaration("HtspAutorecEntryUpdateMessage", "data class", AUTOREC_UPDATE_PROPERTIES, kdoc="A partial automatic DVR rule update. Null properties were absent on the wire.", supertype="HtspServerMessage", validations=(V("u32", *AUTOREC_U32),)),
@@ -315,15 +412,15 @@ SERVER_DECLARATIONS: tuple[KotlinDeclaration, ...] = (
     KotlinDeclaration("HtspTimerecEntryAddMessage", "data class", TIMEREC_ADD_PROPERTIES, kdoc="A complete time-based DVR rule announced during asynchronous metadata sync.", supertype="HtspServerMessage", validations=(V("timerec"),)),
     KotlinDeclaration("HtspTimerecEntryUpdateMessage", "data class", TIMEREC_UPDATE_PROPERTIES, kdoc="A partial time-based DVR rule update. Null properties were absent on the wire.", supertype="HtspServerMessage", validations=(V("timerec"),)),
     KotlinDeclaration("HtspTimerecEntryDeleteMessage", "data class", (P("id", "String"),), supertype="HtspServerMessage"),
-    KotlinDeclaration("HtspEventAddMessage", "class", (P("event", "HtspEvent", stored=False), P("genre", "String?", "null"), P("episodeId", "Long?", "null"), P("seriesLinkId", "Long?", "null")), supertype="HtspServerMessage", snapshots=(S("event", "HtspEvent", "event.copy(categories = event.categories?.immutableServerSnapshot(), keywords = event.keywords?.immutableServerSnapshot())"),), validations=(V("event-add"),)),
-    KotlinDeclaration("HtspEventUpdateMessage", "class", EVENT_UPDATE_PROPERTIES, supertype="HtspServerMessage", snapshots=(S("categories", "List<String>?", "categories?.immutableServerSnapshot()"), S("keywords", "List<String>?", "keywords?.immutableServerSnapshot()")), validations=(V("u32", ("eventId", "eventId"), *EVENT_U32),)),
+    KotlinDeclaration("HtspEventAddMessage", "class", (P("event", "HtspEvent", stored=False), P("genre", "String?", "null"), P("episodeId", "Long?", "null"), P("seriesLinkId", "Long?", "null")), supertype="HtspServerMessage", snapshots=(S("event", "HtspEvent", "event.copy(categories = event.categories?.immutableSnapshot(), keywords = event.keywords?.immutableSnapshot())"),), validations=(V("event-add"),)),
+    KotlinDeclaration("HtspEventUpdateMessage", "class", EVENT_UPDATE_PROPERTIES, supertype="HtspServerMessage", snapshots=(S("categories", "List<String>?", "categories?.immutableSnapshot()"), S("keywords", "List<String>?", "keywords?.immutableSnapshot()")), validations=(V("u32", ("eventId", "eventId"), *EVENT_U32),)),
     KotlinDeclaration("HtspEventDeleteMessage", "data class", (P("eventId", "Long"),), supertype="HtspServerMessage", validations=(V("u32", ("eventId", "eventId")),)),
     KotlinDeclaration("HtspInitialSyncCompletedMessage", "data object", supertype="HtspServerMessage"),
     KotlinDeclaration("HtspMuxPacketMessage", "data class", (P("subscriptionId", "Long"), P("frameType", "Long"), P("streamIndex", "Long"), P("decodingTimestamp", "Long?"), P("presentationTimestamp", "Long?"), P("duration", "Long"), P("payload", "HtspBinary")), supertype="HtspServerMessage", validations=(V("u32", ("subscriptionId", "subscriptionId"), ("frameType", "frameType"), ("streamIndex", "streamIndex"), ("duration", "duration")),)),
     KotlinDeclaration("HtspQueueStatusMessage", "data class", (P("subscriptionId", "Long"), P("packetCount", "Long"), P("byteCount", "Long"), P("delay", "Long?"), P("bFrameDropCount", "Long"), P("pFrameDropCount", "Long"), P("iFrameDropCount", "Long")), supertype="HtspServerMessage", validations=(V("u32", ("subscriptionId", "subscriptionId"), ("packetCount", "packetCount"), ("byteCount", "byteCount"), ("bFrameDropCount", "bFrameDropCount"), ("pFrameDropCount", "pFrameDropCount"), ("iFrameDropCount", "iFrameDropCount")),)),
     KotlinDeclaration("HtspSubscriptionStream", "data class", (P("streamIndex", "Long"), P("streamType", "String"), P("language", "String?"), P("compositionId", "Long?"), P("ancillaryId", "Long?"), P("width", "Long?"), P("height", "Long?"), P("frameDuration", "Long?"), P("aspectNumerator", "Long?"), P("aspectDenominator", "Long?"), P("audioType", "Long?"), P("audioVersion", "Long?"), P("channelCount", "Long?"), P("sampleRate", "Long?"), P("rdsUecp", "Long?"), P("codecMetadata", "HtspBinary?", "null")), validations=(V("u32", ("streamIndex", "streamIndex")), V("u32-group", *(("stream field", n) for n in ("compositionId", "ancillaryId", "width", "height", "frameDuration", "aspectNumerator", "aspectDenominator", "audioType", "audioVersion", "channelCount", "sampleRate", "rdsUecp"))))),
     KotlinDeclaration("HtspSubscriptionSourceInfo", "data class", tuple(P(n, "String?") for n in ("adapterUuid", "muxUuid", "networkUuid", "adapter", "mux", "network", "networkType", "provider", "service", "satellitePosition"))),
-    KotlinDeclaration("HtspSubscriptionStartMessage", "class", (P("subscriptionId", "Long"), P("streams", "List<HtspSubscriptionStream>?", "null", stored=False), P("sourceInfo", "HtspSubscriptionSourceInfo?", "null"), P("codecMetadata", "HtspBinary?", "null"), P("status", "String?", "null"), P("subscriptionError", "String?", "null")), supertype="HtspServerMessage", snapshots=(S("streams", "List<HtspSubscriptionStream>?", "streams?.immutableServerSnapshot()"),), validations=(V("u32", ("subscriptionId", "subscriptionId")),)),
+    KotlinDeclaration("HtspSubscriptionStartMessage", "class", (P("subscriptionId", "Long"), P("streams", "List<HtspSubscriptionStream>?", "null", stored=False), P("sourceInfo", "HtspSubscriptionSourceInfo?", "null"), P("codecMetadata", "HtspBinary?", "null"), P("status", "String?", "null"), P("subscriptionError", "String?", "null")), supertype="HtspServerMessage", snapshots=(S("streams", "List<HtspSubscriptionStream>?", "streams?.immutableSnapshot()"),), validations=(V("u32", ("subscriptionId", "subscriptionId")),)),
     KotlinDeclaration("HtspSubscriptionStopMessage", "data class", (P("subscriptionId", "Long"), P("status", "String?"), P("subscriptionError", "String?")), supertype="HtspServerMessage", validations=(V("u32", ("subscriptionId", "subscriptionId")),)),
     KotlinDeclaration("HtspSubscriptionGraceMessage", "data class", (P("subscriptionId", "Long"), P("graceTimeoutSeconds", "Long")), supertype="HtspServerMessage", validations=(V("u32", ("subscriptionId", "subscriptionId"), ("graceTimeoutSeconds", "graceTimeoutSeconds")),)),
     KotlinDeclaration("HtspSubscriptionStatusMessage", "data class", (P("subscriptionId", "Long"), P("status", "String?"), P("subscriptionError", "String?")), supertype="HtspServerMessage", validations=(V("u32", ("subscriptionId", "subscriptionId")),)),
@@ -611,3 +708,963 @@ SERVER_SPEC_CONSISTENCY_STATUS = "pending-g3"
 # G1 uses no per-entry verbatim Kotlin escape.  Irregular event/timerec/nested
 # behavior is represented by named decoder and validation features above.
 SERVER_VERBATIM_ESCAPES: tuple[tuple[str, str], ...] = ()
+
+
+# Reviewed request constructor and public-extension authority.  These objects
+# are shared by both request-model and request-extension renderers.
+def _parameters(*values: tuple[str, str] | tuple[str, str, str]) -> tuple[Parameter, ...]:
+    return tuple(parameter(*value) for value in values)
+
+
+_AUTOREC_COMMON = _parameters(
+    ("channel", "HtspRecordingRuleChannel?", "null"),
+    ("minDurationSeconds", "Long?", "null"), ("maxDurationSeconds", "Long?", "null"),
+    ("fullText", "Long?", "null"), ("mergeText", "Long?", "null"),
+    ("duplicateDetection", "Long?", "null"), ("maximumRecordingCount", "Long?", "null"),
+    ("broadcastType", "Long?", "null"), ("startExtraMinutes", "Long?", "null"),
+    ("stopExtraMinutes", "Long?", "null"), ("seriesLinkUri", "String?", "null"),
+)
+_RULE_TAIL = _parameters(
+    ("enabled", "Boolean?", "null"), ("retentionDays", "Long?", "null"),
+    ("removalDays", "Long?", "null"), ("priority", "Long?", "null"),
+    ("name", "String?", "null"), ("comment", "String?", "null"),
+    ("directory", "String?", "null"), ("configName", "String?", "null"),
+    ("daysOfWeekMask", "Long?", "null"),
+)
+_TIMEREC_COMMON = _parameters(
+    ("channel", "HtspRecordingRuleChannel?", "null"),
+    ("startMinutesSinceMidnight", "Long?", "null"),
+    ("stopMinutesSinceMidnight", "Long?", "null"),
+)
+
+
+CATALOG: tuple[Entry, ...] = (
+    Entry("getProfiles", "GetProfilesRequest", "GetProfilesResponse", "ACCESS_HTSP_STREAMING", 16),
+    Entry("getDiskSpace", "GetDiskSpaceRequest", "GetDiskSpaceResponse", "ACCESS_HTSP_STREAMING", 3),
+    Entry("getSysTime", "GetSysTimeRequest", "GetSysTimeResponse", "ACCESS_HTSP_STREAMING", 3),
+    Entry("enableAsyncMetadata", "EnableAsyncMetadataRequest", "HtspEmptyResponse", "ACCESS_HTSP_STREAMING", None, _parameters(
+        ("epg", "Long?", "null"), ("lastUpdate", "Long?", "null"),
+        ("epgMaxTime", "Long?", "null"), ("language", "String?", "null"),
+    )),
+    Entry("getChannel", "GetChannelRequest", "GetChannelResponse", "ACCESS_HTSP_STREAMING", 14, _parameters(("channelId", "Long"))),
+    Entry("getEvent", "GetEventRequest", "GetEventResponse", "ACCESS_HTSP_STREAMING", None, _parameters(
+        ("eventId", "Long"), ("language", "String?", "null"),
+    )),
+    Entry("getEvents", "GetEventsRequest", "GetEventsResponse", "ACCESS_HTSP_STREAMING", 4, _parameters(
+        ("channelId", "Long?", "null"), ("eventId", "Long?", "null"),
+        ("language", "String?", "null"), ("numFollowing", "Long?", "null"),
+        ("maxTime", "Long?", "null"),
+    )),
+    Entry("epgQuery", "EpgQueryRequest", "EpgQueryResponse", "ACCESS_HTSP_STREAMING", 4, _parameters(
+        ("query", "String"), ("channelId", "Long?", "null"), ("tagId", "Long?", "null"),
+        ("contentType", "Long?", "null"), ("language", "String?", "null"),
+        ("fullText", "Boolean?", "null"), ("mergeText", "Boolean?", "null"),
+        ("full", "Long?", "null"), ("minDurationSeconds", "Long?", "null"),
+        ("maxDurationSeconds", "Long?", "null"),
+    )),
+    Entry("getEpgObject", "GetEpgObjectRequest", "GetEpgObjectResponse", "ACCESS_HTSP_STREAMING", None, _parameters(
+        ("id", "Long"), ("objectType", "HtspEpgObjectType?", "HtspEpgObjectType.BROADCAST"),
+    )),
+    Entry("getDvrConfigs", "GetDvrConfigsRequest", "GetDvrConfigsResponse", "ACCESS_HTSP_RECORDER", 16),
+    Entry("addDvrEntry", "AddDvrEntryRequest", "AddDvrEntryResponse", "ACCESS_HTSP_RECORDER", 4, _parameters(
+        ("selector", "AddDvrEntrySelector"), ("configName", "String?", "null"),
+        ("language", "String?", "null"), ("title", "String?", "null"),
+        ("subtitle", "String?", "null"), ("summary", "String?", "null"),
+        ("description", "String?", "null"), ("ageRating", "Long?", "null"),
+    )),
+    Entry("updateDvrEntry", "UpdateDvrEntryRequest", "UpdateDvrEntryResponse", "ACCESS_HTSP_RECORDER", 5, _parameters(
+        ("entryId", "Long"), ("channelId", "Long?", "null"), ("configName", "String?", "null"),
+        ("title", "String?", "null"), ("subtitle", "String?", "null"),
+        ("summary", "String?", "null"), ("description", "String?", "null"),
+        ("language", "String?", "null"), ("comment", "String?", "null"),
+        ("playCount", "Long?", "null"), ("playPosition", "Long?", "null"),
+        ("enabled", "Long?", "null"), ("start", "Long?", "null"),
+        ("stop", "Long?", "null"), ("startExtra", "Long?", "null"),
+        ("stopExtra", "Long?", "null"), ("retention", "Long?", "null"),
+        ("removal", "Long?", "null"), ("priority", "Long?", "null"),
+        ("ageRating", "Long?", "null"),
+    )),
+    Entry("stopDvrEntry", "StopDvrEntryRequest", "StopDvrEntryResponse", "ACCESS_HTSP_RECORDER", None, _parameters(("entryId", "Long"))),
+    Entry("cancelDvrEntry", "CancelDvrEntryRequest", "CancelDvrEntryResponse", "ACCESS_HTSP_RECORDER", 5, _parameters(("entryId", "Long"))),
+    Entry("deleteDvrEntry", "DeleteDvrEntryRequest", "DeleteDvrEntryResponse", "ACCESS_HTSP_RECORDER", 4, _parameters(("entryId", "Long"))),
+    Entry("addAutorecEntry", "AddAutorecEntryRequest", "AddAutorecEntryResponse", "ACCESS_HTSP_RECORDER", 13, (
+        parameter("title", "String"), *_AUTOREC_COMMON,
+        parameter("approximateStartMinutesSinceMidnight", "Int?", "null"),
+        parameter("startMinutesSinceMidnight", "Int?", "null"),
+        parameter("startWindowEndMinutesSinceMidnight", "Int?", "null"), *_RULE_TAIL,
+    )),
+    Entry("updateAutorecEntry", "UpdateAutorecEntryRequest", "UpdateAutorecEntryResponse", "ACCESS_HTSP_RECORDER", 25, (
+        parameter("id", "String"), *_AUTOREC_COMMON,
+        parameter("startMinutesSinceMidnight", "Int?", "null"),
+        parameter("startWindowEndMinutesSinceMidnight", "Int?", "null"),
+        *_RULE_TAIL[:-2], parameter("title", "String?", "null"), *_RULE_TAIL[-2:],
+    )),
+    Entry("deleteAutorecEntry", "DeleteAutorecEntryRequest", "DeleteAutorecEntryResponse", "ACCESS_HTSP_RECORDER", 13, _parameters(("id", "String"))),
+    Entry("addTimerecEntry", "AddTimerecEntryRequest", "AddTimerecEntryResponse", "ACCESS_HTSP_RECORDER", 18, (
+        parameter("title", "String"), *_TIMEREC_COMMON, *_RULE_TAIL,
+    )),
+    Entry("updateTimerecEntry", "UpdateTimerecEntryRequest", "UpdateTimerecEntryResponse", "ACCESS_HTSP_RECORDER", 25, (
+        parameter("id", "String"), *_TIMEREC_COMMON,
+        *_RULE_TAIL[:-2], parameter("title", "String?", "null"), *_RULE_TAIL[-2:],
+    )),
+    Entry("deleteTimerecEntry", "DeleteTimerecEntryRequest", "DeleteTimerecEntryResponse", "ACCESS_HTSP_RECORDER", 18, _parameters(("id", "String"))),
+    Entry("getDvrCutpoints", "GetDvrCutpointsRequest", "GetDvrCutpointsResponse", "ACCESS_HTSP_RECORDER", 12, _parameters(("entryId", "Long"))),
+    Entry("getTicket", "GetTicketRequest", "GetTicketResponse", "ACCESS_HTSP_STREAMING", 5, _parameters(("selector", "GetTicketSelector"))),
+    Entry("subscribe", "SubscribeRequest", "SubscribeResponse", "ACCESS_HTSP_STREAMING", None, _parameters(
+        ("subscriptionId", "Long"), ("channel", "SubscribeChannel"),
+        ("profile", "String?", "null"), ("weight", "Long?", "null"),
+        ("ninetyKhz", "Long?", "null"), ("timeshiftPeriodSeconds", "Long?", "null"),
+        ("queueDepth", "Long?", "null"),
+    )),
+    Entry("unsubscribe", "UnsubscribeRequest", "HtspEmptyResponse", "ACCESS_HTSP_STREAMING", None, _parameters(("subscriptionId", "Long"))),
+    Entry("subscriptionChangeWeight", "SubscriptionChangeWeightRequest", "HtspEmptyResponse", "ACCESS_HTSP_STREAMING", 5, _parameters(
+        ("subscriptionId", "Long"), ("weight", "Long?", "null"),
+    )),
+    Entry("subscriptionSeek", "SubscriptionSeekRequest", "HtspEmptyResponse", "ACCESS_HTSP_STREAMING", 9, _parameters(
+        ("subscriptionId", "Long"), ("position", "SubscriptionSeekPosition"),
+        ("absolute", "Long?", "null"),
+    )),
+    Entry("subscriptionSkip", "SubscriptionSkipRequest", "HtspEmptyResponse", "ACCESS_HTSP_STREAMING", 9, _parameters(
+        ("subscriptionId", "Long"), ("position", "SubscriptionSeekPosition"),
+        ("absolute", "Long?", "null"),
+    )),
+    Entry("subscriptionSpeed", "SubscriptionSpeedRequest", "HtspEmptyResponse", "ACCESS_HTSP_STREAMING", 9, _parameters(
+        ("subscriptionId", "Long"), ("speed", "Int"),
+    )),
+    Entry("subscriptionLive", "SubscriptionLiveRequest", "HtspEmptyResponse", "ACCESS_HTSP_STREAMING", 9, _parameters(("subscriptionId", "Long"))),
+    Entry("subscriptionFilterStream", "SubscriptionFilterStreamRequest", "HtspEmptyResponse", "ACCESS_HTSP_STREAMING", 12, _parameters(
+        ("subscriptionId", "Long"), ("enable", "List<Long>?", "null"),
+        ("disable", "List<Long>?", "null"),
+    )),
+    Entry("fileOpen", "FileOpenRequest", "FileOpenResponse", "ACCESS_HTSP_RECORDER", 8, _parameters(("file", "String"))),
+    Entry("fileRead", "FileReadRequest", "FileReadResponse", "ACCESS_HTSP_RECORDER", 8, _parameters(
+        ("id", "Long"), ("size", "Long"), ("offset", "Long?", "null"),
+    )),
+    Entry("fileClose", "FileCloseRequest", "FileCloseResponse", "ACCESS_HTSP_RECORDER", 8, _parameters(
+        ("id", "Long"), ("playPositionSeconds", "Long?", "null"),
+        ("playCount", "Long?", "null"),
+    ), ("id",)),
+    Entry("fileStat", "FileStatRequest", "FileStatResponse", "ACCESS_HTSP_RECORDER", 8, _parameters(("id", "Long"))),
+    Entry("fileSeek", "FileSeekRequest", "FileSeekResponse", "ACCESS_HTSP_RECORDER", 8, _parameters(
+        ("id", "Long"), ("offset", "Long"), ("whence", "FileSeekWhence?", "null"),
+    )),
+    Entry("api", "ApiRequest", "ApiResponse", "ACCESS_ANONYMOUS", 24, _parameters(
+        ("path", "String"), ("args", "HtspApiObject?", "null"),
+    )),
+    Entry("hello", "HelloRequest", "HelloResponse", "ACCESS_ANONYMOUS", None, _parameters(
+        ("htspVersion", "Long"), ("clientName", "String"),
+    )),
+    Entry("authenticate", "AuthenticateRequest", "AuthenticateResponse", "ACCESS_ANONYMOUS", None),
+)
+
+
+SELECTOR_OVERLOADS: tuple[SelectorOverload, ...] = (
+    SelectorOverload("addDvrEntry", (parameter("eventId", "Long"), *CATALOG[10].parameters[1:]),
+        ("selector = AddDvrEntrySelector.Event(eventId)", *(f"{value.name} = {value.name}" for value in CATALOG[10].parameters[1:]))),
+    SelectorOverload("addDvrEntry", (parameter("channelId", "Long"), parameter("start", "Long"), parameter("stop", "Long"), *CATALOG[10].parameters[1:]),
+        ("selector = AddDvrEntrySelector.ExplicitChannelTime(channelId, start, stop)", *(f"{value.name} = {value.name}" for value in CATALOG[10].parameters[1:]))),
+    SelectorOverload("subscribe", (CATALOG[23].parameters[0], parameter("channelId", "Long"), *CATALOG[23].parameters[2:]),
+        ("subscriptionId = subscriptionId", "channel = SubscribeChannel.Id(channelId)", *(f"{value.name} = {value.name}" for value in CATALOG[23].parameters[2:]))),
+    SelectorOverload("subscribe", (CATALOG[23].parameters[0], parameter("channelName", "String"), *CATALOG[23].parameters[2:]),
+        ("subscriptionId = subscriptionId", "channel = SubscribeChannel.Name(channelName)", *(f"{value.name} = {value.name}" for value in CATALOG[23].parameters[2:]))),
+    SelectorOverload("subscriptionSeek", (CATALOG[26].parameters[0], parameter("position", "SubscriptionSeekPosition.Time"), *CATALOG[26].parameters[2:]), tuple(f"{value.name} = {value.name}" for value in CATALOG[26].parameters)),
+    SelectorOverload("subscriptionSeek", (CATALOG[26].parameters[0], parameter("position", "SubscriptionSeekPosition.Size"), *CATALOG[26].parameters[2:]), tuple(f"{value.name} = {value.name}" for value in CATALOG[26].parameters)),
+    SelectorOverload("subscriptionSkip", (CATALOG[27].parameters[0], parameter("position", "SubscriptionSeekPosition.Time"), *CATALOG[27].parameters[2:]), tuple(f"{value.name} = {value.name}" for value in CATALOG[27].parameters)),
+    SelectorOverload("subscriptionSkip", (CATALOG[27].parameters[0], parameter("position", "SubscriptionSeekPosition.Size"), *CATALOG[27].parameters[2:]), tuple(f"{value.name} = {value.name}" for value in CATALOG[27].parameters)),
+    SelectorOverload("getTicket", (parameter("selector", "GetTicketSelector.Channel"),), ("selector = selector",)),
+    SelectorOverload("getTicket", (parameter("selector", "GetTicketSelector.Dvr"),), ("selector = selector",)),
+    SelectorOverload(
+        "fileClose",
+        function_name="fileCloseWithProgress",
+        parameter_projection=("id", "playPositionSeconds", "playCount"),
+        strip_projection_defaults=True,
+    ),
+)
+
+
+def _props(*values: tuple[str, str] | tuple[str, str, str]) -> tuple[KotlinProperty, ...]:
+    return tuple(P(*value) for value in values)
+
+
+REQUEST_PUBLIC_DECLARATIONS: tuple[KotlinDeclaration, ...] = (
+    KotlinDeclaration("HtspProfile", "data class", _props(
+        ("profileUuid", "String"), ("name", "String"), ("comment", "String"),
+    ), "One stream-profile map returned by `getProfiles`."),
+    KotlinDeclaration("HtspDvrConfig", "data class", _props(
+        ("dvrConfigUuid", "String"), ("name", "String"), ("comment", "String"),
+    ), "One DVR-configuration map returned by `getDvrConfigs`."),
+    KotlinDeclaration("HtspChannelService", "data class", _props(
+        ("name", "String"), ("type", "String"), ("content", "Long"),
+        ("conditionalAccessId", "Long?"), ("conditionalAccessName", "String?"),
+        ("providerName", "String?"),
+    ), "One bounded service map returned inside a channel reply."),
+    KotlinDeclaration("HtspChannel", "data class", _props(
+        ("channelId", "Long"), ("channelUuid", "String?"), ("channelNumber", "Long"),
+        ("channelNumberMinor", "Long?"), ("channelName", "String"),
+        ("channelIcon", "String?"), ("currentEventId", "Long"), ("nextEventId", "Long"),
+        ("services", "List<HtspChannelService>"), ("tagIds", "List<Long>"),
+    ), "Complete typed current-source channel reply."),
+    KotlinDeclaration("HtspEvent", "data class", _props(
+        ("eventId", "Long"), ("channelId", "Long?"), ("start", "Long"), ("stop", "Long"),
+        ("title", "String?"), ("subtitle", "String?"), ("summary", "String?"),
+        ("description", "String?"), ("categories", "List<String>?"),
+        ("keywords", "List<String>?"), ("seriesLinkUri", "String?"),
+        ("episodeUri", "String?"), ("contentType", "Long?"), ("ageRating", "Long?"),
+        ("ratingLabel", "String?"), ("ratingIcon", "String?"),
+        ("ratingAuthority", "String?"), ("ratingCountry", "String?"),
+        ("starRating", "Long?"), ("copyrightYear", "Long?"), ("firstAired", "Long?"),
+        ("isNew", "Long?"), ("seasonNumber", "Long?"), ("seasonCount", "Long?"),
+        ("episodeNumber", "Long?"), ("episodeCount", "Long?"),
+        ("partNumber", "Long?"), ("partCount", "Long?"),
+        ("episodeOnscreen", "String?"), ("image", "String?"),
+        ("dvrId", "Long?"), ("nextEventId", "Long?"),
+    ), "Complete typed current-source event reply, excluding deliberately opaque credits."),
+    KotlinDeclaration("HtspDvrCutpoint", "data class", _props(
+        ("start", "Long"), ("end", "Long"), ("type", "Long"),
+    ), "One DVR cutpoint with the exact unsigned wire action code."),
+    KotlinDeclaration("HtspEmptyResponse", "data object", kdoc="Explicit successful empty RPC acknowledgement."),
+    KotlinDeclaration("HelloResponse", "class", _props(
+        ("htspVersion", "Long"), ("serverName", "String?"), ("serverVersion", "String?"),
+        ("challenge", "HtspBinary"), ("webRoot", "String?"), ("language", "String?"),
+        ("serverCapabilities", "List<String>?"), ("apiVersion", "Long?"),
+    ), "Successful `hello` observations. The challenge bytes remain redacted by [HtspBinary].", feature="hello-response"),
+    KotlinDeclaration("AuthenticateResponse", "data class", _props(
+        ("noAccess", "Boolean?"), ("admin", "Boolean?"), ("streaming", "Boolean?"),
+        ("dvr", "Boolean?"), ("failedDvr", "Boolean?"), ("anonymous", "Boolean?"),
+        ("limitAll", "Long?"), ("limitDvr", "Long?"), ("limitStreaming", "Long?"),
+        ("uiLevel", "Long?"), ("uiLanguage", "String?"),
+    ), "Successful `authenticate` access observations; absent or malformed optional fields are null."),
+    KotlinDeclaration("GetProfilesResponse", "data class", _props(("profiles", "List<HtspProfile>?"))),
+    KotlinDeclaration("GetDiskSpaceResponse", "data class", _props(
+        ("freeBytes", "Long"), ("usedBytes", "Long?"), ("totalBytes", "Long"),
+    )),
+    KotlinDeclaration("GetSysTimeResponse", "data class", _props(
+        ("unixTimeSeconds", "Long"), ("legacyTimezoneHoursWestOfGmt", "Int"),
+        ("gmtOffsetMinutes", "Int?"),
+    )),
+    KotlinDeclaration("GetChannelResponse", "data class", _props(("channel", "HtspChannel"))),
+    KotlinDeclaration("GetEventResponse", "data class", _props(("event", "HtspEvent"))),
+    KotlinDeclaration("GetEventsResponse", "data class", _props(("events", "List<HtspEvent>"))),
+    KotlinDeclaration("EpgQueryResponse", "sealed interface", kdoc="Selected finite reply alternative for `epgQuery`.", feature="epg-query-response"),
+    KotlinDeclaration("HtspEpgObjectType", "enum class", kdoc="The complete finite EPG object-type vocabulary supported by the pinned serializer.", enum_values=("BROADCAST",)),
+    KotlinDeclaration("HtspEpgEpisodeNumber", "data class", _props(
+        ("episodeNumber", "Long?"), ("episodeCount", "Long?"), ("seasonNumber", "Long?"),
+        ("seasonCount", "Long?"), ("partNumber", "Long?"), ("partCount", "Long?"),
+        ("text", "String?"),
+    ), "Optional episode-number object serialized inside a detailed EPG broadcast."),
+    KotlinDeclaration("HtspEpgBroadcastObject", "data class", _props(
+        ("id", "Long"), ("updatedUnixSeconds", "Long"), ("startUnixSeconds", "Long"),
+        ("stopUnixSeconds", "Long"), ("grabber", "String?"), ("channelUuid", "String?"),
+        ("eventId", "Long?"), ("externalEventId", "String?"), ("widescreen", "Boolean"),
+        ("highDefinition", "Boolean"), ("blackAndWhite", "Boolean"),
+        ("deafSigned", "Boolean"), ("subtitled", "Boolean"),
+        ("audioDescribed", "Boolean"), ("isNew", "Boolean"), ("isRepeat", "Boolean"),
+        ("lines", "Long?"), ("aspectRatio", "Long?"), ("starRating", "Long?"),
+        ("ageRating", "Long?"), ("ratingLabel", "String?"), ("image", "String?"),
+        ("titles", "Map<String, String>?"), ("subtitles", "Map<String, String>?"),
+        ("summaries", "Map<String, String>?"), ("descriptions", "Map<String, String>?"),
+        ("episodeNumber", "HtspEpgEpisodeNumber?"), ("genres", "List<Long>?"),
+        ("copyrightYear", "Long?"), ("firstAiredUnixSeconds", "Long?"),
+        ("categories", "List<String>?"), ("keywords", "List<String>?"),
+        ("seriesLinkUri", "String?"), ("episodeLinkUri", "String?"),
+    ), """Complete bounded broadcast object returned by `getEpgObject`.
+
+The unconstrained wire `cred` object is deliberately omitted from this finite public model."""),
+    KotlinDeclaration("GetEpgObjectResponse", "data class", _props(("broadcast", "HtspEpgBroadcastObject"))),
+    KotlinDeclaration("GetDvrConfigsResponse", "data class", _props(("configurations", "List<HtspDvrConfig>?"))),
+    KotlinDeclaration("HtspDvrMutationRequest", "sealed interface", kdoc="Closed wire request family for the five DVR mutation methods."),
+    KotlinDeclaration("HtspDvrMutationResponse", "sealed interface", kdoc="Wire-shaped DVR mutation reply. [error] is untrusted server text.", feature="dvr-mutation-response"),
+    KotlinDeclaration("AddDvrEntryResponse", "data class", (
+        KotlinProperty("success", "Long?", modifier="override"),
+        KotlinProperty("entryId", "Long?", modifier="override"),
+        KotlinProperty("error", "String?", modifier="override"),
+    ), supertype="HtspDvrMutationResponse"),
+    *(KotlinDeclaration(name, "data class", (
+        KotlinProperty("success", "Long?", modifier="override"),
+        KotlinProperty("error", "String?", modifier="override"),
+    ), supertype="HtspDvrMutationResponse") for name in (
+        "UpdateDvrEntryResponse", "StopDvrEntryResponse", "CancelDvrEntryResponse", "DeleteDvrEntryResponse",
+    )),
+    KotlinDeclaration("HtspRecordingRuleChannel", "sealed interface", kdoc="Channel mutation selected for one autorec or timerec rule request.", feature="recording-rule-channel"),
+    KotlinDeclaration("AddAutorecEntryResponse", "data class", _props(("id", "String"))),
+    KotlinDeclaration("UpdateAutorecEntryResponse", "data object"),
+    KotlinDeclaration("DeleteAutorecEntryResponse", "data object"),
+    KotlinDeclaration("AddTimerecEntryResponse", "data class", _props(("id", "String"))),
+    KotlinDeclaration("UpdateTimerecEntryResponse", "data object"),
+    KotlinDeclaration("DeleteTimerecEntryResponse", "data object"),
+    KotlinDeclaration("GetDvrCutpointsResponse", "data class", _props(("cutpoints", "List<HtspDvrCutpoint>?"))),
+    KotlinDeclaration("GetTicketSelector", "sealed interface", kdoc="""Exactly-one channel-or-DVR selection is the stricter SDK API contract.
+
+The pinned upstream `getTicket` handler also accepts both selectors and gives
+`channelId` precedence. This sealed API makes both-present and neither-present
+selection unrepresentable.""", feature="get-ticket-selector"),
+    KotlinDeclaration("GetTicketResponse", "class", _props(("path", "String"), ("ticket", "String")),
+        "Purpose-specific credential-bearing successful `getTicket` reply.", feature="get-ticket-response"),
+    KotlinDeclaration("FileOpenResponse", "data class", _props(
+        ("id", "Long"), ("sizeBytes", "Long?"), ("modifiedAtUnixSeconds", "Long?"),
+    ), "Finite successful `fileOpen` reply with source-coupled optional metadata."),
+    KotlinDeclaration("FileReadResponse", "data class", _props(("data", "HtspBinary")),
+        "One bounded binary payload returned by `fileRead`, including a valid empty payload."),
+    KotlinDeclaration("FileCloseResponse", "data object", kdoc="Explicit successful empty `fileClose` acknowledgement."),
+    KotlinDeclaration("FileStatResponse", "data class", _props(
+        ("sizeBytes", "Long?"), ("modifiedAtUnixSeconds", "Long?"),
+    ), "Finite successful `fileStat` reply; both values are absent when pinned `fstat` fails."),
+    KotlinDeclaration("FileSeekResponse", "data class", _props(("offset", "Long")),
+        "Successful absolute non-negative file offset returned by `fileSeek`."),
+    KotlinDeclaration("FileSeekWhence", "enum class", kdoc="Complete valid `fileSeek` origin vocabulary; null request selection omits `whence`.", enum_values=("SET", "CURRENT", "END")),
+    KotlinDeclaration("SubscribeResponse", "data class", _props(
+        ("ninetyKhz", "Long?"), ("normalizedTimestamps", "Long?"),
+        ("weight", "Long?"), ("timeshiftPeriodSeconds", "Long?"),
+    )),
+    KotlinDeclaration("ApiResponse", "sealed interface", kdoc="Finite successful reply topology for the provisional HTSP JSON API bridge.", annotations=("@HtspJsonApi",), feature="api-response"),
+)
+
+
+_REQUEST_MODEL_OVERRIDES: dict[str, dict[str, object]] = {
+    "enableAsyncMetadata": dict(
+        minimum_expression="6.takeIf {\n        epg != null || lastUpdate != null || epgMaxTime != null || language != null\n    }",
+        validations=('epg?.let { requireU32("epg", it) }',),
+        decoder_feature="lenient-empty",
+    ),
+    "getChannel": dict(validations=('requireU32("channelId", channelId)',), decoder_feature="channel"),
+    "getEvent": dict(
+        minimum_expression="6.takeIf { language != null }",
+        validations=('requireU32("eventId", eventId)',),
+        decoder_feature="event",
+    ),
+    "getEvents": dict(
+        minimum_expression="if (\n        channelId != null || eventId != null || language != null || numFollowing != null || maxTime != null\n    ) 6 else 4",
+        validations=(
+            'channelId?.let { requireU32("channelId", it) }',
+            'eventId?.let { requireU32("eventId", it) }',
+            'numFollowing?.let { requireU32("numFollowing", it) }',
+        ),
+    ),
+    "epgQuery": dict(
+        minimum_expression="""maxVersion(
+        4,
+        6.takeIf { language != null },
+        13.takeIf { minDurationSeconds != null || maxDurationSeconds != null },
+    )""",
+        validations=tuple(f'{name}?.let {{ requireU32("{wire}", it) }}' for name, wire in (
+            ("channelId", "channelId"), ("tagId", "tagId"), ("contentType", "contentType"),
+            ("full", "full"), ("minDurationSeconds", "minduration"),
+            ("maxDurationSeconds", "maxduration"),
+        )), decoder_feature="epg-query",
+    ),
+    "getEpgObject": dict(validations=('requireU32("id", id)',), decoder_feature="epg-object"),
+    "addDvrEntry": dict(
+        minimum_expression="""maxVersion(
+        4,
+        5.takeIf { selector is AddDvrEntrySelector.ExplicitChannelTime },
+        6.takeIf { title != null },
+        20.takeIf { subtitle != null },
+        5.takeIf { description != null },
+        36.takeIf { ageRating != null },
+    )""",
+        interfaces=("HtspDvrMutationRequest",),
+        validations=('ageRating?.let { requireU32("ageRating", it) }',),
+        encoder_feature="add-dvr-selector",
+        decoder_feature="add-dvr-mutation",
+    ),
+    "updateDvrEntry": dict(
+        minimum_expression="""maxVersion(
+        5,
+        22.takeIf { channelId != null },
+        21.takeIf { subtitle != null },
+        6.takeIf { description != null },
+        42.takeIf { comment != null },
+        27.takeIf { playCount != null || playPosition != null },
+        23.takeIf { enabled != null },
+        6.takeIf { startExtra != null || stopExtra != null },
+        13.takeIf { retention != null || priority != null },
+        36.takeIf { ageRating != null },
+    )""",
+        interfaces=("HtspDvrMutationRequest",),
+        validations=tuple(
+            f'{name}{"" if required else "?"}.let {{ requireU32("{wire}", it) }}'
+            if not required else f'requireU32("{wire}", {name})'
+            for name, wire, required in (
+                ("entryId", "id", True), ("channelId", "channelId", False),
+                ("playCount", "playCount", False), ("playPosition", "playPosition", False),
+                ("retention", "retention", False), ("removal", "removal", False),
+                ("priority", "priority", False), ("ageRating", "ageRating", False),
+            )
+        ),
+        decoder_feature="dvr-mutation",
+    ),
+    **{method: dict(
+        interfaces=("HtspDvrMutationRequest",),
+        validations=('requireU32("id", entryId)',),
+        decoder_feature="dvr-mutation",
+    ) for method in ("stopDvrEntry", "cancelDvrEntry", "deleteDvrEntry")},
+    "addAutorecEntry": dict(
+        minimum_expression="""maxVersion(
+        13,
+        25.takeIf { channel is HtspRecordingRuleChannel.Any },
+        18.takeIf {
+            name != null || startMinutesSinceMidnight != null || startWindowEndMinutesSinceMidnight != null
+        },
+        19.takeIf { enabled != null || directory != null },
+        20.takeIf { fullText != null || duplicateDetection != null },
+        39.takeIf { broadcastType != null },
+        42.takeIf { comment != null },
+    )""",
+        validations=("validateAutorecU32Fields()",), encoder_feature="recording-rule",
+        decoder_feature="recording-rule-add",
+    ),
+    "updateAutorecEntry": dict(
+        minimum_expression="""maxVersion(
+        25,
+        39.takeIf { broadcastType != null },
+        42.takeIf { comment != null },
+    )""",
+        validations=("validateAutorecU32Fields()",), encoder_feature="recording-rule",
+        decoder_feature="recording-rule-ack",
+    ),
+    "deleteAutorecEntry": dict(decoder_feature="recording-rule-ack"),
+    "addTimerecEntry": dict(
+        minimum_expression="""maxVersion(
+        18,
+        25.takeIf { channel is HtspRecordingRuleChannel.Any },
+        19.takeIf { enabled != null || directory != null },
+        42.takeIf { comment != null },
+    )""",
+        validations=("validateTimerecU32Fields()",), encoder_feature="recording-rule",
+        decoder_feature="recording-rule-add",
+    ),
+    "updateTimerecEntry": dict(
+        minimum_expression="maxVersion(25, 42.takeIf { comment != null })",
+        validations=("validateTimerecU32Fields()",), encoder_feature="recording-rule",
+        decoder_feature="recording-rule-ack",
+    ),
+    "deleteTimerecEntry": dict(decoder_feature="recording-rule-ack"),
+    "getDvrCutpoints": dict(validations=('requireU32("id", entryId)',), decoder_feature="cutpoints"),
+    "getTicket": dict(encoder_feature="get-ticket-selector", decoder_feature="get-ticket"),
+    "subscribe": dict(
+        minimum_expression="""maxVersion(
+        null,
+        16.takeIf { profile != null },
+        7.takeIf { ninetyKhz != null || queueDepth != null },
+        9.takeIf { timeshiftPeriodSeconds != null },
+    )""",
+        validations=(
+            'requireU32("subscriptionId", subscriptionId)',
+            'weight?.let { requireU32("weight", it) }',
+            'ninetyKhz?.let { requireU32("90khz", it) }',
+            'timeshiftPeriodSeconds?.let { requireU32("timeshiftPeriod", it) }',
+            'queueDepth?.let { requireU32("queueDepth", it) }',
+        ), encoder_feature="subscribe-selector",
+    ),
+    "unsubscribe": dict(validations=('requireU32("subscriptionId", subscriptionId)',), decoder_feature="lenient-empty"),
+    "subscriptionChangeWeight": dict(validations=(
+        'requireU32("subscriptionId", subscriptionId)',
+        'weight?.let { requireU32("weight", it) }',
+    ), decoder_feature="lenient-empty"),
+    "subscriptionSeek": dict(validations=(
+        'requireU32("subscriptionId", subscriptionId)',
+        'absolute?.let { requireU32("absolute", it) }',
+    ), encoder_feature="seek-selector", decoder_feature="lenient-empty"),
+    "subscriptionSkip": dict(validations=(
+        'requireU32("subscriptionId", subscriptionId)',
+        'absolute?.let { requireU32("absolute", it) }',
+    ), encoder_feature="seek-selector", decoder_feature="strict-empty"),
+    "subscriptionSpeed": dict(validations=('requireU32("subscriptionId", subscriptionId)',), decoder_feature="lenient-empty"),
+    "subscriptionLive": dict(validations=('requireU32("subscriptionId", subscriptionId)',), decoder_feature="lenient-empty"),
+    "subscriptionFilterStream": dict(
+        kind="class", unstored_parameters=("enable", "disable"), snapshots=("enable", "disable"),
+        validations=(
+            'requireU32("subscriptionId", subscriptionId)',
+            'this.enable?.forEach { requireU32("enable", it) }',
+            'this.disable?.forEach { requireU32("disable", it) }',
+        ), decoder_feature="lenient-empty",
+    ),
+    "fileOpen": dict(
+        kdoc="Raw protocol file open; [file] is sent exactly as supplied, without path normalization.",
+        body_feature="file-open-redaction",
+        decoder_feature="file-open",
+    ),
+    "fileRead": dict(
+        kdoc="""Bounded raw protocol file read.
+
+[size] is restricted to 0 through 16 MiB so one successful binary reply stays within the
+existing JVM bounded-file contract and below the unchanged 32 MiB codec message ceiling.""",
+        validations=(
+            'requireU32("id", id)',
+            'require(size in 0L..MAX_FILE_READ_SIZE_BYTES) {\n            "size must be between zero and 16 MiB"\n        }',
+        ), decoder_feature="file-read",
+    ),
+    "fileClose": dict(
+        kdoc="""Generic file close with optional recording-backed progress controls.
+
+[playPositionSeconds] maps to wire `playposition` in whole recording-position seconds.
+[playCount] maps to wire `playcount` without higher-level interpretation. Either control
+requires HTSP v27; null omits that field. An id-only request remains available from v8.""",
+        minimum_expression="if (playPositionSeconds != null || playCount != null) 27 else 8",
+        validations=(
+            'requireU32("id", id)',
+            'playPositionSeconds?.let { requireU32("playPositionSeconds", it) }',
+            'playCount?.let { requireU32("playCount", it) }',
+        ), decoder_feature="strict-file-close",
+    ),
+    "fileStat": dict(validations=('requireU32("id", id)',), decoder_feature="file-stat"),
+    "fileSeek": dict(
+        kdoc="Signed seek request; omitted [whence] preserves the pinned `SEEK_SET` default.",
+        validations=('requireU32("id", id)',), encoder_feature="file-whence",
+        decoder_feature="file-seek",
+    ),
+    "api": dict(
+        kdoc="Exact endpoint invocation transported through the provisional HTSP JSON API bridge.",
+        annotations=("@HtspJsonApi",), decoder_feature="api",
+    ),
+    "hello": dict(
+        kdoc="Exact current-source `hello` request. Empty client names remain representable.",
+        validations=('requireU32("htspVersion", htspVersion)',), decoder_feature="hello",
+    ),
+    "authenticate": dict(
+        kind="class",
+        kdoc="Bare public authentication request. Credentials are connection-envelope data, not parameters.",
+        decoder_feature="authenticate",
+    ),
+}
+
+
+def _request_model(entry: Entry) -> RequestModelSpec:
+    values: dict[str, object] = {
+        "constructor_parameters": entry.parameters,
+        "kind": "class" if not entry.parameters else "data class",
+    }
+    values.update(_REQUEST_MODEL_OVERRIDES.get(entry.method, {}))
+    return RequestModelSpec(method=entry.method, **values)  # type: ignore[arg-type]
+
+
+REQUEST_MODEL_CATALOG: tuple[RequestModelSpec, ...] = tuple(_request_model(entry) for entry in CATALOG)
+
+
+REQUEST_AUXILIARY_DECLARATIONS: tuple[tuple[str, KotlinDeclaration], ...] = (
+    ("addDvrEntry", KotlinDeclaration("AddDvrEntrySelector", "sealed interface",
+        kdoc="Valid `addDvrEntry` selector forms from pinned source and accepted event scheduling.",
+        feature="add-dvr-selector")),
+    ("subscribe", KotlinDeclaration("SubscribeChannel", "sealed interface",
+        kdoc="Exactly one channel selector accepted by the pinned `subscribe` handler.",
+        feature="subscribe-channel")),
+    ("subscriptionSeek", KotlinDeclaration("SubscriptionSeekPosition", "sealed interface",
+        kdoc="Exactly one signed seek coordinate accepted by `subscriptionSeek` and `subscriptionSkip`.",
+        feature="subscription-seek-position")),
+)
+
+
+ALT = "alternative"
+
+
+def _client_fields(
+    method: str,
+    *rows: tuple[str, str, str, str, str] | tuple[str, str, str, str, str, int | None, str | None, str | None],
+) -> tuple[WireField, ...]:
+    result = []
+    for row in rows:
+        prop, wire, wire_type, presence, encoder, *tail = row
+        minimum = tail[0] if tail else None
+        source = tail[1] if len(tail) > 1 else None
+        nested = tail[2] if len(tail) > 2 else None
+        result.append(RW(method, prop, wire_type, presence, encoder, wire,
+            minimum_version=minimum, source_expression=source, nested_shape=nested))
+    return tuple(result)
+
+
+_RULE_WIRE_FIELDS = (
+    ("channel", "channelId", S64, OPT, "recording-rule-channel"),
+    ("minDurationSeconds", "minduration", U32, OPT, "direct"),
+    ("maxDurationSeconds", "maxduration", U32, OPT, "direct"),
+    ("fullText", "fulltext", U32, OPT, "direct", 20, None, None),
+    ("mergeText", "mergetext", U32, OPT, "direct"),
+    ("duplicateDetection", "dupDetect", U32, OPT, "direct", 20, None, None),
+    ("maximumRecordingCount", "maxCount", U32, OPT, "direct"),
+    ("broadcastType", "broadcastType", U32, OPT, "direct", 39, None, None),
+    ("startExtraMinutes", "startExtra", S64, OPT, "direct"),
+    ("stopExtraMinutes", "stopExtra", S64, OPT, "direct"),
+    ("seriesLinkUri", "serieslinkUri", STR, OPT, "direct"),
+)
+_RULE_COMMON_TAIL_FIELDS = (
+    ("enabled", "enabled", U32, OPT, "flag", 19, None, None),
+    ("retentionDays", "retention", U32, OPT, "direct"),
+    ("removalDays", "removal", U32, OPT, "direct"),
+    ("priority", "priority", U32, OPT, "direct"),
+    ("name", "name", STR, OPT, "direct", 18, None, None),
+    ("comment", "comment", STR, OPT, "direct", 42, None, None),
+    ("directory", "directory", STR, OPT, "direct", 19, None, None),
+    ("configName", "configName", STR, OPT, "direct"),
+    ("daysOfWeekMask", "daysOfWeek", U32, OPT, "direct"),
+)
+
+
+REQUEST_FIELDS_BY_METHOD: dict[str, tuple[WireField, ...]] = {
+    method: () for method in ("getProfiles", "getDiskSpace", "getSysTime", "getDvrConfigs", "authenticate")
+}
+REQUEST_FIELDS_BY_METHOD.update({
+    "enableAsyncMetadata": _client_fields("enableAsyncMetadata",
+        ("epg", "epg", U32, OPT, "direct", 6, None, None),
+        ("lastUpdate", "lastUpdate", S64, OPT, "direct", 6, None, None),
+        ("epgMaxTime", "epgMaxTime", S64, OPT, "direct", 6, None, None),
+        ("language", "language", STR, OPT, "direct", 6, None, None)),
+    "getChannel": _client_fields("getChannel", ("channelId", "channelId", U32, REQ, "direct")),
+    "getEvent": _client_fields("getEvent",
+        ("eventId", "eventId", U32, REQ, "direct"),
+        ("language", "language", STR, OPT, "direct", 6, None, None)),
+    "getEvents": _client_fields("getEvents",
+        ("channelId", "channelId", U32, OPT, "direct", 6, None, None),
+        ("eventId", "eventId", U32, OPT, "direct", 6, None, None),
+        ("language", "language", STR, OPT, "direct", 6, None, None),
+        ("numFollowing", "numFollowing", U32, OPT, "direct", 6, None, None),
+        ("maxTime", "maxTime", S64, OPT, "direct", 6, None, None)),
+    "epgQuery": _client_fields("epgQuery",
+        ("query", "query", STR, REQ, "direct"), ("channelId", "channelId", U32, OPT, "direct"),
+        ("tagId", "tagId", U32, OPT, "direct"), ("contentType", "contentType", U32, OPT, "direct"),
+        ("language", "language", STR, OPT, "direct", 6, None, None),
+        ("fullText", "fulltext", FLAG, OPT, "direct"), ("mergeText", "mergetext", FLAG, OPT, "direct"),
+        ("full", "full", U32, OPT, "direct"),
+        ("minDurationSeconds", "minduration", U32, OPT, "direct", 13, None, None),
+        ("maxDurationSeconds", "maxduration", U32, OPT, "direct", 13, None, None)),
+    "getEpgObject": _client_fields("getEpgObject",
+        ("id", "id", U32, REQ, "direct"), ("objectType", "type", U32, OPT, "epg-object-type")),
+    "addDvrEntry": _client_fields("addDvrEntry",
+        ("selector", "channelId", U32, ALT, "add-dvr-channel", 5, "request.selector.channelId", None),
+        ("selector", "eventId", U32, ALT, "add-dvr-event", None, "request.selector.eventId", None),
+        ("configName", "configName", STR, OPT, "direct"), ("language", "language", STR, OPT, "direct"),
+        ("selector", "start", S64, ALT, "add-dvr-time", 5, "request.selector.start", None),
+        ("selector", "stop", S64, ALT, "add-dvr-time", 5, "request.selector.stop", None),
+        ("title", "title", STR, OPT, "direct", 6, None, None),
+        ("subtitle", "subtitle", STR, OPT, "direct", 20, None, None),
+        ("summary", "summary", STR, OPT, "direct"),
+        ("description", "description", STR, OPT, "direct", 5, None, None),
+        ("ageRating", "ageRating", U32, OPT, "direct", 36, None, None)),
+    "updateDvrEntry": _client_fields("updateDvrEntry",
+        ("channelId", "channelId", U32, OPT, "direct", 22, None, None),
+        ("configName", "configName", STR, OPT, "direct"), ("title", "title", STR, OPT, "direct"),
+        ("subtitle", "subtitle", STR, OPT, "direct", 21, None, None),
+        ("summary", "summary", STR, OPT, "direct"),
+        ("description", "description", STR, OPT, "direct", 6, None, None),
+        ("language", "language", STR, OPT, "direct"),
+        ("comment", "comment", STR, OPT, "direct", 42, None, None),
+        ("playCount", "playcount", U32, OPT, "direct", 27, None, None),
+        ("playPosition", "playposition", U32, OPT, "direct", 27, None, None),
+        ("enabled", "enabled", S64, OPT, "direct", 23, None, None),
+        ("start", "start", S64, OPT, "direct"), ("stop", "stop", S64, OPT, "direct"),
+        ("startExtra", "startExtra", S64, OPT, "direct", 6, None, None),
+        ("stopExtra", "stopExtra", S64, OPT, "direct", 6, None, None),
+        ("retention", "retention", U32, OPT, "direct", 13, None, None),
+        ("removal", "removal", U32, OPT, "direct"),
+        ("priority", "priority", U32, OPT, "direct", 13, None, None),
+        ("ageRating", "ageRating", U32, OPT, "direct", 36, None, None),
+        ("entryId", "id", U32, REQ, "direct")),
+    **{method: _client_fields(method, ("entryId", "id", U32, REQ, "direct"))
+       for method in ("stopDvrEntry", "cancelDvrEntry", "deleteDvrEntry")},
+    "addAutorecEntry": _client_fields("addAutorecEntry",
+        ("title", "title", STR, REQ, "direct"), *_RULE_WIRE_FIELDS,
+        ("approximateStartMinutesSinceMidnight", "approxTime", S32, OPT, "direct"),
+        ("startMinutesSinceMidnight", "start", S32, OPT, "direct", 18, None, None),
+        ("startWindowEndMinutesSinceMidnight", "startWindow", S32, OPT, "direct", 18, None, None),
+        *_RULE_COMMON_TAIL_FIELDS),
+    "updateAutorecEntry": _client_fields("updateAutorecEntry",
+        ("id", "id", STR, REQ, "direct"), *_RULE_WIRE_FIELDS,
+        ("startMinutesSinceMidnight", "start", S32, OPT, "direct", 18, None, None),
+        ("startWindowEndMinutesSinceMidnight", "startWindow", S32, OPT, "direct", 18, None, None),
+        *_RULE_COMMON_TAIL_FIELDS[:-2], ("title", "title", STR, OPT, "direct"),
+        *_RULE_COMMON_TAIL_FIELDS[-2:]),
+    "deleteAutorecEntry": _client_fields("deleteAutorecEntry", ("id", "id", STR, REQ, "direct")),
+    "addTimerecEntry": _client_fields("addTimerecEntry",
+        ("title", "title", STR, REQ, "direct"),
+        ("channel", "channelId", S64, OPT, "recording-rule-channel"),
+        ("startMinutesSinceMidnight", "start", U32, OPT, "direct"),
+        ("stopMinutesSinceMidnight", "stop", U32, OPT, "direct"), *_RULE_COMMON_TAIL_FIELDS),
+    "updateTimerecEntry": _client_fields("updateTimerecEntry",
+        ("id", "id", STR, REQ, "direct"),
+        ("channel", "channelId", S64, OPT, "recording-rule-channel"),
+        ("startMinutesSinceMidnight", "start", U32, OPT, "direct"),
+        ("stopMinutesSinceMidnight", "stop", U32, OPT, "direct"),
+        *_RULE_COMMON_TAIL_FIELDS[:-2], ("title", "title", STR, OPT, "direct"),
+        *_RULE_COMMON_TAIL_FIELDS[-2:]),
+    "deleteTimerecEntry": _client_fields("deleteTimerecEntry", ("id", "id", STR, REQ, "direct")),
+    "getDvrCutpoints": _client_fields("getDvrCutpoints", ("entryId", "id", U32, REQ, "direct")),
+    "getTicket": _client_fields("getTicket",
+        ("selector", "channelId", U32, ALT, "ticket-channel", None, "selector.channelId", None),
+        ("selector", "dvrId", U32, ALT, "ticket-dvr", None, "selector.dvrId", None)),
+    "subscribe": _client_fields("subscribe",
+        ("subscriptionId", "subscriptionId", U32, REQ, "direct"),
+        ("channel", "channelId", U32, ALT, "subscribe-id"),
+        ("channel", "channelName", STR, ALT, "subscribe-name"),
+        ("profile", "profile", STR, OPT, "direct", 16, None, None),
+        ("weight", "weight", U32, OPT, "direct"),
+        ("ninetyKhz", "90khz", U32, OPT, "direct", 7, None, None),
+        ("timeshiftPeriodSeconds", "timeshiftPeriod", U32, OPT, "direct", 9, None, None),
+        ("queueDepth", "queueDepth", U32, OPT, "direct", 7, None, None)),
+    "unsubscribe": _client_fields("unsubscribe", ("subscriptionId", "subscriptionId", U32, REQ, "direct")),
+    "subscriptionChangeWeight": _client_fields("subscriptionChangeWeight",
+        ("subscriptionId", "subscriptionId", U32, REQ, "direct"),
+        ("weight", "weight", U32, OPT, "direct")),
+    "subscriptionSeek": _client_fields("subscriptionSeek",
+        ("subscriptionId", "subscriptionId", U32, REQ, "direct"),
+        ("position", "time", S64, ALT, "seek-time"), ("position", "size", S64, ALT, "seek-size"),
+        ("absolute", "absolute", U32, OPT, "direct")),
+    "subscriptionSkip": _client_fields("subscriptionSkip",
+        ("subscriptionId", "subscriptionId", U32, REQ, "direct"),
+        ("position", "time", S64, ALT, "seek-time"), ("position", "size", S64, ALT, "seek-size"),
+        ("absolute", "absolute", U32, OPT, "direct")),
+    "subscriptionSpeed": _client_fields("subscriptionSpeed",
+        ("subscriptionId", "subscriptionId", U32, REQ, "direct"),
+        ("speed", "speed", S32, REQ, "direct")),
+    "subscriptionLive": _client_fields("subscriptionLive", ("subscriptionId", "subscriptionId", U32, REQ, "direct")),
+    "subscriptionFilterStream": _client_fields("subscriptionFilterStream",
+        ("subscriptionId", "subscriptionId", U32, REQ, "direct"),
+        ("enable", "enable", LIST, OPT, "direct", None, None, "u32-list"),
+        ("disable", "disable", LIST, OPT, "direct", None, None, "u32-list")),
+    "fileOpen": _client_fields("fileOpen", ("file", "file", STR, REQ, "direct")),
+    "fileRead": _client_fields("fileRead",
+        ("id", "id", U32, REQ, "direct"), ("size", "size", S64, REQ, "bounded-file-size"),
+        ("offset", "offset", S64, OPT, "direct")),
+    "fileClose": _client_fields("fileClose",
+        ("id", "id", U32, REQ, "direct"),
+        ("playPositionSeconds", "playposition", U32, OPT, "direct", 27, None, None),
+        ("playCount", "playcount", U32, OPT, "direct", 27, None, None)),
+    "fileStat": _client_fields("fileStat", ("id", "id", U32, REQ, "direct")),
+    "fileSeek": _client_fields("fileSeek",
+        ("id", "id", U32, REQ, "direct"), ("offset", "offset", S64, REQ, "direct"),
+        ("whence", "whence", STR, OPT, "file-whence")),
+    "api": _client_fields("api", ("path", "path", STR, REQ, "direct"),
+        ("args", "args", MAP, OPT, "api-value", None, None, "api-object")),
+    "hello": _client_fields("hello", ("htspVersion", "htspversion", U32, REQ, "direct"),
+        ("clientName", "clientname", STR, REQ, "direct")),
+})
+
+
+def _reply_fields(
+    method: str,
+    *rows: tuple[str, str, str, str, str] | tuple[str, str, str, str, str, int | None, str | None, bool],
+) -> tuple[WireField, ...]:
+    result = []
+    for row in rows:
+        prop, wire, wire_type, presence, decoder, *tail = row
+        minimum = tail[0] if tail else None
+        nested = tail[1] if len(tail) > 1 else None
+        lenient = tail[2] if len(tail) > 2 else False
+        result.append(W(method, prop, wire_type, presence, decoder, wire,
+            minimum_version=minimum, nested_shape=nested, lenient_malformed=lenient))
+    return tuple(result)
+
+
+_EVENT_REPLY_FIELDS = _reply_fields("event",
+    ("eventId", "eventId", U32, REQ, "u32"), ("channelId", "channelId", U32, OPT, "u32"),
+    ("start", "start", S64, REQ, "s64"), ("stop", "stop", S64, REQ, "s64"),
+    ("title", "title", STR, OPT, "string"), ("subtitle", "subtitle", STR, OPT, "string"),
+    ("summary", "summary", STR, OPT, "string"), ("description", "description", STR, OPT, "string"),
+    ("categories", "category", LIST, OPT, "string-list", None, "string-list", False),
+    ("keywords", "keyword", LIST, OPT, "string-list", None, "string-list", False),
+    ("seriesLinkUri", "serieslinkUri", STR, OPT, "string"), ("episodeUri", "episodeUri", STR, OPT, "string"),
+    ("contentType", "contentType", U32, OPT, "u32"), ("ageRating", "ageRating", U32, OPT, "u32"),
+    ("ratingLabel", "ratingLabel", STR, OPT, "string"), ("ratingIcon", "ratingIcon", STR, OPT, "string"),
+    ("ratingAuthority", "ratingAuthority", STR, OPT, "string"), ("ratingCountry", "ratingCountry", STR, OPT, "string"),
+    ("starRating", "starRating", U32, OPT, "u32"), ("copyrightYear", "copyrightYear", U32, OPT, "u32"),
+    ("firstAired", "firstAired", S64, OPT, "s64"), ("isNew", "isNew", U32, OPT, "u32"),
+    ("seasonNumber", "seasonNumber", U32, OPT, "u32"), ("seasonCount", "seasonCount", U32, OPT, "u32"),
+    ("episodeNumber", "episodeNumber", U32, OPT, "u32"), ("episodeCount", "episodeCount", U32, OPT, "u32"),
+    ("partNumber", "partNumber", U32, OPT, "u32"), ("partCount", "partCount", U32, OPT, "u32"),
+    ("episodeOnscreen", "episodeOnscreen", STR, OPT, "string"), ("image", "image", STR, OPT, "string"),
+    ("dvrId", "dvrId", U32, OPT, "u32"), ("nextEventId", "nextEventId", U32, OPT, "u32"),
+)
+
+
+REQUEST_REPLY_NESTED_SHAPES: tuple[NestedShape, ...] = (
+    NestedShape("profile", "HtspProfile", "profileFromFields", _reply_fields("profile",
+        ("profileUuid", "uuid", STR, REQ, "string"), ("name", "name", STR, REQ, "string"),
+        ("comment", "comment", STR, REQ, "string"))),
+    NestedShape("dvr-config", "HtspDvrConfig", "dvrConfigFromFields", _reply_fields("dvr-config",
+        ("dvrConfigUuid", "uuid", STR, REQ, "string"), ("name", "name", STR, REQ, "string"),
+        ("comment", "comment", STR, REQ, "string"))),
+    NestedShape("channel-service", "HtspChannelService", "serviceFromFields", _reply_fields("channel-service",
+        ("name", "name", STR, REQ, "string"), ("type", "type", STR, REQ, "string"),
+        ("content", "content", U32, REQ, "u32"), ("conditionalAccessId", "caid", U32, OPT, "u32"),
+        ("conditionalAccessName", "caname", STR, OPT, "string"),
+        ("providerName", "providername", STR, OPT, "string"))),
+    NestedShape("event", "HtspEvent", "eventFromFields", _EVENT_REPLY_FIELDS),
+    NestedShape("cutpoint", "HtspDvrCutpoint", "cutpointFromFields", _reply_fields("cutpoint",
+        ("start", "start", U32, REQ, "u32"), ("end", "end", U32, REQ, "u32"),
+        ("type", "type", U32, REQ, "u32"))),
+    NestedShape("epg-episode-number", "HtspEpgEpisodeNumber", "optionalEpgEpisodeNumber", _reply_fields("epg-episode-number",
+        ("episodeNumber", "enum", U32, OPT, "u32"), ("episodeCount", "ecnt", U32, OPT, "u32"),
+        ("seasonNumber", "snum", U32, OPT, "u32"), ("seasonCount", "scnt", U32, OPT, "u32"),
+        ("partNumber", "pnum", U32, OPT, "u32"), ("partCount", "pcnt", U32, OPT, "u32"),
+        ("text", "text", STR, OPT, "string"))),
+    NestedShape("epg-broadcast", "HtspEpgBroadcastObject", "epgBroadcastObjectFromFields", _reply_fields("epg-broadcast",
+        ("objectType", "tp", U32, REQ, "broadcast-type"), ("id", "id", U32, REQ, "u32"),
+        ("updatedUnixSeconds", "up", S64, REQ, "s64"), ("startUnixSeconds", "start", S64, REQ, "s64"),
+        ("stopUnixSeconds", "stop", S64, REQ, "s64"), ("grabber", "gr", STR, OPT, "string"),
+        ("channelUuid", "ch", STR, OPT, "string"), ("eventId", "eid", U32, OPT, "u32"),
+        ("externalEventId", "xeid", STR, OPT, "string"),
+        *((prop, wire, FLAG, OPT, "true-flag") for prop, wire in (
+            ("widescreen", "is_wd"), ("highDefinition", "is_hd"), ("blackAndWhite", "is_bw"),
+            ("deafSigned", "is_de"), ("subtitled", "is_st"), ("audioDescribed", "is_ad"),
+            ("isNew", "is_n"), ("isRepeat", "is_r"),
+        )),
+        ("lines", "lines", U32, OPT, "u32"), ("aspectRatio", "aspect", U32, OPT, "u32"),
+        ("starRating", "star", U32, OPT, "u32"), ("ageRating", "age", U32, OPT, "u32"),
+        ("ratingLabel", "ratlab", STR, OPT, "string"), ("image", "img", STR, OPT, "string"),
+        ("titles", "tit", MAP, OPT, "string-map", None, "localized-string-map", False),
+        ("subtitles", "sti", MAP, OPT, "string-map", None, "localized-string-map", False),
+        ("summaries", "sum", MAP, OPT, "string-map", None, "localized-string-map", False),
+        ("descriptions", "des", MAP, OPT, "string-map", None, "localized-string-map", False),
+        ("episodeNumber", "epn", MAP, OPT, "episode-number", None, "epg-episode-number", False),
+        ("genres", "genre", LIST, OPT, "u32-list", None, "u32-list", False),
+        ("copyrightYear", "cyear", U32, OPT, "u32"), ("firstAiredUnixSeconds", "fair", S64, OPT, "s64"),
+        ("categories", "cat", LIST, OPT, "sorted-unique-string-list", None, "string-list", False),
+        ("keywords", "key", LIST, OPT, "sorted-unique-string-list", None, "string-list", False),
+        ("seriesLinkUri", "slink", STR, OPT, "string"), ("episodeLinkUri", "elink", STR, OPT, "string"))),
+)
+
+REQUEST_REPLY_TERMINAL_NESTED_TARGETS: tuple[str, ...] = (
+    "api-value", "localized-string-map", "string-list", "u32-list",
+)
+
+
+_MUTATION_REPLY = (
+    ("success", "success", U32, ALT, "u32"), ("error", "error", STR, ALT, "string"),
+)
+_STRICT_SUCCESS_REPLY = (("success", "success", U32, REQ, "strict-one"),)
+
+
+REPLY_FIELDS_BY_METHOD: dict[str, tuple[WireField, ...]] = {
+    "getProfiles": _reply_fields("getProfiles", ("profiles", "profiles", LIST, OPT, "object-list", None, "profile", False)),
+    "getDiskSpace": _reply_fields("getDiskSpace",
+        ("freeBytes", "freediskspace", S64, REQ, "s64"), ("usedBytes", "useddiskspace", S64, OPT, "s64"),
+        ("totalBytes", "totaldiskspace", S64, REQ, "s64")),
+    "getSysTime": _reply_fields("getSysTime", ("unixTimeSeconds", "time", S32, REQ, "s32"),
+        ("legacyTimezoneHoursWestOfGmt", "timezone", S32, REQ, "s32"),
+        ("gmtOffsetMinutes", "gmtoffset", S32, OPT, "s32")),
+    "enableAsyncMetadata": (),
+    "getChannel": _reply_fields("getChannel",
+        ("channelId", "channelId", U32, REQ, "u32"),
+        ("channelUuid", "channelIdStr", STR, OPT, "string", 41, None, False),
+        ("channelNumber", "channelNumber", U32, REQ, "u32"),
+        ("channelNumberMinor", "channelNumberMinor", U32, OPT, "u32", 13, None, False),
+        ("channelName", "channelName", STR, REQ, "string"),
+        ("channelIcon", "channelIcon", STR, OPT, "string"),
+        ("currentEventId", "eventId", U32, REQ, "u32"), ("nextEventId", "nextEventId", U32, REQ, "u32"),
+        ("services", "services", LIST, REQ, "object-list", 5, "channel-service", False),
+        ("tagIds", "tags", LIST, REQ, "u32-list", None, "u32-list", False)),
+    "getEvent": _reply_fields("getEvent", ("event", "<root>", MAP, REQ, "root-shape", None, "event", False)),
+    "getEvents": _reply_fields("getEvents", ("events", "events", LIST, REQ, "object-list", None, "event", False)),
+    "epgQuery": _reply_fields("epgQuery",
+        ("eventIds", "eventIds", LIST, ALT, "u32-list", None, "u32-list", False),
+        ("events", "events", LIST, ALT, "object-list", None, "event", False)),
+    "getEpgObject": _reply_fields("getEpgObject", ("broadcast", "<root>", MAP, REQ, "root-shape", None, "epg-broadcast", False)),
+    "getDvrConfigs": _reply_fields("getDvrConfigs", ("configurations", "dvrconfigs", LIST, OPT, "object-list", None, "dvr-config", False)),
+    "addDvrEntry": _reply_fields("addDvrEntry", *_MUTATION_REPLY,
+        ("entryId", "id", U32, OPT, "u32"), ("entryId", "dvrId", U32, OPT, "u32")),
+    **{method: _reply_fields(method, *_MUTATION_REPLY) for method in (
+        "updateDvrEntry", "stopDvrEntry", "cancelDvrEntry", "deleteDvrEntry",
+    )},
+    "addAutorecEntry": _reply_fields("addAutorecEntry", *_STRICT_SUCCESS_REPLY, ("id", "id", STR, REQ, "string")),
+    "updateAutorecEntry": _reply_fields("updateAutorecEntry", *_STRICT_SUCCESS_REPLY),
+    "deleteAutorecEntry": _reply_fields("deleteAutorecEntry", *_STRICT_SUCCESS_REPLY),
+    "addTimerecEntry": _reply_fields("addTimerecEntry", *_STRICT_SUCCESS_REPLY, ("id", "id", STR, REQ, "string")),
+    "updateTimerecEntry": _reply_fields("updateTimerecEntry", *_STRICT_SUCCESS_REPLY),
+    "deleteTimerecEntry": _reply_fields("deleteTimerecEntry", *_STRICT_SUCCESS_REPLY),
+    "getDvrCutpoints": _reply_fields("getDvrCutpoints", ("cutpoints", "cutpoints", LIST, OPT, "object-list", None, "cutpoint", False)),
+    "getTicket": _reply_fields("getTicket", ("path", "path", STR, REQ, "string"), ("ticket", "ticket", STR, REQ, "string")),
+    "subscribe": _reply_fields("subscribe", ("ninetyKhz", "90khz", U32, OPT, "u32"),
+        ("normalizedTimestamps", "normts", U32, OPT, "u32"), ("weight", "weight", U32, OPT, "u32"),
+        ("timeshiftPeriodSeconds", "timeshiftPeriod", U32, OPT, "u32")),
+    **{method: () for method in (
+        "unsubscribe", "subscriptionChangeWeight", "subscriptionSeek", "subscriptionSkip",
+        "subscriptionSpeed", "subscriptionLive", "subscriptionFilterStream",
+    )},
+    "fileOpen": _reply_fields("fileOpen", ("id", "id", U32, REQ, "u32"),
+        ("sizeBytes", "size", S64, OPT, "non-negative-s64"),
+        ("modifiedAtUnixSeconds", "mtime", S64, OPT, "s64")),
+    "fileRead": _reply_fields("fileRead", ("data", "data", BIN, REQ, "binary-value")),
+    "fileClose": (),
+    "fileStat": _reply_fields("fileStat", ("sizeBytes", "size", S64, OPT, "non-negative-s64"),
+        ("modifiedAtUnixSeconds", "mtime", S64, OPT, "s64")),
+    "fileSeek": _reply_fields("fileSeek", ("offset", "offset", S64, REQ, "non-negative-s64")),
+    "api": _reply_fields("api", ("response", "response", MAP, OPT, "api-container", None, "api-value", False)),
+    "hello": _reply_fields("hello", ("htspVersion", "htspversion", U32, REQ, "u32"),
+        ("serverName", "servername", STR, OPT, "observed-string", None, None, True),
+        ("serverVersion", "serverversion", STR, OPT, "observed-string", None, None, True),
+        ("challenge", "challenge", BIN, REQ, "binary-32"),
+        ("webRoot", "webroot", STR, OPT, "observed-string", None, None, True),
+        ("language", "language", STR, OPT, "observed-string", None, None, True),
+        ("serverCapabilities", "servercapability", LIST, OPT, "observed-string-list", None, "string-list", True),
+        ("apiVersion", "api_version", U32, OPT, "observed-u32", None, None, True)),
+    "authenticate": _reply_fields("authenticate",
+        ("noAccess", "noaccess", U32, OPT, "observed-flag", None, None, True),
+        *((prop, wire, U32, OPT, "observed-flag", 26, None, True) for prop, wire in (
+            ("admin", "admin"), ("streaming", "streaming"), ("dvr", "dvr"),
+            ("failedDvr", "faileddvr"), ("anonymous", "anonymous"),
+        )),
+        *((prop, wire, U32, OPT, "observed-u32", 26, None, True) for prop, wire in (
+            ("limitAll", "limitall"), ("limitDvr", "limitdvr"),
+            ("limitStreaming", "limitstreaming"), ("uiLevel", "uilevel"),
+        )),
+        ("uiLanguage", "uilanguage", STR, OPT, "observed-string", 26, None, True)),
+}
+
+
+REPLY_CONDITIONAL_PRESENCE_RULES: tuple[ConditionalPresenceRule, ...] = (
+    ConditionalPresenceRule(
+        owner="getChannel",
+        wire_name="channelIdStr",
+        kind="required-at-or-above-version",
+        minimum_version=41,
+    ),
+)
+
+REPLY_COUPLED_PRESENCE_GROUPS: tuple[CoupledPresenceGroup, ...] = (
+    CoupledPresenceGroup(
+        owner="fileOpen",
+        name="file-metadata",
+        kind="all-or-none",
+        wire_names=("size", "mtime"),
+    ),
+    CoupledPresenceGroup(
+        owner="fileStat",
+        name="file-metadata",
+        kind="all-or-none",
+        wire_names=("size", "mtime"),
+    ),
+)
+
+
+REQUEST_WIRE_FIELDS: tuple[WireField, ...] = tuple(
+    field for entry in CATALOG for field in REQUEST_FIELDS_BY_METHOD[entry.method]
+)
+REPLY_WIRE_FIELDS: tuple[WireField, ...] = tuple(
+    field for entry in CATALOG for field in REPLY_FIELDS_BY_METHOD[entry.method]
+) + tuple(field for shape in REQUEST_REPLY_NESTED_SHAPES for field in shape.fields)
+
+# Exhaustive checked-in evidence enforcement remains a G3 gate.  This catalog
+# records the known accepted source/document mismatch without changing wire
+# behavior in G2; the pinned v44 dispatch evidence and shipped decoder both use
+# s32 for getSysTime `time`, while the upstream prose method page says s64.
+REQUEST_SPEC_WAIVERS: tuple[tuple[str, str], ...] = (
+    ("getSysTime.reply.time", "shipped and pinned-v44 type is s32; upstream prose page says s64"),
+    ("addDvrEntry.reply.dvrId", "shipped decoder accepts the legacy dvrId alias when id is absent"),
+    ("updateDvrEntry.reply.error", "shipped mutation decoder accepts error text although bounded v44 evidence lists only success"),
+    ("stopDvrEntry.reply.error", "shipped mutation decoder accepts error text although complete success evidence lists only success=1"),
+    ("cancelDvrEntry.reply.error", "shipped mutation decoder accepts error text although bounded v44 evidence lists only success"),
+    ("deleteDvrEntry.reply.error", "shipped mutation decoder accepts error text although bounded v44 evidence lists only success"),
+)
+REQUEST_SPEC_CONSISTENCY_STATUS = "pending-g3"
+REQUEST_VERBATIM_ESCAPES: tuple[tuple[str, str], ...] = ()
+
+# KDoc on nested public declarations is catalog data too; the model renderer
+# verifies the complete inherited multiset rather than merely rendered types.
+REQUEST_NESTED_KDOCS: tuple[str, ...] = (
+    "Select one channel by its complete unsigned HTSP channel ID.",
+    """Emit the v25 signed `-1` any-channel sentinel.
+
+Pinned update source also clears to any channel when `channel` is omitted;
+this selector makes that intent explicit. Add support requires HTSP v25.""",
+    "Select one channel by its complete unsigned HTSP channel ID.",
+    "Select one DVR entry by its complete unsigned HTSP DVR ID.",
+    "A successful map or list payload.",
+    "A successful callback that supplied no response payload.",
+)

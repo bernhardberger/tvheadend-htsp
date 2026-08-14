@@ -20,11 +20,12 @@ public class HtspBinary(bytes: ByteArray) {
     override fun toString(): String = "HtspBinary(size=${content.size})"
 }
 
-internal const val SERVER_MESSAGE_U32_MAX: Long = 0xffff_ffffL
+internal const val HTSP_U32_MAX: Long = 0xffff_ffffL
+internal const val MAX_FILE_READ_SIZE_BYTES: Long = 16L * 1024L * 1024L
 
-internal fun requireServerU32(name: String, value: Long) {
-    require(value in 0L..SERVER_MESSAGE_U32_MAX) { "$name must be in the HTSP u32 range" }
+internal fun requireU32(name: String, value: Long) {
+    require(value in 0L..HTSP_U32_MAX) { "$name must be in the HTSP u32 range" }
 }
 
-internal fun <T> List<T>.immutableServerSnapshot(): List<T> =
+internal fun <T> List<T>.immutableSnapshot(): List<T> =
     Collections.unmodifiableList(ArrayList(this))

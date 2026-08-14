@@ -154,8 +154,8 @@ def render_snapshot_expression(expression: str) -> str:
         return expression
     return (
         "event.copy(\n"
-        "        categories = event.categories?.immutableServerSnapshot(),\n"
-        "        keywords = event.keywords?.immutableServerSnapshot(),\n"
+        "        categories = event.categories?.immutableSnapshot(),\n"
+        "        keywords = event.keywords?.immutableSnapshot(),\n"
         "    )"
     )
 
@@ -167,24 +167,24 @@ def render_validation(feature: ValidationFeature, declaration: KotlinDeclaration
             prop = next((p for p in declaration.properties if p.name == expression), None)
             nullable = prop is not None and prop.kotlin_type.endswith("?")
             lines.append(
-                f'{expression}?.let {{ requireServerU32("{label}", it) }}'
-                if nullable else f'requireServerU32("{label}", {expression})'
+                f'{expression}?.let {{ requireU32("{label}", it) }}'
+                if nullable else f'requireU32("{label}", {expression})'
             )
         return lines
     if feature.feature == "u32-list":
         label, expression = feature.fields[0]
-        return [f'{expression}?.forEach {{ requireServerU32("{label}", it) }}']
+        return [f'{expression}?.forEach {{ requireU32("{label}", it) }}']
     if feature.feature == "channel-services":
         return [
             "this.services?.forEach { service ->",
-            '    requireServerU32("service.content", service.content)',
-            '    service.conditionalAccessId?.let { requireServerU32("service.conditionalAccessId", it) }',
+            '    requireU32("service.content", service.content)',
+            '    service.conditionalAccessId?.let { requireU32("service.conditionalAccessId", it) }',
             "}",
         ]
     if feature.feature == "u32-group":
         label = feature.fields[0][0]
         values = ",\n            ".join(expression for _, expression in feature.fields)
-        return [f"listOfNotNull(\n            {values},\n        ).forEach {{ requireServerU32(\"{label}\", it) }}"]
+        return [f"listOfNotNull(\n            {values},\n        ).forEach {{ requireU32(\"{label}\", it) }}"]
     if feature.feature == "timerec":
         nullable = declaration.name.endswith("UpdateMessage")
         prefix = "channelId == null || " if nullable else ""
@@ -194,9 +194,9 @@ def render_validation(feature: ValidationFeature, declaration: KotlinDeclaration
             f'require({prefix}channelId >= 0) {{ "channelId must be non-negative" }}',
             f'require({start_prefix}startMinutesSinceMidnight in 0..1_440) {{\n    "startMinutesSinceMidnight must be between 0 and 1440"\n}}',
             f'require({stop_prefix}stopMinutesSinceMidnight in 0..1_440) {{\n    "stopMinutesSinceMidnight must be between 0 and 1440"\n}}',
-            'daysOfWeekMask?.let { requireServerU32("daysOfWeekMask", it) }',
-            'priority?.let { requireServerU32("priority", it) }',
-            'retentionDays?.let { requireServerU32("retentionDays", it) }',
+            'daysOfWeekMask?.let { requireU32("daysOfWeekMask", it) }',
+            'priority?.let { requireU32("priority", it) }',
+            'retentionDays?.let { requireU32("retentionDays", it) }',
         ]
     if feature.feature == "event-add":
         values = (
@@ -207,8 +207,8 @@ def render_validation(feature: ValidationFeature, declaration: KotlinDeclaration
             "this.event.dvrId", "this.event.nextEventId", "episodeId", "seriesLinkId",
         )
         return [
-            'requireServerU32("eventId", this.event.eventId)',
-            "listOfNotNull(\n            " + ",\n            ".join(values) + ',\n        ).forEach { requireServerU32("event field", it) }',
+            'requireU32("eventId", this.event.eventId)',
+            "listOfNotNull(\n            " + ",\n            ".join(values) + ',\n        ).forEach { requireU32("event field", it) }',
         ]
     raise ValueError(f"unsupported validation feature: {feature.feature}")
 
@@ -496,7 +496,7 @@ private fun Map<*, *>.optionalServerFlag(name: String): Boolean? =
 
 private fun Map<*, *>.requiredServerU32(name: String): Long {
     val value = requiredServerS64(name)
-    if (value !in 0L..SERVER_MESSAGE_U32_MAX) throw HtspServerMessageMappingException()
+    if (value !in 0L..HTSP_U32_MAX) throw HtspServerMessageMappingException()
     return value
 }
 
@@ -522,9 +522,9 @@ private fun Map<*, *>.requiredServerU32List(name: String): List<Long> {
     val source = this[name] as? List<*> ?: throw HtspServerMessageMappingException()
     return source.map { value ->
         val decoded = value as? Long ?: throw HtspServerMessageMappingException()
-        if (decoded !in 0L..SERVER_MESSAGE_U32_MAX) throw HtspServerMessageMappingException()
+        if (decoded !in 0L..HTSP_U32_MAX) throw HtspServerMessageMappingException()
         decoded
-    }.immutableServerSnapshot()
+    }.immutableSnapshot()
 }
 
 private fun Map<*, *>.optionalServerU32List(name: String): List<Long>? =
@@ -533,7 +533,7 @@ private fun Map<*, *>.optionalServerU32List(name: String): List<Long>? =
 private fun Map<*, *>.requiredServerStringList(name: String): List<String> {
     val source = this[name] as? List<*> ?: throw HtspServerMessageMappingException()
     return source.map { it as? String ?: throw HtspServerMessageMappingException() }
-        .immutableServerSnapshot()
+        .immutableSnapshot()
 }
 
 private fun Map<*, *>.optionalServerStringList(name: String): List<String>? =
@@ -546,7 +546,7 @@ private fun <T> Map<*, *>.requiredServerObjectList(
     val source = this[name] as? List<*> ?: throw HtspServerMessageMappingException()
     return source.map { value ->
         mapper(value as? Map<*, *> ?: throw HtspServerMessageMappingException())
-    }.immutableServerSnapshot()
+    }.immutableSnapshot()
 }
 
 private fun <T> Map<*, *>.optionalServerObjectList(
@@ -660,7 +660,7 @@ def self_test() -> None:
         if f"public class {support_name}" in generated or f"public sealed interface {support_name}" in generated:
             raise AssertionError(f"support declaration remains in generated output: {support_name}")
     for support_fragment in (
-        "const val SERVER_MESSAGE_U32_MAX", "fun requireServerU32", "fun <T> List<T>.immutableServerSnapshot",
+        "const val HTSP_U32_MAX", "fun requireU32", "fun <T> List<T>.immutableSnapshot",
         "import java.util.Collections",
     ):
         if support_fragment in generated:
