@@ -58,6 +58,7 @@ internal val typedHtspRequestCatalog: List<TypedHtspRequestCatalogEntry> = listO
     TypedHtspRequestCatalogEntry("authenticate", "AuthenticateRequest", "AuthenticateResponse", HtspAccess.ACCESS_ANONYMOUS, null),
 )
 
+/** Fetches the server's stream-profile metadata through typed connection execution and returns its transport or reply failure as [HtspResult]. */
 public suspend fun HtspConnection.getProfiles(
     timeoutMs: Long = 5_000L,
     expectedGeneration: HtspConnectionGeneration? = null,
@@ -68,6 +69,7 @@ public suspend fun HtspConnection.getProfiles(
         expectedGeneration = expectedGeneration,
     )
 
+/** Reads free, used, and total recording-storage counters through the typed request boundary. */
 public suspend fun HtspConnection.getDiskSpace(
     timeoutMs: Long = 5_000L,
     expectedGeneration: HtspConnectionGeneration? = null,
@@ -78,6 +80,7 @@ public suspend fun HtspConnection.getDiskSpace(
         expectedGeneration = expectedGeneration,
     )
 
+/** Reads the server clock and timezone observations through typed connection execution. */
 public suspend fun HtspConnection.getSysTime(
     timeoutMs: Long = 5_000L,
     expectedGeneration: HtspConnectionGeneration? = null,
@@ -88,6 +91,7 @@ public suspend fun HtspConnection.getSysTime(
         expectedGeneration = expectedGeneration,
     )
 
+/** Requests asynchronous metadata delivery with the selected EPG window and language options and decodes the typed acknowledgement. */
 public suspend fun HtspConnection.enableAsyncMetadata(
     epg: Long? = null,
     lastUpdate: Long? = null,
@@ -107,6 +111,7 @@ public suspend fun HtspConnection.enableAsyncMetadata(
         expectedGeneration = expectedGeneration,
     )
 
+/** Fetches one channel by unsigned identifier and decodes the reply through the typed connection boundary. */
 public suspend fun HtspConnection.getChannel(
     channelId: Long,
     timeoutMs: Long = 5_000L,
@@ -120,6 +125,7 @@ public suspend fun HtspConnection.getChannel(
         expectedGeneration = expectedGeneration,
     )
 
+/** Fetches one EPG event by identifier, optionally localized to [language], through typed execution. */
 public suspend fun HtspConnection.getEvent(
     eventId: Long,
     language: String? = null,
@@ -135,6 +141,7 @@ public suspend fun HtspConnection.getEvent(
         expectedGeneration = expectedGeneration,
     )
 
+/** Fetches an event window selected by channel, event, language, following count, or maximum time through typed execution. */
 public suspend fun HtspConnection.getEvents(
     channelId: Long? = null,
     eventId: Long? = null,
@@ -156,6 +163,7 @@ public suspend fun HtspConnection.getEvents(
         expectedGeneration = expectedGeneration,
     )
 
+/** Searches EPG text with the supplied channel, tag, content, language, detail, and duration filters through typed execution. */
 public suspend fun HtspConnection.epgQuery(
     query: String,
     channelId: Long? = null,
@@ -187,6 +195,7 @@ public suspend fun HtspConnection.epgQuery(
         expectedGeneration = expectedGeneration,
     )
 
+/** Fetches the selected detailed EPG object and decodes its finite broadcast shape through typed execution. */
 public suspend fun HtspConnection.getEpgObject(
     id: Long,
     objectType: HtspEpgObjectType? = HtspEpgObjectType.BROADCAST,
@@ -202,6 +211,7 @@ public suspend fun HtspConnection.getEpgObject(
         expectedGeneration = expectedGeneration,
     )
 
+/** Fetches visible DVR configurations through the typed recorder request boundary. */
 public suspend fun HtspConnection.getDvrConfigs(
     timeoutMs: Long = 5_000L,
     expectedGeneration: HtspConnectionGeneration? = null,
@@ -212,6 +222,7 @@ public suspend fun HtspConnection.getDvrConfigs(
         expectedGeneration = expectedGeneration,
     )
 
+/** Requests DVR scheduling from the explicit selector and optional metadata, then decodes the typed mutation reply. */
 public suspend fun HtspConnection.addDvrEntry(
     selector: AddDvrEntrySelector,
     configName: String? = null,
@@ -239,6 +250,7 @@ public suspend fun HtspConnection.addDvrEntry(
         expectedGeneration = expectedGeneration,
     )
 
+/** Adapts [eventId] to [AddDvrEntrySelector.Event] before sending the same typed DVR-add request. */
 public suspend fun HtspConnection.addDvrEntry(
     eventId: Long,
     configName: String? = null,
@@ -266,6 +278,7 @@ public suspend fun HtspConnection.addDvrEntry(
         expectedGeneration = expectedGeneration,
     )
 
+/** Adapts channel, start, and stop to [AddDvrEntrySelector.ExplicitChannelTime] before sending a typed DVR-add request. */
 public suspend fun HtspConnection.addDvrEntry(
     channelId: Long,
     start: Long,
@@ -295,6 +308,7 @@ public suspend fun HtspConnection.addDvrEntry(
         expectedGeneration = expectedGeneration,
     )
 
+/** Requests a DVR-entry change carrying the supplied partial metadata, timing, progress, and policy fields. */
 public suspend fun HtspConnection.updateDvrEntry(
     entryId: Long,
     channelId: Long? = null,
@@ -346,6 +360,7 @@ public suspend fun HtspConnection.updateDvrEntry(
         expectedGeneration = expectedGeneration,
     )
 
+/** Requests that the selected DVR entry stop and decodes the server's typed mutation reply. */
 public suspend fun HtspConnection.stopDvrEntry(
     entryId: Long,
     timeoutMs: Long = 5_000L,
@@ -359,6 +374,7 @@ public suspend fun HtspConnection.stopDvrEntry(
         expectedGeneration = expectedGeneration,
     )
 
+/** Requests cancellation of the selected DVR entry and decodes the server's typed mutation reply. */
 public suspend fun HtspConnection.cancelDvrEntry(
     entryId: Long,
     timeoutMs: Long = 5_000L,
@@ -372,6 +388,7 @@ public suspend fun HtspConnection.cancelDvrEntry(
         expectedGeneration = expectedGeneration,
     )
 
+/** Requests deletion of the selected DVR entry and returns the decoded typed mutation reply. */
 public suspend fun HtspConnection.deleteDvrEntry(
     entryId: Long,
     timeoutMs: Long = 5_000L,
@@ -385,6 +402,7 @@ public suspend fun HtspConnection.deleteDvrEntry(
         expectedGeneration = expectedGeneration,
     )
 
+/** Requests an automatic recording rule with the supplied title, matching, schedule, retention, and ownership fields. */
 public suspend fun HtspConnection.addAutorecEntry(
     title: String,
     channel: HtspRecordingRuleChannel? = null,
@@ -444,6 +462,7 @@ public suspend fun HtspConnection.addAutorecEntry(
         expectedGeneration = expectedGeneration,
     )
 
+/** Requests a change to the identified automatic recording rule using only the supplied selector and policy fields. */
 public suspend fun HtspConnection.updateAutorecEntry(
     id: String,
     channel: HtspRecordingRuleChannel? = null,
@@ -503,6 +522,7 @@ public suspend fun HtspConnection.updateAutorecEntry(
         expectedGeneration = expectedGeneration,
     )
 
+/** Requests deletion of the automatic recording rule identified by [id] through the typed recorder boundary. */
 public suspend fun HtspConnection.deleteAutorecEntry(
     id: String,
     timeoutMs: Long = 5_000L,
@@ -516,6 +536,7 @@ public suspend fun HtspConnection.deleteAutorecEntry(
         expectedGeneration = expectedGeneration,
     )
 
+/** Requests a time-based recording rule with the supplied channel, daily interval, day mask, and policy fields. */
 public suspend fun HtspConnection.addTimerecEntry(
     title: String,
     channel: HtspRecordingRuleChannel? = null,
@@ -553,6 +574,7 @@ public suspend fun HtspConnection.addTimerecEntry(
         expectedGeneration = expectedGeneration,
     )
 
+/** Requests a change to the identified time-based recording rule with the supplied interval and policy fields. */
 public suspend fun HtspConnection.updateTimerecEntry(
     id: String,
     channel: HtspRecordingRuleChannel? = null,
@@ -592,6 +614,7 @@ public suspend fun HtspConnection.updateTimerecEntry(
         expectedGeneration = expectedGeneration,
     )
 
+/** Requests deletion of the time-based recording rule identified by [id] through typed connection execution. */
 public suspend fun HtspConnection.deleteTimerecEntry(
     id: String,
     timeoutMs: Long = 5_000L,
@@ -605,6 +628,7 @@ public suspend fun HtspConnection.deleteTimerecEntry(
         expectedGeneration = expectedGeneration,
     )
 
+/** Fetches the ordered cutpoint coordinates and action codes for one DVR entry through typed execution. */
 public suspend fun HtspConnection.getDvrCutpoints(
     entryId: Long,
     timeoutMs: Long = 5_000L,
@@ -618,6 +642,7 @@ public suspend fun HtspConnection.getDvrCutpoints(
         expectedGeneration = expectedGeneration,
     )
 
+/** Requests a temporary access path and ticket for exactly one channel or DVR selector through typed execution. */
 public suspend fun HtspConnection.getTicket(
     selector: GetTicketSelector,
     timeoutMs: Long = 5_000L,
@@ -631,6 +656,7 @@ public suspend fun HtspConnection.getTicket(
         expectedGeneration = expectedGeneration,
     )
 
+/** Forwards a channel ticket selector without widening it to another source kind, preserving the typed result boundary. */
 public suspend fun HtspConnection.getTicket(
     selector: GetTicketSelector.Channel,
     timeoutMs: Long = 5_000L,
@@ -644,6 +670,7 @@ public suspend fun HtspConnection.getTicket(
         expectedGeneration = expectedGeneration,
     )
 
+/** Forwards a DVR ticket selector without widening it to another source kind, preserving the typed result boundary. */
 public suspend fun HtspConnection.getTicket(
     selector: GetTicketSelector.Dvr,
     timeoutMs: Long = 5_000L,
@@ -657,6 +684,7 @@ public suspend fun HtspConnection.getTicket(
         expectedGeneration = expectedGeneration,
     )
 
+/** Requests a subscription for exactly one channel selector with profile, weight, timestamp, timeshift, and queue options. */
 public suspend fun HtspConnection.subscribe(
     subscriptionId: Long,
     channel: SubscribeChannel,
@@ -682,6 +710,7 @@ public suspend fun HtspConnection.subscribe(
         expectedGeneration = expectedGeneration,
     )
 
+/** Wraps [channelId] as [SubscribeChannel.Id] before sending the typed subscription request. */
 public suspend fun HtspConnection.subscribe(
     subscriptionId: Long,
     channelId: Long,
@@ -707,6 +736,7 @@ public suspend fun HtspConnection.subscribe(
         expectedGeneration = expectedGeneration,
     )
 
+/** Wraps [channelName] as [SubscribeChannel.Name] before sending the typed subscription request. */
 public suspend fun HtspConnection.subscribe(
     subscriptionId: Long,
     channelName: String,
@@ -732,6 +762,7 @@ public suspend fun HtspConnection.subscribe(
         expectedGeneration = expectedGeneration,
     )
 
+/** Requests termination of the selected subscription and decodes the typed acknowledgement. */
 public suspend fun HtspConnection.unsubscribe(
     subscriptionId: Long,
     timeoutMs: Long = 5_000L,
@@ -745,6 +776,7 @@ public suspend fun HtspConnection.unsubscribe(
         expectedGeneration = expectedGeneration,
     )
 
+/** Requests a scheduling-weight change for one subscription and decodes its typed acknowledgement; the reply does not establish that the weight was applied. */
 public suspend fun HtspConnection.subscriptionChangeWeight(
     subscriptionId: Long,
     weight: Long? = null,
@@ -760,6 +792,7 @@ public suspend fun HtspConnection.subscriptionChangeWeight(
         expectedGeneration = expectedGeneration,
     )
 
+/** Requests a subscription seek by exactly one signed time or byte coordinate and decodes the typed acknowledgement. */
 public suspend fun HtspConnection.subscriptionSeek(
     subscriptionId: Long,
     position: SubscriptionSeekPosition,
@@ -777,6 +810,7 @@ public suspend fun HtspConnection.subscriptionSeek(
         expectedGeneration = expectedGeneration,
     )
 
+/** Keeps a time seek selector distinct while forwarding it through the typed subscription-seek boundary. */
 public suspend fun HtspConnection.subscriptionSeek(
     subscriptionId: Long,
     position: SubscriptionSeekPosition.Time,
@@ -794,6 +828,7 @@ public suspend fun HtspConnection.subscriptionSeek(
         expectedGeneration = expectedGeneration,
     )
 
+/** Keeps a byte-size seek selector distinct while forwarding it through the typed subscription-seek boundary. */
 public suspend fun HtspConnection.subscriptionSeek(
     subscriptionId: Long,
     position: SubscriptionSeekPosition.Size,
@@ -811,6 +846,7 @@ public suspend fun HtspConnection.subscriptionSeek(
         expectedGeneration = expectedGeneration,
     )
 
+/** Requests a subscription skip using exactly one signed time or byte coordinate and decodes the typed acknowledgement. */
 public suspend fun HtspConnection.subscriptionSkip(
     subscriptionId: Long,
     position: SubscriptionSeekPosition,
@@ -828,6 +864,7 @@ public suspend fun HtspConnection.subscriptionSkip(
         expectedGeneration = expectedGeneration,
     )
 
+/** Adapts the concrete time coordinate to the shared skip request without changing typed failure handling. */
 public suspend fun HtspConnection.subscriptionSkip(
     subscriptionId: Long,
     position: SubscriptionSeekPosition.Time,
@@ -845,6 +882,7 @@ public suspend fun HtspConnection.subscriptionSkip(
         expectedGeneration = expectedGeneration,
     )
 
+/** Adapts the concrete byte coordinate to the shared skip request without changing typed failure handling. */
 public suspend fun HtspConnection.subscriptionSkip(
     subscriptionId: Long,
     position: SubscriptionSeekPosition.Size,
@@ -862,6 +900,7 @@ public suspend fun HtspConnection.subscriptionSkip(
         expectedGeneration = expectedGeneration,
     )
 
+/** Requests the signed playback speed for one subscription and decodes the typed acknowledgement. */
 public suspend fun HtspConnection.subscriptionSpeed(
     subscriptionId: Long,
     speed: Int,
@@ -877,6 +916,7 @@ public suspend fun HtspConnection.subscriptionSpeed(
         expectedGeneration = expectedGeneration,
     )
 
+/** Requests live mode for one subscription and decodes the typed acknowledgement; asynchronous subscription status remains authoritative for the resulting position. */
 public suspend fun HtspConnection.subscriptionLive(
     subscriptionId: Long,
     timeoutMs: Long = 5_000L,
@@ -890,6 +930,7 @@ public suspend fun HtspConnection.subscriptionLive(
         expectedGeneration = expectedGeneration,
     )
 
+/** Requests the supplied immutable enable and disable stream-index filters and decodes the typed acknowledgement. */
 public suspend fun HtspConnection.subscriptionFilterStream(
     subscriptionId: Long,
     enable: List<Long>? = null,
@@ -907,6 +948,7 @@ public suspend fun HtspConnection.subscriptionFilterStream(
         expectedGeneration = expectedGeneration,
     )
 
+/** Requests opening the exact supplied protocol file selector and decodes the returned handle; no path normalization is added. */
 public suspend fun HtspConnection.fileOpen(
     file: String,
     timeoutMs: Long = 5_000L,
@@ -920,6 +962,7 @@ public suspend fun HtspConnection.fileOpen(
         expectedGeneration = expectedGeneration,
     )
 
+/** Reads a bounded byte range from an open protocol file handle through typed execution. */
 public suspend fun HtspConnection.fileRead(
     id: Long,
     size: Long,
@@ -937,6 +980,7 @@ public suspend fun HtspConnection.fileRead(
         expectedGeneration = expectedGeneration,
     )
 
+/** Requests closure of an open protocol file handle without recording-progress fields and decodes the acknowledgement. */
 public suspend fun HtspConnection.fileClose(
     id: Long,
     timeoutMs: Long = 5_000L,
@@ -950,6 +994,7 @@ public suspend fun HtspConnection.fileClose(
         expectedGeneration = expectedGeneration,
     )
 
+/** Projects all close parameters so requested recording position and play count can be sent with typed failure handling. */
 public suspend fun HtspConnection.fileCloseWithProgress(
     id: Long,
     playPositionSeconds: Long?,
@@ -967,6 +1012,7 @@ public suspend fun HtspConnection.fileCloseWithProgress(
         expectedGeneration = expectedGeneration,
     )
 
+/** Reads size and modification metadata for an open protocol file handle through typed execution. */
 public suspend fun HtspConnection.fileStat(
     id: Long,
     timeoutMs: Long = 5_000L,
@@ -980,6 +1026,7 @@ public suspend fun HtspConnection.fileStat(
         expectedGeneration = expectedGeneration,
     )
 
+/** Requests a signed seek from the optional origin and decodes the server-reported absolute file offset. */
 public suspend fun HtspConnection.fileSeek(
     id: Long,
     offset: Long,
@@ -997,6 +1044,7 @@ public suspend fun HtspConnection.fileSeek(
         expectedGeneration = expectedGeneration,
     )
 
+/** Negotiates the requested HTSP version and client name through the typed handshake request boundary. */
 public suspend fun HtspConnection.hello(
     htspVersion: Long,
     clientName: String,
@@ -1012,6 +1060,7 @@ public suspend fun HtspConnection.hello(
         expectedGeneration = expectedGeneration,
     )
 
+/** Requests the current connection's authentication and access observations through typed execution; credentials stay in the envelope. */
 public suspend fun HtspConnection.authenticate(
     timeoutMs: Long = 5_000L,
     expectedGeneration: HtspConnectionGeneration? = null,

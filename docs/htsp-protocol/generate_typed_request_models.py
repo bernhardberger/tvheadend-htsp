@@ -21,6 +21,7 @@ from htsp_surface import (
     REPLY_FIELDS_BY_METHOD,
     REQUEST_AUXILIARY_DECLARATIONS,
     REQUEST_MODEL_CATALOG,
+    REQUEST_NESTED_DECLARATIONS,
     REQUEST_NESTED_KDOCS,
     REQUEST_PUBLIC_DECLARATIONS,
     REQUEST_REPLY_NESTED_SHAPES,
@@ -95,6 +96,7 @@ def _standard_declaration(value: KotlinDeclaration) -> list[str]:
 
 def _special_declaration(value: KotlinDeclaration) -> list[str]:
     prefix = _kdoc(value.kdoc) + list(value.annotations)
+    nested = {declaration.name: declaration for declaration in value.nested}
     if value.feature == "hello-response":
         return [*prefix,
             "public class HelloResponse(",
@@ -122,7 +124,9 @@ def _special_declaration(value: KotlinDeclaration) -> list[str]:
             "}", ""]
     if value.feature == "epg-query-response":
         return [*prefix, "public sealed interface EpgQueryResponse {",
+            *[f"    {line}" for line in _kdoc(nested["EventIds"].kdoc)],
             "    public data class EventIds(public val eventIds: List<Long>) : EpgQueryResponse",
+            *[f"    {line}" for line in _kdoc(nested["Events"].kdoc)],
             "    public data class Events(public val events: List<HtspEvent>) : EpgQueryResponse",
             "}", ""]
     if value.feature == "dvr-mutation-response":
@@ -131,19 +135,17 @@ def _special_declaration(value: KotlinDeclaration) -> list[str]:
             "        get() = null", "}", ""]
     if value.feature == "recording-rule-channel":
         return [*prefix, "public sealed interface HtspRecordingRuleChannel {",
-            "    /** Select one channel by its complete unsigned HTSP channel ID. */", "    @JvmInline",
+            *[f"    {line}" for line in _kdoc(nested["Id"].kdoc)], "    @JvmInline",
             "    public value class Id(public val channelId: Long) : HtspRecordingRuleChannel {", "        init {",
             '            requireU32("channelId", channelId)', "        }", "    }", "",
-            "    /**", "     * Emit the v25 signed `-1` any-channel sentinel.", "     *",
-            "     * Pinned update source also clears to any channel when `channel` is omitted;",
-            "     * this selector makes that intent explicit. Add support requires HTSP v25.", "     */",
+            *[f"    {line}" for line in _kdoc(nested["Any"].kdoc)],
             "    public data object Any : HtspRecordingRuleChannel", "}", ""]
     if value.feature == "get-ticket-selector":
         return [*prefix, "public sealed interface GetTicketSelector {",
-            "    /** Select one channel by its complete unsigned HTSP channel ID. */", "    @JvmInline",
+            *[f"    {line}" for line in _kdoc(nested["Channel"].kdoc)], "    @JvmInline",
             "    public value class Channel(public val channelId: Long) : GetTicketSelector {", "        init {",
             '            requireU32("channelId", channelId)', "        }", "    }", "",
-            "    /** Select one DVR entry by its complete unsigned HTSP DVR ID. */", "    @JvmInline",
+            *[f"    {line}" for line in _kdoc(nested["Dvr"].kdoc)], "    @JvmInline",
             "    public value class Dvr(public val dvrId: Long) : GetTicketSelector {", "        init {",
             '            requireU32("dvrId", dvrId)', "        }", "    }", "}", ""]
     if value.feature == "get-ticket-response":
@@ -151,25 +153,31 @@ def _special_declaration(value: KotlinDeclaration) -> list[str]:
             "    public val ticket: String,", ") {", "    override fun toString(): String =",
             '        "GetTicketResponse(path=<redacted>, ticket=<redacted>)"', "}", ""]
     if value.feature == "api-response":
-        return [*prefix, "public sealed interface ApiResponse {", "    /** A successful map or list payload. */",
+        return [*prefix, "public sealed interface ApiResponse {", *[f"    {line}" for line in _kdoc(nested["Payload"].kdoc)],
             "    @HtspJsonApi", "    public data class Payload(public val value: HtspApiContainer) : ApiResponse", "",
-            "    /** A successful callback that supplied no response payload. */", "    @HtspJsonApi",
+            *[f"    {line}" for line in _kdoc(nested["NoPayload"].kdoc)], "    @HtspJsonApi",
             "    public data object NoPayload : ApiResponse", "}", ""]
     if value.feature == "add-dvr-selector":
         return [*prefix, "public sealed interface AddDvrEntrySelector {",
+            *[f"    {line}" for line in _kdoc(nested["Event"].kdoc)],
             "    public data class Event(public val eventId: Long) : AddDvrEntrySelector {", "        init {",
             '            requireU32("eventId", eventId)', "        }", "    }", "",
+            *[f"    {line}" for line in _kdoc(nested["ExplicitChannelTime"].kdoc)],
             "    public data class ExplicitChannelTime(", "        public val channelId: Long,",
             "        public val start: Long,", "        public val stop: Long,", "    ) : AddDvrEntrySelector {",
             "        init {", '            requireU32("channelId", channelId)', "        }", "    }", "}", ""]
     if value.feature == "subscribe-channel":
         return [*prefix, "public sealed interface SubscribeChannel {",
+            *[f"    {line}" for line in _kdoc(nested["Id"].kdoc)],
             "    public data class Id(public val channelId: Long) : SubscribeChannel {", "        init {",
             '            requireU32("channelId", channelId)', "        }", "    }", "",
+            *[f"    {line}" for line in _kdoc(nested["Name"].kdoc)],
             "    public data class Name(public val channelName: String) : SubscribeChannel", "}", ""]
     if value.feature == "subscription-seek-position":
         return [*prefix, "public sealed interface SubscriptionSeekPosition {",
+            *[f"    {line}" for line in _kdoc(nested["Time"].kdoc)],
             "    public data class Time(public val time: Long) : SubscriptionSeekPosition",
+            *[f"    {line}" for line in _kdoc(nested["Size"].kdoc)],
             "    public data class Size(public val size: Long) : SubscriptionSeekPosition", "}", ""]
     raise ValueError(f"unsupported declaration feature: {value.feature}")
 
@@ -1150,6 +1158,13 @@ def validate_catalog(
 def self_test() -> None:
     self_test_generated_output_metadata()
     validate_catalog()
+    synthesized = tuple(
+        doc for doc in inherited_kdocs()
+        if doc.startswith("Typed reply model for `")
+        or doc.startswith("Typed `") and " request whose reply is decoded as " in doc
+    )
+    if synthesized:
+        raise AssertionError("synthesized request-model KDoc fallback was accepted")
 
     def expect_catalog_rejection(label: str, **changes: object) -> None:
         try:

@@ -6,6 +6,7 @@ package at.bernhardberger.tvheadend.htsp.jsonapi
 
 import at.bernhardberger.tvheadend.htsp.connection.*
 
+/** Calls one JSON API path with an optional object argument through typed connection execution; failures remain [HtspResult] values. */
 @HtspJsonApi
 public suspend fun HtspConnection.api(
     path: String,

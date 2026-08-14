@@ -20,7 +20,10 @@ from htsp_surface import (
     GeneratedOutput,
     Parameter,
     SelectorOverload,
+    GENERATED_FUNCTION_KDOC_RECORDS,
+    generated_function_kdoc,
     parameter,
+    selector_overload_kdoc,
     self_test_generated_output_metadata,
     validate_generated_output_metadata,
 )
@@ -38,8 +41,11 @@ def render_extension(
     parameters: tuple[Parameter, ...],
     request_arguments: tuple[str, ...],
     function_name: str | None = None,
+    kdoc: str | None = None,
 ) -> list[str]:
-    lines = [*output.annotations,
+    if kdoc is None or not kdoc.strip():
+        raise ValueError(f"{entry.method}: generated extension requires catalog KDoc")
+    lines = [f"/** {kdoc} */", *output.annotations,
         f"public suspend fun HtspConnection.{function_name or entry.method}("
     ]
     for value in parameters:
@@ -144,7 +150,10 @@ def render_request_extensions() -> str:
             continue
         parameters = extension_parameters(entry)
         request_arguments = tuple(f"{value.name} = {value.name}" for value in parameters)
-        lines.extend(render_extension(entry, output, parameters, request_arguments))
+        lines.extend(render_extension(
+            entry, output, parameters, request_arguments,
+            kdoc=generated_function_kdoc(entry, parameters),
+        ))
         for overload in SELECTOR_OVERLOADS:
             if overload.method == entry.method:
                 parameters, request_arguments = overload_parameters(entry, overload)
@@ -155,6 +164,7 @@ def render_request_extensions() -> str:
                         parameters,
                         request_arguments,
                         overload.function_name,
+                        selector_overload_kdoc(overload),
                     )
                 )
     return "\n".join(lines)
@@ -177,7 +187,10 @@ def render_jsonapi_extensions() -> str:
             continue
         parameters = extension_parameters(entry)
         request_arguments = tuple(f"{value.name} = {value.name}" for value in parameters)
-        lines.extend(render_extension(entry, output, parameters, request_arguments))
+        lines.extend(render_extension(
+            entry, output, parameters, request_arguments,
+            kdoc=generated_function_kdoc(entry, parameters),
+        ))
         for overload in SELECTOR_OVERLOADS:
             if overload.method == entry.method:
                 parameters, request_arguments = overload_parameters(entry, overload)
@@ -188,6 +201,7 @@ def render_jsonapi_extensions() -> str:
                         parameters,
                         request_arguments,
                         overload.function_name,
+                        selector_overload_kdoc(overload),
                     )
                 )
     return "\n".join(lines)
@@ -258,6 +272,14 @@ def validate_catalog() -> None:
     methods = tuple(entry.method for entry in CATALOG)
     if methods != expected or len(set(methods)) != 39:
         raise ValueError("typed request catalog must contain exactly the reviewed 39 methods")
+    generated_docs = tuple(
+        generated_function_kdoc(entry, extension_parameters(entry)) for entry in CATALOG
+    ) + tuple(
+        selector_overload_kdoc(overload) for overload in SELECTOR_OVERLOADS
+    )
+    normalized_docs = tuple(" ".join(doc.split()).casefold() for doc in generated_docs)
+    if any(not doc.strip() for doc in generated_docs) or len(set(normalized_docs)) != 50:
+        raise ValueError("generated extension KDoc must be nonblank and unique")
     epg_query = CATALOG[7]
     if epg_query != Entry(
         "epgQuery", "EpgQueryRequest", "EpgQueryResponse", "ACCESS_HTSP_STREAMING", 4, (
@@ -361,6 +383,11 @@ def validate_catalog() -> None:
 def self_test() -> None:
     self_test_generated_output_metadata()
     validate_catalog()
+    if any(
+        doc.startswith("Executes `") and "delegating to typed connection execution" in doc
+        for _owner, _signature, doc in GENERATED_FUNCTION_KDOC_RECORDS
+    ):
+        raise AssertionError("synthesized canonical extension KDoc fallback was accepted")
     try:
         validate_file_close_projections(
             tuple(

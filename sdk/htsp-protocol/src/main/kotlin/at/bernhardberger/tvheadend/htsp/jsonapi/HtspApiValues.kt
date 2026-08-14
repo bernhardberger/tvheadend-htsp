@@ -20,6 +20,7 @@ public class HtspApiObject private constructor(entries: Array<out Pair<String, H
     public val keys: Set<String>
         get() = values.keys
 
+    /** Returns the value stored for [name], or null when the key is absent. */
     public operator fun get(name: String): HtspApiValue? = values[name]
 
     @JvmSynthetic
@@ -47,6 +48,7 @@ public class HtspApiList private constructor(values: Array<out HtspApiValue>) : 
     public val size: Int
         get() = values.size
 
+    /** Returns the value at [index] using ordinary array index bounds. */
     public operator fun get(index: Int): HtspApiValue = values[index]
 
     @JvmSynthetic
@@ -87,6 +89,7 @@ public value class HtspApiBoolean(public val value: Boolean) : HtspApiValue
 public class HtspApiBinary(bytes: ByteArray) : HtspApiValue {
     private val value = bytes.copyOf()
 
+    /** Returns a defensive copy of this arbitrary-width binary value. */
     public fun bytes(): ByteArray = value.copyOf()
 
     override fun equals(other: Any?): Boolean =
@@ -106,6 +109,7 @@ public class HtspApiUuid(bytes: ByteArray) : HtspApiValue {
         require(value.size == 16) { "HTSP UUID must contain exactly 16 bytes" }
     }
 
+    /** Returns a defensive copy of this fixed-width UUID value. */
     public fun bytes(): ByteArray = value.copyOf()
 
     override fun equals(other: Any?): Boolean =

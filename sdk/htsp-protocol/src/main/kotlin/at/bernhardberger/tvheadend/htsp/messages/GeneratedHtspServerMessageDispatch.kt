@@ -41,13 +41,18 @@ private val typedHtspServerMessageCatalog: List<TypedHtspServerMessageCatalogEnt
     TypedHtspServerMessageCatalogEntry("subscriptionSkip", "HtspSubscriptionSkipMessage", 9),
 )
 
+/** Closed result family for decoding one candidate asynchronous HTSP message. */
 public sealed interface HtspServerMessageDecodeResult
+/** Contains the recognized and fully decoded asynchronous [message]. */
 public data class HtspServerMessageDecoded(
     public val message: HtspServerMessage,
 ) : HtspServerMessageDecodeResult
+/** Marks an RPC envelope or message whose method is absent, malformed, or outside the finite dispatch catalog. */
 public data object HtspServerMessageUnknownMethod : HtspServerMessageDecodeResult
+/** Marks a recognized asynchronous method whose fields failed its typed decoder. */
 public data object HtspServerMessageMalformedKnownMessage : HtspServerMessageDecodeResult
 
+/** Classifies one raw field map as a decoded server message, an unknown method, or malformed known input without throwing decoder failures. */
 public fun decodeHtspServerMessage(fields: Map<String, Any?>): HtspServerMessageDecodeResult {
     if (fields.containsKey("seq")) return HtspServerMessageUnknownMethod
     val method = fields["method"] as? String

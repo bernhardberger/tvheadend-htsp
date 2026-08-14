@@ -26,6 +26,7 @@ private val SUBSCRIPTION_ID_KEYS = listOf("subscriptionId", "id")
 private val STATUS_KEYS = listOf("state", "status")
 private val SUBSCRIPTION_ERROR_KEYS = listOf("subscriptionError", "error")
 
+/** Carries a channel-add message whose only required identity field is [channelId]; nullable channel metadata was absent when null. */
 public class HtspChannelAddMessage(
     public val channelId: Long,
     public val channelName: String? = null,
@@ -55,6 +56,7 @@ public class HtspChannelAddMessage(
     }
 }
 
+/** Carries a channel update identified by [channelId]; nullable metadata, services, tags, and event references were absent when null. */
 public class HtspChannelUpdateMessage(
     public val channelId: Long,
     public val channelUuid: String? = null,
@@ -84,6 +86,7 @@ public class HtspChannelUpdateMessage(
     }
 }
 
+/** Carries the complete unsigned [channelId] reported by a channel-delete message. */
 public data class HtspChannelDeleteMessage(
     public val channelId: Long,
 ) : HtspServerMessage {
@@ -92,6 +95,7 @@ public data class HtspChannelDeleteMessage(
     }
 }
 
+/** Carries channel-tag add metadata including identity, display order, names, icons, and current channel membership when present. */
 public class HtspTagAddMessage(
     public val tagId: Long,
     public val tagName: String? = null,
@@ -111,6 +115,7 @@ public class HtspTagAddMessage(
     }
 }
 
+/** Carries a tag update identified by [tagId]; null properties and channel membership were absent from the message. */
 public class HtspTagUpdateMessage(
     public val tagId: Long,
     public val tagUuid: String? = null,
@@ -130,6 +135,7 @@ public class HtspTagUpdateMessage(
     }
 }
 
+/** Carries the complete unsigned [tagId] reported by a channel-tag delete message. */
 public data class HtspTagDeleteMessage(
     public val tagId: Long,
 ) : HtspServerMessage {
@@ -138,7 +144,7 @@ public data class HtspTagDeleteMessage(
     }
 }
 
-/** Known bounded fields from one otherwise upstream-dynamic DVR recording-file map. */
+/** One bounded recording-file entry with optional file identity, path, time range, and byte size. */
 public data class HtspDvrRecordingFile(
     public val fileId: Long?,
     public val path: String?,
@@ -151,6 +157,7 @@ public data class HtspDvrRecordingFile(
     }
 }
 
+/** Carries a DVR-entry add message whose only required identity field is [entryId]; nullable schedule, metadata, state, progress, error, and file fields were absent when null. */
 public class HtspDvrEntryAddMessage(
     public val entryId: Long,
     public val entryUuid: String? = null,
@@ -227,6 +234,7 @@ public class HtspDvrEntryAddMessage(
     }
 }
 
+/** Carries one DVR-entry update; nullable schedule, metadata, progress, state, error, and file properties were absent when null. */
 public class HtspDvrEntryUpdateMessage(
     public val entryId: Long,
     public val entryUuid: String? = null,
@@ -303,6 +311,7 @@ public class HtspDvrEntryUpdateMessage(
     }
 }
 
+/** Carries the complete unsigned [entryId] reported by a DVR-entry delete message. */
 public data class HtspDvrEntryDeleteMessage(
     public val entryId: Long,
 ) : HtspServerMessage {
@@ -311,7 +320,7 @@ public data class HtspDvrEntryDeleteMessage(
     }
 }
 
-/** A complete automatic DVR rule announced during asynchronous metadata sync. */
+/** Carries the bounded automatic-recording-rule fields reported by an add message, including match, schedule, ownership, and retention data. */
 public data class HtspAutorecEntryAddMessage(
     public val id: String,
     public val enabled: Boolean,
@@ -355,7 +364,7 @@ public data class HtspAutorecEntryAddMessage(
     }
 }
 
-/** A partial automatic DVR rule update. Null properties were absent on the wire. */
+/** Carries an automatic-recording-rule update; every nullable matching, scheduling, ownership, or retention property was absent when null. */
 public data class HtspAutorecEntryUpdateMessage(
     public val id: String,
     public val enabled: Boolean? = null,
@@ -399,9 +408,10 @@ public data class HtspAutorecEntryUpdateMessage(
     }
 }
 
+/** Carries the string [id] reported by an automatic-recording-rule delete message. */
 public data class HtspAutorecEntryDeleteMessage(public val id: String) : HtspServerMessage
 
-/** A complete time-based DVR rule announced during asynchronous metadata sync. */
+/** Carries the bounded time-based recording-rule fields reported by an add message, including channel, interval, policy, and ownership data. */
 public data class HtspTimerecEntryAddMessage(
     public val id: String,
     public val enabled: Boolean,
@@ -433,7 +443,7 @@ public data class HtspTimerecEntryAddMessage(
     }
 }
 
-/** A partial time-based DVR rule update. Null properties were absent on the wire. */
+/** Carries a time-based recording-rule update; nullable interval, channel, day, policy, and ownership properties were absent when null. */
 public data class HtspTimerecEntryUpdateMessage(
     public val id: String,
     public val enabled: Boolean? = null,
@@ -465,8 +475,10 @@ public data class HtspTimerecEntryUpdateMessage(
     }
 }
 
+/** Carries the string [id] reported by a time-based recording-rule delete message. */
 public data class HtspTimerecEntryDeleteMessage(public val id: String) : HtspServerMessage
 
+/** Carries the bounded [event] fields reported by an event-add message plus accepted genre, episode, and series-link identifiers. */
 public class HtspEventAddMessage(
     event: HtspEvent,
     public val genre: String? = null,
@@ -501,6 +513,7 @@ public class HtspEventAddMessage(
     }
 }
 
+/** Carries an update identified by [eventId]; nullable timing, text, rating, episode, image, and DVR fields were absent when null. */
 public class HtspEventUpdateMessage(
     public val eventId: Long,
     public val channelId: Long? = null,
@@ -562,6 +575,7 @@ public class HtspEventUpdateMessage(
     }
 }
 
+/** Carries the complete unsigned [eventId] reported by an EPG-event delete message. */
 public data class HtspEventDeleteMessage(
     public val eventId: Long,
 ) : HtspServerMessage {
@@ -570,8 +584,10 @@ public data class HtspEventDeleteMessage(
     }
 }
 
+/** Fieldless server marker reporting completion of the initial asynchronous metadata snapshot. */
 public data object HtspInitialSyncCompletedMessage : HtspServerMessage
 
+/** One subscription packet with stream and frame identifiers, optional decode and presentation timestamps, duration, and copied payload bytes. */
 public data class HtspMuxPacketMessage(
     public val subscriptionId: Long,
     public val frameType: Long,
@@ -589,6 +605,7 @@ public data class HtspMuxPacketMessage(
     }
 }
 
+/** Queue counters for one subscription: queued packets and bytes, optional delay, and dropped B-, P-, and I-frame counts. */
 public data class HtspQueueStatusMessage(
     public val subscriptionId: Long,
     public val packetCount: Long,
@@ -608,6 +625,7 @@ public data class HtspQueueStatusMessage(
     }
 }
 
+/** One stream descriptor with index and codec type plus optional language, video, audio, radio-data, and codec metadata fields. */
 public data class HtspSubscriptionStream(
     public val streamIndex: Long,
     public val streamType: String,
@@ -645,6 +663,7 @@ public data class HtspSubscriptionStream(
     }
 }
 
+/** Optional tuner source identity and display metadata for a subscription, including adapter, mux, network, provider, service, and satellite position. */
 public data class HtspSubscriptionSourceInfo(
     public val adapterUuid: String?,
     public val muxUuid: String?,
@@ -658,6 +677,7 @@ public data class HtspSubscriptionSourceInfo(
     public val satellitePosition: String?,
 )
 
+/** Reports subscription-start metadata: stream list, source information, codec metadata, and optional status or subscription error. */
 public class HtspSubscriptionStartMessage(
     public val subscriptionId: Long,
     streams: List<HtspSubscriptionStream>? = null,
@@ -673,6 +693,7 @@ public class HtspSubscriptionStartMessage(
     }
 }
 
+/** Reports a subscription-stop message with the server's optional terminal status and subscription error. */
 public data class HtspSubscriptionStopMessage(
     public val subscriptionId: Long,
     public val status: String?,
@@ -683,6 +704,7 @@ public data class HtspSubscriptionStopMessage(
     }
 }
 
+/** Reports the grace interval, in seconds, allowed for the identified subscription. */
 public data class HtspSubscriptionGraceMessage(
     public val subscriptionId: Long,
     public val graceTimeoutSeconds: Long,
@@ -693,6 +715,7 @@ public data class HtspSubscriptionGraceMessage(
     }
 }
 
+/** Reports the current optional status and subscription error for one subscription. */
 public data class HtspSubscriptionStatusMessage(
     public val subscriptionId: Long,
     public val status: String?,
@@ -703,6 +726,7 @@ public data class HtspSubscriptionStatusMessage(
     }
 }
 
+/** Signal observations for one subscription: frontend status, relative and absolute SNR and signal, bit errors, and uncorrected blocks. */
 public data class HtspSignalStatusMessage(
     public val subscriptionId: Long,
     public val frontendStatus: String?,
@@ -724,7 +748,7 @@ public data class HtspSignalStatusMessage(
     }
 }
 
-/** Complete bounded descrambling observations emitted by pinned HTSP v24+ source. */
+/** Descrambling observations for one subscription, including PID, access and provider identifiers, ECM timing, hop count, and optional source labels. */
 public data class HtspDescrambleInfoMessage(
     public val subscriptionId: Long,
     public val pid: Long,
@@ -749,6 +773,7 @@ public data class HtspDescrambleInfoMessage(
     }
 }
 
+/** Carries the signed playback [speed] reported by the server for one subscription. */
 public data class HtspSubscriptionSpeedMessage(
     public val subscriptionId: Long,
     public val speed: Int,
@@ -758,6 +783,7 @@ public data class HtspSubscriptionSpeedMessage(
     }
 }
 
+/** Timeshift state for one subscription: fullness, current shift, optional start and end bounds, and optional speed. */
 public data class HtspTimeshiftStatusMessage(
     public val subscriptionId: Long,
     public val full: Long,
@@ -772,6 +798,7 @@ public data class HtspTimeshiftStatusMessage(
     }
 }
 
+/** Reports the server result of a subscription skip with optional absolute flag, error code, time coordinate, and byte coordinate. */
 public data class HtspSubscriptionSkipMessage(
     public val subscriptionId: Long,
     public val absolute: Long?,

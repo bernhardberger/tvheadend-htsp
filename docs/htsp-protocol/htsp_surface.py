@@ -483,12 +483,11 @@ SERVER_DECLARATIONS: tuple[KotlinDeclaration, ...] = (
     KotlinDeclaration("HtspSubscriptionGraceMessage", "data class", (P("subscriptionId", "Long"), P("graceTimeoutSeconds", "Long")), supertype="HtspServerMessage", validations=(V("u32", ("subscriptionId", "subscriptionId"), ("graceTimeoutSeconds", "graceTimeoutSeconds")),)),
     KotlinDeclaration("HtspSubscriptionStatusMessage", "data class", (P("subscriptionId", "Long"), P("status", "String?"), P("subscriptionError", "String?")), supertype="HtspServerMessage", validations=(V("u32", ("subscriptionId", "subscriptionId")),)),
     KotlinDeclaration("HtspSignalStatusMessage", "data class", (P("subscriptionId", "Long"), P("frontendStatus", "String?"), P("relativeSnr", "Long?"), P("absoluteSnr", "Long?"), P("relativeSignal", "Long?"), P("absoluteSignal", "Long?"), P("bitErrorRate", "Long?"), P("uncorrectedBlockCount", "Long?")), supertype="HtspServerMessage", validations=(V("u32", ("subscriptionId", "subscriptionId")), V("u32-group", *(("signal field", n) for n in ("relativeSnr", "relativeSignal", "bitErrorRate", "uncorrectedBlockCount"))))),
-    KotlinDeclaration("HtspDescrambleInfoMessage", "data class", (P("subscriptionId", "Long"), P("pid", "Long"), P("conditionalAccessId", "Long"), P("providerId", "Long"), P("ecmTime", "Long"), P("hopCount", "Long"), P("cardSystem", "String?", "null"), P("reader", "String?", "null"), P("source", "String?", "null"), P("protocol", "String?", "null")), kdoc="Complete bounded descrambling observations emitted by pinned HTSP v24+ source.", supertype="HtspServerMessage", validations=(V("u32-group", *(("descramble field", n) for n in ("subscriptionId", "pid", "conditionalAccessId", "providerId", "ecmTime", "hopCount"))),)),
+    KotlinDeclaration("HtspDescrambleInfoMessage", "data class", (P("subscriptionId", "Long"), P("pid", "Long"), P("conditionalAccessId", "Long"), P("providerId", "Long"), P("ecmTime", "Long"), P("hopCount", "Long"), P("cardSystem", "String?", "null"), P("reader", "String?", "null"), P("source", "String?", "null"), P("protocol", "String?", "null")), kdoc="Descrambling observations for one subscription, including PID, access and provider identifiers, ECM timing, hop count, and optional source labels.", supertype="HtspServerMessage", validations=(V("u32-group", *(("descramble field", n) for n in ("subscriptionId", "pid", "conditionalAccessId", "providerId", "ecmTime", "hopCount"))),)),
     KotlinDeclaration("HtspSubscriptionSpeedMessage", "data class", (P("subscriptionId", "Long"), P("speed", "Int")), supertype="HtspServerMessage", validations=(V("u32", ("subscriptionId", "subscriptionId")),)),
     KotlinDeclaration("HtspTimeshiftStatusMessage", "data class", (P("subscriptionId", "Long"), P("full", "Long"), P("shift", "Long"), P("start", "Long?"), P("end", "Long?"), P("speed", "Int?", "null")), supertype="HtspServerMessage", validations=(V("u32", ("subscriptionId", "subscriptionId"), ("full", "full")),)),
     KotlinDeclaration("HtspSubscriptionSkipMessage", "data class", (P("subscriptionId", "Long"), P("absolute", "Long?"), P("error", "Long?"), P("time", "Long?"), P("sizeBytes", "Long?")), supertype="HtspServerMessage", validations=(V("u32", ("subscriptionId", "subscriptionId"), ("absolute", "absolute"), ("error", "error")),)),
 )
-
 
 def WF(owner: str, property: str, wire_type: str, presence: str, decoder: str, names: tuple[str, ...], **kwargs: object) -> WireField:
     return W(owner, property, wire_type, presence, decoder, *names, **kwargs)
@@ -757,6 +756,14 @@ SERVER_MESSAGE_CATALOG: tuple[ServerMessageEntry, ...] = (
         ("error", U32, OPT, "u32", "error"), ("time", S64, OPT, "s64", "time"), ("sizeBytes", S64, OPT, "s64", "size"),
     ))),
 )
+
+SERVER_DISPATCH_DECLARATIONS: tuple[KotlinDeclaration, ...] = (
+    KotlinDeclaration("HtspServerMessageDecodeResult", "sealed interface", kdoc="Finite outcome of decoding one candidate asynchronous HTSP message."),
+    KotlinDeclaration("HtspServerMessageDecoded", "data class", kdoc="A recognized asynchronous message decoded into its typed model."),
+    KotlinDeclaration("HtspServerMessageUnknownMethod", "data object", kdoc="A reply envelope or message whose method is absent, malformed, or unrecognized."),
+    KotlinDeclaration("HtspServerMessageMalformedKnownMessage", "data object", kdoc="A recognized asynchronous method whose fields do not satisfy its typed decoder."),
+)
+SERVER_DISPATCH_DECODER_KDOC = "Decodes one raw field map into the finite typed asynchronous-message result family."
 
 
 # Direct G3 traversal API: message and nested-shape fields, in reviewed decode order.
@@ -1072,6 +1079,279 @@ SELECTOR_OVERLOADS: tuple[SelectorOverload, ...] = (
 )
 
 
+# Every generated public declaration has one explicit reviewed prose record.
+# The owner plus exact declaration name or callable signature is its stable key;
+# renderers only look up these records and never invent documentation.
+GeneratedKDocRecord = tuple[str, str, str]
+
+
+GENERATED_FUNCTION_KDOC_RECORDS: tuple[GeneratedKDocRecord, ...] = (
+    ("jsonapi-extensions", "HtspConnection.api(String,HtspApiObject?,Long,HtspConnectionGeneration?)", "Calls one JSON API path with an optional object argument through typed connection execution; failures remain [HtspResult] values."),
+    ("server-dispatch", "decodeHtspServerMessage(Map<String,Any?>)", "Classifies one raw field map as a decoded server message, an unknown method, or malformed known input without throwing decoder failures."),
+    ("request-extensions", "HtspConnection.getProfiles(Long,HtspConnectionGeneration?)", "Fetches the server's stream-profile metadata through typed connection execution and returns its transport or reply failure as [HtspResult]."),
+    ("request-extensions", "HtspConnection.getDiskSpace(Long,HtspConnectionGeneration?)", "Reads free, used, and total recording-storage counters through the typed request boundary."),
+    ("request-extensions", "HtspConnection.getSysTime(Long,HtspConnectionGeneration?)", "Reads the server clock and timezone observations through typed connection execution."),
+    ("request-extensions", "HtspConnection.enableAsyncMetadata(Long?,Long?,Long?,String?,Long,HtspConnectionGeneration?)", "Requests asynchronous metadata delivery with the selected EPG window and language options and decodes the typed acknowledgement."),
+    ("request-extensions", "HtspConnection.getChannel(Long,Long,HtspConnectionGeneration?)", "Fetches one channel by unsigned identifier and decodes the reply through the typed connection boundary."),
+    ("request-extensions", "HtspConnection.getEvent(Long,String?,Long,HtspConnectionGeneration?)", "Fetches one EPG event by identifier, optionally localized to [language], through typed execution."),
+    ("request-extensions", "HtspConnection.getEvents(Long?,Long?,String?,Long?,Long?,Long,HtspConnectionGeneration?)", "Fetches an event window selected by channel, event, language, following count, or maximum time through typed execution."),
+    ("request-extensions", "HtspConnection.epgQuery(String,Long?,Long?,Long?,String?,Boolean?,Boolean?,Long?,Long?,Long?,Long,HtspConnectionGeneration?)", "Searches EPG text with the supplied channel, tag, content, language, detail, and duration filters through typed execution."),
+    ("request-extensions", "HtspConnection.getEpgObject(Long,HtspEpgObjectType?,Long,HtspConnectionGeneration?)", "Fetches the selected detailed EPG object and decodes its finite broadcast shape through typed execution."),
+    ("request-extensions", "HtspConnection.getDvrConfigs(Long,HtspConnectionGeneration?)", "Fetches visible DVR configurations through the typed recorder request boundary."),
+    ("request-extensions", "HtspConnection.addDvrEntry(AddDvrEntrySelector,String?,String?,String?,String?,String?,String?,Long?,Long,HtspConnectionGeneration?)", "Requests DVR scheduling from the explicit selector and optional metadata, then decodes the typed mutation reply."),
+    ("request-extensions", "HtspConnection.addDvrEntry(Long,String?,String?,String?,String?,String?,String?,Long?,Long,HtspConnectionGeneration?)", "Adapts [eventId] to [AddDvrEntrySelector.Event] before sending the same typed DVR-add request."),
+    ("request-extensions", "HtspConnection.addDvrEntry(Long,Long,Long,String?,String?,String?,String?,String?,String?,Long?,Long,HtspConnectionGeneration?)", "Adapts channel, start, and stop to [AddDvrEntrySelector.ExplicitChannelTime] before sending a typed DVR-add request."),
+    ("request-extensions", "HtspConnection.updateDvrEntry(Long,Long?,String?,String?,String?,String?,String?,String?,String?,Long?,Long?,Long?,Long?,Long?,Long?,Long?,Long?,Long?,Long?,Long?,Long,HtspConnectionGeneration?)", "Requests a DVR-entry change carrying the supplied partial metadata, timing, progress, and policy fields."),
+    ("request-extensions", "HtspConnection.stopDvrEntry(Long,Long,HtspConnectionGeneration?)", "Requests that the selected DVR entry stop and decodes the server's typed mutation reply."),
+    ("request-extensions", "HtspConnection.cancelDvrEntry(Long,Long,HtspConnectionGeneration?)", "Requests cancellation of the selected DVR entry and decodes the server's typed mutation reply."),
+    ("request-extensions", "HtspConnection.deleteDvrEntry(Long,Long,HtspConnectionGeneration?)", "Requests deletion of the selected DVR entry and returns the decoded typed mutation reply."),
+    ("request-extensions", "HtspConnection.addAutorecEntry(String,HtspRecordingRuleChannel?,Long?,Long?,Long?,Long?,Long?,Long?,Long?,Long?,Long?,String?,Int?,Int?,Int?,Boolean?,Long?,Long?,Long?,String?,String?,String?,String?,Long?,Long,HtspConnectionGeneration?)", "Requests an automatic recording rule with the supplied title, matching, schedule, retention, and ownership fields."),
+    ("request-extensions", "HtspConnection.updateAutorecEntry(String,HtspRecordingRuleChannel?,Long?,Long?,Long?,Long?,Long?,Long?,Long?,Long?,Long?,String?,Int?,Int?,Boolean?,Long?,Long?,Long?,String?,String?,String?,String?,String?,Long?,Long,HtspConnectionGeneration?)", "Requests a change to the identified automatic recording rule using only the supplied selector and policy fields."),
+    ("request-extensions", "HtspConnection.deleteAutorecEntry(String,Long,HtspConnectionGeneration?)", "Requests deletion of the automatic recording rule identified by [id] through the typed recorder boundary."),
+    ("request-extensions", "HtspConnection.addTimerecEntry(String,HtspRecordingRuleChannel?,Long?,Long?,Boolean?,Long?,Long?,Long?,String?,String?,String?,String?,Long?,Long,HtspConnectionGeneration?)", "Requests a time-based recording rule with the supplied channel, daily interval, day mask, and policy fields."),
+    ("request-extensions", "HtspConnection.updateTimerecEntry(String,HtspRecordingRuleChannel?,Long?,Long?,Boolean?,Long?,Long?,Long?,String?,String?,String?,String?,String?,Long?,Long,HtspConnectionGeneration?)", "Requests a change to the identified time-based recording rule with the supplied interval and policy fields."),
+    ("request-extensions", "HtspConnection.deleteTimerecEntry(String,Long,HtspConnectionGeneration?)", "Requests deletion of the time-based recording rule identified by [id] through typed connection execution."),
+    ("request-extensions", "HtspConnection.getDvrCutpoints(Long,Long,HtspConnectionGeneration?)", "Fetches the ordered cutpoint coordinates and action codes for one DVR entry through typed execution."),
+    ("request-extensions", "HtspConnection.getTicket(GetTicketSelector,Long,HtspConnectionGeneration?)", "Requests a temporary access path and ticket for exactly one channel or DVR selector through typed execution."),
+    ("request-extensions", "HtspConnection.getTicket(GetTicketSelector.Channel,Long,HtspConnectionGeneration?)", "Forwards a channel ticket selector without widening it to another source kind, preserving the typed result boundary."),
+    ("request-extensions", "HtspConnection.getTicket(GetTicketSelector.Dvr,Long,HtspConnectionGeneration?)", "Forwards a DVR ticket selector without widening it to another source kind, preserving the typed result boundary."),
+    ("request-extensions", "HtspConnection.subscribe(Long,SubscribeChannel,String?,Long?,Long?,Long?,Long?,Long,HtspConnectionGeneration?)", "Requests a subscription for exactly one channel selector with profile, weight, timestamp, timeshift, and queue options."),
+    ("request-extensions", "HtspConnection.subscribe(Long,Long,String?,Long?,Long?,Long?,Long?,Long,HtspConnectionGeneration?)", "Wraps [channelId] as [SubscribeChannel.Id] before sending the typed subscription request."),
+    ("request-extensions", "HtspConnection.subscribe(Long,String,String?,Long?,Long?,Long?,Long?,Long,HtspConnectionGeneration?)", "Wraps [channelName] as [SubscribeChannel.Name] before sending the typed subscription request."),
+    ("request-extensions", "HtspConnection.unsubscribe(Long,Long,HtspConnectionGeneration?)", "Requests termination of the selected subscription and decodes the typed acknowledgement."),
+    ("request-extensions", "HtspConnection.subscriptionChangeWeight(Long,Long?,Long,HtspConnectionGeneration?)", "Requests a scheduling-weight change for one subscription and decodes its typed acknowledgement; the reply does not establish that the weight was applied."),
+    ("request-extensions", "HtspConnection.subscriptionSeek(Long,SubscriptionSeekPosition,Long?,Long,HtspConnectionGeneration?)", "Requests a subscription seek by exactly one signed time or byte coordinate and decodes the typed acknowledgement."),
+    ("request-extensions", "HtspConnection.subscriptionSeek(Long,SubscriptionSeekPosition.Time,Long?,Long,HtspConnectionGeneration?)", "Keeps a time seek selector distinct while forwarding it through the typed subscription-seek boundary."),
+    ("request-extensions", "HtspConnection.subscriptionSeek(Long,SubscriptionSeekPosition.Size,Long?,Long,HtspConnectionGeneration?)", "Keeps a byte-size seek selector distinct while forwarding it through the typed subscription-seek boundary."),
+    ("request-extensions", "HtspConnection.subscriptionSkip(Long,SubscriptionSeekPosition,Long?,Long,HtspConnectionGeneration?)", "Requests a subscription skip using exactly one signed time or byte coordinate and decodes the typed acknowledgement."),
+    ("request-extensions", "HtspConnection.subscriptionSkip(Long,SubscriptionSeekPosition.Time,Long?,Long,HtspConnectionGeneration?)", "Adapts the concrete time coordinate to the shared skip request without changing typed failure handling."),
+    ("request-extensions", "HtspConnection.subscriptionSkip(Long,SubscriptionSeekPosition.Size,Long?,Long,HtspConnectionGeneration?)", "Adapts the concrete byte coordinate to the shared skip request without changing typed failure handling."),
+    ("request-extensions", "HtspConnection.subscriptionSpeed(Long,Int,Long,HtspConnectionGeneration?)", "Requests the signed playback speed for one subscription and decodes the typed acknowledgement."),
+    ("request-extensions", "HtspConnection.subscriptionLive(Long,Long,HtspConnectionGeneration?)", "Requests live mode for one subscription and decodes the typed acknowledgement; asynchronous subscription status remains authoritative for the resulting position."),
+    ("request-extensions", "HtspConnection.subscriptionFilterStream(Long,List<Long>?,List<Long>?,Long,HtspConnectionGeneration?)", "Requests the supplied immutable enable and disable stream-index filters and decodes the typed acknowledgement."),
+    ("request-extensions", "HtspConnection.fileOpen(String,Long,HtspConnectionGeneration?)", "Requests opening the exact supplied protocol file selector and decodes the returned handle; no path normalization is added."),
+    ("request-extensions", "HtspConnection.fileRead(Long,Long,Long?,Long,HtspConnectionGeneration?)", "Reads a bounded byte range from an open protocol file handle through typed execution."),
+    ("request-extensions", "HtspConnection.fileClose(Long,Long,HtspConnectionGeneration?)", "Requests closure of an open protocol file handle without recording-progress fields and decodes the acknowledgement."),
+    ("request-extensions", "HtspConnection.fileCloseWithProgress(Long,Long?,Long?,Long,HtspConnectionGeneration?)", "Projects all close parameters so requested recording position and play count can be sent with typed failure handling."),
+    ("request-extensions", "HtspConnection.fileStat(Long,Long,HtspConnectionGeneration?)", "Reads size and modification metadata for an open protocol file handle through typed execution."),
+    ("request-extensions", "HtspConnection.fileSeek(Long,Long,FileSeekWhence?,Long,HtspConnectionGeneration?)", "Requests a signed seek from the optional origin and decodes the server-reported absolute file offset."),
+    ("request-extensions", "HtspConnection.hello(Long,String,Long,HtspConnectionGeneration?)", "Negotiates the requested HTSP version and client name through the typed handshake request boundary."),
+    ("request-extensions", "HtspConnection.authenticate(Long,HtspConnectionGeneration?)", "Requests the current connection's authentication and access observations through typed execution; credentials stay in the envelope."),
+)
+
+
+GENERATED_TYPE_KDOC_RECORDS: tuple[GeneratedKDocRecord, ...] = (
+    ("jsonapi-models", "ApiRequest", "Carries an exact JSON API [path] and optional finite [args] object without rewriting either value."),
+    ("jsonapi-models", "ApiResponse", "Finite successful JSON API reply: either a typed container payload or an explicit absence of payload."),
+    ("jsonapi-models", "ApiResponse.Payload", "Contains the recursively typed map or list returned by a successful JSON API call."),
+    ("jsonapi-models", "ApiResponse.NoPayload", "Marks a successful JSON API callback that supplied no response payload."),
+
+    ("server-models", "HtspChannelAddMessage", "Carries a channel-add message whose only required identity field is [channelId]; nullable channel metadata was absent when null."),
+    ("server-models", "HtspChannelUpdateMessage", "Carries a channel update identified by [channelId]; nullable metadata, services, tags, and event references were absent when null."),
+    ("server-models", "HtspChannelDeleteMessage", "Carries the complete unsigned [channelId] reported by a channel-delete message."),
+    ("server-models", "HtspTagAddMessage", "Carries channel-tag add metadata including identity, display order, names, icons, and current channel membership when present."),
+    ("server-models", "HtspTagUpdateMessage", "Carries a tag update identified by [tagId]; null properties and channel membership were absent from the message."),
+    ("server-models", "HtspTagDeleteMessage", "Carries the complete unsigned [tagId] reported by a channel-tag delete message."),
+    ("server-models", "HtspDvrRecordingFile", "One bounded recording-file entry with optional file identity, path, time range, and byte size."),
+    ("server-models", "HtspDvrEntryAddMessage", "Carries a DVR-entry add message whose only required identity field is [entryId]; nullable schedule, metadata, state, progress, error, and file fields were absent when null."),
+    ("server-models", "HtspDvrEntryUpdateMessage", "Carries one DVR-entry update; nullable schedule, metadata, progress, state, error, and file properties were absent when null."),
+    ("server-models", "HtspDvrEntryDeleteMessage", "Carries the complete unsigned [entryId] reported by a DVR-entry delete message."),
+    ("server-models", "HtspAutorecEntryAddMessage", "Carries the bounded automatic-recording-rule fields reported by an add message, including match, schedule, ownership, and retention data."),
+    ("server-models", "HtspAutorecEntryUpdateMessage", "Carries an automatic-recording-rule update; every nullable matching, scheduling, ownership, or retention property was absent when null."),
+    ("server-models", "HtspAutorecEntryDeleteMessage", "Carries the string [id] reported by an automatic-recording-rule delete message."),
+    ("server-models", "HtspTimerecEntryAddMessage", "Carries the bounded time-based recording-rule fields reported by an add message, including channel, interval, policy, and ownership data."),
+    ("server-models", "HtspTimerecEntryUpdateMessage", "Carries a time-based recording-rule update; nullable interval, channel, day, policy, and ownership properties were absent when null."),
+    ("server-models", "HtspTimerecEntryDeleteMessage", "Carries the string [id] reported by a time-based recording-rule delete message."),
+    ("server-models", "HtspEventAddMessage", "Carries the bounded [event] fields reported by an event-add message plus accepted genre, episode, and series-link identifiers."),
+    ("server-models", "HtspEventUpdateMessage", "Carries an update identified by [eventId]; nullable timing, text, rating, episode, image, and DVR fields were absent when null."),
+    ("server-models", "HtspEventDeleteMessage", "Carries the complete unsigned [eventId] reported by an EPG-event delete message."),
+    ("server-models", "HtspInitialSyncCompletedMessage", "Fieldless server marker reporting completion of the initial asynchronous metadata snapshot."),
+    ("server-models", "HtspMuxPacketMessage", "One subscription packet with stream and frame identifiers, optional decode and presentation timestamps, duration, and copied payload bytes."),
+    ("server-models", "HtspQueueStatusMessage", "Queue counters for one subscription: queued packets and bytes, optional delay, and dropped B-, P-, and I-frame counts."),
+    ("server-models", "HtspSubscriptionStream", "One stream descriptor with index and codec type plus optional language, video, audio, radio-data, and codec metadata fields."),
+    ("server-models", "HtspSubscriptionSourceInfo", "Optional tuner source identity and display metadata for a subscription, including adapter, mux, network, provider, service, and satellite position."),
+    ("server-models", "HtspSubscriptionStartMessage", "Reports subscription-start metadata: stream list, source information, codec metadata, and optional status or subscription error."),
+    ("server-models", "HtspSubscriptionStopMessage", "Reports a subscription-stop message with the server's optional terminal status and subscription error."),
+    ("server-models", "HtspSubscriptionGraceMessage", "Reports the grace interval, in seconds, allowed for the identified subscription."),
+    ("server-models", "HtspSubscriptionStatusMessage", "Reports the current optional status and subscription error for one subscription."),
+    ("server-models", "HtspSignalStatusMessage", "Signal observations for one subscription: frontend status, relative and absolute SNR and signal, bit errors, and uncorrected blocks."),
+    ("server-models", "HtspDescrambleInfoMessage", "Descrambling observations for one subscription, including PID, access and provider identifiers, ECM timing, hop count, and optional source labels."),
+    ("server-models", "HtspSubscriptionSpeedMessage", "Carries the signed playback [speed] reported by the server for one subscription."),
+    ("server-models", "HtspTimeshiftStatusMessage", "Timeshift state for one subscription: fullness, current shift, optional start and end bounds, and optional speed."),
+    ("server-models", "HtspSubscriptionSkipMessage", "Reports the server result of a subscription skip with optional absolute flag, error code, time coordinate, and byte coordinate."),
+
+    ("server-dispatch", "HtspServerMessageDecodeResult", "Closed result family for decoding one candidate asynchronous HTSP message."),
+    ("server-dispatch", "HtspServerMessageDecoded", "Contains the recognized and fully decoded asynchronous [message]."),
+    ("server-dispatch", "HtspServerMessageUnknownMethod", "Marks an RPC envelope or message whose method is absent, malformed, or outside the finite dispatch catalog."),
+    ("server-dispatch", "HtspServerMessageMalformedKnownMessage", "Marks a recognized asynchronous method whose fields failed its typed decoder."),
+
+    ("request-models", "HtspProfile", "One stream profile with its stable UUID, display [name], and server [comment]."),
+    ("request-models", "HtspDvrConfig", "One DVR configuration with its stable UUID, display [name], and server [comment]."),
+    ("request-models", "HtspChannelService", "One channel service with name, type, content code, optional conditional-access data, and optional provider name."),
+    ("request-models", "HtspChannel", "A complete channel reply with identity, numbering, display data, current and next event IDs, services, and tag IDs."),
+    ("request-models", "HtspEvent", "A bounded EPG event with channel and time coordinates, localized text, categories, ratings, episode data, imagery, and DVR references."),
+    ("request-models", "HtspDvrCutpoint", "One DVR cutpoint from [start] through [end] with its unsigned action [type]."),
+    ("request-models", "HtspEmptyResponse", "Explicit successful acknowledgement for an RPC with no method-specific reply fields."),
+    ("request-models", "HelloResponse", "Handshake observations: negotiated version, optional server labels, copied challenge, web root, language, capabilities, and API version."),
+    ("request-models", "AuthenticateResponse", "Authentication access observations and limits; each nullable property was absent or malformed when null."),
+    ("request-models", "GetProfilesResponse", "Contains the optional ordered stream-profile list returned by `getProfiles`."),
+    ("request-models", "GetDiskSpaceResponse", "Contains free and total recording bytes plus the optional used-byte counter."),
+    ("request-models", "GetSysTimeResponse", "Contains Unix time, the legacy hours-west timezone value, and an optional GMT offset in minutes."),
+    ("request-models", "GetChannelResponse", "Contains the complete channel selected by `getChannel`."),
+    ("request-models", "GetEventResponse", "Contains the complete EPG event selected by `getEvent`."),
+    ("request-models", "GetEventsResponse", "Contains the ordered finite event list selected by `getEvents`."),
+    ("request-models", "EpgQueryResponse", "Closed `epgQuery` reply family containing either event identifiers or complete event values."),
+    ("request-models", "EpgQueryResponse.EventIds", "Contains only the event identifiers returned by a summary EPG query."),
+    ("request-models", "EpgQueryResponse.Events", "Contains complete typed events returned by a detailed EPG query."),
+    ("request-models", "HtspEpgObjectType", "Finite object selector encoded by `getEpgObject`; [BROADCAST] selects a broadcast record."),
+    ("request-models", "HtspEpgEpisodeNumber", "Optional episode numbering with episode, season, and part values, totals, and display text."),
+    ("request-models", "HtspEpgBroadcastObject", "Bounded detailed broadcast record with timing, channel and event identity, flags, ratings, localized text, numbering, genres, and links; opaque credentials are omitted."),
+    ("request-models", "GetEpgObjectResponse", "Contains the detailed broadcast selected by `getEpgObject`."),
+    ("request-models", "GetDvrConfigsResponse", "Contains the optional ordered DVR-configuration list visible to the caller."),
+    ("request-models", "HtspDvrMutationRequest", "Closed request marker implemented by add, update, stop, cancel, and delete DVR entry requests."),
+    ("request-models", "HtspDvrMutationResponse", "Shared DVR mutation fields: optional success code, untrusted server error text, and an optional entry identifier where applicable."),
+    ("request-models", "AddDvrEntryResponse", "DVR-add reply with optional success code, returned [entryId], and untrusted server [error]."),
+    ("request-models", "UpdateDvrEntryResponse", "DVR-update result carrying the optional success code and untrusted server error text."),
+    ("request-models", "StopDvrEntryResponse", "DVR-stop result carrying the optional success code and untrusted server error text."),
+    ("request-models", "CancelDvrEntryResponse", "DVR-cancel result carrying the optional success code and untrusted server error text."),
+    ("request-models", "DeleteDvrEntryResponse", "DVR-delete result carrying the optional success code and untrusted server error text."),
+    ("request-models", "HtspRecordingRuleChannel", "Closed channel selector for automatic and time-based recording rule requests."),
+    ("request-models", "HtspRecordingRuleChannel.Id", "Selects one recording-rule channel by its complete unsigned [channelId]."),
+    ("request-models", "HtspRecordingRuleChannel.Any", "Encodes the signed `-1` any-channel sentinel; update requests may also clear a channel by omitting it."),
+    ("request-models", "AddAutorecEntryResponse", "Carries the server identifier returned by an automatic-recording-rule add reply."),
+    ("request-models", "UpdateAutorecEntryResponse", "Carries the strict success discriminator returned for an automatic-recording-rule update request."),
+    ("request-models", "DeleteAutorecEntryResponse", "Carries the strict success discriminator returned for an automatic-recording-rule delete request."),
+    ("request-models", "AddTimerecEntryResponse", "Carries the server identifier returned by a time-based recording-rule add reply."),
+    ("request-models", "UpdateTimerecEntryResponse", "Carries the strict success discriminator returned for a time-based recording-rule update request."),
+    ("request-models", "DeleteTimerecEntryResponse", "Carries the strict success discriminator returned for a time-based recording-rule delete request."),
+    ("request-models", "GetDvrCutpointsResponse", "Contains the optional ordered cutpoint list for the selected DVR entry."),
+    ("request-models", "GetTicketSelector", "Closed exactly-one selector for a channel ticket or a DVR ticket."),
+    ("request-models", "GetTicketSelector.Channel", "Selects a ticket source by complete unsigned channel identifier."),
+    ("request-models", "GetTicketSelector.Dvr", "Selects a ticket source by complete unsigned DVR identifier."),
+    ("request-models", "GetTicketResponse", "Credential-bearing ticket reply containing the access [path] and [ticket]; string rendering redacts both."),
+    ("request-models", "FileOpenResponse", "Opened file handle [id] with source-coupled optional size and modification-time metadata."),
+    ("request-models", "FileReadResponse", "Contains one defensively copied bounded payload; an empty payload is a valid successful read."),
+    ("request-models", "FileCloseResponse", "Explicit successful empty acknowledgement returned for a protocol file-close request."),
+    ("request-models", "FileStatResponse", "Optional size and modification time for an open file handle; the pair is absent together when unavailable."),
+    ("request-models", "FileSeekResponse", "Contains the successful absolute non-negative file offset after a seek."),
+    ("request-models", "FileSeekWhence", "Finite file-seek origin vocabulary: start, current position, or end; a null request value omits the field."),
+    ("request-models", "SubscribeResponse", "Negotiated subscription values: optional 90 kHz mode, normalized-timestamp flag, scheduling weight, and timeshift period in seconds."),
+
+    ("request-models", "GetProfilesRequest", "Requests the stream-profile list and carries no method-specific parameters."),
+    ("request-models", "GetDiskSpaceRequest", "Requests recording-storage counters and carries no method-specific parameters."),
+    ("request-models", "GetSysTimeRequest", "Requests the server clock and timezone observations without method-specific parameters."),
+    ("request-models", "EnableAsyncMetadataRequest", "Selects asynchronous metadata options: EPG inclusion, update frontier, EPG maximum time, and language; null omits each field."),
+    ("request-models", "GetChannelRequest", "Selects one channel by complete unsigned [channelId]."),
+    ("request-models", "GetEventRequest", "Selects one event by complete unsigned [eventId] and optional response [language]."),
+    ("request-models", "GetEventsRequest", "Selects an event set by optional channel or event ID, language, following count, and maximum Unix time."),
+    ("request-models", "EpgQueryRequest", "Carries required search [query] plus optional channel, tag, content, language, text-mode, detail, and duration filters."),
+    ("request-models", "GetEpgObjectRequest", "Selects a detailed EPG object by unsigned [id] and optional finite [objectType]."),
+    ("request-models", "GetDvrConfigsRequest", "Requests visible DVR configurations and carries no method-specific parameters."),
+    ("request-models", "AddDvrEntrySelector", "Closed DVR scheduling selector: an existing event or an explicit channel and time range."),
+    ("request-models", "AddDvrEntrySelector.Event", "Selects an existing event by complete unsigned [eventId] for DVR scheduling."),
+    ("request-models", "AddDvrEntrySelector.ExplicitChannelTime", "Selects a complete unsigned [channelId] and signed [start] and [stop] coordinates for DVR scheduling."),
+    ("request-models", "AddDvrEntryRequest", "Requests DVR scheduling from exactly one [selector] with optional configuration, language, programme text, and age rating."),
+    ("request-models", "UpdateDvrEntryRequest", "Identifies one DVR entry and carries optional channel, configuration, programme text, progress, enablement, timing, retention, priority, and age rating changes."),
+    ("request-models", "StopDvrEntryRequest", "Selects one DVR entry by complete unsigned [entryId] for stopping."),
+    ("request-models", "CancelDvrEntryRequest", "Selects one DVR entry by complete unsigned [entryId] for cancellation."),
+    ("request-models", "DeleteDvrEntryRequest", "Selects one DVR entry by complete unsigned [entryId] for deletion."),
+    ("request-models", "AddAutorecEntryRequest", "Defines an automatic recording rule with required title and optional channel, text, duration, time-window, count, schedule, retention, ownership, and configuration fields."),
+    ("request-models", "UpdateAutorecEntryRequest", "Identifies an automatic recording rule and carries optional channel, matching, duration, schedule, count, retention, ownership, title, and configuration changes."),
+    ("request-models", "DeleteAutorecEntryRequest", "Selects one automatic recording rule by string [id] for deletion."),
+    ("request-models", "AddTimerecEntryRequest", "Defines a time-based recording rule with title and optional channel, daily interval, enablement, days, priority, retention, ownership, and configuration fields."),
+    ("request-models", "UpdateTimerecEntryRequest", "Identifies a time-based recording rule and carries optional channel, daily interval, enablement, days, policy, ownership, title, and configuration changes."),
+    ("request-models", "DeleteTimerecEntryRequest", "Selects one time-based recording rule by string [id] for deletion."),
+    ("request-models", "GetDvrCutpointsRequest", "Selects one DVR entry by complete unsigned [entryId] for cutpoint retrieval."),
+    ("request-models", "GetTicketRequest", "Carries exactly one channel-or-DVR [selector] for temporary ticket retrieval."),
+    ("request-models", "SubscribeChannel", "Closed exactly-one subscription channel selector by unsigned ID or exact name."),
+    ("request-models", "SubscribeChannel.Id", "Selects a subscription channel by complete unsigned [channelId]."),
+    ("request-models", "SubscribeChannel.Name", "Selects a subscription channel by exact [channelName]."),
+    ("request-models", "SubscribeRequest", "Requests [subscriptionId] for exactly one [channel] with optional profile, weight, 90 kHz timestamps, timeshift period, and queue depth."),
+    ("request-models", "UnsubscribeRequest", "Selects one subscription by complete unsigned [subscriptionId] for termination."),
+    ("request-models", "SubscriptionChangeWeightRequest", "Selects one subscription and optionally supplies its new unsigned scheduling [weight]."),
+    ("request-models", "SubscriptionSeekPosition", "Closed signed subscription coordinate: media time or byte size."),
+    ("request-models", "SubscriptionSeekPosition.Time", "Carries a signed media [time] coordinate for seek or skip."),
+    ("request-models", "SubscriptionSeekPosition.Size", "Carries a signed byte [size] coordinate for seek or skip."),
+    ("request-models", "SubscriptionSeekRequest", "Selects a subscription, one signed [position], and an optional unsigned [absolute] flag for seeking."),
+    ("request-models", "SubscriptionSkipRequest", "Selects a subscription, one signed [position], and an optional unsigned [absolute] flag for skipping."),
+    ("request-models", "SubscriptionSpeedRequest", "Selects a subscription and carries the requested signed playback [speed]."),
+    ("request-models", "SubscriptionLiveRequest", "Selects one subscription by complete unsigned [subscriptionId] and requests live mode."),
+    ("request-models", "SubscriptionFilterStreamRequest", "Selects one subscription and immutable optional stream-index lists to enable and disable."),
+    ("request-models", "FileOpenRequest", "Carries the exact protocol [file] selector without path normalization; diagnostics redact it."),
+    ("request-models", "FileReadRequest", "Selects an open file [id], bounded byte [size], and optional signed [offset] for one read."),
+    ("request-models", "FileCloseRequest", "Selects an open file [id] and optional recording position and play-count values; null omits each progress field."),
+    ("request-models", "FileStatRequest", "Selects an open protocol file handle by complete unsigned [id] for metadata retrieval."),
+    ("request-models", "FileSeekRequest", "Selects an open file [id], signed [offset], and optional finite [whence] origin."),
+    ("request-models", "HelloRequest", "Carries the requested unsigned HTSP version and exact client name for the `hello` exchange."),
+    ("request-models", "AuthenticateRequest", "Bare authentication request; credentials belong to the connection envelope rather than constructor properties."),
+)
+
+
+def generated_record_key(record: GeneratedKDocRecord, kind: str) -> str:
+    owner, signature, _prose = record
+    package = GENERATED_OUTPUT_BY_KEY[owner].package
+    separator = "." if kind == "type" else "."
+    return f"{kind}:{package}{separator}{signature}"
+
+
+def _record_map(records: tuple[GeneratedKDocRecord, ...], kind: str) -> dict[str, str]:
+    result: dict[str, str] = {}
+    for record in records:
+        key = generated_record_key(record, kind)
+        if key in result:
+            raise ValueError(f"duplicate generated {kind} KDoc record: {key}")
+        result[key] = record[2]
+    return result
+
+
+GENERATED_TYPE_KDOCS = _record_map(GENERATED_TYPE_KDOC_RECORDS, "type")
+GENERATED_FUNCTION_KDOCS = _record_map(GENERATED_FUNCTION_KDOC_RECORDS, "fun")
+
+
+def generated_type_kdoc(owner: str, declaration: str) -> str:
+    key = f"type:{GENERATED_OUTPUT_BY_KEY[owner].package}.{declaration}"
+    try:
+        return GENERATED_TYPE_KDOCS[key]
+    except KeyError as error:
+        raise ValueError(f"missing generated type KDoc record: {key}") from error
+
+
+def extension_callable_signature(
+    entry: Entry,
+    parameters: tuple[Parameter, ...],
+    function_name: str | None = None,
+) -> str:
+    types = ",".join(value.type for value in (
+        *parameters,
+        parameter("timeoutMs", "Long"),
+        parameter("expectedGeneration", "HtspConnectionGeneration?"),
+    ))
+    return f"HtspConnection.{function_name or entry.method}({types})"
+
+
+def generated_function_kdoc(
+    entry: Entry,
+    parameters: tuple[Parameter, ...],
+    function_name: str | None = None,
+) -> str:
+    key = f"fun:{GENERATED_OUTPUT_BY_KEY[entry.extension_output].package}.{extension_callable_signature(entry, parameters, function_name)}"
+    try:
+        return GENERATED_FUNCTION_KDOCS[key]
+    except KeyError as error:
+        raise ValueError(f"missing generated function KDoc record: {key}") from error
+
+
+def selector_overload_kdoc(overload: SelectorOverload) -> str:
+    entry = next(value for value in CATALOG if value.method == overload.method)
+    if overload.parameter_projection:
+        parameters = tuple(
+            next(value for value in entry.parameters if value.name == name)
+            for name in overload.parameter_projection
+        )
+    else:
+        parameters = overload.parameters
+    return generated_function_kdoc(entry, parameters, overload.function_name)
+
 def _props(*values: tuple[str, str] | tuple[str, str, str]) -> tuple[KotlinProperty, ...]:
     return tuple(P(*value) for value in values)
 
@@ -1136,7 +1416,7 @@ REQUEST_PUBLIC_DECLARATIONS: tuple[KotlinDeclaration, ...] = (
     KotlinDeclaration("GetEventResponse", "data class", _props(("event", "HtspEvent"))),
     KotlinDeclaration("GetEventsResponse", "data class", _props(("events", "List<HtspEvent>"))),
     KotlinDeclaration("EpgQueryResponse", "sealed interface", kdoc="Selected finite reply alternative for `epgQuery`.", feature="epg-query-response"),
-    KotlinDeclaration("HtspEpgObjectType", "enum class", kdoc="The complete finite EPG object-type vocabulary supported by the pinned serializer.", enum_values=("BROADCAST",)),
+    KotlinDeclaration("HtspEpgObjectType", "enum class", kdoc="Finite object selector encoded by `getEpgObject`; [BROADCAST] selects a broadcast record.", enum_values=("BROADCAST",)),
     KotlinDeclaration("HtspEpgEpisodeNumber", "data class", _props(
         ("episodeNumber", "Long?"), ("episodeCount", "Long?"), ("seasonNumber", "Long?"),
         ("seasonCount", "Long?"), ("partNumber", "Long?"), ("partCount", "Long?"),
@@ -1208,7 +1488,6 @@ selection unrepresentable.""", feature="get-ticket-selector"),
     )),
     KotlinDeclaration("ApiResponse", "sealed interface", kdoc="Finite successful reply topology for the provisional HTSP JSON API bridge.", annotations=("@HtspJsonApi",), feature="api-response", output="jsonapi-models"),
 )
-
 
 _REQUEST_MODEL_OVERRIDES: dict[str, dict[str, object]] = {
     "enableAsyncMetadata": dict(
@@ -1385,11 +1664,7 @@ existing JVM bounded-file contract and below the unchanged 32 MiB codec message 
         ), decoder_feature="file-read",
     ),
     "fileClose": dict(
-        kdoc="""Generic file close with optional recording-backed progress controls.
-
-[playPositionSeconds] maps to wire `playposition` in whole recording-position seconds.
-[playCount] maps to wire `playcount` without higher-level interpretation. Either control
-requires HTSP v27; null omits that field. An id-only request remains available from v8.""",
+        kdoc="Selects an open file [id] and optional recording position and play-count values; null omits each progress field.",
         minimum_expression="if (playPositionSeconds != null || playCount != null) 27 else 8",
         validations=(
             'requireU32("id", id)',
@@ -1425,6 +1700,7 @@ def _request_model(entry: Entry) -> RequestModelSpec:
         "kind": "class" if not entry.parameters else "data class",
     }
     values.update(_REQUEST_MODEL_OVERRIDES.get(entry.method, {}))
+    values["kdoc"] = generated_type_kdoc(entry.model_output, entry.request)
     return RequestModelSpec(method=entry.method, **values)  # type: ignore[arg-type]
 
 
@@ -1442,6 +1718,90 @@ REQUEST_AUXILIARY_DECLARATIONS: tuple[tuple[str, KotlinDeclaration], ...] = (
         kdoc="Exactly one signed seek coordinate accepted by `subscriptionSeek` and `subscriptionSkip`.",
         feature="subscription-seek-position")),
 )
+
+REQUEST_NESTED_DECLARATIONS: dict[str, tuple[KotlinDeclaration, ...]] = {
+    "EpgQueryResponse": (
+        KotlinDeclaration("EventIds", "data class", kdoc="An `epgQuery` reply containing only event identifiers."),
+        KotlinDeclaration("Events", "data class", kdoc="An `epgQuery` reply containing typed event values."),
+    ),
+    "HtspRecordingRuleChannel": (
+        KotlinDeclaration("Id", "value class", kdoc="Select one recording-rule channel by its complete unsigned HTSP channel ID."),
+        KotlinDeclaration("Any", "data object", kdoc="Encodes the signed `-1` any-channel sentinel; update requests may also clear a channel by omitting it."),
+    ),
+    "GetTicketSelector": (
+        KotlinDeclaration("Channel", "value class", kdoc="Select one ticket source by its complete unsigned HTSP channel ID."),
+        KotlinDeclaration("Dvr", "value class", kdoc="Select one ticket source by its complete unsigned HTSP DVR ID."),
+    ),
+    "AddDvrEntrySelector": (
+        KotlinDeclaration("Event", "data class", kdoc="Select an existing event when constructing an `addDvrEntry` request."),
+        KotlinDeclaration("ExplicitChannelTime", "data class", kdoc="Select a channel and explicit start and stop coordinates for `addDvrEntry`."),
+    ),
+    "SubscribeChannel": (
+        KotlinDeclaration("Id", "data class", kdoc="Select a subscription channel by its complete unsigned HTSP channel ID."),
+        KotlinDeclaration("Name", "data class", kdoc="Select a subscription channel by its exact name string."),
+    ),
+    "SubscriptionSeekPosition": (
+        KotlinDeclaration("Time", "data class", kdoc="Carry the signed time coordinate for a subscription seek or skip."),
+        KotlinDeclaration("Size", "data class", kdoc="Carry the signed byte-size coordinate for a subscription seek or skip."),
+    ),
+    "ApiResponse": (
+        KotlinDeclaration("Payload", "data class", kdoc="A successful JSON API response containing a map or list payload."),
+        KotlinDeclaration("NoPayload", "data object", kdoc="A successful JSON API callback that supplied no response payload."),
+    ),
+}
+
+def _document_declaration(
+    owner: str,
+    declaration: KotlinDeclaration,
+    parent: str = "",
+) -> KotlinDeclaration:
+    qualified = ".".join(filter(None, (parent, declaration.name)))
+    return replace(
+        declaration,
+        kdoc=generated_type_kdoc(owner, qualified),
+        nested=tuple(
+            _document_declaration(owner, nested, qualified)
+            for nested in declaration.nested
+        ),
+    )
+
+
+SERVER_DECLARATIONS = tuple(
+    _document_declaration("server-models", declaration)
+    for declaration in SERVER_DECLARATIONS
+)
+SERVER_DISPATCH_DECLARATIONS = tuple(
+    _document_declaration("server-dispatch", declaration)
+    for declaration in SERVER_DISPATCH_DECLARATIONS
+)
+SERVER_DISPATCH_DECODER_KDOC = GENERATED_FUNCTION_KDOCS[
+    "fun:at.bernhardberger.tvheadend.htsp.messages.decodeHtspServerMessage(Map<String,Any?>)"
+]
+REQUEST_PUBLIC_DECLARATIONS = tuple(
+    _document_declaration(
+        declaration.output,
+        replace(declaration, nested=REQUEST_NESTED_DECLARATIONS.get(declaration.name, ())),
+    )
+    for declaration in REQUEST_PUBLIC_DECLARATIONS
+)
+REQUEST_AUXILIARY_DECLARATIONS = tuple(
+    (
+        method,
+        _document_declaration(
+            "request-models",
+            replace(declaration, nested=REQUEST_NESTED_DECLARATIONS[declaration.name]),
+        ),
+    )
+    for method, declaration in REQUEST_AUXILIARY_DECLARATIONS
+)
+REQUEST_NESTED_DECLARATIONS = {
+    declaration.name: declaration.nested
+    for declaration in (
+        *REQUEST_PUBLIC_DECLARATIONS,
+        *(value for _method, value in REQUEST_AUXILIARY_DECLARATIONS),
+    )
+    if declaration.nested
+}
 
 
 ALT = "alternative"
@@ -2148,17 +2508,255 @@ REQUEST_VERBATIM_ESCAPES: tuple[tuple[str, str], ...] = ()
 
 # KDoc on nested public declarations is catalog data too; the model renderer
 # verifies the complete inherited multiset rather than merely rendered types.
-REQUEST_NESTED_KDOCS: tuple[str, ...] = (
-    "Select one channel by its complete unsigned HTSP channel ID.",
-    """Emit the v25 signed `-1` any-channel sentinel.
-
-Pinned update source also clears to any channel when `channel` is omitted;
-this selector makes that intent explicit. Add support requires HTSP v25.""",
-    "Select one channel by its complete unsigned HTSP channel ID.",
-    "Select one DVR entry by its complete unsigned HTSP DVR ID.",
-    "A successful map or list payload.",
-    "A successful callback that supplied no response payload.",
+REQUEST_NESTED_KDOCS: tuple[str, ...] = tuple(
+    nested.kdoc
+    for owner in REQUEST_NESTED_DECLARATIONS.values()
+    for nested in owner
+    if nested.kdoc is not None
 )
+
+
+def _generated_type_keys() -> set[str]:
+    keys: set[str] = set()
+
+    def add(owner: str, declaration: KotlinDeclaration, parent: str = "") -> None:
+        qualified = ".".join(filter(None, (parent, declaration.name)))
+        package = GENERATED_OUTPUT_BY_KEY[owner].package
+        key = f"type:{package}.{qualified}"
+        if key in keys:
+            raise ValueError(f"duplicate generated type declaration identity: {key}")
+        keys.add(key)
+        for nested in declaration.nested:
+            add(owner, nested, qualified)
+
+    for declaration in REQUEST_PUBLIC_DECLARATIONS:
+        add(declaration.output, declaration)
+    for entry in CATALOG:
+        package = GENERATED_OUTPUT_BY_KEY[entry.model_output].package
+        key = f"type:{package}.{entry.request}"
+        if key in keys:
+            raise ValueError(f"duplicate generated type declaration identity: {key}")
+        keys.add(key)
+    for _method, declaration in REQUEST_AUXILIARY_DECLARATIONS:
+        add("request-models", declaration)
+    for declaration in SERVER_DECLARATIONS:
+        add("server-models", declaration)
+    for declaration in SERVER_DISPATCH_DECLARATIONS:
+        add("server-dispatch", declaration)
+    return keys
+
+
+def _generated_function_keys() -> set[str]:
+    keys = {
+        "fun:at.bernhardberger.tvheadend.htsp.messages.decodeHtspServerMessage(Map<String,Any?>)"
+    }
+    for entry in CATALOG:
+        if entry.canonical_extension_projection is None:
+            parameters = entry.parameters
+        else:
+            parameters = tuple(
+                next(value for value in entry.parameters if value.name == name)
+                for name in entry.canonical_extension_projection
+            )
+        package = GENERATED_OUTPUT_BY_KEY[entry.extension_output].package
+        keys.add(f"fun:{package}.{extension_callable_signature(entry, parameters)}")
+        for overload in SELECTOR_OVERLOADS:
+            if overload.method != entry.method:
+                continue
+            if overload.parameter_projection:
+                parameters = tuple(
+                    next(value for value in entry.parameters if value.name == name)
+                    for name in overload.parameter_projection
+                )
+            else:
+                parameters = overload.parameters
+            keys.add(
+                f"fun:{package}.{extension_callable_signature(entry, parameters, overload.function_name)}"
+            )
+    return keys
+
+
+PROHIBITED_GENERATED_KDOC_OVERSTATEMENTS: tuple[GeneratedKDocRecord, ...] = (
+    (
+        "server-models",
+        "HtspChannelAddMessage",
+        "Adds a complete channel snapshot: identity, number and name, icons, event references, services, and tag membership.",
+    ),
+    (
+        "server-models",
+        "HtspDvrEntryAddMessage",
+        "Adds a complete DVR entry snapshot, including schedule, programme metadata, state, progress, errors, and recording files.",
+    ),
+    (
+        "request-extensions",
+        "HtspConnection.subscriptionChangeWeight(Long,Long?,Long,HtspConnectionGeneration?)",
+        "Changes or omits the scheduling weight for one subscription through typed execution.",
+    ),
+    (
+        "request-extensions",
+        "HtspConnection.subscriptionLive(Long,Long,HtspConnectionGeneration?)",
+        "Returns one timeshifted subscription to its live position through typed execution.",
+    ),
+)
+
+
+def validate_generated_kdoc_catalog(
+    type_records: tuple[GeneratedKDocRecord, ...] = GENERATED_TYPE_KDOC_RECORDS,
+    function_records: tuple[GeneratedKDocRecord, ...] = GENERATED_FUNCTION_KDOC_RECORDS,
+) -> None:
+    try:
+        type_docs = _record_map(type_records, "type")
+        function_docs = _record_map(function_records, "fun")
+    except KeyError as error:
+        raise ValueError(f"generated KDoc record has unknown owner: {error.args[0]}") from error
+    identity_errors: list[str] = []
+    for kind, actual, expected in (
+        ("type", set(type_docs), _generated_type_keys()),
+        ("function", set(function_docs), _generated_function_keys()),
+    ):
+        missing = sorted(expected - actual)
+        extra = sorted(actual - expected)
+        if missing:
+            identity_errors.append(
+                f"generated {kind} KDoc records are missing exact identities: {missing}"
+            )
+        if extra:
+            identity_errors.append(
+                f"generated {kind} KDoc records contain stale or wrong identities: {extra}"
+            )
+    if identity_errors:
+        raise ValueError("; ".join(identity_errors))
+    records = (*type_records, *function_records)
+    prohibited = {
+        (owner, signature): prose
+        for owner, signature, prose in PROHIBITED_GENERATED_KDOC_OVERSTATEMENTS
+    }
+    normalized: dict[str, str] = {}
+    forbidden_synthesis = (
+        "Typed fields decoded from the `",
+        "Typed reply model for `",
+        "Typed `",
+        "Executes `",
+        "through its convenience overload with request parameters",
+    )
+    for owner, signature, prose in records:
+        identity = f"{owner}:{signature}"
+        if prohibited.get((owner, signature)) == prose:
+            raise ValueError(
+                "generated KDoc overstates command settlement or message completeness: "
+                f"{identity}"
+            )
+        if not prose.strip():
+            raise ValueError(f"generated KDoc record is blank: {identity}")
+        if any(fragment in prose for fragment in forbidden_synthesis):
+            raise ValueError(f"generated KDoc record uses synthesized fallback prose: {identity}")
+        prose_key = " ".join(prose.split()).casefold()
+        if prose_key in normalized:
+            raise ValueError(
+                f"generated KDoc prose is duplicated: {identity} duplicates {normalized[prose_key]}"
+            )
+        normalized[prose_key] = identity
+
+
+def self_test_generated_kdoc_catalog() -> None:
+    validate_generated_kdoc_catalog()
+
+    def reject(label: str, expected: str, *, types=GENERATED_TYPE_KDOC_RECORDS, functions=GENERATED_FUNCTION_KDOC_RECORDS) -> None:
+        try:
+            validate_generated_kdoc_catalog(types, functions)
+        except ValueError as error:
+            if expected not in str(error):
+                raise AssertionError(f"{label} had the wrong diagnostic: {error}") from error
+        else:
+            raise AssertionError(f"{label} generated KDoc mutation was accepted")
+
+    reject("missing", "missing exact identities", types=GENERATED_TYPE_KDOC_RECORDS[:-1])
+    reject(
+        "extra",
+        "stale or wrong identities",
+        types=GENERATED_TYPE_KDOC_RECORDS + (("request-models", "StaleType", "A stale type record."),),
+    )
+    first_type = GENERATED_TYPE_KDOC_RECORDS[0]
+    second_type = GENERATED_TYPE_KDOC_RECORDS[1]
+    reject("blank", "blank", types=((first_type[0], first_type[1], " "), *GENERATED_TYPE_KDOC_RECORDS[1:]))
+    reject("duplicate record", "duplicate generated type", types=GENERATED_TYPE_KDOC_RECORDS + (first_type,))
+    reject(
+        "wrong owner",
+        "stale or wrong identities",
+        types=(("request-models", first_type[1], first_type[2]), *GENERATED_TYPE_KDOC_RECORDS[1:]),
+    )
+    reject(
+        "wrong signature",
+        "stale or wrong identities",
+        types=((first_type[0], first_type[1] + "Wrong", first_type[2]), *GENERATED_TYPE_KDOC_RECORDS[1:]),
+    )
+    reject(
+        "duplicate prose",
+        "prose is duplicated",
+        types=(first_type, (second_type[0], second_type[1], first_type[2]), *GENERATED_TYPE_KDOC_RECORDS[2:]),
+    )
+    first_function = GENERATED_FUNCTION_KDOC_RECORDS[0]
+    reject(
+        "synthesized fallback",
+        "synthesized fallback prose",
+        functions=((first_function[0], first_function[1], "Executes `api` by constructing a request."), *GENERATED_FUNCTION_KDOC_RECORDS[1:]),
+    )
+
+    def with_prose(
+        records: tuple[GeneratedKDocRecord, ...],
+        owner: str,
+        signature: str,
+        prose: str,
+    ) -> tuple[GeneratedKDocRecord, ...]:
+        matches = [index for index, record in enumerate(records) if record[:2] == (owner, signature)]
+        if len(matches) != 1:
+            raise AssertionError(
+                f"overstatement mutation target must be one exact record: {owner}:{signature}"
+            )
+        index = matches[0]
+        return (*records[:index], (owner, signature, prose), *records[index + 1:])
+
+    overstatement_diagnostic = "overstates command settlement or message completeness"
+    reject(
+        "channel-add completeness overstatement",
+        overstatement_diagnostic,
+        types=with_prose(
+            GENERATED_TYPE_KDOC_RECORDS,
+            "server-models",
+            "HtspChannelAddMessage",
+            "Adds a complete channel snapshot: identity, number and name, icons, event references, services, and tag membership.",
+        ),
+    )
+    reject(
+        "DVR-add completeness overstatement",
+        overstatement_diagnostic,
+        types=with_prose(
+            GENERATED_TYPE_KDOC_RECORDS,
+            "server-models",
+            "HtspDvrEntryAddMessage",
+            "Adds a complete DVR entry snapshot, including schedule, programme metadata, state, progress, errors, and recording files.",
+        ),
+    )
+    reject(
+        "subscription-weight settlement overstatement",
+        overstatement_diagnostic,
+        functions=with_prose(
+            GENERATED_FUNCTION_KDOC_RECORDS,
+            "request-extensions",
+            "HtspConnection.subscriptionChangeWeight(Long,Long?,Long,HtspConnectionGeneration?)",
+            "Changes or omits the scheduling weight for one subscription through typed execution.",
+        ),
+    )
+    reject(
+        "subscription-live settlement overstatement",
+        overstatement_diagnostic,
+        functions=with_prose(
+            GENERATED_FUNCTION_KDOC_RECORDS,
+            "request-extensions",
+            "HtspConnection.subscriptionLive(Long,Long,HtspConnectionGeneration?)",
+            "Returns one timeshifted subscription to its live position through typed execution.",
+        ),
+    )
 
 
 def validate_generated_output_metadata(
@@ -2166,6 +2764,7 @@ def validate_generated_output_metadata(
     entries: tuple[Entry, ...] = CATALOG,
     declarations: tuple[KotlinDeclaration, ...] = REQUEST_PUBLIC_DECLARATIONS,
 ) -> None:
+    validate_generated_kdoc_catalog()
     expected_outputs = (
         GeneratedOutput(
             "request-models",
@@ -2242,6 +2841,7 @@ def validate_generated_output_metadata(
 
 
 def self_test_generated_output_metadata() -> None:
+    self_test_generated_kdoc_catalog()
     validate_generated_output_metadata()
 
     def expect_rejection(label: str, expected_error: str | None = None, **changes: object) -> None:

@@ -7,21 +7,21 @@ import at.bernhardberger.tvheadend.htsp.jsonapi.*
 import at.bernhardberger.tvheadend.htsp.wire.*
 import java.util.Collections
 
-/** One stream-profile map returned by `getProfiles`. */
+/** One stream profile with its stable UUID, display [name], and server [comment]. */
 public data class HtspProfile(
     public val profileUuid: String,
     public val name: String,
     public val comment: String,
 )
 
-/** One DVR-configuration map returned by `getDvrConfigs`. */
+/** One DVR configuration with its stable UUID, display [name], and server [comment]. */
 public data class HtspDvrConfig(
     public val dvrConfigUuid: String,
     public val name: String,
     public val comment: String,
 )
 
-/** One bounded service map returned inside a channel reply. */
+/** One channel service with name, type, content code, optional conditional-access data, and optional provider name. */
 public data class HtspChannelService(
     public val name: String,
     public val type: String,
@@ -31,7 +31,7 @@ public data class HtspChannelService(
     public val providerName: String?,
 )
 
-/** Complete typed current-source channel reply. */
+/** A complete channel reply with identity, numbering, display data, current and next event IDs, services, and tag IDs. */
 public data class HtspChannel(
     public val channelId: Long,
     public val channelUuid: String?,
@@ -45,7 +45,7 @@ public data class HtspChannel(
     public val tagIds: List<Long>,
 )
 
-/** Complete typed current-source event reply, excluding deliberately opaque credits. */
+/** A bounded EPG event with channel and time coordinates, localized text, categories, ratings, episode data, imagery, and DVR references. */
 public data class HtspEvent(
     public val eventId: Long,
     public val channelId: Long?,
@@ -81,17 +81,17 @@ public data class HtspEvent(
     public val nextEventId: Long?,
 )
 
-/** One DVR cutpoint with the exact unsigned wire action code. */
+/** One DVR cutpoint from [start] through [end] with its unsigned action [type]. */
 public data class HtspDvrCutpoint(
     public val start: Long,
     public val end: Long,
     public val type: Long,
 )
 
-/** Explicit successful empty RPC acknowledgement. */
+/** Explicit successful acknowledgement for an RPC with no method-specific reply fields. */
 public data object HtspEmptyResponse
 
-/** Successful `hello` observations. The challenge bytes remain redacted by [HtspBinary]. */
+/** Handshake observations: negotiated version, optional server labels, copied challenge, web root, language, capabilities, and API version. */
 public class HelloResponse(
     public val htspVersion: Long,
     public val serverName: String?,
@@ -134,7 +134,7 @@ public class HelloResponse(
             "language=$language, serverCapabilities=$serverCapabilities, apiVersion=$apiVersion)"
 }
 
-/** Successful `authenticate` access observations; absent or malformed optional fields are null. */
+/** Authentication access observations and limits; each nullable property was absent or malformed when null. */
 public data class AuthenticateResponse(
     public val noAccess: Boolean?,
     public val admin: Boolean?,
@@ -149,38 +149,46 @@ public data class AuthenticateResponse(
     public val uiLanguage: String?,
 )
 
+/** Contains the optional ordered stream-profile list returned by `getProfiles`. */
 public data class GetProfilesResponse(public val profiles: List<HtspProfile>?)
 
+/** Contains free and total recording bytes plus the optional used-byte counter. */
 public data class GetDiskSpaceResponse(
     public val freeBytes: Long,
     public val usedBytes: Long?,
     public val totalBytes: Long,
 )
 
+/** Contains Unix time, the legacy hours-west timezone value, and an optional GMT offset in minutes. */
 public data class GetSysTimeResponse(
     public val unixTimeSeconds: Long,
     public val legacyTimezoneHoursWestOfGmt: Int,
     public val gmtOffsetMinutes: Int?,
 )
 
+/** Contains the complete channel selected by `getChannel`. */
 public data class GetChannelResponse(public val channel: HtspChannel)
 
+/** Contains the complete EPG event selected by `getEvent`. */
 public data class GetEventResponse(public val event: HtspEvent)
 
+/** Contains the ordered finite event list selected by `getEvents`. */
 public data class GetEventsResponse(public val events: List<HtspEvent>)
 
-/** Selected finite reply alternative for `epgQuery`. */
+/** Closed `epgQuery` reply family containing either event identifiers or complete event values. */
 public sealed interface EpgQueryResponse {
+    /** Contains only the event identifiers returned by a summary EPG query. */
     public data class EventIds(public val eventIds: List<Long>) : EpgQueryResponse
+    /** Contains complete typed events returned by a detailed EPG query. */
     public data class Events(public val events: List<HtspEvent>) : EpgQueryResponse
 }
 
-/** The complete finite EPG object-type vocabulary supported by the pinned serializer. */
+/** Finite object selector encoded by `getEpgObject`; [BROADCAST] selects a broadcast record. */
 public enum class HtspEpgObjectType {
     BROADCAST,
 }
 
-/** Optional episode-number object serialized inside a detailed EPG broadcast. */
+/** Optional episode numbering with episode, season, and part values, totals, and display text. */
 public data class HtspEpgEpisodeNumber(
     public val episodeNumber: Long?,
     public val episodeCount: Long?,
@@ -191,11 +199,7 @@ public data class HtspEpgEpisodeNumber(
     public val text: String?,
 )
 
-/**
- * Complete bounded broadcast object returned by `getEpgObject`.
- *
- * The unconstrained wire `cred` object is deliberately omitted from this finite public model.
- */
+/** Bounded detailed broadcast record with timing, channel and event identity, flags, ratings, localized text, numbering, genres, and links; opaque credentials are omitted. */
 public data class HtspEpgBroadcastObject(
     public val id: Long,
     public val updatedUnixSeconds: Long,
@@ -233,14 +237,16 @@ public data class HtspEpgBroadcastObject(
     public val episodeLinkUri: String?,
 )
 
+/** Contains the detailed broadcast selected by `getEpgObject`. */
 public data class GetEpgObjectResponse(public val broadcast: HtspEpgBroadcastObject)
 
+/** Contains the optional ordered DVR-configuration list visible to the caller. */
 public data class GetDvrConfigsResponse(public val configurations: List<HtspDvrConfig>?)
 
-/** Closed wire request family for the five DVR mutation methods. */
+/** Closed request marker implemented by add, update, stop, cancel, and delete DVR entry requests. */
 public sealed interface HtspDvrMutationRequest
 
-/** Wire-shaped DVR mutation reply. [error] is untrusted server text. */
+/** Shared DVR mutation fields: optional success code, untrusted server error text, and an optional entry identifier where applicable. */
 public sealed interface HtspDvrMutationResponse {
     public val success: Long?
     public val error: String?
@@ -248,35 +254,40 @@ public sealed interface HtspDvrMutationResponse {
         get() = null
 }
 
+/** DVR-add reply with optional success code, returned [entryId], and untrusted server [error]. */
 public data class AddDvrEntryResponse(
     override public val success: Long?,
     override public val entryId: Long?,
     override public val error: String?,
 ) : HtspDvrMutationResponse
 
+/** DVR-update result carrying the optional success code and untrusted server error text. */
 public data class UpdateDvrEntryResponse(
     override public val success: Long?,
     override public val error: String?,
 ) : HtspDvrMutationResponse
 
+/** DVR-stop result carrying the optional success code and untrusted server error text. */
 public data class StopDvrEntryResponse(
     override public val success: Long?,
     override public val error: String?,
 ) : HtspDvrMutationResponse
 
+/** DVR-cancel result carrying the optional success code and untrusted server error text. */
 public data class CancelDvrEntryResponse(
     override public val success: Long?,
     override public val error: String?,
 ) : HtspDvrMutationResponse
 
+/** DVR-delete result carrying the optional success code and untrusted server error text. */
 public data class DeleteDvrEntryResponse(
     override public val success: Long?,
     override public val error: String?,
 ) : HtspDvrMutationResponse
 
-/** Channel mutation selected for one autorec or timerec rule request. */
+/** Closed channel selector for automatic and time-based recording rule requests. */
 public sealed interface HtspRecordingRuleChannel {
-    /** Select one channel by its complete unsigned HTSP channel ID. */
+    /** Selects one recording-rule channel by its complete unsigned [channelId]. */
     @JvmInline
     public value class Id(public val channelId: Long) : HtspRecordingRuleChannel {
         init {
@@ -284,38 +295,34 @@ public sealed interface HtspRecordingRuleChannel {
         }
     }
 
-    /**
-     * Emit the v25 signed `-1` any-channel sentinel.
-     *
-     * Pinned update source also clears to any channel when `channel` is omitted;
-     * this selector makes that intent explicit. Add support requires HTSP v25.
-     */
+    /** Encodes the signed `-1` any-channel sentinel; update requests may also clear a channel by omitting it. */
     public data object Any : HtspRecordingRuleChannel
 }
 
+/** Carries the server identifier returned by an automatic-recording-rule add reply. */
 public data class AddAutorecEntryResponse(public val id: String)
 
+/** Carries the strict success discriminator returned for an automatic-recording-rule update request. */
 public data object UpdateAutorecEntryResponse
 
+/** Carries the strict success discriminator returned for an automatic-recording-rule delete request. */
 public data object DeleteAutorecEntryResponse
 
+/** Carries the server identifier returned by a time-based recording-rule add reply. */
 public data class AddTimerecEntryResponse(public val id: String)
 
+/** Carries the strict success discriminator returned for a time-based recording-rule update request. */
 public data object UpdateTimerecEntryResponse
 
+/** Carries the strict success discriminator returned for a time-based recording-rule delete request. */
 public data object DeleteTimerecEntryResponse
 
+/** Contains the optional ordered cutpoint list for the selected DVR entry. */
 public data class GetDvrCutpointsResponse(public val cutpoints: List<HtspDvrCutpoint>?)
 
-/**
- * Exactly-one channel-or-DVR selection is the stricter SDK API contract.
- *
- * The pinned upstream `getTicket` handler also accepts both selectors and gives
- * `channelId` precedence. This sealed API makes both-present and neither-present
- * selection unrepresentable.
- */
+/** Closed exactly-one selector for a channel ticket or a DVR ticket. */
 public sealed interface GetTicketSelector {
-    /** Select one channel by its complete unsigned HTSP channel ID. */
+    /** Selects a ticket source by complete unsigned channel identifier. */
     @JvmInline
     public value class Channel(public val channelId: Long) : GetTicketSelector {
         init {
@@ -323,7 +330,7 @@ public sealed interface GetTicketSelector {
         }
     }
 
-    /** Select one DVR entry by its complete unsigned HTSP DVR ID. */
+    /** Selects a ticket source by complete unsigned DVR identifier. */
     @JvmInline
     public value class Dvr(public val dvrId: Long) : GetTicketSelector {
         init {
@@ -332,7 +339,7 @@ public sealed interface GetTicketSelector {
     }
 }
 
-/** Purpose-specific credential-bearing successful `getTicket` reply. */
+/** Credential-bearing ticket reply containing the access [path] and [ticket]; string rendering redacts both. */
 public class GetTicketResponse(
     public val path: String,
     public val ticket: String,
@@ -341,35 +348,36 @@ public class GetTicketResponse(
         "GetTicketResponse(path=<redacted>, ticket=<redacted>)"
 }
 
-/** Finite successful `fileOpen` reply with source-coupled optional metadata. */
+/** Opened file handle [id] with source-coupled optional size and modification-time metadata. */
 public data class FileOpenResponse(
     public val id: Long,
     public val sizeBytes: Long?,
     public val modifiedAtUnixSeconds: Long?,
 )
 
-/** One bounded binary payload returned by `fileRead`, including a valid empty payload. */
+/** Contains one defensively copied bounded payload; an empty payload is a valid successful read. */
 public data class FileReadResponse(public val data: HtspBinary)
 
-/** Explicit successful empty `fileClose` acknowledgement. */
+/** Explicit successful empty acknowledgement returned for a protocol file-close request. */
 public data object FileCloseResponse
 
-/** Finite successful `fileStat` reply; both values are absent when pinned `fstat` fails. */
+/** Optional size and modification time for an open file handle; the pair is absent together when unavailable. */
 public data class FileStatResponse(
     public val sizeBytes: Long?,
     public val modifiedAtUnixSeconds: Long?,
 )
 
-/** Successful absolute non-negative file offset returned by `fileSeek`. */
+/** Contains the successful absolute non-negative file offset after a seek. */
 public data class FileSeekResponse(public val offset: Long)
 
-/** Complete valid `fileSeek` origin vocabulary; null request selection omits `whence`. */
+/** Finite file-seek origin vocabulary: start, current position, or end; a null request value omits the field. */
 public enum class FileSeekWhence {
     SET,
     CURRENT,
     END,
 }
 
+/** Negotiated subscription values: optional 90 kHz mode, normalized-timestamp flag, scheduling weight, and timeshift period in seconds. */
 public data class SubscribeResponse(
     public val ninetyKhz: Long?,
     public val normalizedTimestamps: Long?,
@@ -377,7 +385,7 @@ public data class SubscribeResponse(
     public val timeshiftPeriodSeconds: Long?,
 )
 
-/** Exact current-source `hello` request. Empty client names remain representable. */
+/** Carries the requested unsigned HTSP version and exact client name for the `hello` exchange. */
 public data class HelloRequest(
     public val htspVersion: Long,
     public val clientName: String,
@@ -391,31 +399,35 @@ public data class HelloRequest(
     }
 }
 
-/** Bare public authentication request. Credentials are connection-envelope data, not parameters. */
+/** Bare authentication request; credentials belong to the connection envelope rather than constructor properties. */
 public class AuthenticateRequest : HtspRequest<AuthenticateResponse>(
     method = "authenticate",
     access = HtspAccess.ACCESS_ANONYMOUS,
     minimumProtocolVersion = null,
 )
 
+/** Requests the stream-profile list and carries no method-specific parameters. */
 public class GetProfilesRequest : HtspRequest<GetProfilesResponse>(
     method = "getProfiles",
     access = HtspAccess.ACCESS_HTSP_STREAMING,
     minimumProtocolVersion = 16,
 )
 
+/** Requests recording-storage counters and carries no method-specific parameters. */
 public class GetDiskSpaceRequest : HtspRequest<GetDiskSpaceResponse>(
     method = "getDiskSpace",
     access = HtspAccess.ACCESS_HTSP_STREAMING,
     minimumProtocolVersion = 3,
 )
 
+/** Requests the server clock and timezone observations without method-specific parameters. */
 public class GetSysTimeRequest : HtspRequest<GetSysTimeResponse>(
     method = "getSysTime",
     access = HtspAccess.ACCESS_HTSP_STREAMING,
     minimumProtocolVersion = 3,
 )
 
+/** Selects asynchronous metadata options: EPG inclusion, update frontier, EPG maximum time, and language; null omits each field. */
 public data class EnableAsyncMetadataRequest(
     public val epg: Long? = null,
     public val lastUpdate: Long? = null,
@@ -433,6 +445,7 @@ public data class EnableAsyncMetadataRequest(
     }
 }
 
+/** Selects one channel by complete unsigned [channelId]. */
 public data class GetChannelRequest(public val channelId: Long) : HtspRequest<GetChannelResponse>(
     method = "getChannel",
     access = HtspAccess.ACCESS_HTSP_STREAMING,
@@ -443,6 +456,7 @@ public data class GetChannelRequest(public val channelId: Long) : HtspRequest<Ge
     }
 }
 
+/** Selects one event by complete unsigned [eventId] and optional response [language]. */
 public data class GetEventRequest(
     public val eventId: Long,
     public val language: String? = null,
@@ -456,6 +470,7 @@ public data class GetEventRequest(
     }
 }
 
+/** Selects an event set by optional channel or event ID, language, following count, and maximum Unix time. */
 public data class GetEventsRequest(
     public val channelId: Long? = null,
     public val eventId: Long? = null,
@@ -476,6 +491,7 @@ public data class GetEventsRequest(
     }
 }
 
+/** Carries required search [query] plus optional channel, tag, content, language, text-mode, detail, and duration filters. */
 public data class EpgQueryRequest(
     public val query: String,
     public val channelId: Long? = null,
@@ -506,6 +522,7 @@ public data class EpgQueryRequest(
     }
 }
 
+/** Selects a detailed EPG object by unsigned [id] and optional finite [objectType]. */
 public data class GetEpgObjectRequest(
     public val id: Long,
     public val objectType: HtspEpgObjectType? = HtspEpgObjectType.BROADCAST,
@@ -519,20 +536,23 @@ public data class GetEpgObjectRequest(
     }
 }
 
+/** Requests visible DVR configurations and carries no method-specific parameters. */
 public class GetDvrConfigsRequest : HtspRequest<GetDvrConfigsResponse>(
     method = "getDvrConfigs",
     access = HtspAccess.ACCESS_HTSP_RECORDER,
     minimumProtocolVersion = 16,
 )
 
-/** Valid `addDvrEntry` selector forms from pinned source and accepted event scheduling. */
+/** Closed DVR scheduling selector: an existing event or an explicit channel and time range. */
 public sealed interface AddDvrEntrySelector {
+    /** Selects an existing event by complete unsigned [eventId] for DVR scheduling. */
     public data class Event(public val eventId: Long) : AddDvrEntrySelector {
         init {
             requireU32("eventId", eventId)
         }
     }
 
+    /** Selects a complete unsigned [channelId] and signed [start] and [stop] coordinates for DVR scheduling. */
     public data class ExplicitChannelTime(
         public val channelId: Long,
         public val start: Long,
@@ -544,6 +564,7 @@ public sealed interface AddDvrEntrySelector {
     }
 }
 
+/** Requests DVR scheduling from exactly one [selector] with optional configuration, language, programme text, and age rating. */
 public data class AddDvrEntryRequest(
     public val selector: AddDvrEntrySelector,
     public val configName: String? = null,
@@ -570,6 +591,7 @@ public data class AddDvrEntryRequest(
     }
 }
 
+/** Identifies one DVR entry and carries optional channel, configuration, programme text, progress, enablement, timing, retention, priority, and age rating changes. */
 public data class UpdateDvrEntryRequest(
     public val entryId: Long,
     public val channelId: Long? = null,
@@ -619,6 +641,7 @@ public data class UpdateDvrEntryRequest(
     }
 }
 
+/** Selects one DVR entry by complete unsigned [entryId] for stopping. */
 public data class StopDvrEntryRequest(public val entryId: Long) : HtspRequest<StopDvrEntryResponse>(
     method = "stopDvrEntry",
     access = HtspAccess.ACCESS_HTSP_RECORDER,
@@ -629,6 +652,7 @@ public data class StopDvrEntryRequest(public val entryId: Long) : HtspRequest<St
     }
 }
 
+/** Selects one DVR entry by complete unsigned [entryId] for cancellation. */
 public data class CancelDvrEntryRequest(public val entryId: Long) : HtspRequest<CancelDvrEntryResponse>(
     method = "cancelDvrEntry",
     access = HtspAccess.ACCESS_HTSP_RECORDER,
@@ -639,6 +663,7 @@ public data class CancelDvrEntryRequest(public val entryId: Long) : HtspRequest<
     }
 }
 
+/** Selects one DVR entry by complete unsigned [entryId] for deletion. */
 public data class DeleteDvrEntryRequest(public val entryId: Long) : HtspRequest<DeleteDvrEntryResponse>(
     method = "deleteDvrEntry",
     access = HtspAccess.ACCESS_HTSP_RECORDER,
@@ -649,6 +674,7 @@ public data class DeleteDvrEntryRequest(public val entryId: Long) : HtspRequest<
     }
 }
 
+/** Defines an automatic recording rule with required title and optional channel, text, duration, time-window, count, schedule, retention, ownership, and configuration fields. */
 public data class AddAutorecEntryRequest(
     public val title: String,
     public val channel: HtspRecordingRuleChannel? = null,
@@ -694,6 +720,7 @@ public data class AddAutorecEntryRequest(
     }
 }
 
+/** Identifies an automatic recording rule and carries optional channel, matching, duration, schedule, count, retention, ownership, title, and configuration changes. */
 public data class UpdateAutorecEntryRequest(
     public val id: String,
     public val channel: HtspRecordingRuleChannel? = null,
@@ -733,12 +760,14 @@ public data class UpdateAutorecEntryRequest(
     }
 }
 
+/** Selects one automatic recording rule by string [id] for deletion. */
 public data class DeleteAutorecEntryRequest(public val id: String) : HtspRequest<DeleteAutorecEntryResponse>(
     method = "deleteAutorecEntry",
     access = HtspAccess.ACCESS_HTSP_RECORDER,
     minimumProtocolVersion = 13,
 )
 
+/** Defines a time-based recording rule with title and optional channel, daily interval, enablement, days, priority, retention, ownership, and configuration fields. */
 public data class AddTimerecEntryRequest(
     public val title: String,
     public val channel: HtspRecordingRuleChannel? = null,
@@ -768,6 +797,7 @@ public data class AddTimerecEntryRequest(
     }
 }
 
+/** Identifies a time-based recording rule and carries optional channel, daily interval, enablement, days, policy, ownership, title, and configuration changes. */
 public data class UpdateTimerecEntryRequest(
     public val id: String,
     public val channel: HtspRecordingRuleChannel? = null,
@@ -793,12 +823,14 @@ public data class UpdateTimerecEntryRequest(
     }
 }
 
+/** Selects one time-based recording rule by string [id] for deletion. */
 public data class DeleteTimerecEntryRequest(public val id: String) : HtspRequest<DeleteTimerecEntryResponse>(
     method = "deleteTimerecEntry",
     access = HtspAccess.ACCESS_HTSP_RECORDER,
     minimumProtocolVersion = 18,
 )
 
+/** Selects one DVR entry by complete unsigned [entryId] for cutpoint retrieval. */
 public data class GetDvrCutpointsRequest(public val entryId: Long) : HtspRequest<GetDvrCutpointsResponse>(
     method = "getDvrCutpoints",
     access = HtspAccess.ACCESS_HTSP_RECORDER,
@@ -809,6 +841,7 @@ public data class GetDvrCutpointsRequest(public val entryId: Long) : HtspRequest
     }
 }
 
+/** Carries exactly one channel-or-DVR [selector] for temporary ticket retrieval. */
 public data class GetTicketRequest(
     public val selector: GetTicketSelector,
 ) : HtspRequest<GetTicketResponse>(
@@ -817,17 +850,20 @@ public data class GetTicketRequest(
     minimumProtocolVersion = 5,
 )
 
-/** Exactly one channel selector accepted by the pinned `subscribe` handler. */
+/** Closed exactly-one subscription channel selector by unsigned ID or exact name. */
 public sealed interface SubscribeChannel {
+    /** Selects a subscription channel by complete unsigned [channelId]. */
     public data class Id(public val channelId: Long) : SubscribeChannel {
         init {
             requireU32("channelId", channelId)
         }
     }
 
+    /** Selects a subscription channel by exact [channelName]. */
     public data class Name(public val channelName: String) : SubscribeChannel
 }
 
+/** Requests [subscriptionId] for exactly one [channel] with optional profile, weight, 90 kHz timestamps, timeshift period, and queue depth. */
 public data class SubscribeRequest(
     public val subscriptionId: Long,
     public val channel: SubscribeChannel,
@@ -855,6 +891,7 @@ public data class SubscribeRequest(
     }
 }
 
+/** Selects one subscription by complete unsigned [subscriptionId] for termination. */
 public data class UnsubscribeRequest(
     public val subscriptionId: Long,
 ) : HtspRequest<HtspEmptyResponse>(
@@ -867,6 +904,7 @@ public data class UnsubscribeRequest(
     }
 }
 
+/** Selects one subscription and optionally supplies its new unsigned scheduling [weight]. */
 public data class SubscriptionChangeWeightRequest(
     public val subscriptionId: Long,
     public val weight: Long? = null,
@@ -881,12 +919,15 @@ public data class SubscriptionChangeWeightRequest(
     }
 }
 
-/** Exactly one signed seek coordinate accepted by `subscriptionSeek` and `subscriptionSkip`. */
+/** Closed signed subscription coordinate: media time or byte size. */
 public sealed interface SubscriptionSeekPosition {
+    /** Carries a signed media [time] coordinate for seek or skip. */
     public data class Time(public val time: Long) : SubscriptionSeekPosition
+    /** Carries a signed byte [size] coordinate for seek or skip. */
     public data class Size(public val size: Long) : SubscriptionSeekPosition
 }
 
+/** Selects a subscription, one signed [position], and an optional unsigned [absolute] flag for seeking. */
 public data class SubscriptionSeekRequest(
     public val subscriptionId: Long,
     public val position: SubscriptionSeekPosition,
@@ -902,6 +943,7 @@ public data class SubscriptionSeekRequest(
     }
 }
 
+/** Selects a subscription, one signed [position], and an optional unsigned [absolute] flag for skipping. */
 public data class SubscriptionSkipRequest(
     public val subscriptionId: Long,
     public val position: SubscriptionSeekPosition,
@@ -917,6 +959,7 @@ public data class SubscriptionSkipRequest(
     }
 }
 
+/** Selects a subscription and carries the requested signed playback [speed]. */
 public data class SubscriptionSpeedRequest(
     public val subscriptionId: Long,
     public val speed: Int,
@@ -930,6 +973,7 @@ public data class SubscriptionSpeedRequest(
     }
 }
 
+/** Selects one subscription by complete unsigned [subscriptionId] and requests live mode. */
 public data class SubscriptionLiveRequest(
     public val subscriptionId: Long,
 ) : HtspRequest<HtspEmptyResponse>(
@@ -942,6 +986,7 @@ public data class SubscriptionLiveRequest(
     }
 }
 
+/** Selects one subscription and immutable optional stream-index lists to enable and disable. */
 public class SubscriptionFilterStreamRequest(
     public val subscriptionId: Long,
     enable: List<Long>? = null,
@@ -961,7 +1006,7 @@ public class SubscriptionFilterStreamRequest(
     }
 }
 
-/** Raw protocol file open; [file] is sent exactly as supplied, without path normalization. */
+/** Carries the exact protocol [file] selector without path normalization; diagnostics redact it. */
 public data class FileOpenRequest(public val file: String) : HtspRequest<FileOpenResponse>(
     method = "fileOpen",
     access = HtspAccess.ACCESS_HTSP_RECORDER,
@@ -970,12 +1015,7 @@ public data class FileOpenRequest(public val file: String) : HtspRequest<FileOpe
     override fun toString(): String = "FileOpenRequest(file=<redacted>)"
 }
 
-/**
- * Bounded raw protocol file read.
- *
- * [size] is restricted to 0 through 16 MiB so one successful binary reply stays within the
- * existing JVM bounded-file contract and below the unchanged 32 MiB codec message ceiling.
- */
+/** Selects an open file [id], bounded byte [size], and optional signed [offset] for one read. */
 public data class FileReadRequest(
     public val id: Long,
     public val size: Long,
@@ -993,13 +1033,7 @@ public data class FileReadRequest(
     }
 }
 
-/**
- * Generic file close with optional recording-backed progress controls.
- *
- * [playPositionSeconds] maps to wire `playposition` in whole recording-position seconds.
- * [playCount] maps to wire `playcount` without higher-level interpretation. Either control
- * requires HTSP v27; null omits that field. An id-only request remains available from v8.
- */
+/** Selects an open file [id] and optional recording position and play-count values; null omits each progress field. */
 public data class FileCloseRequest(
     public val id: Long,
     public val playPositionSeconds: Long? = null,
@@ -1016,6 +1050,7 @@ public data class FileCloseRequest(
     }
 }
 
+/** Selects an open protocol file handle by complete unsigned [id] for metadata retrieval. */
 public data class FileStatRequest(public val id: Long) : HtspRequest<FileStatResponse>(
     method = "fileStat",
     access = HtspAccess.ACCESS_HTSP_RECORDER,
@@ -1026,7 +1061,7 @@ public data class FileStatRequest(public val id: Long) : HtspRequest<FileStatRes
     }
 }
 
-/** Signed seek request; omitted [whence] preserves the pinned `SEEK_SET` default. */
+/** Selects an open file [id], signed [offset], and optional finite [whence] origin. */
 public data class FileSeekRequest(
     public val id: Long,
     public val offset: Long,

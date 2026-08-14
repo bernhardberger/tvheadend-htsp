@@ -27,18 +27,22 @@ public interface HtspConnection {
     public val liveConnection: StateFlow<HtspLiveConnection?>
     public val events: Flow<HtspTransportEvent>
 
+    /** Starts or reuses a connection according to [endpoint] identity and [options]. */
     public suspend fun connect(
         endpoint: HtspEndpoint,
         options: HtspConnectOptions = HtspConnectOptions(),
     ): HtspConnectOutcome
 
+    /** Returns whether [generation] is the current live-or-gone generation identity. */
     public fun isCurrent(generation: HtspConnectionGeneration): Boolean
 
+    /** Runs [block] only while [generation] is the current live-or-gone identity. */
     public fun <T> commitIfCurrent(
         generation: HtspConnectionGeneration,
         block: () -> T,
     ): T?
 
+    /** Runs [block] with the exact live snapshot only while [generation] is current and live. */
     public fun <T> commitIfLive(
         generation: HtspConnectionGeneration,
         block: (HtspLiveConnection) -> T,

@@ -14,6 +14,8 @@ sys.path.insert(0, str(SCRIPT_DIR))
 
 from htsp_surface import (
     GENERATED_OUTPUT_BY_KEY,
+    SERVER_DISPATCH_DECODER_KDOC,
+    SERVER_DISPATCH_DECLARATIONS,
     SERVER_MESSAGE_CATALOG,
     self_test_generated_output_metadata,
     validate_generated_output_metadata,
@@ -35,6 +37,13 @@ def validate_catalog(catalog=CATALOG) -> None:
     decoders = tuple(entry.decoder for entry in catalog)
     if len(set(types)) != 30 or len(set(decoders)) != 30:
         raise ValueError("typed server-message types and decoders must be one-to-one")
+    if tuple(value.name for value in SERVER_DISPATCH_DECLARATIONS) != (
+        "HtspServerMessageDecodeResult", "HtspServerMessageDecoded",
+        "HtspServerMessageUnknownMethod", "HtspServerMessageMalformedKnownMessage",
+    ) or any(value.kdoc is None or not value.kdoc.strip() for value in SERVER_DISPATCH_DECLARATIONS):
+        raise ValueError("dispatch declaration KDoc catalog is incomplete")
+    if not SERVER_DISPATCH_DECODER_KDOC.strip():
+        raise ValueError("dispatch decoder KDoc is blank")
 
 
 def render(catalog=CATALOG) -> str:
@@ -58,17 +67,23 @@ def render(catalog=CATALOG) -> str:
             f'    TypedHtspServerMessageCatalogEntry("{entry.method}", '
             f'"{entry.message_type}", {version}),'
         )
+    dispatch_docs = {value.name: value.kdoc for value in SERVER_DISPATCH_DECLARATIONS}
     lines.extend(
         (
             ")",
             "",
+            f"/** {dispatch_docs['HtspServerMessageDecodeResult']} */",
             "public sealed interface HtspServerMessageDecodeResult",
+            f"/** {dispatch_docs['HtspServerMessageDecoded']} */",
             "public data class HtspServerMessageDecoded(",
             "    public val message: HtspServerMessage,",
             ") : HtspServerMessageDecodeResult",
+            f"/** {dispatch_docs['HtspServerMessageUnknownMethod']} */",
             "public data object HtspServerMessageUnknownMethod : HtspServerMessageDecodeResult",
+            f"/** {dispatch_docs['HtspServerMessageMalformedKnownMessage']} */",
             "public data object HtspServerMessageMalformedKnownMessage : HtspServerMessageDecodeResult",
             "",
+            f"/** {SERVER_DISPATCH_DECODER_KDOC} */",
             "public fun decodeHtspServerMessage(fields: Map<String, Any?>): HtspServerMessageDecodeResult {",
             "    if (fields.containsKey(\"seq\")) return HtspServerMessageUnknownMethod",
             "    val method = fields[\"method\"] as? String",

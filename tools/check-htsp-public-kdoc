@@ -1,0 +1,902 @@
+#!/usr/bin/env python3
+"""Enforce the exact public HTSP Kotlin KDoc inventory."""
+
+from __future__ import annotations
+
+import argparse
+import importlib.util
+import os
+import re
+import stat
+import sys
+import tempfile
+from dataclasses import dataclass
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[1]
+SOURCE_ROOT = ROOT / "sdk/htsp-protocol/src/main/kotlin/at/bernhardberger/tvheadend/htsp"
+CATALOG_PATH = ROOT / "docs/htsp-protocol/htsp_surface.py"
+GENERATED_OWNERS = {
+    "requests/GeneratedHtspRequests.kt": "generated-request-json-types",
+    "jsonapi/GeneratedHtspJsonApiModels.kt": "generated-request-json-types",
+    "messages/GeneratedHtspServerMessages.kt": "generated-server-types",
+    "messages/GeneratedHtspServerMessageDispatch.kt": "generated-dispatch",
+    "requests/GeneratedHtspExtensions.kt": "generated-request-extensions",
+    "jsonapi/GeneratedHtspJsonApiExtensions.kt": "generated-request-extensions",
+}
+EXPECTED_TOTALS = {
+    "generated-request-json-types": (102, 0, 102),
+    "generated-server-types": (33, 0, 33),
+    "generated-dispatch": (4, 1, 5),
+    "generated-request-extensions": (0, 50, 50),
+    "hand-source": (46, 22, 68),
+}
+EXPECTED_HAND_DOCS = {
+    'type:at.bernhardberger.tvheadend.htsp.connection.HtspEndpoint': 'Network endpoint used by the typed HTSP transport. Credentials are never rendered.',
+    'type:at.bernhardberger.tvheadend.htsp.connection.HtspConnectOptions': 'Connection timeouts and socket bounds, all durations in milliseconds.',
+    'type:at.bernhardberger.tvheadend.htsp.connection.HtspTransportFailureKind': 'Stable failure categories; implementation exceptions never cross the transport seam.',
+    'type:at.bernhardberger.tvheadend.htsp.connection.HtspTransportFailure': 'Bounded transport-failure classification with no implementation exception payload.',
+    'type:at.bernhardberger.tvheadend.htsp.connection.HtspLiveConnection': 'One live, opaque protocol generation and its bounded handshake observations.',
+    'type:at.bernhardberger.tvheadend.htsp.connection.HtspConnectOutcome': 'Typed outcome of one connection attempt.',
+    'type:at.bernhardberger.tvheadend.htsp.connection.HtspConnectOutcome.Connected': 'A connection attempt that established one live opaque generation.',
+    'type:at.bernhardberger.tvheadend.htsp.connection.HtspConnectOutcome.Failed': 'A connection attempt reduced to one bounded transport failure.',
+    'type:at.bernhardberger.tvheadend.htsp.connection.HtspTransportEvent': 'Ordered typed observations from one admitted transport generation.',
+    'type:at.bernhardberger.tvheadend.htsp.connection.HtspTransportEvent.ServerMessage': 'One typed asynchronous server message observed on its source generation.',
+    'type:at.bernhardberger.tvheadend.htsp.connection.HtspTransportEvent.ConnectionFailure': 'A bounded transport failure associated with its source generation when known.',
+    'fun:at.bernhardberger.tvheadend.htsp.connection.createHtspConnection(CoroutineDispatcher,HtspClientIdentity,HtspLogger)': 'Creates the factory-owned typed connection using the supplied dispatcher and diagnostics policy.',
+    'type:at.bernhardberger.tvheadend.htsp.connection.HtspConnectionGeneration': 'Opaque identity of one current HTSP transport generation, whether live or gone.',
+    'type:at.bernhardberger.tvheadend.htsp.connection.HtspConnection': 'Small typed connection seam. Raw maps, wire messages, sequences, numeric attempt IDs,\ndecoder outcomes, and implementation exceptions are intentionally absent.',
+    'fun:at.bernhardberger.tvheadend.htsp.connection.HtspConnection#connect(HtspEndpoint,HtspConnectOptions)': 'Starts or reuses a connection according to [endpoint] identity and [options].',
+    'fun:at.bernhardberger.tvheadend.htsp.connection.HtspConnection#isCurrent(HtspConnectionGeneration)': 'Returns whether [generation] is the current live-or-gone generation identity.',
+    'fun:at.bernhardberger.tvheadend.htsp.connection.HtspConnection#commitIfCurrent(HtspConnectionGeneration,()->T)': 'Runs [block] only while [generation] is the current live-or-gone identity.',
+    'fun:at.bernhardberger.tvheadend.htsp.connection.HtspConnection#commitIfLive(HtspConnectionGeneration,(HtspLiveConnection)->T)': 'Runs [block] with the exact live snapshot only while [generation] is current and live.',
+    'fun:at.bernhardberger.tvheadend.htsp.connection.HtspConnection#disconnect(HtspConnectionGeneration?)': 'Disconnects the expected current generation, or performs owner-global cleanup when null.\nA current generation remains eligible after transport loss. A stale non-null generation\npropagates [CancellationException] without mutating transport state.',
+    'fun:at.bernhardberger.tvheadend.htsp.connection.HtspConnection#close(HtspConnectionGeneration?)': 'Terminally closes the expected current generation, or performs owner-global close when null.\nA current generation remains eligible after transport loss. A stale non-null generation\npropagates [CancellationException] without closing the owner.',
+    'fun:at.bernhardberger.tvheadend.htsp.connection.<R>HtspConnection.execute(HtspRequest<R>,Long,HtspConnectionGeneration?)': "Executes one already-constructed request from the finite typed HTSP catalog.\nCancellation, generation fencing, version preflight, and typed failure classification are\npreserved by the connection's internal request capability.",
+    'type:at.bernhardberger.tvheadend.htsp.connection.HtspResult': 'Typed outcome for one HTSP request. Cancellation is never represented here.',
+    'type:at.bernhardberger.tvheadend.htsp.connection.HtspResult.Ok': 'The request completed successfully with [value].',
+    'type:at.bernhardberger.tvheadend.htsp.connection.HtspResult.ServerError': 'The server rejected the request or supplied a malformed reply.',
+    'type:at.bernhardberger.tvheadend.htsp.connection.HtspResult.AccessDenied': 'The server explicitly denied access to the request.',
+    'type:at.bernhardberger.tvheadend.htsp.connection.HtspResult.ConnectionLimit': 'The server denied the request because the connection limit was reached.',
+    'type:at.bernhardberger.tvheadend.htsp.connection.HtspResult.Timeout': 'The request exceeded its configured response timeout.',
+    'type:at.bernhardberger.tvheadend.htsp.connection.HtspResult.TransportUnavailable': 'No usable transport was available for the request.',
+    'type:at.bernhardberger.tvheadend.htsp.connection.HtspResult.NotSupported': 'The negotiated protocol does not support the request.',
+    'type:at.bernhardberger.tvheadend.htsp.connection.HtspFailure': 'Payload-free failure returned by a typed HTSP request.',
+    'fun:at.bernhardberger.tvheadend.htsp.connection.<R>HtspResult<R>.getOrNull()': 'Returns the success value, or `null` for any failure.',
+    'fun:at.bernhardberger.tvheadend.htsp.connection.<R>HtspResult<R>.getOrElse((HtspFailure)->R)': 'Returns the success value, or the value produced for the exact failure.',
+    'fun:at.bernhardberger.tvheadend.htsp.connection.<R>HtspResult<R>.onOk((R)->Unit)': 'Invokes [action] for success and returns this exact result.',
+    'fun:at.bernhardberger.tvheadend.htsp.connection.<R>HtspResult<R>.onFailure((HtspFailure)->Unit)': 'Invokes [action] for failure and returns this exact result.',
+    'fun:at.bernhardberger.tvheadend.htsp.connection.<R,T>HtspResult<R>.map((R)->T)': 'Transforms success while preserving failures. Transform failures propagate unchanged.',
+    'fun:at.bernhardberger.tvheadend.htsp.connection.<R,T>HtspResult<R>.fold((R)->T,(HtspFailure)->T)': 'Reduces this result by invoking exactly one branch.',
+    'type:at.bernhardberger.tvheadend.htsp.connection.ConnectionState': 'Internal-service connection state exposed as finite typed snapshots.',
+    'type:at.bernhardberger.tvheadend.htsp.connection.ConnectionState.Disconnected': 'No transport is currently connected or connecting.',
+    'type:at.bernhardberger.tvheadend.htsp.connection.ConnectionState.Connecting': 'A connection attempt is in progress for the recorded host and port.',
+    'type:at.bernhardberger.tvheadend.htsp.connection.ConnectionState.Connected': '@param dvrAccess HTSP `ACCESS_HTSP_RECORDER` from authenticate (version ≥ 26).\nnull when unauthenticated or the field was not returned.',
+    'type:at.bernhardberger.tvheadend.htsp.connection.ConnectionState.Error': 'The current service state carries an implementation failure for internal consumers.',
+    'type:at.bernhardberger.tvheadend.htsp.connection.HtspClientIdentity': 'The client identity used by the connection. [clientName] is sent in `hello`;\n[clientVersion] is retained for identity and diagnostics and is not transmitted by the\ncurrent [HelloRequest].',
+    'type:at.bernhardberger.tvheadend.htsp.connection.HtspLogLevel': 'Finite severity vocabulary accepted by [HtspLogger].',
+    'type:at.bernhardberger.tvheadend.htsp.connection.HtspLogger': 'Caller-supplied sink for bounded protocol transport diagnostics.',
+    'fun:at.bernhardberger.tvheadend.htsp.connection.HtspLogger#log(HtspLogLevel,String,Throwable?)': 'Records one bounded diagnostic at [level], with an optional implementation cause.',
+    'type:at.bernhardberger.tvheadend.htsp.connection.HtspServerFacts': 'Safe, read-only HTSP server identity and access observations from one successful handshake.\n\nEvery property is optional: `null` means the wire field was absent or not representable.\nEmpty strings, empty capability lists, zero limits, and explicit `false` access flags are\nobserved values and are distinct from unknown. This type never carries endpoint, credential,\ndigest, challenge, raw message, sequence, subscription, generation, or throwable data.',
+    'type:at.bernhardberger.tvheadend.htsp.jsonapi.HtspApiValue': 'Closed value vocabulary transported by the provisional JSON API bridge.',
+    'type:at.bernhardberger.tvheadend.htsp.jsonapi.HtspApiContainer': 'A recursively nestable map or list response payload.',
+    'type:at.bernhardberger.tvheadend.htsp.jsonapi.HtspApiObject': 'Ordered immutable string-keyed object.',
+    'fun:at.bernhardberger.tvheadend.htsp.jsonapi.HtspApiObject#get(String)': 'Returns the value stored for [name], or null when the key is absent.',
+    'type:at.bernhardberger.tvheadend.htsp.jsonapi.HtspApiList': 'Ordered immutable recursive list.',
+    'fun:at.bernhardberger.tvheadend.htsp.jsonapi.HtspApiList#get(Int)': 'Returns the value at [index] using ordinary array index bounds.',
+    'type:at.bernhardberger.tvheadend.htsp.jsonapi.HtspApiString': 'Exact UTF-8 string value.',
+    'type:at.bernhardberger.tvheadend.htsp.jsonapi.HtspApiLong': 'Exact signed 64-bit integer value.',
+    'type:at.bernhardberger.tvheadend.htsp.jsonapi.HtspApiBoolean': 'Exact HTSP boolean value.',
+    'type:at.bernhardberger.tvheadend.htsp.jsonapi.HtspApiBinary': 'Defensive arbitrary-width binary value.',
+    'fun:at.bernhardberger.tvheadend.htsp.jsonapi.HtspApiBinary#bytes()': 'Returns a defensive copy of this arbitrary-width binary value.',
+    'type:at.bernhardberger.tvheadend.htsp.jsonapi.HtspApiUuid': 'Defensive, distinct fixed-width HTSP UUID value.',
+    'fun:at.bernhardberger.tvheadend.htsp.jsonapi.HtspApiUuid#bytes()': 'Returns a defensive copy of this fixed-width UUID value.',
+    'fun:at.bernhardberger.tvheadend.htsp.jsonapi.htspApiObject(Pair<String,HtspApiValue>)': 'Bounded project-owned factory for an ordered API object.',
+    'fun:at.bernhardberger.tvheadend.htsp.jsonapi.htspApiList(HtspApiValue)': 'Bounded project-owned factory for an ordered API list.',
+    'type:at.bernhardberger.tvheadend.htsp.jsonapi.HtspJsonApi': "Provisional bridge from HTSP to TVHeadend's separately versioned HTTP JSON API.",
+    'type:at.bernhardberger.tvheadend.htsp.messages.HtspServerMessage': 'A typed asynchronous HTSP server message. It never represents an RPC reply.',
+    'type:at.bernhardberger.tvheadend.htsp.requests.HtspAccess': 'Pinned server-dispatch access metadata. The server remains authoritative.',
+    'type:at.bernhardberger.tvheadend.htsp.requests.HtspRequest': 'A typed request whose raw HTSP envelope and reply mapping remain ABI-hidden.',
+    'type:at.bernhardberger.tvheadend.htsp.requests.StreamProfile': 'Exact stream-profile identifier and display name returned by protocol metadata.',
+    'type:at.bernhardberger.tvheadend.htsp.wire.HtspBinary': 'Defensively copied binary protocol data with content value semantics.',
+    'fun:at.bernhardberger.tvheadend.htsp.wire.HtspBinary#toByteArray()': 'Returns a new copy on every access.',
+}
+PLACEHOLDER = re.compile(r"\b(?:TODO|TBD|FIXME|placeholder|document\s+me)\b", re.I)
+MODIFIERS = {
+    "actual", "abstract", "annotation", "companion", "const", "crossinline",
+    "data", "enum", "expect", "external", "final", "fun", "infix", "inline",
+    "inner", "internal", "lateinit", "noinline", "open", "operator", "out",
+    "override", "private", "protected", "public", "reified", "sealed", "suspend",
+    "tailrec", "value", "vararg",
+}
+NON_PUBLIC = {"internal", "private", "protected"}
+TYPE_KEYWORDS = {"class", "interface", "object"}
+
+
+@dataclass(frozen=True)
+class Token:
+    text: str
+    start: int
+    end: int
+    line: int
+    kind: str = "token"
+
+
+@dataclass(frozen=True)
+class Unit:
+    key: str
+    owner: str
+    kind: str
+    path: str
+    line: int
+    doc: str | None
+
+
+def normalize_doc(raw: str) -> str:
+    lines = raw[3:-2].splitlines()
+    normalized = [re.sub(r"^\s*\* ?", "", line).strip() for line in lines]
+    while normalized and not normalized[0]:
+        normalized.pop(0)
+    while normalized and not normalized[-1]:
+        normalized.pop()
+    return "\n".join(normalized)
+
+
+def lex(text: str) -> list[Token]:
+    result: list[Token] = []
+    index = 0
+    line = 1
+    while index < len(text):
+        start = index
+        start_line = line
+        if text[index].isspace():
+            index += 1
+            line += text[start:index].count("\n")
+            continue
+        if text.startswith("//", index):
+            index = text.find("\n", index + 2)
+            if index < 0:
+                index = len(text)
+            result.append(Token("<comment>", start, index, start_line, "barrier"))
+            continue
+        if text.startswith("/*", index):
+            depth = 1
+            index += 2
+            while index < len(text) and depth:
+                if text.startswith("/*", index):
+                    depth += 1
+                    index += 2
+                elif text.startswith("*/", index):
+                    depth -= 1
+                    index += 2
+                else:
+                    index += 1
+            if depth:
+                raise ValueError(f"line {start_line}: unterminated block comment")
+            raw = text[start:index]
+            kind = "kdoc" if raw.startswith("/**") and raw != "/**/" else "barrier"
+            result.append(Token(raw, start, index, start_line, kind))
+            line += raw.count("\n")
+            continue
+        if text.startswith('"""', index):
+            index = text.find('"""', index + 3)
+            if index < 0:
+                raise ValueError(f"line {start_line}: unterminated triple-quoted string")
+            index += 3
+            raw = text[start:index]
+            result.append(Token("<string>", start, index, start_line, "literal"))
+            line += raw.count("\n")
+            continue
+        if text[index] in {'"', "'"}:
+            quote = text[index]
+            index += 1
+            while index < len(text):
+                if text[index] == "\\":
+                    index += 2
+                elif text[index] == quote:
+                    index += 1
+                    break
+                elif text[index] == "\n":
+                    raise ValueError(f"line {start_line}: unterminated literal")
+                else:
+                    index += 1
+            else:
+                raise ValueError(f"line {start_line}: unterminated literal")
+            result.append(Token("<string>", start, index, start_line, "literal"))
+            continue
+        if text[index] == "`":
+            index = text.find("`", index + 1)
+            if index < 0:
+                raise ValueError(f"line {start_line}: unterminated escaped identifier")
+            index += 1
+            result.append(Token(text[start:index], start, index, start_line))
+            continue
+        if text[index] == "_" or text[index].isalpha():
+            index += 1
+            while index < len(text) and (text[index] == "_" or text[index].isalnum()):
+                index += 1
+            result.append(Token(text[start:index], start, index, start_line))
+            continue
+        two = text[index:index + 2]
+        if two in {"->", "::", "?.", "!!", "<=", ">=", "==", "!="}:
+            index += 2
+            result.append(Token(two, start, index, start_line))
+        else:
+            index += 1
+            result.append(Token(text[start:index], start, index, start_line))
+    return result
+
+
+def pairs(tokens: list[Token]) -> dict[int, int]:
+    result: dict[int, int] = {}
+    stack: list[tuple[str, int]] = []
+    closing = {")": "(", "]": "[", "}": "{", ">": "<"}
+    for index, token in enumerate(tokens):
+        if token.kind != "token":
+            continue
+        if token.text in {"(", "[", "{"}:
+            stack.append((token.text, index))
+        elif token.text in {")", "]", "}"}:
+            if not stack or stack[-1][0] != closing[token.text]:
+                raise ValueError(f"line {token.line}: unmatched {token.text}")
+            _, opening = stack.pop()
+            result[opening] = index
+            result[index] = opening
+    if stack:
+        opener, index = stack[-1]
+        raise ValueError(f"line {tokens[index].line}: unmatched {opener}")
+    return result
+
+
+def previous_prefix(tokens: list[Token], declaration: int, pair_map: dict[int, int]) -> tuple[int, set[str]]:
+    cursor = declaration - 1
+    modifiers: set[str] = set()
+    while cursor >= 0:
+        token = tokens[cursor]
+        if token.kind != "token":
+            break
+        if token.text in MODIFIERS:
+            modifiers.add(token.text)
+            cursor -= 1
+            continue
+        if token.text == ")" and cursor in pair_map:
+            original = cursor
+            opening = pair_map[cursor]
+            cursor = opening - 1
+            while cursor >= 0 and tokens[cursor].kind == "token" and (
+                tokens[cursor].text == "." or tokens[cursor].text.replace("`", "").replace("_", "a").isalnum()
+            ):
+                cursor -= 1
+            if cursor >= 0 and tokens[cursor].text == "@":
+                cursor -= 1
+                continue
+            cursor = original
+            break
+        annotation_cursor = cursor
+        while annotation_cursor >= 0 and tokens[annotation_cursor].kind == "token" and (
+            tokens[annotation_cursor].text == "." or
+            tokens[annotation_cursor].text.replace("`", "").replace("_", "a").isalnum()
+        ):
+            annotation_cursor -= 1
+        if annotation_cursor >= 0 and tokens[annotation_cursor].text == "@":
+            cursor = annotation_cursor - 1
+            continue
+        break
+    return cursor + 1, modifiers
+
+
+def attached_doc(tokens: list[Token], prefix_start: int) -> tuple[str | None, int | None]:
+    if prefix_start == 0:
+        return None, None
+    candidate = tokens[prefix_start - 1]
+    if candidate.kind != "kdoc":
+        return None, None
+    return normalize_doc(candidate.text), prefix_start - 1
+
+
+def package_name(tokens: list[Token]) -> str:
+    for index, token in enumerate(tokens):
+        if token.text != "package":
+            continue
+        values = []
+        for part in tokens[index + 1:]:
+            if part.line != token.line or part.kind != "token":
+                break
+            values.append(part.text)
+        return "".join(values)
+    raise ValueError("missing package declaration")
+
+
+def normalized_type(tokens: list[Token]) -> str:
+    return "".join(token.text for token in tokens if token.kind == "token")
+
+
+def parameter_types(tokens: list[Token], opening: int, closing: int) -> tuple[str, ...]:
+    parts: list[list[Token]] = [[]]
+    depth = 0
+    for token in tokens[opening + 1:closing]:
+        if token.kind != "token":
+            continue
+        if token.text in {"(", "[", "{", "<"}:
+            depth += 1
+        elif token.text in {")", "]", "}", ">"}:
+            depth -= 1
+        if token.text == "," and depth == 0:
+            parts.append([])
+        else:
+            parts[-1].append(token)
+    result = []
+    for part in parts:
+        if not part:
+            continue
+        colon = next((i for i, token in enumerate(part) if token.text == ":"), None)
+        if colon is None:
+            raise ValueError("function parameter lacks a type")
+        type_tokens = part[colon + 1:]
+        default = next((i for i, token in enumerate(type_tokens) if token.text == "="), len(type_tokens))
+        result.append(normalized_type(type_tokens[:default]))
+    return tuple(result)
+
+
+def source_units(text: str, relative: str, owner: str) -> list[Unit]:
+    tokens = lex(text)
+    pair_map = pairs(tokens)
+    package = package_name(tokens)
+    units: list[Unit] = []
+    owner_stack: list[tuple[int, str, bool]] = []
+    function_bodies: list[int] = []
+    brace_stack: list[int] = []
+    attached_kdocs: set[int] = set()
+
+    def declaration_doc(declaration: int) -> tuple[str | None, set[str]]:
+        prefix_start, modifiers = previous_prefix(tokens, declaration, pair_map)
+        doc, doc_index = attached_doc(tokens, prefix_start)
+        if doc_index is not None:
+            if doc_index in attached_kdocs:
+                return None, modifiers
+            attached_kdocs.add(doc_index)
+        return doc, modifiers
+
+    def current_type_path() -> str:
+        return ".".join(value[1] for value in owner_stack)
+
+    def declaration_body(start: int, name_index: int) -> tuple[int, int] | None:
+        paren = bracket = 0
+        for cursor in range(name_index + 1, len(tokens)):
+            candidate = tokens[cursor]
+            if candidate.kind == "kdoc" and paren == 0 and bracket == 0:
+                return None
+            if candidate.kind != "token":
+                continue
+            value = candidate.text
+            if value == "(":
+                paren += 1
+            elif value == ")":
+                paren -= 1
+            elif value == "[":
+                bracket += 1
+            elif value == "]":
+                bracket -= 1
+            elif value == "{" and paren == 0 and bracket == 0:
+                return (cursor, pair_map[cursor])
+            elif value in {"public", "internal", "private", "protected"} and paren == 0 and bracket == 0 and candidate.line > tokens[start].line:
+                return None
+            elif value == ";" and paren == 0 and bracket == 0:
+                return None
+        return None
+
+    index = 0
+    while index < len(tokens):
+        token = tokens[index]
+        if token.kind != "token":
+            index += 1
+            continue
+        while owner_stack and index > owner_stack[-1][0]:
+            owner_stack.pop()
+        while function_bodies and index > function_bodies[-1]:
+            function_bodies.pop()
+        if token.text == "{":
+            brace_stack.append(index)
+        elif token.text == "}" and brace_stack:
+            brace_stack.pop()
+        if token.text in TYPE_KEYWORDS and index + 1 < len(tokens):
+            # Ignore class literals and object expressions.
+            name_token = tokens[index + 1]
+            valid_name = (
+                name_token.text.startswith("`") and name_token.text.endswith("`")
+            ) or re.fullmatch(r"[_A-Za-z][_A-Za-z0-9]*", name_token.text) is not None
+            if name_token.kind != "token" or not valid_name:
+                if token.text == "object":
+                    _prefix_start, modifiers = previous_prefix(tokens, index, pair_map)
+                    if "companion" in modifiers:
+                        declaration_doc(index)
+                index += 1
+                continue
+            doc, modifiers = declaration_doc(index)
+            declared_public = not bool(modifiers & NON_PUBLIC)
+            parent_public = all(value[2] for value in owner_stack)
+            effective_public = declared_public and parent_public and not function_bodies
+            body = declaration_body(index, index + 1)
+            body_close = body[1] if body is not None else index
+            qualified = ".".join(filter(None, (current_type_path(), name_token.text.strip("`"))))
+            if effective_public:
+                units.append(Unit(f"type:{package}.{qualified}", owner, "type", relative, token.line, doc))
+            if body_close > index:
+                owner_stack.append((body_close, name_token.text.strip("`"), effective_public))
+        elif token.text == "fun":
+            next_token = next((value for value in tokens[index + 1:] if value.kind == "token"), None)
+            if next_token is not None and next_token.text == "interface":
+                index += 1
+                continue
+            doc, modifiers = declaration_doc(index)
+            if "override" in modifiers or modifiers & NON_PUBLIC or function_bodies or not all(value[2] for value in owner_stack):
+                index += 1
+                continue
+            opening = next((cursor for cursor in range(index + 1, len(tokens)) if tokens[cursor].kind == "token" and tokens[cursor].text == "("), None)
+            if opening is None or opening not in pair_map:
+                raise ValueError(f"line {token.line}: malformed function")
+            name_index = opening - 1
+            while name_index > index and tokens[name_index].kind != "token":
+                name_index -= 1
+            name = tokens[name_index].text.strip("`")
+            prefix_tokens = [value for value in tokens[index + 1:name_index] if value.kind == "token"]
+            # Drop leading function type parameters and keep only an extension receiver.
+            receiver = ""
+            dot = next((i for i in range(len(prefix_tokens) - 1, -1, -1) if prefix_tokens[i].text == "."), None)
+            if dot is not None:
+                receiver = normalized_type(prefix_tokens[:dot])
+            params = ",".join(parameter_types(tokens, opening, pair_map[opening]))
+            container = current_type_path()
+            callable_name = f"{receiver + '.' if receiver else ''}{name}"
+            key = f"fun:{package}.{container + '#' if container else ''}{callable_name}({params})"
+            units.append(Unit(key, owner, "function", relative, token.line, doc))
+            close = pair_map[opening]
+            body = next((cursor for cursor in range(close + 1, len(tokens)) if tokens[cursor].kind == "token"), None)
+            if body is not None and tokens[body].text == "{" and body in pair_map:
+                function_bodies.append(pair_map[body])
+        elif token.text in {"val", "var", "typealias", "constructor"}:
+            declaration_doc(index)
+        index += 1
+    orphaned = [
+        token for token_index, token in enumerate(tokens)
+        if token.kind == "kdoc" and token_index not in attached_kdocs
+    ]
+    if orphaned:
+        lines = ", ".join(str(token.line) for token in orphaned)
+        raise ValueError(f"{relative}: orphan KDoc at line(s) {lines}")
+    return units
+
+
+def inventory(root: Path = SOURCE_ROOT) -> list[Unit]:
+    absolute_root = Path(os.path.abspath(root))
+    ancestors: list[Path] = []
+    current = Path(absolute_root.anchor)
+    for component in absolute_root.parts[1:-1]:
+        current /= component
+        ancestors.append(current)
+    for ancestor in ancestors:
+        try:
+            mode = ancestor.lstat().st_mode
+        except OSError as error:
+            raise ValueError(
+                f"protocol source root ancestor is unreadable: {ancestor}: {error}"
+            ) from error
+        if stat.S_ISLNK(mode) or not stat.S_ISDIR(mode):
+            raise ValueError(
+                f"protocol source root ancestor must be one real, non-symlink directory: {ancestor}"
+            )
+        if mode & 0o444 == 0 or mode & 0o111 == 0:
+            raise ValueError(
+                f"protocol source root ancestor must be readable and traversable: {ancestor}"
+            )
+    try:
+        root_mode = root.lstat().st_mode
+    except OSError as error:
+        raise ValueError(f"protocol source root is unreadable: {error}") from error
+    if stat.S_ISLNK(root_mode) or not stat.S_ISDIR(root_mode):
+        raise ValueError("protocol source root must be one real directory")
+    if root_mode & 0o444 == 0 or root_mode & 0o111 == 0:
+        raise ValueError("protocol source root must be readable and traversable")
+    units: list[Unit] = []
+    kotlin_paths: list[Path] = []
+
+    def walk_error(error: OSError) -> None:
+        raise ValueError(f"source topology cannot be walked: {error}") from error
+
+    for directory, names, files in os.walk(root, followlinks=False, onerror=walk_error):
+        current = Path(directory)
+        try:
+            current_mode = current.lstat().st_mode
+        except OSError as error:
+            raise ValueError(f"source topology is unreadable: {current}: {error}") from error
+        if stat.S_ISLNK(current_mode) or not stat.S_ISDIR(current_mode):
+            raise ValueError(f"source directory must be a real directory: {current}")
+        if current_mode & 0o444 == 0 or current_mode & 0o111 == 0:
+            raise ValueError(f"source directory must be readable and traversable: {current}")
+        for name in sorted((*names, *files)):
+            path = current / name
+            try:
+                mode = path.lstat().st_mode
+            except OSError as error:
+                raise ValueError(f"source topology is unreadable: {path}: {error}") from error
+            if stat.S_ISLNK(mode):
+                raise ValueError(f"source topology must not contain a symlink: {path}")
+            if name in names and not stat.S_ISDIR(mode):
+                raise ValueError(f"source directory must be a real directory: {path}")
+            if name in names and (mode & 0o444 == 0 or mode & 0o111 == 0):
+                raise ValueError(f"source directory must be readable and traversable: {path}")
+            if name in files and not stat.S_ISREG(mode):
+                raise ValueError(f"source must be a regular file: {path}")
+            if name in files and path.suffix == ".kt":
+                if mode & (stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH) == 0:
+                    raise ValueError(f"source must be readable: {path}")
+                kotlin_paths.append(path)
+    for path in sorted(kotlin_paths):
+        relative = path.relative_to(root).as_posix()
+        owner = GENERATED_OWNERS.get(relative, "hand-source")
+        units.extend(source_units(path.read_text(encoding="utf-8"), relative, owner))
+    return units
+
+
+def catalog_module():
+    spec = importlib.util.spec_from_file_location("htsp_public_kdoc_surface", CATALOG_PATH)
+    if spec is None or spec.loader is None:
+        raise ValueError("cannot load HTSP surface catalog")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def expected_catalog_docs(module) -> dict[str, str | None]:
+    module.validate_generated_kdoc_catalog()
+    return {
+        **module.GENERATED_TYPE_KDOCS,
+        **module.GENERATED_FUNCTION_KDOCS,
+    }
+
+
+def check_units(
+    units: list[Unit],
+    expected_docs: dict[str, str | None] | None = None,
+    *,
+    expected_totals: dict[str, tuple[int, int, int]] = EXPECTED_TOTALS,
+    expected_total: int = 258,
+    expected_hand_docs: dict[str, str] = EXPECTED_HAND_DOCS,
+) -> list[str]:
+    errors: list[str] = []
+    by_key: dict[str, list[Unit]] = {}
+    for unit in units:
+        by_key.setdefault(unit.key, []).append(unit)
+    for key, matches in sorted(by_key.items()):
+        if len(matches) != 1:
+            errors.append(f"duplicate declaration key: {key}")
+    actual_totals = {}
+    for owner in expected_totals:
+        owned = [unit for unit in units if unit.owner == owner]
+        actual_totals[owner] = (
+            sum(unit.kind == "type" for unit in owned),
+            sum(unit.kind == "function" for unit in owned),
+            len(owned),
+        )
+        if actual_totals[owner] != expected_totals[owner]:
+            errors.append(f"{owner}: inventory {actual_totals[owner]} must equal {expected_totals[owner]}")
+    if len(units) != expected_total:
+        errors.append(f"public inventory total {len(units)} must equal {expected_total}")
+    hand_units = {unit.key: unit for unit in units if unit.owner == "hand-source"}
+    for key in sorted(set(hand_units) - set(expected_hand_docs)):
+        errors.append(f"hand-source declaration missing reviewed inventory record: {key}")
+    for key in sorted(set(expected_hand_docs) - set(hand_units)):
+        errors.append(f"stale hand-source inventory record: {key}")
+    if expected_docs is not None:
+        generated_keys = {unit.key for unit in units if unit.owner != "hand-source"}
+        catalog_keys = set(expected_docs)
+        for key in sorted(generated_keys - catalog_keys):
+            errors.append(f"generated declaration missing catalog key: {key}")
+        for key in sorted(catalog_keys - generated_keys):
+            errors.append(f"stale catalog key: {key}")
+        for key, doc in sorted(expected_docs.items()):
+            if doc is None or not doc.strip():
+                errors.append(f"missing catalog KDoc: {key}")
+            elif PLACEHOLDER.search(doc):
+                errors.append(f"placeholder catalog KDoc: {key}")
+    seen_docs: dict[str, str] = {}
+    for unit in units:
+        effective_doc = unit.doc
+        if effective_doc is None:
+            errors.append(f"missing KDoc: {unit.owner}: {unit.key}")
+            continue
+        if not effective_doc.strip():
+            errors.append(f"blank KDoc: {unit.key}")
+            continue
+        if PLACEHOLDER.search(effective_doc):
+            errors.append(f"placeholder KDoc: {unit.key}")
+        normalized = re.sub(r"\s+", " ", effective_doc).strip().casefold()
+        if normalized in seen_docs:
+            errors.append(f"duplicate KDoc: {unit.key} duplicates {seen_docs[normalized]}")
+        else:
+            seen_docs[normalized] = unit.key
+        if expected_docs is not None and unit.owner != "hand-source":
+            catalog_doc = expected_docs.get(unit.key)
+            if catalog_doc is not None and effective_doc != catalog_doc:
+                errors.append(f"generated-output KDoc mismatch: {unit.key}")
+        if unit.owner == "hand-source":
+            reviewed_doc = expected_hand_docs.get(unit.key)
+            if reviewed_doc is not None and effective_doc != reviewed_doc:
+                errors.append(f"hand-source KDoc mismatch: {unit.key}")
+    return errors
+
+
+def self_test() -> None:
+    package = "package synthetic\n"
+    clean = package + """
+/** Outer documentation. */
+public class Outer {
+    /** Nested documentation. */
+    public class Nested
+    /** First overload documentation. */
+    public fun same(value: String): Unit = Unit
+    /** Second overload documentation. */
+    public fun same(value: Long): Unit = Unit
+}
+/** Factory documentation. */
+public fun make(): Outer = Outer()
+"""
+    expected_keys = {
+        "type:synthetic.Outer", "type:synthetic.Outer.Nested",
+        "fun:synthetic.Outer#same(String)", "fun:synthetic.Outer#same(Long)",
+        "fun:synthetic.make()",
+    }
+
+    def parsed(source: str) -> list[Unit]:
+        return source_units(source, "Synthetic.kt", "generated-test")
+
+    actual = parsed(clean)
+    catalog = {unit.key: unit.doc for unit in actual}
+    totals = {"generated-test": (2, 3, 5)}
+    def findings(source: str, expected_docs: dict[str, str | None] = catalog) -> list[str]:
+        try:
+            units = parsed(source)
+        except ValueError as error:
+            return [str(error)]
+        return check_units(
+            units,
+            expected_docs,
+            expected_totals=totals,
+            expected_total=5,
+            expected_hand_docs={},
+        )
+
+    if {unit.key for unit in actual} != expected_keys or findings(clean):
+        raise AssertionError("clean synthetic KDoc fixture failed")
+
+    def reject(label: str, source: str, diagnostic: str, expected_docs: dict[str, str | None] = catalog) -> None:
+        errors = findings(source, expected_docs)
+        if not any(diagnostic in error for error in errors):
+            raise AssertionError(f"{label} did not fail for {diagnostic}: {errors}")
+
+    reject("missing declaration", clean.replace("    public class Nested\n", ""), "orphan KDoc")
+    reject("extra declaration", clean + "/** Extra documentation. */ public class Extra\n", "inventory")
+    reject("missing KDoc", clean.replace("/** Factory documentation. */\n", ""), "missing KDoc")
+    reject("blank KDoc", clean.replace("/** Factory documentation. */", "/**   */"), "blank KDoc")
+    reject("placeholder KDoc", clean.replace("Factory documentation.", "TODO document me"), "placeholder KDoc")
+    reject("duplicate KDoc", clean.replace("Second overload documentation.", "First overload documentation."), "duplicate KDoc")
+    reject("detached KDoc", clean.replace("/** Factory documentation. */\npublic fun", "/** Factory documentation. */\n/* detached */\npublic fun"), "orphan KDoc")
+    reject("misassociated KDoc", clean.replace("/** Nested documentation. */\n    public class Nested", "/** Nested documentation. */\n    public class WrongOwner\n    public class Nested"), "missing KDoc")
+    reject("same-name overload confusion", clean.replace("same(value: Long)", "same(value: String)"), "duplicate declaration key")
+    reject("nested omission", clean.replace("    /** Nested documentation. */\n    public class Nested\n", ""), "stale catalog key")
+    decoys = clean + "// public class CommentDecoy\nval text = \"public fun stringDecoy()\"\n"
+    if findings(decoys):
+        raise AssertionError("declaration-like comment/string text changed inventory")
+    attached_noncoverage = clean + """
+/** Attached private property documentation. */
+private val privateValue: String = "value"
+/** Attached internal typealias documentation. */
+internal typealias InternalAlias = String
+"""
+    if findings(attached_noncoverage):
+        raise AssertionError("KDoc attached to non-coverage declarations was treated as orphaned")
+    reject(
+        "anonymous object expression",
+        clean + """
+val anonymous =
+/** Anonymous object expressions do not own declaration KDoc. */
+object : Runnable {
+    override fun run() = Unit
+}
+""",
+        "orphan KDoc",
+    )
+    stale = dict(catalog)
+    stale["type:synthetic.Stale"] = "Stale catalog documentation."
+    reject("stale catalog key", clean, "stale catalog key", stale)
+    mismatch = dict(catalog)
+    mismatch["fun:synthetic.make()"] = "Changed generated documentation."
+    reject("generated-output mismatch", clean, "generated-output KDoc mismatch", mismatch)
+
+    remediation_failures: list[str] = []
+    trailing_orphan = clean + "/** Harmless trailing orphan. */\n"
+    if not any("orphan KDoc" in error for error in findings(trailing_orphan)):
+        remediation_failures.append("trailing orphan KDoc was accepted")
+
+    hand_totals = {"hand-source": (2, 3, 5)}
+    def hand_findings(source: str) -> list[str]:
+        try:
+            units = source_units(source, "Synthetic.kt", "hand-source")
+        except ValueError as error:
+            return [str(error)]
+        return check_units(
+            units,
+            catalog,
+            expected_totals=hand_totals,
+            expected_total=5,
+            expected_hand_docs={key: doc for key, doc in catalog.items() if doc is not None},
+        )
+
+    swapped = clean.replace(
+        "First overload documentation.",
+        "__SWAP__",
+    ).replace(
+        "Second overload documentation.",
+        "First overload documentation.",
+    ).replace("__SWAP__", "Second overload documentation.")
+    if not any("hand-source KDoc mismatch" in error for error in hand_findings(swapped)):
+        remediation_failures.append("swapped hand KDoc was accepted")
+    replaced = clean.replace("Factory documentation.", "Different factory documentation.")
+    if not any("hand-source KDoc mismatch" in error for error in hand_findings(replaced)):
+        remediation_failures.append("mismatched hand KDoc was accepted")
+
+    malformed = clean + "public class Broken {\n"
+    try:
+        parsed(malformed)
+    except ValueError as error:
+        if "unmatched" not in str(error):
+            remediation_failures.append(f"malformed Kotlin had the wrong diagnostic: {error}")
+    else:
+        remediation_failures.append("malformed Kotlin was accepted")
+
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory) / "source"
+        root.mkdir()
+        (root / "Clean.kt").write_text(clean, encoding="utf-8")
+        invalid = root / "Invalid.kt"
+        invalid.write_bytes(b"package synthetic\n\xff")
+        try:
+            inventory(root)
+        except UnicodeError:
+            pass
+        else:
+            remediation_failures.append("invalid UTF-8 Kotlin source was accepted")
+        invalid.unlink()
+
+        unreadable = root / "Unreadable.kt"
+        unreadable.write_text(clean, encoding="utf-8")
+        unreadable.chmod(0)
+        try:
+            inventory(root)
+        except ValueError as error:
+            if "readable" not in str(error):
+                remediation_failures.append(f"unreadable source had the wrong diagnostic: {error}")
+        else:
+            remediation_failures.append("unreadable Kotlin source was accepted")
+        unreadable.chmod(0o600)
+        unreadable.unlink()
+
+        linked_file_target = Path(directory) / "LinkedFile.kt"
+        linked_file_target.write_text(clean, encoding="utf-8")
+        (root / "LinkedFile.kt").symlink_to(linked_file_target)
+        try:
+            inventory(root)
+        except ValueError as error:
+            if "symlink" not in str(error):
+                remediation_failures.append(f"source file symlink had the wrong diagnostic: {error}")
+        else:
+            remediation_failures.append("source file symlink was accepted")
+        (root / "LinkedFile.kt").unlink()
+
+        outside = Path(directory) / "outside"
+        outside.mkdir()
+        (outside / "Linked.kt").write_text(clean, encoding="utf-8")
+        (root / "linked").symlink_to(outside, target_is_directory=True)
+        try:
+            inventory(root)
+        except ValueError as error:
+            if "symlink" not in str(error):
+                remediation_failures.append(f"source symlink had the wrong diagnostic: {error}")
+        else:
+            remediation_failures.append("source-root descendant symlink was accepted")
+        (root / "linked").unlink()
+
+        root_link = Path(directory) / "source-link"
+        root_link.symlink_to(root, target_is_directory=True)
+        try:
+            inventory(root_link)
+        except ValueError as error:
+            if "real directory" not in str(error):
+                remediation_failures.append(f"source-root symlink had the wrong diagnostic: {error}")
+        else:
+            remediation_failures.append("source-root symlink was accepted")
+
+        try:
+            root.chmod(0)
+            inventory(root)
+        except ValueError as error:
+            if "readable and traversable" not in str(error):
+                remediation_failures.append(
+                    f"unreadable source root had the wrong diagnostic: {error}"
+                )
+        else:
+            remediation_failures.append("unreadable source root was accepted")
+        finally:
+            root.chmod(0o700)
+
+        unreadable_directory = root / "unreadable-directory"
+        unreadable_directory.mkdir()
+        (unreadable_directory / "Nested.kt").write_text(clean, encoding="utf-8")
+        try:
+            unreadable_directory.chmod(0)
+            inventory(root)
+        except ValueError as error:
+            if "readable and traversable" not in str(error):
+                remediation_failures.append(
+                    f"unreadable descendant directory had the wrong diagnostic: {error}"
+                )
+        else:
+            remediation_failures.append("unreadable descendant directory was accepted")
+        finally:
+            unreadable_directory.chmod(0o700)
+        (unreadable_directory / "Nested.kt").unlink()
+        unreadable_directory.rmdir()
+
+        real_ancestor = Path(directory) / "real-ancestor"
+        real_source = real_ancestor / "source"
+        real_source.mkdir(parents=True)
+        (real_source / "Clean.kt").write_text(clean, encoding="utf-8")
+        linked_ancestor = Path(directory) / "linked-ancestor"
+        linked_ancestor.symlink_to(real_ancestor, target_is_directory=True)
+        try:
+            inventory(linked_ancestor / "source")
+        except ValueError as error:
+            if "ancestor" not in str(error) or "symlink" not in str(error):
+                remediation_failures.append(
+                    f"symlinked source-root ancestor had the wrong diagnostic: {error}"
+                )
+        else:
+            remediation_failures.append("symlinked source-root ancestor was accepted")
+
+    if remediation_failures:
+        raise AssertionError("; ".join(remediation_failures))
+    print("HTSP public KDoc hostile self-tests passed")
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--self-test", action="store_true")
+    args = parser.parse_args()
+    if args.self_test:
+        self_test()
+        return 0
+    try:
+        units = inventory()
+        docs = expected_catalog_docs(catalog_module())
+        errors = check_units(units, docs)
+    except (OSError, UnicodeError, ValueError) as error:
+        print(f"error: HTSP public KDoc check failed closed: {error}", file=sys.stderr)
+        return 1
+    def is_documented(unit: Unit) -> bool:
+        return unit.doc is not None and bool(unit.doc.strip())
+
+    documented = sum(is_documented(unit) for unit in units)
+    for owner, expected in EXPECTED_TOTALS.items():
+        owned = [unit for unit in units if unit.owner == owner]
+        covered = sum(is_documented(unit) for unit in owned)
+        print(f"{owner}: {covered}/{expected[2]} documented ({expected[0]} types, {expected[1]} functions)")
+    print(f"total: {documented}/258 documented (185 types, 73 functions)")
+    for error in errors:
+        print(f"error: {error}", file=sys.stderr)
+    return 1 if errors else 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

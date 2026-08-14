@@ -102,8 +102,11 @@ internal class `HtspRequestTimeoutException-internal`(
 
 internal typealias HtspRequestTimeoutException = `HtspRequestTimeoutException-internal`
 
+/** Internal-service connection state exposed as finite typed snapshots. */
 public sealed class ConnectionState {
+    /** No transport is currently connected or connecting. */
     public data object Disconnected : ConnectionState()
+    /** A connection attempt is in progress for the recorded host and port. */
     public data class Connecting(val host: String, val port: Int) : ConnectionState()
     /**
      * @param dvrAccess HTSP `ACCESS_HTSP_RECORDER` from authenticate (version ≥ 26).
@@ -115,6 +118,7 @@ public sealed class ConnectionState {
         val htspVersion: Int?,
         val dvrAccess: Boolean? = null,
     ) : ConnectionState()
+    /** The current service state carries an implementation failure for internal consumers. */
     public data class Error(val throwable: Throwable) : ConnectionState()
 }
 

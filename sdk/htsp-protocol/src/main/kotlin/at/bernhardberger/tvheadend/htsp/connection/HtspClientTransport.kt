@@ -52,6 +52,7 @@ public enum class HtspTransportFailureKind {
     TRANSPORT_UNAVAILABLE,
 }
 
+/** Bounded transport-failure classification with no implementation exception payload. */
 public data class HtspTransportFailure(
     public val kind: HtspTransportFailureKind,
 )
@@ -64,8 +65,11 @@ public data class HtspLiveConnection(
     public val serverFacts: HtspServerFacts,
 )
 
+/** Typed outcome of one connection attempt. */
 public sealed interface HtspConnectOutcome {
+    /** A connection attempt that established one live opaque generation. */
     public data class Connected(public val connection: HtspLiveConnection) : HtspConnectOutcome
+    /** A connection attempt reduced to one bounded transport failure. */
     public data class Failed(public val failure: HtspTransportFailure) : HtspConnectOutcome
 }
 
@@ -73,6 +77,7 @@ public sealed interface HtspConnectOutcome {
 public sealed interface HtspTransportEvent {
     public val generation: HtspConnectionGeneration?
 
+    /** One typed asynchronous server message observed on its source generation. */
     public data class ServerMessage(
         public val message: HtspServerMessage,
         override val generation: HtspConnectionGeneration,
@@ -84,12 +89,14 @@ public sealed interface HtspTransportEvent {
         }
     }
 
+    /** A bounded transport failure associated with its source generation when known. */
     public data class ConnectionFailure(
         public val failure: HtspTransportFailure,
         override val generation: HtspConnectionGeneration?,
     ) : HtspTransportEvent
 }
 
+/** Creates the factory-owned typed connection using the supplied dispatcher and diagnostics policy. */
 public fun createHtspConnection(
     ioDispatcher: CoroutineDispatcher,
     clientIdentity: HtspClientIdentity = HtspClientIdentity.Default,
