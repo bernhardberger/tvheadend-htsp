@@ -12,6 +12,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 PROTOCOL_PACKAGE = "at.bernhardberger.tvheadend.htsp"
+PROTOCOL_PACKAGE_OWNERS = frozenset({"connection", "jsonapi", "messages", "requests", "wire"})
 PROTOCOL_MODULE_MAIN = Path("sdk/htsp-protocol/src/main")
 PROTOCOL_ROOT = Path(
     "sdk/htsp-protocol/src/main/kotlin/at/bernhardberger/tvheadend/htsp"
@@ -358,11 +359,9 @@ def parse_directives(
 
 def dependency_allowed(name: str) -> bool:
     normalized = name.removesuffix(".*")
-    if normalized == PROTOCOL_PACKAGE:
-        return True
     if normalized.startswith(f"{PROTOCOL_PACKAGE}."):
         first_suffix_segment = normalized[len(PROTOCOL_PACKAGE) + 1 :].split(".", 1)[0]
-        return first_suffix_segment[:1].isupper()
+        return first_suffix_segment in PROTOCOL_PACKAGE_OWNERS
     return any(
         normalized == package or normalized.startswith(f"{package}.")
         for package in ALLOWED_DEPENDENCY_PACKAGES
@@ -432,12 +431,21 @@ def source_errors(path: Path, root: Path) -> list[str]:
                 f"{relative}: protocol source must declare exactly one package"
             )
         else:
-            if (
-                not path.is_relative_to(root / PROTOCOL_ROOT)
-                or package_directives[0][0] != PROTOCOL_PACKAGE
-            ):
+            relative_owner_path = (
+                path.relative_to(root / PROTOCOL_ROOT)
+                if path.is_relative_to(root / PROTOCOL_ROOT)
+                else None
+            )
+            expected_package = (
+                f"{PROTOCOL_PACKAGE}.{relative_owner_path.parts[0]}"
+                if relative_owner_path is not None
+                and len(relative_owner_path.parts) == 2
+                and relative_owner_path.parts[0] in PROTOCOL_PACKAGE_OWNERS
+                else None
+            )
+            if expected_package is None or package_directives[0][0] != expected_package:
                 errors.append(
-                    f"{relative}: protocol source must declare the single rooted module package"
+                    f"{relative}: protocol source must declare one exact shallow owner package matching its path"
                 )
     else:
         for declared, _, _ in package_directives:
@@ -511,27 +519,27 @@ def self_test_errors() -> list[str]:
     cases = (
         (
             "valid shape",
-            "package at.bernhardberger.tvheadend.htsp\n"
-            "import at.bernhardberger.tvheadend.htsp.HtspConnection\n"
+            "package at.bernhardberger.tvheadend.htsp.connection\n"
+            "import at.bernhardberger.tvheadend.htsp.connection.HtspConnection\n"
             "import java.util.Collections\n"
             "import kotlinx.coroutines.CancellationException\n"
             "class Valid {\n"
-            "    val connection: at.bernhardberger.tvheadend.htsp.HtspConnection? = null\n"
-            "    val nested: at.bernhardberger.tvheadend.htsp.HtspConnectionGeneration? = null\n"
+            "    val connection: at.bernhardberger.tvheadend.htsp.connection.HtspConnection? = null\n"
+            "    val nested: at.bernhardberger.tvheadend.htsp.connection.HtspConnectionGeneration? = null\n"
             "}\n",
             None,
             None,
         ),
         (
             "valid transport shape in single root",
-            "package at.bernhardberger.tvheadend.htsp\n"
-            "import at.bernhardberger.tvheadend.htsp.HtspResult\n"
+            "package at.bernhardberger.tvheadend.htsp.connection\n"
+            "import at.bernhardberger.tvheadend.htsp.connection.HtspResult\n"
             "import kotlinx.coroutines.flow.Flow\n"
             "class ValidTransport {\n"
-            "    val result: at.bernhardberger.tvheadend.htsp.HtspResult? = null\n"
-            "    val nested: at.bernhardberger.tvheadend.htsp.HtspResult.Success? = null\n"
+            "    val result: at.bernhardberger.tvheadend.htsp.connection.HtspResult? = null\n"
+            "    val nested: at.bernhardberger.tvheadend.htsp.connection.HtspResult.Success? = null\n"
             "}\n",
-            PROTOCOL_ROOT / "TransportSynthetic.kt",
+            PROTOCOL_ROOT / "connection/TransportSynthetic.kt",
             None,
         ),
         (
@@ -567,7 +575,7 @@ def self_test_errors() -> list[str]:
             "wrong rooted package",
             "package at.bernhardberger.tvheadend.client\nclass Invalid\n",
             None,
-            "protocol source must declare the single rooted module package",
+            "protocol source must declare one exact shallow owner package matching its path",
         ),
         (
             "forbidden dependency below rooted build directory",
@@ -714,13 +722,23 @@ def self_test_errors() -> list[str]:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory) / "repository"
             root.mkdir()
-            path = alternate_path or (PROTOCOL_ROOT / "Synthetic.kt")
+            path = alternate_path or (PROTOCOL_ROOT / "connection/Synthetic.kt")
+            if path.is_relative_to(PROTOCOL_ROOT):
+                content = content.replace(
+                    f"package {PROTOCOL_PACKAGE}\n",
+                    f"package {PROTOCOL_PACKAGE}.connection\n",
+                    1,
+                ).replace(
+                    f"package {PROTOCOL_PACKAGE};",
+                    f"package {PROTOCOL_PACKAGE}.connection;",
+                    1,
+                )
             write_source(root, path, content)
             if alternate_path is not None:
                 write_source(
                     root,
-                    PROTOCOL_ROOT / "Valid.kt",
-                    f"package {PROTOCOL_PACKAGE}\nclass Valid\n",
+                    PROTOCOL_ROOT / "connection/Valid.kt",
+                    f"package {PROTOCOL_PACKAGE}.connection\nclass Valid\n",
                 )
             actual = boundary_errors(root)
             if expected is None and actual:
@@ -752,10 +770,10 @@ def self_test_errors() -> list[str]:
         )
         write_source(
             root,
-            PROTOCOL_ROOT / "Valid.kt",
-            f"package {PROTOCOL_PACKAGE}\nclass Valid\n",
+            PROTOCOL_ROOT / "connection/Valid.kt",
+            f"package {PROTOCOL_PACKAGE}.connection\nclass Valid\n",
         )
-        (root / PROTOCOL_ROOT / "Escaped.kt").symlink_to(outside)
+        (root / PROTOCOL_ROOT / "connection/Escaped.kt").symlink_to(outside)
         actual = boundary_errors(root)
         if not any("must not traverse a symlink" in error for error in actual):
             errors.append("symlinked protocol source-file self-test was not rejected")
@@ -765,10 +783,10 @@ def self_test_errors() -> list[str]:
         root.mkdir()
         write_source(
             root,
-            PROTOCOL_ROOT / "Valid.kt",
-            f"package {PROTOCOL_PACKAGE}\nclass Valid\n",
+            PROTOCOL_ROOT / "connection/Valid.kt",
+            f"package {PROTOCOL_PACKAGE}.connection\nclass Valid\n",
         )
-        fifo = root / PROTOCOL_ROOT / "Invalid.kt"
+        fifo = root / PROTOCOL_ROOT / "connection/Invalid.kt"
         os.mkfifo(fifo)
         actual = boundary_errors(root)
         if not any("must be a regular file" in error for error in actual):

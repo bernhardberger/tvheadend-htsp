@@ -1,5 +1,7 @@
 package at.bernhardberger.tvheadend.htsp
 
+import at.bernhardberger.tvheadend.htsp.connection.*
+
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineStart

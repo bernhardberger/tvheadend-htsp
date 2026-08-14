@@ -1,5 +1,6 @@
-package at.bernhardberger.tvheadend.htsp
+package at.bernhardberger.tvheadend.htsp.connection
 
+import at.bernhardberger.tvheadend.htsp.requests.*
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
@@ -17,27 +18,6 @@ public class HtspConnectionGeneration private constructor() {
         internal fun create(): HtspConnectionGeneration = HtspConnectionGeneration()
     }
 }
-
-/** Pinned server-dispatch access metadata. The server remains authoritative. */
-public enum class HtspAccess {
-    ACCESS_HTSP_STREAMING,
-    ACCESS_HTSP_RECORDER,
-    ACCESS_ANONYMOUS,
-}
-
-/** A typed request whose raw HTSP envelope and reply mapping remain ABI-hidden. */
-public abstract class HtspRequest<R> internal constructor(
-    public val method: String,
-    public val access: HtspAccess,
-    public val minimumProtocolVersion: Int?,
-    @Suppress("UNUSED_PARAMETER")
-    constructorMarker: HtspRequestConstructorMarker = HtspRequestConstructorMarker,
-)
-
-internal object `HtspRequestConstructorMarker-internal`
-
-internal typealias HtspRequestConstructorMarker =
-    `HtspRequestConstructorMarker-internal`
 
 /**
  * Small typed connection seam. Raw maps, wire messages, sequences, numeric attempt IDs,

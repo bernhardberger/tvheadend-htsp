@@ -1,4 +1,4 @@
-package at.bernhardberger.tvheadend.htsp
+package at.bernhardberger.tvheadend.htsp.connection
 
 import kotlinx.coroutines.Job
 

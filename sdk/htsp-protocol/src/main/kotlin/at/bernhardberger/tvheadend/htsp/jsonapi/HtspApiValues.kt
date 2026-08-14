@@ -1,4 +1,4 @@
-package at.bernhardberger.tvheadend.htsp
+package at.bernhardberger.tvheadend.htsp.jsonapi
 
 import java.util.Collections
 
@@ -125,12 +125,3 @@ public fun htspApiObject(vararg entries: Pair<String, HtspApiValue>): HtspApiObj
 @HtspJsonApi
 public fun htspApiList(vararg values: HtspApiValue): HtspApiList =
     HtspApiList.create(values)
-
-/** Internal wire marker preserving UUID type identity through raw codec decoding. */
-internal class `HtspWireUuid-internal`(bytes: ByteArray) {
-    private val value = bytes.copyOf()
-
-    fun bytes(): ByteArray = value.copyOf()
-}
-
-internal typealias HtspWireUuid = `HtspWireUuid-internal`

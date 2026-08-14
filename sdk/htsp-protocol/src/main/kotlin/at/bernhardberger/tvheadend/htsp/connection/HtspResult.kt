@@ -1,4 +1,4 @@
-package at.bernhardberger.tvheadend.htsp
+package at.bernhardberger.tvheadend.htsp.connection
 
 /** Typed outcome for one HTSP request. Cancellation is never represented here. */
 public sealed interface HtspResult<out R> {

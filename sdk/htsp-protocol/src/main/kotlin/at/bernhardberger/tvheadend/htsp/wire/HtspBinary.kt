@@ -1,9 +1,6 @@
-package at.bernhardberger.tvheadend.htsp
+package at.bernhardberger.tvheadend.htsp.wire
 
 import java.util.Collections
-
-/** A typed asynchronous HTSP server message. It never represents an RPC reply. */
-public sealed interface HtspServerMessage
 
 /** Defensively copied binary protocol data with content value semantics. */
 public class HtspBinary(bytes: ByteArray) {

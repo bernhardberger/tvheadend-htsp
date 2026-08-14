@@ -1,5 +1,7 @@
 package at.bernhardberger.tvheadend.htsp
 
+import at.bernhardberger.tvheadend.htsp.wire.*
+
 import java.io.EOFException
 import java.io.InputStream
 import java.util.Random

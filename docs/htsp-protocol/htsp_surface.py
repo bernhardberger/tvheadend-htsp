@@ -8,7 +8,54 @@ G3 can iterate ``SERVER_WIRE_FIELDS`` without understanding the renderer.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+
+
+@dataclass(frozen=True)
+class GeneratedOutput:
+    key: str
+    package: str
+    relative_path: str
+    jvm_name: str | None = None
+    annotations: tuple[str, ...] = ()
+
+
+GENERATED_OUTPUTS: tuple[GeneratedOutput, ...] = (
+    GeneratedOutput(
+        "request-models",
+        "at.bernhardberger.tvheadend.htsp.requests",
+        "sdk/htsp-protocol/src/main/kotlin/at/bernhardberger/tvheadend/htsp/requests/GeneratedHtspRequests.kt",
+    ),
+    GeneratedOutput(
+        "request-extensions",
+        "at.bernhardberger.tvheadend.htsp.requests",
+        "sdk/htsp-protocol/src/main/kotlin/at/bernhardberger/tvheadend/htsp/requests/GeneratedHtspExtensions.kt",
+    ),
+    GeneratedOutput(
+        "server-models",
+        "at.bernhardberger.tvheadend.htsp.messages",
+        "sdk/htsp-protocol/src/main/kotlin/at/bernhardberger/tvheadend/htsp/messages/GeneratedHtspServerMessages.kt",
+    ),
+    GeneratedOutput(
+        "server-dispatch",
+        "at.bernhardberger.tvheadend.htsp.messages",
+        "sdk/htsp-protocol/src/main/kotlin/at/bernhardberger/tvheadend/htsp/messages/GeneratedHtspServerMessageDispatch.kt",
+    ),
+    GeneratedOutput(
+        "jsonapi-models",
+        "at.bernhardberger.tvheadend.htsp.jsonapi",
+        "sdk/htsp-protocol/src/main/kotlin/at/bernhardberger/tvheadend/htsp/jsonapi/GeneratedHtspJsonApiModels.kt",
+    ),
+    GeneratedOutput(
+        "jsonapi-extensions",
+        "at.bernhardberger.tvheadend.htsp.jsonapi",
+        "sdk/htsp-protocol/src/main/kotlin/at/bernhardberger/tvheadend/htsp/jsonapi/GeneratedHtspJsonApiExtensions.kt",
+        "GeneratedHtspExtensionsKt",
+        ("@HtspJsonApi",),
+    ),
+)
+
+GENERATED_OUTPUT_BY_KEY = {output.key: output for output in GENERATED_OUTPUTS}
 
 
 @dataclass(frozen=True)
@@ -61,6 +108,7 @@ class KotlinDeclaration:
     feature: str = "standard"
     nested: tuple["KotlinDeclaration", ...] = ()
     enum_values: tuple[str, ...] = ()
+    output: str = "request-models"
 
 
 @dataclass(frozen=True)
@@ -134,6 +182,8 @@ class Entry:
     minimum_version: int | None
     parameters: tuple[Parameter, ...] = ()
     canonical_extension_projection: tuple[str, ...] | None = None
+    model_output: str = "request-models"
+    extension_output: str = "request-extensions"
 
 
 @dataclass(frozen=True)
@@ -990,7 +1040,7 @@ CATALOG: tuple[Entry, ...] = (
     )),
     Entry("api", "ApiRequest", "ApiResponse", "ACCESS_ANONYMOUS", 24, _parameters(
         ("path", "String"), ("args", "HtspApiObject?", "null"),
-    )),
+    ), model_output="jsonapi-models", extension_output="jsonapi-extensions"),
     Entry("hello", "HelloRequest", "HelloResponse", "ACCESS_ANONYMOUS", None, _parameters(
         ("htspVersion", "Long"), ("clientName", "String"),
     )),
@@ -1156,7 +1206,7 @@ selection unrepresentable.""", feature="get-ticket-selector"),
         ("ninetyKhz", "Long?"), ("normalizedTimestamps", "Long?"),
         ("weight", "Long?"), ("timeshiftPeriodSeconds", "Long?"),
     )),
-    KotlinDeclaration("ApiResponse", "sealed interface", kdoc="Finite successful reply topology for the provisional HTSP JSON API bridge.", annotations=("@HtspJsonApi",), feature="api-response"),
+    KotlinDeclaration("ApiResponse", "sealed interface", kdoc="Finite successful reply topology for the provisional HTSP JSON API bridge.", annotations=("@HtspJsonApi",), feature="api-response", output="jsonapi-models"),
 )
 
 
@@ -2109,3 +2159,177 @@ this selector makes that intent explicit. Add support requires HTSP v25.""",
     "A successful map or list payload.",
     "A successful callback that supplied no response payload.",
 )
+
+
+def validate_generated_output_metadata(
+    outputs: tuple[GeneratedOutput, ...] = GENERATED_OUTPUTS,
+    entries: tuple[Entry, ...] = CATALOG,
+    declarations: tuple[KotlinDeclaration, ...] = REQUEST_PUBLIC_DECLARATIONS,
+) -> None:
+    expected_outputs = (
+        GeneratedOutput(
+            "request-models",
+            "at.bernhardberger.tvheadend.htsp.requests",
+            "sdk/htsp-protocol/src/main/kotlin/at/bernhardberger/tvheadend/htsp/requests/GeneratedHtspRequests.kt",
+        ),
+        GeneratedOutput(
+            "request-extensions",
+            "at.bernhardberger.tvheadend.htsp.requests",
+            "sdk/htsp-protocol/src/main/kotlin/at/bernhardberger/tvheadend/htsp/requests/GeneratedHtspExtensions.kt",
+        ),
+        GeneratedOutput(
+            "server-models",
+            "at.bernhardberger.tvheadend.htsp.messages",
+            "sdk/htsp-protocol/src/main/kotlin/at/bernhardberger/tvheadend/htsp/messages/GeneratedHtspServerMessages.kt",
+        ),
+        GeneratedOutput(
+            "server-dispatch",
+            "at.bernhardberger.tvheadend.htsp.messages",
+            "sdk/htsp-protocol/src/main/kotlin/at/bernhardberger/tvheadend/htsp/messages/GeneratedHtspServerMessageDispatch.kt",
+        ),
+        GeneratedOutput(
+            "jsonapi-models",
+            "at.bernhardberger.tvheadend.htsp.jsonapi",
+            "sdk/htsp-protocol/src/main/kotlin/at/bernhardberger/tvheadend/htsp/jsonapi/GeneratedHtspJsonApiModels.kt",
+        ),
+        GeneratedOutput(
+            "jsonapi-extensions",
+            "at.bernhardberger.tvheadend.htsp.jsonapi",
+            "sdk/htsp-protocol/src/main/kotlin/at/bernhardberger/tvheadend/htsp/jsonapi/GeneratedHtspJsonApiExtensions.kt",
+            "GeneratedHtspExtensionsKt",
+            ("@HtspJsonApi",),
+        ),
+    )
+    keys = tuple(output.key for output in outputs)
+    if keys != tuple(output.key for output in expected_outputs):
+        raise ValueError("generated output metadata must declare exactly the six reviewed owners")
+    paths = tuple(output.relative_path for output in outputs)
+    if len(set(keys)) != len(keys) or len(set(paths)) != len(paths):
+        raise ValueError("generated output keys and paths must have unique owners")
+    by_key = {output.key: output for output in outputs}
+    for expected in expected_outputs:
+        actual = by_key[expected.key]
+        for label, expected_value, actual_value in (
+            ("package", expected.package, actual.package),
+            ("path", expected.relative_path, actual.relative_path),
+            ("JVM name", expected.jvm_name, actual.jvm_name),
+        ):
+            if actual_value != expected_value:
+                raise ValueError(
+                    f"{expected.key}: generated output {label} mismatch; "
+                    f"expected {expected_value}; found {actual_value}"
+                )
+        if actual.annotations != expected.annotations:
+            expected_annotations = ", ".join(expected.annotations)
+            actual_annotations = ", ".join(actual.annotations)
+            raise ValueError(
+                f"{expected.key}: generated output annotations mismatch; "
+                f"expected [{expected_annotations}]; found [{actual_annotations}]"
+            )
+    for entry in entries:
+        expected_model = "jsonapi-models" if entry.request == "ApiRequest" else "request-models"
+        expected_extension = "jsonapi-extensions" if entry.request == "ApiRequest" else "request-extensions"
+        if entry.model_output not in by_key or entry.extension_output not in by_key:
+            raise ValueError(f"{entry.method}: generated output metadata references an unknown owner")
+        if entry.model_output != expected_model or entry.extension_output != expected_extension:
+            raise ValueError(f"{entry.method}: generated model/extension owner is misplaced")
+    for declaration in declarations:
+        expected_output = "jsonapi-models" if declaration.name == "ApiResponse" else "request-models"
+        if declaration.output not in by_key:
+            raise ValueError(f"{declaration.name}: generated declaration references an unknown owner")
+        if declaration.output != expected_output:
+            raise ValueError(f"{declaration.name}: generated declaration owner is misplaced")
+
+
+def self_test_generated_output_metadata() -> None:
+    validate_generated_output_metadata()
+
+    def expect_rejection(label: str, expected_error: str | None = None, **changes: object) -> None:
+        try:
+            validate_generated_output_metadata(**changes)
+        except ValueError as error:
+            if expected_error is not None and str(error) != expected_error:
+                raise AssertionError(
+                    f"generated output metadata mutation reached the wrong validation: {label}: {error}"
+                ) from error
+            return
+        raise AssertionError(f"generated output metadata mutation was accepted: {label}")
+
+    expect_rejection("missing output", outputs=GENERATED_OUTPUTS[:-1])
+    expect_rejection(
+        "unexpected seventh output",
+        outputs=(*GENERATED_OUTPUTS, GeneratedOutput("extra", "extra", "extra.kt")),
+    )
+    expect_rejection(
+        "duplicate output ownership",
+        outputs=(*GENERATED_OUTPUTS[:-1], GeneratedOutput(
+            "jsonapi-extensions",
+            GENERATED_OUTPUTS[0].package,
+            GENERATED_OUTPUTS[0].relative_path,
+        )),
+    )
+    expect_rejection(
+        "wrong package",
+        "request-models: generated output package mismatch; expected "
+        "at.bernhardberger.tvheadend.htsp.requests; found "
+        "at.bernhardberger.tvheadend.htsp.wire",
+        outputs=(replace(
+            GENERATED_OUTPUTS[0],
+            package="at.bernhardberger.tvheadend.htsp.wire",
+        ), *GENERATED_OUTPUTS[1:]),
+    )
+    expect_rejection(
+        "wrong path",
+        "request-models: generated output path mismatch; expected "
+        "sdk/htsp-protocol/src/main/kotlin/at/bernhardberger/tvheadend/htsp/requests/"
+        "GeneratedHtspRequests.kt; found "
+        "sdk/htsp-protocol/src/main/kotlin/at/bernhardberger/tvheadend/htsp/wire/"
+        "GeneratedHtspRequests.kt",
+        outputs=(replace(
+            GENERATED_OUTPUTS[0],
+            relative_path=GENERATED_OUTPUTS[0].relative_path.replace("/requests/", "/wire/"),
+        ), *GENERATED_OUTPUTS[1:]),
+    )
+    expect_rejection(
+        "wrong JVM name",
+        "jsonapi-extensions: generated output JVM name mismatch; expected "
+        "GeneratedHtspExtensionsKt; found WrongGeneratedHtspExtensionsKt",
+        outputs=(*GENERATED_OUTPUTS[:-1], replace(
+            GENERATED_OUTPUTS[-1],
+            jvm_name="WrongGeneratedHtspExtensionsKt",
+        )),
+    )
+    expect_rejection(
+        "wrong annotations",
+        "jsonapi-extensions: generated output annotations mismatch; expected "
+        "[@HtspJsonApi]; found []",
+        outputs=(*GENERATED_OUTPUTS[:-1], replace(
+            GENERATED_OUTPUTS[-1],
+            annotations=(),
+        )),
+    )
+    expect_rejection(
+        "unknown entry output",
+        entries=(replace(CATALOG[0], model_output="unknown"), *CATALOG[1:]),
+    )
+    api_index = next(index for index, entry in enumerate(CATALOG) if entry.request == "ApiRequest")
+    expect_rejection(
+        "misplaced JSON entry",
+        entries=(
+            *CATALOG[:api_index],
+            replace(CATALOG[api_index], model_output="request-models", extension_output="request-extensions"),
+            *CATALOG[api_index + 1:],
+        ),
+    )
+    api_response_index = next(
+        index for index, declaration in enumerate(REQUEST_PUBLIC_DECLARATIONS)
+        if declaration.name == "ApiResponse"
+    )
+    expect_rejection(
+        "misplaced JSON declaration",
+        declarations=(
+            *REQUEST_PUBLIC_DECLARATIONS[:api_response_index],
+            replace(REQUEST_PUBLIC_DECLARATIONS[api_response_index], output="request-models"),
+            *REQUEST_PUBLIC_DECLARATIONS[api_response_index + 1:],
+        ),
+    )

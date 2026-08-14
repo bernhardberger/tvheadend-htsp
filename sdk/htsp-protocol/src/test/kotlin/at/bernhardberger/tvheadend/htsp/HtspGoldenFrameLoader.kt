@@ -1,5 +1,7 @@
 package at.bernhardberger.tvheadend.htsp
 
+import at.bernhardberger.tvheadend.htsp.wire.*
+
 /**
  * Loads one complete HTSP frame from `htsp-wire/<name>`. Whitespace separates
  * two-digit hexadecimal bytes; `#` starts a comment through the end of a line.

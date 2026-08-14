@@ -1,15 +1,8 @@
-package at.bernhardberger.tvheadend.htsp
+package at.bernhardberger.tvheadend.htsp.connection
 
-import at.bernhardberger.tvheadend.htsp.HtspAuthenticationPolicy
-import at.bernhardberger.tvheadend.htsp.HtspCallTimeoutException
-import at.bernhardberger.tvheadend.htsp.HtspCapturedGeneration
-import at.bernhardberger.tvheadend.htsp.HtspConnection
-import at.bernhardberger.tvheadend.htsp.HtspConnectionGeneration
-import at.bernhardberger.tvheadend.htsp.HtspRequestTransport
-import at.bernhardberger.tvheadend.htsp.HtspTypedRequestCapability
-import at.bernhardberger.tvheadend.htsp.HtspTypedRequestCaller
-import at.bernhardberger.tvheadend.htsp.HtspWireReply
-import at.bernhardberger.tvheadend.htsp.MetadataPermissionDeniedException
+import at.bernhardberger.tvheadend.htsp.messages.*
+import at.bernhardberger.tvheadend.htsp.requests.*
+import at.bernhardberger.tvheadend.htsp.wire.*
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher

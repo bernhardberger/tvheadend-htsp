@@ -1,4 +1,4 @@
-package at.bernhardberger.tvheadend.htsp
+package at.bernhardberger.tvheadend.htsp.connection
 
 /** Serializes terminal close with the small state mutation that admits new work. */
 internal class `TerminalLifecycleGate-internal`(

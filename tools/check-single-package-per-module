@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Require every production SDK package to have exactly one module owner."""
+"""Require exact production SDK package sets and one owner per package."""
 
 from __future__ import annotations
 
@@ -20,6 +20,30 @@ STANDALONE_FIXTURE_MODULES = {
     "protocol-consumer-contract",
 }
 IGNORED_DIRECTORIES = {".gradle", ".idea", "build", "out"}
+EXPECTED_PACKAGE_SETS = {
+    "client-testing": {"at.bernhardberger.tvheadend.client.testing"},
+    "decoder-ffmpeg-binary": set(),
+    "domain": {"at.bernhardberger.tvheadend.core"},
+    "htsp": {
+        "at.bernhardberger.tvheadend.client",
+        "at.bernhardberger.tvhplayer.repositories",
+    },
+    "htsp-protocol": {
+        "at.bernhardberger.tvheadend.htsp.connection",
+        "at.bernhardberger.tvheadend.htsp.jsonapi",
+        "at.bernhardberger.tvheadend.htsp.messages",
+        "at.bernhardberger.tvheadend.htsp.requests",
+        "at.bernhardberger.tvheadend.htsp.wire",
+    },
+    "playback-android-session": {"at.bernhardberger.tvheadend.session"},
+    "playback-android-testing": {"at.bernhardberger.tvheadend.session.testing"},
+    "playback-media3": {
+        "at.bernhardberger.tvheadend.playback",
+        "at.bernhardberger.tvhplayer.player.htsp",
+        "at.bernhardberger.tvhplayer.player.htsp.reader",
+        "at.bernhardberger.tvhplayer.player.htsp.utils",
+    },
+}
 
 
 @dataclass(frozen=True)
@@ -296,10 +320,18 @@ def production_sources(module: Path, root: Path) -> tuple[list[Path], list[str]]
     return sorted(sources), errors
 
 
-def package_ownership_errors(root: Path) -> list[str]:
+def package_ownership_errors(
+    root: Path,
+    expected_package_sets: dict[str, set[str]] = EXPECTED_PACKAGE_SETS,
+) -> list[str]:
     modules, errors = module_roots(root)
     owners: dict[str, set[str]] = {}
+    module_packages: dict[str, set[str]] = {}
+    discovered_module_names = {module.name for module in modules}
+    for module_name in sorted(set(expected_package_sets) - discovered_module_names):
+        errors.append(f"sdk/{module_name}: expected retained SDK module was not discovered")
     for module in modules:
+        module_packages[module.name] = set()
         sources, discovery_errors = production_sources(module, root)
         errors.extend(discovery_errors)
         for source in sources:
@@ -307,6 +339,23 @@ def package_ownership_errors(root: Path) -> list[str]:
             errors.extend(source_errors)
             if package_name is not None:
                 owners.setdefault(package_name, set()).add(module.name)
+                module_packages[module.name].add(package_name)
+    for module_name in sorted(set(module_packages) - set(expected_package_sets)):
+        errors.append(f"sdk/{module_name}: SDK module has no declared package-set contract")
+    for module_name, expected_packages in sorted(expected_package_sets.items()):
+        actual_packages = module_packages.get(module_name, set())
+        missing = sorted(expected_packages - actual_packages)
+        extra = sorted(actual_packages - expected_packages)
+        if missing or extra:
+            details: list[str] = []
+            if missing:
+                details.append(f"missing [{', '.join(missing)}]")
+            if extra:
+                details.append(f"extra [{', '.join(extra)}]")
+            errors.append(
+                f"sdk/{module_name}: declared production package set mismatch; "
+                + "; ".join(details)
+            )
     for package_name, package_modules in sorted(owners.items()):
         if len(package_modules) > 1:
             errors.append(
@@ -328,6 +377,15 @@ def write_module_source(root: Path, module: str, source_set: str, package_name: 
 
 def self_test_errors() -> list[str]:
     errors: list[str] = []
+    expected_package_sets = {
+        "absent-source": set(),
+        "alpha": {"example.alpha"},
+        "beta": {"example.beta"},
+    }
+
+    def check(root: Path) -> list[str]:
+        return package_ownership_errors(root, expected_package_sets)
+
     with tempfile.TemporaryDirectory() as temporary_directory:
         root = Path(temporary_directory) / "repository"
         root.mkdir()
@@ -344,10 +402,19 @@ def self_test_errors() -> list[str]:
         absent_source_module = root / "sdk" / "absent-source"
         absent_source_module.mkdir()
         (absent_source_module / "build.gradle.kts").write_text("// fixture\n", encoding="utf-8")
-        if package_ownership_errors(root):
+        if check(root):
             errors.append(
                 "distinct production packages with test/fixture duplicates or absent src were rejected"
             )
+
+        absent_source_marker = absent_source_module / "build.gradle.kts"
+        absent_source_marker.unlink()
+        expected_missing_module = (
+            "sdk/absent-source: expected retained SDK module was not discovered"
+        )
+        if check(root) != [expected_missing_module]:
+            errors.append("missing empty-package retained module was not rejected exactly")
+        absent_source_marker.write_text("// fixture\n", encoding="utf-8")
 
         topology_drift = write_module_source(
             root,
@@ -359,7 +426,7 @@ def self_test_errors() -> list[str]:
             "production package example.alpha is declared in SDK modules "
             "alpha, protocol-consumer-contract-copy"
         )
-        if expected_fixture_drift not in package_ownership_errors(root):
+        if expected_fixture_drift not in check(root):
             errors.append("standalone fixture topology drift was not rejected exactly")
         topology_drift.unlink()
         topology_drift.parents[0].rmdir()
@@ -373,7 +440,7 @@ def self_test_errors() -> list[str]:
         expected_duplicate = (
             "production package example.alpha is declared in SDK modules alpha, beta"
         )
-        if expected_duplicate not in package_ownership_errors(root):
+        if expected_duplicate not in check(root):
             errors.append("contest production source-set duplicate was not rejected exactly")
         contest.unlink()
 
@@ -383,7 +450,7 @@ def self_test_errors() -> list[str]:
         dangling_src = dangling_module / "src"
         dangling_src.symlink_to(dangling_module / "missing-src")
         expected_dangling = "sdk/dangling/src: production source root must be one real directory"
-        if expected_dangling not in package_ownership_errors(root):
+        if expected_dangling not in check(root):
             errors.append("dangling production source-root symlink was not rejected exactly")
         dangling_src.unlink()
         (dangling_module / "build.gradle.kts").unlink()
@@ -392,11 +459,11 @@ def self_test_errors() -> list[str]:
         alpha_source_root = root / "sdk" / "alpha" / "src"
         alpha_source_root.chmod(stat.S_IXUSR)
         expected_unreadable_root = "sdk/alpha/src: production source root must be readable"
-        if expected_unreadable_root not in package_ownership_errors(root):
+        if expected_unreadable_root not in check(root):
             errors.append("unreadable production source root was not rejected exactly")
         alpha_source_root.chmod(stat.S_IRUSR | stat.S_IWUSR)
         expected_untraversable_root = "sdk/alpha/src: production source root must be traversable"
-        if expected_untraversable_root not in package_ownership_errors(root):
+        if expected_untraversable_root not in check(root):
             errors.append("untraversable production source root was not rejected exactly")
         alpha_source_root.chmod(stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR)
 
@@ -405,7 +472,7 @@ def self_test_errors() -> list[str]:
         expected_invalid_source_set = (
             "sdk/alpha/src/not-a-source-set: production source set must be one real directory"
         )
-        if expected_invalid_source_set not in package_ownership_errors(root):
+        if expected_invalid_source_set not in check(root):
             errors.append("non-directory production source-set entry was not rejected exactly")
         invalid_source_set.unlink()
 
@@ -415,18 +482,18 @@ def self_test_errors() -> list[str]:
         expected_unreadable_directory = (
             f"{nested_relative}: production source directory must be readable"
         )
-        if expected_unreadable_directory not in package_ownership_errors(root):
+        if expected_unreadable_directory not in check(root):
             errors.append("unreadable nested production source directory was not rejected exactly")
         nested_source_directory.chmod(stat.S_IRUSR | stat.S_IWUSR)
         expected_untraversable_directory = (
             f"{nested_relative}: production source directory must be traversable"
         )
-        if expected_untraversable_directory not in package_ownership_errors(root):
+        if expected_untraversable_directory not in check(root):
             errors.append("untraversable nested production source directory was not rejected exactly")
         nested_source_directory.chmod(stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR)
 
         beta.write_text("package example.alpha\nclass Fixture\n", encoding="utf-8")
-        duplicate_errors = package_ownership_errors(root)
+        duplicate_errors = check(root)
         if expected_duplicate not in duplicate_errors:
             errors.append("duplicate production package mutation was not rejected exactly")
 
@@ -434,12 +501,12 @@ def self_test_errors() -> list[str]:
             "package example.beta\npackage example.other\nclass Fixture\n",
             encoding="utf-8",
         )
-        if not any("exactly one unambiguous package" in error for error in package_ownership_errors(root)):
+        if not any("exactly one unambiguous package" in error for error in check(root)):
             errors.append("multiple package declarations mutation was not rejected")
 
         beta.write_text("package example.beta\nclass Fixture\n", encoding="utf-8")
         alpha.chmod(0)
-        if not any("production source must be readable" in error for error in package_ownership_errors(root)):
+        if not any("production source must be readable" in error for error in check(root)):
             errors.append("unreadable production source mutation was not rejected")
         alpha.chmod(stat.S_IRUSR | stat.S_IWUSR)
 
@@ -447,25 +514,57 @@ def self_test_errors() -> list[str]:
         outside.write_text("package example.escape\nclass Escape\n", encoding="utf-8")
         escaped = alpha.parent / "Escaped.kt"
         escaped.symlink_to(outside)
-        if not any("must not traverse a symlink" in error for error in package_ownership_errors(root)):
+        if not any("must not traverse a symlink" in error for error in check(root)):
             errors.append("symlinked production source mutation was not rejected")
         escaped.unlink()
 
         java = root / "sdk" / "alpha" / "src" / "main" / "java" / "example" / "Unicode.java"
         java.parent.mkdir(parents=True, exist_ok=True)
         java.write_text("p\\u0061ckage example.alpha; final class Unicode {}\n", encoding="utf-8")
-        if package_ownership_errors(root):
+        if check(root):
             errors.append("valid Java Unicode package declaration was rejected")
+
+        java.unlink()
+        alpha.unlink()
+        missing_error = (
+            "sdk/alpha: declared production package set mismatch; missing [example.alpha]"
+        )
+        if missing_error not in check(root):
+            errors.append("missing declared package mutation was not rejected exactly")
+
+        alpha.write_text("package example.alpha\nclass Fixture\n", encoding="utf-8")
+        extra = alpha.parent / "Extra.kt"
+        extra.write_text("package example.extra\nclass Extra\n", encoding="utf-8")
+        extra_error = (
+            "sdk/alpha: declared production package set mismatch; extra [example.extra]"
+        )
+        if extra_error not in check(root):
+            errors.append("extra declared package mutation was not rejected exactly")
+        extra.unlink()
+
+        alpha.write_text("package example.beta\nclass Fixture\n", encoding="utf-8")
+        beta.write_text("package example.alpha\nclass Fixture\n", encoding="utf-8")
+        moved_alpha_error = (
+            "sdk/alpha: declared production package set mismatch; "
+            "missing [example.alpha]; extra [example.beta]"
+        )
+        moved_beta_error = (
+            "sdk/beta: declared production package set mismatch; "
+            "missing [example.beta]; extra [example.alpha]"
+        )
+        moved_errors = check(root)
+        if moved_alpha_error not in moved_errors or moved_beta_error not in moved_errors:
+            errors.append("moved module/package-set mutation was not rejected exactly")
     return errors
 
 
 def main() -> int:
     if sys.argv[1:] == ["--self-test"]:
         errors = self_test_errors()
-        label = "Single-owner production package checker self-tests"
+        label = "Exact production package-set checker self-tests"
     elif not sys.argv[1:]:
         errors = package_ownership_errors(ROOT)
-        label = "Single-owner production package check"
+        label = "Exact production package-set check"
     else:
         print("usage: check-single-package-per-module [--self-test]", file=sys.stderr)
         return 2

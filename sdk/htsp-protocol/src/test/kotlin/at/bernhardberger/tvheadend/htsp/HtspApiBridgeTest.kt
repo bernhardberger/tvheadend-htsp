@@ -1,5 +1,10 @@
 package at.bernhardberger.tvheadend.htsp
 
+import at.bernhardberger.tvheadend.htsp.connection.*
+import at.bernhardberger.tvheadend.htsp.jsonapi.*
+import at.bernhardberger.tvheadend.htsp.requests.*
+import at.bernhardberger.tvheadend.htsp.wire.*
+
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import kotlinx.coroutines.test.runTest

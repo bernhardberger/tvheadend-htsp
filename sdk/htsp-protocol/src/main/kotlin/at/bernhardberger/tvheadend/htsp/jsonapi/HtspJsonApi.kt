@@ -1,4 +1,4 @@
-package at.bernhardberger.tvheadend.htsp
+package at.bernhardberger.tvheadend.htsp.jsonapi
 
 /**
  * Provisional bridge from HTSP to TVHeadend's separately versioned HTTP JSON API.

@@ -1,4 +1,4 @@
-package at.bernhardberger.tvheadend.htsp
+package at.bernhardberger.tvheadend.htsp.wire
 
 internal data class HtspWireMessage(
     val method: String?,
@@ -81,16 +81,3 @@ internal data class HtspWireMessage(
         return result
     }
 }
-
-internal data class `SubscriptionStatus-internal`(
-    val id: Int,
-    val state: String? = null,
-    val subscriptionError: String? = null,
-)
-
-internal typealias SubscriptionStatus = `SubscriptionStatus-internal`
-
-public data class StreamProfile(
-    val id: String,
-    val name: String,
-)

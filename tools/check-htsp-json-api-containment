@@ -49,25 +49,25 @@ BRIDGE_SYMBOLS = (
 )
 BRIDGE_SYMBOL_ALTERNATION = "|".join(map(re.escape, BRIDGE_SYMBOLS))
 BRIDGE_SPECIFIC_IMPORT = re.compile(
-    rf"\bimport\s+(?:static\s+)?at\s*\.\s*bernhardberger\s*\.\s*tvheadend\s*\.\s*htsp\s*\.\s*"
+    rf"\bimport\s+(?:static\s+)?at\s*\.\s*bernhardberger\s*\.\s*tvheadend\s*\.\s*htsp\s*\.\s*jsonapi\s*\.\s*"
     rf"(?P<symbol>{BRIDGE_SYMBOL_ALTERNATION})\b(?:\s+as\s+[A-Za-z_][A-Za-z0-9_]*)?"
 )
 BRIDGE_SYMBOL_FQN = re.compile(
-    rf"\bat\s*\.\s*bernhardberger\s*\.\s*tvheadend\s*\.\s*htsp\s*\.\s*"
+    rf"\bat\s*\.\s*bernhardberger\s*\.\s*tvheadend\s*\.\s*htsp\s*\.\s*jsonapi\s*\.\s*"
     rf"(?P<symbol>{BRIDGE_SYMBOL_ALTERNATION})\b"
 )
 BRIDGE_API_VISIBILITY = re.compile(
-    r"\bimport\s+at\s*\.\s*bernhardberger\s*\.\s*tvheadend\s*\.\s*htsp\s*\.\s*"
+    r"\bimport\s+at\s*\.\s*bernhardberger\s*\.\s*tvheadend\s*\.\s*htsp\s*\.\s*jsonapi\s*\.\s*"
     r"(?:api\b|\*(?=\s|$))"
 )
 HTSP_WILDCARD_IMPORT = re.compile(
-    r"\bimport\s+(?:static\s+)?at\s*\.\s*bernhardberger\s*\.\s*tvheadend\s*\.\s*htsp\s*\.\s*\*"
+    r"\bimport\s+(?:static\s+)?at\s*\.\s*bernhardberger\s*\.\s*tvheadend\s*\.\s*htsp\s*\.\s*jsonapi\s*\.\s*\*"
 )
 BRIDGE_API_REFERENCE = re.compile(
-    r"\b(?:import\s+)?at\s*\.\s*bernhardberger\s*\.\s*tvheadend\s*\.\s*htsp\s*\.\s*api\b"
+    r"\b(?:import\s+)?at\s*\.\s*bernhardberger\s*\.\s*tvheadend\s*\.\s*htsp\s*\.\s*jsonapi\s*\.\s*api\b"
 )
 BRIDGE_PACKAGE = re.compile(
-    r"\bpackage\s+at\s*\.\s*bernhardberger\s*\.\s*tvheadend\s*\.\s*htsp"
+    r"\bpackage\s+at\s*\.\s*bernhardberger\s*\.\s*tvheadend\s*\.\s*htsp\s*\.\s*jsonapi"
     r"(?=[ \t]*(?:;|$))",
     re.MULTILINE,
 )
@@ -76,7 +76,7 @@ GENERATED_API_REFERENCE = re.compile(r"::\s*api\b")
 GENERATED_API_JAVA_CALL = re.compile(r"\bGeneratedHtspExtensionsKt\s*\.\s*api\s*\(")
 GENERATED_API_JAVA_REFERENCE = re.compile(r"\bGeneratedHtspExtensionsKt\s*::\s*api\b")
 STATIC_API_IMPORT = re.compile(
-    r"\bimport\s+static\s+at\s*\.\s*bernhardberger\s*\.\s*tvheadend\s*\.\s*htsp\s*\.\s*"
+    r"\bimport\s+static\s+at\s*\.\s*bernhardberger\s*\.\s*tvheadend\s*\.\s*htsp\s*\.\s*jsonapi\s*\.\s*"
     r"GeneratedHtspExtensionsKt\s*\.\s*(?:api\b|\*(?=\s|;|$))"
 )
 UNQUALIFIED_API_CALL = re.compile(r"(?<![.\w])api\s*\(")
@@ -467,34 +467,34 @@ def scan_repository(root: Path, anchor: Path | None = None) -> list[str]:
 def self_test() -> int:
     failures: list[str] = []
     rejected = {
-        "annotation.kt": "import at.bernhardberger.tvheadend.htsp.HtspJsonApi\n@HtspJsonApi val bridge = Unit",
-        "alias.kt": "import at.bernhardberger.tvheadend.htsp.HtspApiObject as JsonObject",
-        "fqn.kt": "val value: at.bernhardberger.tvheadend.htsp.HtspApiUuid",
-        "request.kt": "import at.bernhardberger.tvheadend.htsp.ApiRequest\nval request: ApiRequest",
-        "factory.kt": "import at.bernhardberger.tvheadend.htsp.htspApiList\nval args = htspApiList()",
-        "template.kt": 'import at.bernhardberger.tvheadend.htsp.HtspApiLong\nval text = "${HtspApiLong(1)}"',
-        "api.kt": "import at.bernhardberger.tvheadend.htsp.api\nconnection.api(path)",
-        "wildcard-api.kt": "import at.bernhardberger.tvheadend.htsp.*\nconnection . api (path)",
+        "annotation.kt": "import at.bernhardberger.tvheadend.htsp.jsonapi.HtspJsonApi\n@HtspJsonApi val bridge = Unit",
+        "alias.kt": "import at.bernhardberger.tvheadend.htsp.jsonapi.HtspApiObject as JsonObject",
+        "fqn.kt": "val value: at.bernhardberger.tvheadend.htsp.jsonapi.HtspApiUuid",
+        "request.kt": "import at.bernhardberger.tvheadend.htsp.jsonapi.ApiRequest\nval request: ApiRequest",
+        "factory.kt": "import at.bernhardberger.tvheadend.htsp.jsonapi.htspApiList\nval args = htspApiList()",
+        "template.kt": 'import at.bernhardberger.tvheadend.htsp.jsonapi.HtspApiLong\nval text = "${HtspApiLong(1)}"',
+        "api.kt": "import at.bernhardberger.tvheadend.htsp.jsonapi.api\nconnection.api(path)",
+        "wildcard-api.kt": "import at.bernhardberger.tvheadend.htsp.jsonapi.*\nconnection . api (path)",
         "java-api.java": "GeneratedHtspExtensionsKt.api(connection, path);",
-        "same-package.kt": "package at.bernhardberger.tvheadend.htsp\ntransport.api(path)",
-        "exact-package.kt": "package at.bernhardberger.tvheadend.htsp\nval safe = Unit",
-        "exact-package-implicit.kt": "package at.bernhardberger.tvheadend.htsp\napi(path)",
-        "exact-package-template.kt": 'package at.bernhardberger.tvheadend.htsp\nval text = "${api(path)}"',
-        "kotlin-reference.kt": "import at.bernhardberger.tvheadend.htsp.api\nval call = connection::api",
-        "kotlin-escaped-package.kt": "import at.`bernhardberger`.tvheadend.htsp.*",
-        "kotlin-escaped-api.kt": "import at.bernhardberger.tvheadend.htsp.`api`\nconnection.`api`(path)",
-        "kotlin-escaped-symbol.kt": "import at.bernhardberger.tvheadend.htsp.`HtspApiValue`\nval value: `HtspApiValue`",
-        "kotlin-escaped-factory.kt": "import at.bernhardberger.tvheadend.htsp.`htspApiObject`\nval value = `htspApiObject`()",
-        "kotlin-escaped-alias.kt": "import at.bernhardberger.tvheadend.htsp.`HtspApiObject` as `JsonObject`",
-        "kotlin-escaped-reference.kt": "import at.bernhardberger.tvheadend.htsp.`api`\nval call = connection::`api`",
-        "java-static.java": "import static at.bernhardberger.tvheadend.htsp.GeneratedHtspExtensionsKt.api;\nclass X { void x() { api(connection, path); } }",
-        "java-static-reference.java": "import static at.bernhardberger.tvheadend.htsp.GeneratedHtspExtensionsKt.api;\nclass X { Object x = this::api; }",
-        "java-static-wildcard.java": "import static at.bernhardberger.tvheadend.htsp.GeneratedHtspExtensionsKt.*;\nclass X { void x() { api(connection, path); } }",
-        "java-wildcard.java": "import at.bernhardberger.tvheadend.htsp.*; class X {}",
-        "java-escaped-symbol.java": "class X { at.bernhardberger.tvheadend.htsp.HtspApi\\u0056alue value; }",
-        "java-escaped-import.java": "import at.bernhardberger.tvheadend.htsp.HtspApi\\u004fbject; class X {}",
+        "same-package.kt": "package at.bernhardberger.tvheadend.htsp.jsonapi\ntransport.api(path)",
+        "exact-package.kt": "package at.bernhardberger.tvheadend.htsp.jsonapi\nval safe = Unit",
+        "exact-package-implicit.kt": "package at.bernhardberger.tvheadend.htsp.jsonapi\napi(path)",
+        "exact-package-template.kt": 'package at.bernhardberger.tvheadend.htsp.jsonapi\nval text = "${api(path)}"',
+        "kotlin-reference.kt": "import at.bernhardberger.tvheadend.htsp.jsonapi.api\nval call = connection::api",
+        "kotlin-escaped-package.kt": "import at.`bernhardberger`.tvheadend.htsp.jsonapi.*",
+        "kotlin-escaped-api.kt": "import at.bernhardberger.tvheadend.htsp.jsonapi.`api`\nconnection.`api`(path)",
+        "kotlin-escaped-symbol.kt": "import at.bernhardberger.tvheadend.htsp.jsonapi.`HtspApiValue`\nval value: `HtspApiValue`",
+        "kotlin-escaped-factory.kt": "import at.bernhardberger.tvheadend.htsp.jsonapi.`htspApiObject`\nval value = `htspApiObject`()",
+        "kotlin-escaped-alias.kt": "import at.bernhardberger.tvheadend.htsp.jsonapi.`HtspApiObject` as `JsonObject`",
+        "kotlin-escaped-reference.kt": "import at.bernhardberger.tvheadend.htsp.jsonapi.`api`\nval call = connection::`api`",
+        "java-static.java": "import static at.bernhardberger.tvheadend.htsp.jsonapi.GeneratedHtspExtensionsKt.api;\nclass X { void x() { api(connection, path); } }",
+        "java-static-reference.java": "import static at.bernhardberger.tvheadend.htsp.jsonapi.GeneratedHtspExtensionsKt.api;\nclass X { Object x = this::api; }",
+        "java-static-wildcard.java": "import static at.bernhardberger.tvheadend.htsp.jsonapi.GeneratedHtspExtensionsKt.*;\nclass X { void x() { api(connection, path); } }",
+        "java-wildcard.java": "import at.bernhardberger.tvheadend.htsp.jsonapi.*; class X {}",
+        "java-escaped-symbol.java": "class X { at.bernhardberger.tvheadend.htsp.jsonapi.HtspApi\\u0056alue value; }",
+        "java-escaped-import.java": "import at.bernhardberger.tvheadend.htsp.jsonapi.HtspApi\\u004fbject; class X {}",
         "java-escaped-reference.java": "class X { Object x = GeneratedHtspExtensionsKt::\\u0061pi; }",
-        "java-escaped-line.java": "class X { // hidden \\u000a at.bernhardberger.tvheadend.htsp.ApiRequest value; }",
+        "java-escaped-line.java": "class X { // hidden \\u000a at.bernhardberger.tvheadend.htsp.jsonapi.ApiRequest value; }",
     }
     for relative, source in rejected.items():
         if not scan_source(relative, source):
@@ -554,7 +554,7 @@ def self_test() -> int:
         mutation = valid / "domain" / "src" / "main" / "java"
         mutation.mkdir(parents=True)
         (mutation / "Bridge.java").write_text(
-            "import at.bernhardberger.tvheadend.htsp.ApiResponse; class Bridge { ApiResponse value; }\n",
+            "import at.bernhardberger.tvheadend.htsp.jsonapi.ApiResponse; class Bridge { ApiResponse value; }\n",
             encoding="utf-8",
         )
         if not any("bridge-symbol" in finding for finding in scan_repository(valid)):

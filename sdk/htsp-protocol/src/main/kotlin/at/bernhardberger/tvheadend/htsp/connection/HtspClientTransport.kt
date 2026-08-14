@@ -1,7 +1,8 @@
 @file:JvmName("HtspConnectionFactoryKt")
 
-package at.bernhardberger.tvheadend.htsp
+package at.bernhardberger.tvheadend.htsp.connection
 
+import at.bernhardberger.tvheadend.htsp.messages.HtspServerMessage
 import java.net.ConnectException
 import java.net.NoRouteToHostException
 import java.net.SocketTimeoutException

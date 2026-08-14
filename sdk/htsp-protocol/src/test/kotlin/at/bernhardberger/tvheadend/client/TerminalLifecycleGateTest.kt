@@ -1,5 +1,7 @@
 package at.bernhardberger.tvheadend.htsp
 
+import at.bernhardberger.tvheadend.htsp.connection.*
+
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit

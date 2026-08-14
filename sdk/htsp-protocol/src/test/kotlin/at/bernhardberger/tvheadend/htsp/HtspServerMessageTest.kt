@@ -1,5 +1,9 @@
 package at.bernhardberger.tvheadend.htsp
 
+import at.bernhardberger.tvheadend.htsp.messages.*
+import at.bernhardberger.tvheadend.htsp.requests.*
+import at.bernhardberger.tvheadend.htsp.wire.*
+
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
@@ -395,7 +399,7 @@ class HtspServerMessageTest {
     @Test
     fun productionDecoderEntryPointAndTypedOutcomeExist() {
         val dispatchClass = Class.forName(
-            "at.bernhardberger.tvheadend.htsp.GeneratedHtspServerMessageDispatchKt",
+            "at.bernhardberger.tvheadend.htsp.messages.GeneratedHtspServerMessageDispatchKt",
         )
         assertTrue(
             "S2 requires the production-named public decoder",
@@ -404,10 +408,10 @@ class HtspServerMessageTest {
                     method.parameterTypes.contentEquals(arrayOf(Map::class.java))
             },
         )
-        Class.forName("at.bernhardberger.tvheadend.htsp.HtspServerMessageDecodeResult")
-        Class.forName("at.bernhardberger.tvheadend.htsp.HtspServerMessageDecoded")
-        Class.forName("at.bernhardberger.tvheadend.htsp.HtspServerMessageUnknownMethod")
-        Class.forName("at.bernhardberger.tvheadend.htsp.HtspServerMessageMalformedKnownMessage")
+        Class.forName("at.bernhardberger.tvheadend.htsp.messages.HtspServerMessageDecodeResult")
+        Class.forName("at.bernhardberger.tvheadend.htsp.messages.HtspServerMessageDecoded")
+        Class.forName("at.bernhardberger.tvheadend.htsp.messages.HtspServerMessageUnknownMethod")
+        Class.forName("at.bernhardberger.tvheadend.htsp.messages.HtspServerMessageMalformedKnownMessage")
     }
 
     @Test
@@ -714,7 +718,7 @@ class HtspServerMessageTest {
             as HtspChannelUpdateMessage
         assertEquals(null, update.channelName)
         assertThrows(ClassNotFoundException::class.java) {
-            Class.forName("at.bernhardberger.tvheadend.htsp.HtspField")
+            Class.forName("at.bernhardberger.tvheadend.htsp.messages.HtspField")
         }
     }
 

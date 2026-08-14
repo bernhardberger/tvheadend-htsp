@@ -23,10 +23,12 @@ GENERATORS = (
     "docs/htsp-protocol/generate_typed_server_message_models.py",
 )
 GENERATED_OUTPUTS = (
-    "sdk/htsp-protocol/src/main/kotlin/at/bernhardberger/tvheadend/htsp/GeneratedHtspExtensions.kt",
-    "sdk/htsp-protocol/src/main/kotlin/at/bernhardberger/tvheadend/htsp/GeneratedHtspRequests.kt",
-    "sdk/htsp-protocol/src/main/kotlin/at/bernhardberger/tvheadend/htsp/GeneratedHtspServerMessageDispatch.kt",
-    "sdk/htsp-protocol/src/main/kotlin/at/bernhardberger/tvheadend/htsp/GeneratedHtspServerMessages.kt",
+    "sdk/htsp-protocol/src/main/kotlin/at/bernhardberger/tvheadend/htsp/requests/GeneratedHtspExtensions.kt",
+    "sdk/htsp-protocol/src/main/kotlin/at/bernhardberger/tvheadend/htsp/requests/GeneratedHtspRequests.kt",
+    "sdk/htsp-protocol/src/main/kotlin/at/bernhardberger/tvheadend/htsp/messages/GeneratedHtspServerMessageDispatch.kt",
+    "sdk/htsp-protocol/src/main/kotlin/at/bernhardberger/tvheadend/htsp/messages/GeneratedHtspServerMessages.kt",
+    "sdk/htsp-protocol/src/main/kotlin/at/bernhardberger/tvheadend/htsp/jsonapi/GeneratedHtspJsonApiExtensions.kt",
+    "sdk/htsp-protocol/src/main/kotlin/at/bernhardberger/tvheadend/htsp/jsonapi/GeneratedHtspJsonApiModels.kt",
 )
 
 

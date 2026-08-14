@@ -1,4 +1,4 @@
-package at.bernhardberger.tvheadend.htsp
+package at.bernhardberger.tvheadend.htsp.wire
 
 import java.io.EOFException
 import java.io.InputStream

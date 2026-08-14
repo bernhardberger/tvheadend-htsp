@@ -1,13 +1,13 @@
 # HTSP protocol module
 
 `:sdk:htsp-protocol` publishes the checkout-local JVM artifact
-`at.bernhardberger.tvheadend:htsp-protocol:0.1.0-SNAPSHOT`. It owns the
-provisional typed request, outcome, and server-message declarations in
-`at.bernhardberger.tvheadend.htsp`, plus the public typed connection transport,
-internal raw HTSP codec/service and lifecycle machinery, transport
-facts, plus the narrow
-`@HtspJsonApi` bridge. Every production declaration is in that one
-package; this module does not declare `at.bernhardberger.tvheadend.client`.
+`at.bernhardberger.tvheadend:htsp-protocol:0.1.0-SNAPSHOT`. Below the unchanged
+`at.bernhardberger.tvheadend.htsp` root it owns exactly five shallow production
+packages: `.wire` for framing/value support, `.requests` for ordinary typed
+requests and conveniences, `.messages` for asynchronous messages/dispatch,
+`.connection` for transport/lifecycle/outcomes, and `.jsonapi` for the complete
+opt-in bridge. The flat root is empty, no deeper package or old-root shim is
+retained, and this module does not declare `at.bernhardberger.tvheadend.client`.
 The protocol-package raw playback ABI and former connection-probe API have been
 removed. The probe and its result family are owned by `client-htsp` in
 `at.bernhardberger.tvheadend.client`.
@@ -16,7 +16,7 @@ Ordinary `client-htsp` consumes this artifact only through public API; there is
 no Gradle friend wiring. `HtspConnection`, its factory/options, opaque
 generation, typed events/failures/outcomes, and generation-fenced lifecycle are
 the ordinary transport boundary. `HtspService`, `HtspCodec`, raw per-message
-mappers, and the catalog helper remain internal. The public 29-message finite
+mappers, and the catalog helper remain internal. The public 30-message finite
 decoder is the explicit raw-map input boundary. Playback integration uses the
 client-package typed `@PlaybackIntegrationApi` transport.
 
