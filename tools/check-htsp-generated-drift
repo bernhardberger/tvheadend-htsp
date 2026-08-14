@@ -3,9 +3,16 @@
 
 from __future__ import annotations
 
+import argparse
+import copy
+import json
+import re
 import subprocess
 import sys
+import tempfile
+from dataclasses import dataclass, replace
 from pathlib import Path
+from types import SimpleNamespace
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -15,10 +22,1089 @@ GENERATORS = (
     "docs/htsp-protocol/generate_typed_server_messages.py",
     "docs/htsp-protocol/generate_typed_server_message_models.py",
 )
+GENERATED_OUTPUTS = (
+    "sdk/htsp-protocol/src/main/kotlin/at/bernhardberger/tvheadend/htsp/GeneratedHtspExtensions.kt",
+    "sdk/htsp-protocol/src/main/kotlin/at/bernhardberger/tvheadend/htsp/GeneratedHtspRequests.kt",
+    "sdk/htsp-protocol/src/main/kotlin/at/bernhardberger/tvheadend/htsp/GeneratedHtspServerMessageDispatch.kt",
+    "sdk/htsp-protocol/src/main/kotlin/at/bernhardberger/tvheadend/htsp/GeneratedHtspServerMessages.kt",
+)
 
 
-def main() -> int:
+@dataclass(frozen=True)
+class CatalogWireReference:
+    identity: str
+    spec_domain: str
+    spec_owner: str
+    wire_name: str
+    wire_type: str
+    direction: str
+    minimum_version: int | None
+    expected_shape_ref: str | None = None
+
+
+@dataclass(frozen=True)
+class CatalogRootReference:
+    identity: str
+    spec_domain: str
+    spec_owner: str
+    nested_shape: str
+    payload_wire_names: frozenset[str]
+    expected_payload_signature: tuple[tuple[str, str, int | None, str | None], ...]
+
+
+@dataclass(frozen=True)
+class CatalogShapeMapping:
+    name: str
+    spec_domain: str
+    spec_owner: str
+    spec_reference_target: str | None
+
+
+@dataclass(frozen=True)
+class SpecField:
+    name: str
+    wire_type: str
+    direction: str
+    minimum_version: int | None
+    shape_ref: str | None
+
+
+@dataclass(frozen=True)
+class SpecShape:
+    name: str
+    kind: str
+    fields: dict[str, SpecField]
+    reference_target: tuple[str, str] | None = None
+
+
+@dataclass(frozen=True)
+class SpecIndexes:
+    fields: dict[tuple[str, str], dict[str, SpecField]]
+    shapes: dict[str, SpecShape]
+
+
+def _named_records(value: object, label: str) -> dict[str, dict[str, object]]:
+    if not isinstance(value, list):
+        raise ValueError(f"spec {label} must be a list")
+    result: dict[str, dict[str, object]] = {}
+    for record in value:
+        if not isinstance(record, dict) or not isinstance(record.get("name"), str) or not record["name"]:
+            raise ValueError(f"spec {label} contains a malformed identity")
+        name = record["name"]
+        if name in result:
+            raise ValueError(f"spec {label} contains an ambiguous identity: {name}")
+        result[name] = record
+    return result
+
+
+def _field_records(value: object, direction: str, label: str) -> dict[str, SpecField]:
+    if not isinstance(value, list):
+        raise ValueError(f"spec {label} fields must be a list")
+    result: dict[str, SpecField] = {}
+    for record in value:
+        if not isinstance(record, dict):
+            raise ValueError(f"spec {label} contains a malformed field record")
+        name = record.get("name")
+        wire_type = record.get("type")
+        actual_direction = record.get("direction")
+        minimum_version = record.get("minVersion")
+        shape_ref = record.get("shapeRef")
+        if (
+            not isinstance(name, str)
+            or not name
+            or not isinstance(wire_type, str)
+            or not wire_type
+            or actual_direction != direction
+            or (shape_ref is not None and (not isinstance(shape_ref, str) or not shape_ref))
+            or (
+                minimum_version is not None
+                and (isinstance(minimum_version, bool) or not isinstance(minimum_version, int))
+            )
+            or (isinstance(minimum_version, int) and minimum_version not in range(1, 45))
+        ):
+            raise ValueError(f"spec {label} contains a malformed field identity: {name!r}")
+        if name in result:
+            raise ValueError(f"spec {label} contains an ambiguous field identity: {name}")
+        result[name] = SpecField(name, wire_type, actual_direction, minimum_version, shape_ref)
+    return result
+
+
+def _shape_structure(
+    name: str,
+    value: object,
+    indexes: dict[tuple[str, str], dict[str, SpecField]],
+) -> SpecShape:
+    if not isinstance(value, dict):
+        raise ValueError(f"spec shape {name} must be an object")
+    kind = value.get("kind")
+    if kind not in {"object", "reference", "scalar", "stringMap"}:
+        raise ValueError(f"spec shape {name} has unknown or malformed kind: {kind!r}")
+    has_fields = "fields" in value
+    has_target = "target" in value
+    if kind == "reference":
+        target = value.get("target")
+        if has_fields or not isinstance(target, str) or target.count(":") != 1:
+            raise ValueError(f"spec shape {name} has a malformed reference target/fields structure")
+        target_kind, target_name = target.split(":", 1)
+        target_domain = {"serverMessage": "message", "clientMethodReply": "reply"}.get(target_kind)
+        if not target_name or target_domain is None or (target_domain, target_name) not in indexes:
+            raise ValueError(f"spec shape {name} has an unknown reference target: {target}")
+        fields = {
+            field_name: replace(field, direction="nested")
+            for field_name, field in indexes[(target_domain, target_name)].items()
+        }
+        return SpecShape(name, kind, fields, (target_domain, target_name))
+    if kind == "object":
+        completeness = value.get("completeness")
+        if has_target or completeness not in {"complete", "partial", "opaque"}:
+            raise ValueError(f"spec shape {name} has a malformed object target/fields structure")
+        if completeness in {"complete", "partial"} and not has_fields:
+            raise ValueError(f"spec shape {name} {completeness} object requires fields")
+        if completeness == "opaque" and has_fields:
+            raise ValueError(f"spec shape {name} opaque object must not declare fields")
+        fields = _field_records(value["fields"], "nested", f"shape {name}") if has_fields else {}
+        return SpecShape(name, kind, fields)
+    if has_fields or has_target:
+        raise ValueError(f"spec shape {name} {kind} has a malformed target/fields structure")
+    if kind == "scalar":
+        if not isinstance(value.get("wireType"), str) or not value["wireType"]:
+            raise ValueError(f"spec shape {name} scalar requires wireType")
+    elif (
+        not isinstance(value.get("keyWireType"), str)
+        or not value["keyWireType"]
+        or not isinstance(value.get("valueWireType"), str)
+        or not value["valueWireType"]
+    ):
+        raise ValueError(f"spec shape {name} stringMap requires keyWireType and valueWireType")
+    return SpecShape(name, kind, {})
+
+
+def _spec_indexes(spec: object) -> SpecIndexes:
+    if not isinstance(spec, dict) or spec.get("schemaVersion") != 1:
+        raise ValueError("spec must be one schemaVersion 1 object")
+    clients = _named_records(spec.get("clientMethods"), "clientMethods")
+    messages = _named_records(spec.get("serverMessages"), "serverMessages")
+    shapes = spec.get("shapes")
+    if not isinstance(shapes, dict) or any(not isinstance(name, str) or not name for name in shapes):
+        raise ValueError("spec shapes must be an object with nonblank string identities")
+
+    indexes: dict[tuple[str, str], dict[str, SpecField]] = {}
+    for name, method in clients.items():
+        indexes[("request", name)] = _field_records(method.get("requestFields"), "request", f"method {name} request")
+        indexes[("reply", name)] = _field_records(method.get("replyFields"), "reply", f"method {name} reply")
+    for name, message in messages.items():
+        indexes[("message", name)] = _field_records(message.get("fields"), "message", f"message {name}")
+
+    shape_indexes = {name: _shape_structure(name, shape, indexes) for name, shape in shapes.items()}
+    for name, shape in shape_indexes.items():
+        indexes[("shape", name)] = shape.fields
+    known_shapes = set(shape_indexes)
+    for (domain, owner), fields in indexes.items():
+        for field in fields.values():
+            if field.shape_ref is not None and field.shape_ref not in known_shapes:
+                raise ValueError(
+                    f"spec {domain} {owner} field {field.name} has unknown shapeRef: {field.shape_ref}"
+                )
+    return SpecIndexes(indexes, shape_indexes)
+
+
+def _reject_duplicate_key(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    result: dict[str, object] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(f"duplicate JSON object key: {key}")
+        result[key] = value
+    return result
+
+
+def parse_spec_json(text: str, label: str) -> object:
+    try:
+        return json.loads(text, object_pairs_hook=_reject_duplicate_key)
+    except (json.JSONDecodeError, ValueError) as error:
+        raise ValueError(f"{label} is invalid: {error}") from error
+
+
+WAIVER_IDENTITY = re.compile(
+    r"^(?:request|reply|message|request-nested|message-nested)\."
+    r"[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.(?:wire|nested-wire)\.[^\s.]+$"
+)
+
+
+def validate_spec_consistency(
+    spec: object,
+    references: tuple[CatalogWireReference, ...],
+    waivers: tuple[tuple[str, str], ...],
+    roots: tuple[CatalogRootReference, ...] = (),
+    shape_mappings: tuple[CatalogShapeMapping, ...] = (),
+) -> None:
+    indexes = _spec_indexes(spec)
+    reference_ids: set[str] = set()
+    for reference in references:
+        if (
+            not WAIVER_IDENTITY.fullmatch(reference.identity)
+            or reference.identity in reference_ids
+            or reference.spec_domain not in {"request", "reply", "message", "shape", "reply-shape"}
+            or not reference.spec_owner
+            or not reference.wire_name
+            or not reference.wire_type
+            or reference.direction not in {"request", "reply", "message", "nested"}
+            or (reference.expected_shape_ref is not None and not reference.expected_shape_ref)
+            or (
+                reference.minimum_version is not None
+                and (
+                    isinstance(reference.minimum_version, bool)
+                    or not isinstance(reference.minimum_version, int)
+                    or reference.minimum_version not in range(1, 45)
+                )
+            )
+        ):
+            raise ValueError(f"malformed or duplicate catalog identity: {reference.identity}")
+        reference_ids.add(reference.identity)
+
+    for mapping in shape_mappings:
+        if mapping.spec_domain not in {"shape", "reply-shape"} or not mapping.spec_owner:
+            raise ValueError(f"catalog shape mapping is malformed: {mapping.name}")
+        if mapping.spec_domain == "shape":
+            actual_shape = indexes.shapes.get(mapping.spec_owner)
+            if actual_shape is None:
+                raise ValueError(
+                    f"catalog shape maps to an unknown spec shape: {mapping.name} -> {mapping.spec_owner}"
+                )
+            actual_target = None if actual_shape.reference_target is None else ":".join(actual_shape.reference_target)
+            if actual_target != mapping.spec_reference_target:
+                raise ValueError(
+                    f"non-waivable shape reference target mismatch: {mapping.name} expected "
+                    f"{mapping.spec_reference_target!r}, spec is {actual_target!r}"
+                )
+        elif mapping.spec_reference_target is not None:
+            raise ValueError(f"reply-shape mapping cannot declare a reference target: {mapping.name}")
+        elif ("reply", mapping.spec_owner) not in indexes.fields:
+            raise ValueError(
+                f"catalog reply-shape maps to an unknown spec owner: {mapping.name} -> {mapping.spec_owner}"
+            )
+
+    waiver_reasons: dict[str, str] = {}
+    for waiver in waivers:
+        if (
+            not isinstance(waiver, tuple)
+            or len(waiver) != 2
+            or not all(isinstance(value, str) for value in waiver)
+        ):
+            raise ValueError("waivers must be exact (identity, reason) string pairs")
+        identity, reason = waiver
+        if not WAIVER_IDENTITY.fullmatch(identity):
+            raise ValueError(f"malformed waiver identity: {identity!r}")
+        if identity in waiver_reasons:
+            raise ValueError(f"duplicate waiver identity: {identity}")
+        if not reason.strip() or "\n" in reason:
+            raise ValueError(f"waiver reason must be one nonblank line: {identity}")
+        waiver_reasons[identity] = reason
+
+    consumed: set[str] = set()
+    unresolved: list[str] = []
+
+    def compare_reference(reference: CatalogWireReference, category: str) -> None:
+        index_domain = "reply" if reference.spec_domain == "reply-shape" else reference.spec_domain
+        fields = indexes.fields.get((index_domain, reference.spec_owner))
+        if fields is None:
+            raise ValueError(
+                f"non-waivable {category} owner mismatch: {reference.identity} -> "
+                f"{reference.spec_domain}.{reference.spec_owner}"
+            )
+        actual = fields.get(reference.wire_name)
+        if reference.spec_domain == "reply-shape" and actual is not None:
+            actual = replace(actual, direction="nested")
+        actual_shape_ref = None if actual is None else actual.shape_ref
+        if actual_shape_ref != reference.expected_shape_ref:
+            raise ValueError(
+                f"non-waivable {category} shape link mismatch: {reference.identity} expected shapeRef="
+                f"{reference.expected_shape_ref!r}, spec is {actual_shape_ref!r}"
+            )
+        matches = actual is not None and (
+            actual.wire_type == reference.wire_type
+            and actual.direction == reference.direction
+            and actual.minimum_version == reference.minimum_version
+        )
+        if matches:
+            return
+        if reference.identity in waiver_reasons:
+            consumed.add(reference.identity)
+            return
+        actual_text = "missing" if actual is None else (
+            f"type={actual.wire_type}, direction={actual.direction}, minVersion={actual.minimum_version}"
+        )
+        unresolved.append(
+            f"{category} unresolved: {reference.identity} expected type={reference.wire_type}, "
+            f"direction={reference.direction}, "
+            f"minVersion={reference.minimum_version}; spec is {actual_text}"
+        )
+
+    for reference in references:
+        compare_reference(reference, "field")
+
+
+    for root in roots:
+        owner_fields = indexes.fields.get((root.spec_domain, root.spec_owner))
+        if owner_fields is None:
+            raise ValueError(
+                f"non-waivable root owner mismatch: {root.identity} -> {root.spec_domain}.{root.spec_owner}"
+            )
+        mapping = next((value for value in shape_mappings if value.name == root.nested_shape), None)
+        if mapping is None:
+            raise ValueError(f"non-waivable root target is unknown: {root.identity} -> {root.nested_shape}")
+        payload_signature = sorted(
+            (
+                field.name,
+                field.wire_type,
+                field.minimum_version,
+                field.shape_ref,
+            )
+            for field in owner_fields.values()
+            if field.name in root.payload_wire_names
+        )
+        if tuple(payload_signature) != root.expected_payload_signature:
+            raise ValueError(
+                f"non-waivable root-link payload mismatch: {root.identity} expected "
+                f"{root.expected_payload_signature!r}, spec is {tuple(payload_signature)!r}"
+            )
+
+    unused = sorted(set(waiver_reasons) - consumed)
+    if unresolved or unused:
+        details = [*unresolved, *(f"unused waiver: {value}" for value in unused)]
+        raise ValueError("catalog/spec consistency failed:\n" + "\n".join(details))
+
+
+def _catalog_references_from_surface(
+    surface: object,
+) -> tuple[
+    tuple[CatalogWireReference, ...],
+    tuple[tuple[str, str], ...],
+    tuple[CatalogRootReference, ...],
+    tuple[CatalogShapeMapping, ...],
+]:
+    if (
+        surface.REQUEST_SPEC_CONSISTENCY_STATUS != "verified-v44"
+        or surface.SERVER_SPEC_CONSISTENCY_STATUS != "verified-v44"
+    ):
+        raise ValueError("surface catalog consistency status must be verified-v44")
+
+    references: list[CatalogWireReference] = []
+    roots: list[CatalogRootReference] = []
+    shape_mappings_by_name: dict[str, CatalogShapeMapping] = {}
+    concrete_shapes: dict[str, object] = {}
+    request_shapes = {shape.name: shape for shape in surface.REQUEST_REPLY_NESTED_SHAPES}
+    server_shapes = {shape.name: shape for shape in surface.SERVER_NESTED_SHAPES}
+    for shape in (*request_shapes.values(), *server_shapes.values()):
+        mapping = CatalogShapeMapping(
+            shape.name,
+            shape.spec_domain,
+            shape.spec_owner or "",
+            shape.spec_reference_target,
+        )
+        previous = shape_mappings_by_name.get(shape.name)
+        if previous is not None and previous != mapping:
+            raise ValueError(f"catalog nested shape has conflicting spec mappings: {shape.name}")
+        shape_mappings_by_name[shape.name] = mapping
+        concrete_shapes[shape.name] = shape
+
+    target_mappings = surface.SPEC_SHAPE_LINK_TARGETS
+    if not isinstance(target_mappings, dict):
+        raise ValueError("catalog nested spec targets must be one explicit mapping")
+    terminal_mappings = surface.TERMINAL_NESTED_SPEC_TARGETS
+    if not isinstance(terminal_mappings, dict):
+        raise ValueError("catalog terminal nested targets must be one explicit mapping")
+    admitted_terminal_targets: set[tuple[str, tuple[str, str] | None]] = set()
+    for name, targets in terminal_mappings.items():
+        if (
+            not isinstance(name, str)
+            or not name
+            or not isinstance(targets, tuple)
+            or not targets
+            or len(set(targets)) != len(targets)
+            or any(
+                target is not None
+                and (
+                    not isinstance(target, tuple)
+                    or len(target) != 2
+                    or target[0] != "shape"
+                    or not isinstance(target[1], str)
+                    or not target[1]
+                )
+                for target in targets
+            )
+        ):
+            raise ValueError(f"catalog terminal nested target mapping is malformed: {name!r}")
+        admitted_terminal_targets.update((name, target) for target in targets)
+    nested_identities = surface.CATALOG_NESTED_LINK_IDENTITIES
+    if (
+        not isinstance(nested_identities, dict)
+        or any(
+            not isinstance(identity, str)
+            or not identity
+            or not isinstance(target, str)
+            or not target
+            for identity, target in nested_identities.items()
+        )
+    ):
+        raise ValueError("catalog nested-link identities must be one exact string mapping")
+    root_relations = set(surface.ROOT_SPEC_RELATIONS)
+    root_payload_signatures = surface.ROOT_SPEC_PAYLOAD_SIGNATURES
+    if not isinstance(root_payload_signatures, dict) or set(root_payload_signatures) != root_relations:
+        raise ValueError("catalog root payload signature inventory must exactly match root relations")
+    for relation, signature in root_payload_signatures.items():
+        if not isinstance(signature, tuple) or not signature:
+            raise ValueError(f"catalog root payload signature must be a nonempty tuple: {relation}")
+        names: list[str] = []
+        for fact in signature:
+            if (
+                not isinstance(fact, tuple)
+                or len(fact) != 4
+                or not isinstance(fact[0], str)
+                or not fact[0]
+                or not isinstance(fact[1], str)
+                or not fact[1]
+                or (
+                    fact[2] is not None
+                    and (
+                        isinstance(fact[2], bool)
+                        or not isinstance(fact[2], int)
+                        or fact[2] not in range(1, 45)
+                    )
+                )
+                or (fact[3] is not None and (not isinstance(fact[3], str) or not fact[3]))
+            ):
+                raise ValueError(f"catalog root payload signature contains a malformed fact: {relation}")
+            names.append(fact[0])
+        if len(names) != len(set(names)):
+            raise ValueError(f"catalog root payload signature contains duplicate names: {relation}")
+        if names != sorted(names):
+            raise ValueError(f"catalog root payload signature must be sorted by wire name: {relation}")
+    actual_root_relations: set[tuple[str, str, str]] = set()
+    used_nested_links: set[str] = set()
+    used_terminal_targets: set[tuple[str, tuple[str, str] | None]] = set()
+    used_nested_identities: set[str] = set()
+
+    def add_fields(
+        identity_domain: str,
+        fields: tuple[object, ...],
+        spec_domain: str,
+        spec_owner: str,
+        direction: str,
+        catalog_owner: str | None = None,
+    ) -> None:
+        expected_catalog_owner = catalog_owner or spec_owner
+        for field in fields:
+            identity_prefix = f"{identity_domain}.{field.owner}.{field.kotlin_property}"
+            link_identity = f"{field.owner}.{field.kotlin_property}"
+            if field.owner != expected_catalog_owner:
+                raise ValueError(
+                    f"non-waivable catalog owner mismatch: {identity_prefix} is under {expected_catalog_owner}"
+                )
+            expected_nested_identity = nested_identities.get(identity_prefix)
+            has_root_literal = "<root>" in (*field.wire_names, *field.nested_wire_names)
+            if field.decoder == "root-shape" or has_root_literal:
+                if (
+                    field.decoder != "root-shape"
+                    or field.wire_names != ("<root>",)
+                    or field.nested_wire_names
+                ):
+                    raise ValueError(
+                        f"synthetic root must use exact ('<root>',) wire vocabulary: {identity_prefix}"
+                    )
+                if not field.nested_shape or field.nested_shape not in concrete_shapes:
+                    raise ValueError(f"synthetic root has missing or unknown catalog target: {identity_prefix}")
+                if expected_nested_identity != field.nested_shape:
+                    raise ValueError(
+                        f"non-waivable catalog nested-target identity mismatch: {identity_prefix} "
+                        f"expected {expected_nested_identity!r}, catalog is {field.nested_shape!r}"
+                    )
+                used_nested_identities.add(identity_prefix)
+                relation_domain = "reply" if spec_domain == "reply" else spec_domain
+                relation = (field.nested_shape, relation_domain, spec_owner)
+                if target_mappings.get(link_identity) != {"<root>": (relation_domain, spec_owner)}:
+                    raise ValueError(
+                        f"non-waivable root spec target mismatch: {identity_prefix}"
+                    )
+                if relation not in root_relations:
+                    raise ValueError(
+                        f"non-waivable root target mismatch: {identity_prefix} -> {relation}"
+                    )
+                actual_root_relations.add(relation)
+                used_nested_links.add(link_identity)
+                linked_shapes = server_shapes if relation_domain == "message" else request_shapes
+                linked_shape = linked_shapes.get(field.nested_shape)
+                if linked_shape is None:
+                    raise ValueError(f"synthetic root has no domain-specific catalog target: {identity_prefix}")
+                payload_wire_names = frozenset(
+                    wire_name
+                    for nested_field in linked_shape.fields
+                    for wire_name in nested_field.wire_names
+                )
+                expected_signature = root_payload_signatures[relation]
+                expected_names = {fact[0] for fact in expected_signature}
+                if not expected_names <= payload_wire_names or any(
+                    not any(wire_name in expected_names for wire_name in nested_field.wire_names)
+                    for nested_field in linked_shape.fields
+                ):
+                    raise ValueError(
+                        f"catalog root payload signature does not cover its linked shape: {relation}"
+                    )
+                roots.append(CatalogRootReference(
+                    identity_prefix,
+                    relation_domain,
+                    spec_owner,
+                    field.nested_shape,
+                    payload_wire_names,
+                    expected_signature,
+                ))
+                continue
+            if field.nested_shape is not None:
+                if expected_nested_identity != field.nested_shape:
+                    raise ValueError(
+                        f"non-waivable catalog nested-target identity mismatch: {identity_prefix} "
+                        f"expected {expected_nested_identity!r}, catalog is {field.nested_shape!r}"
+                    )
+                used_nested_identities.add(identity_prefix)
+            elif expected_nested_identity is not None:
+                raise ValueError(
+                    f"non-waivable catalog nested-target identity mismatch: {identity_prefix} "
+                    f"expected {expected_nested_identity!r}, catalog has no target"
+                )
+            if not field.wire_names:
+                raise ValueError(f"catalog wire vocabulary must not be empty: {identity_prefix}")
+            link_targets = target_mappings.get(link_identity)
+            if field.nested_shape is not None and link_targets is None:
+                raise ValueError(f"catalog nested link has no explicit spec target: {identity_prefix}")
+            if link_targets is not None:
+                if not isinstance(link_targets, dict) or set(link_targets) != set(field.wire_names):
+                    raise ValueError(f"catalog shape-link vocabulary is malformed: {identity_prefix}")
+                used_nested_links.add(link_identity)
+            if field.nested_shape is not None:
+                concrete = shape_mappings_by_name.get(field.nested_shape)
+                terminal_targets = terminal_mappings.get(field.nested_shape)
+                if (concrete is None) == (terminal_targets is None):
+                    raise ValueError(
+                        f"catalog nested target is unknown or ambiguously owned: {identity_prefix}"
+                    )
+                for target in link_targets.values():
+                    if concrete is not None and target is not None and target != (
+                        concrete.spec_domain,
+                        concrete.spec_owner,
+                    ):
+                        raise ValueError(
+                            f"non-waivable catalog nested-shape link mismatch: {identity_prefix}"
+                        )
+                    if terminal_targets is not None:
+                        if target not in terminal_targets:
+                            raise ValueError(
+                                f"non-waivable catalog terminal nested-shape link mismatch: {identity_prefix}"
+                            )
+                        used_terminal_targets.add((field.nested_shape, target))
+            for vocabulary, names in (("wire", field.wire_names), ("nested-wire", field.nested_wire_names)):
+                for wire_name in names:
+                    target = link_targets.get(wire_name) if vocabulary == "wire" and link_targets else None
+                    expected_shape_ref = None
+                    if target is not None:
+                        if (
+                            not isinstance(target, tuple)
+                            or len(target) != 2
+                            or target[0] != "shape"
+                            or not isinstance(target[1], str)
+                            or not target[1]
+                        ):
+                            raise ValueError(f"catalog non-root shape target is malformed: {identity_prefix}")
+                        expected_shape_ref = target[1]
+                    references.append(CatalogWireReference(
+                        identity=(
+                            f"{identity_domain}.{field.owner}.{field.kotlin_property}."
+                            f"{vocabulary}.{wire_name}"
+                        ),
+                        spec_domain=spec_domain,
+                        spec_owner=spec_owner,
+                        wire_name=wire_name,
+                        wire_type=field.wire_type,
+                        direction=direction,
+                        minimum_version=field.minimum_version,
+                        expected_shape_ref=expected_shape_ref,
+                    ))
+
+    for entry in surface.CATALOG:
+        add_fields("request", surface.REQUEST_FIELDS_BY_METHOD[entry.method], "request", entry.method, "request")
+        add_fields("reply", surface.REPLY_FIELDS_BY_METHOD[entry.method], "reply", entry.method, "reply")
+    for shape in surface.REQUEST_REPLY_NESTED_SHAPES:
+        if not shape.spec_owner:
+            raise ValueError(f"request nested shape lacks an exact spec owner: {shape.name}")
+        add_fields(
+            "request-nested", shape.fields, shape.spec_domain, shape.spec_owner, "nested", shape.name
+        )
+    for entry in surface.SERVER_MESSAGE_CATALOG:
+        add_fields("message", entry.fields, "message", entry.method, "message")
+    for shape in surface.SERVER_NESTED_SHAPES:
+        if not shape.spec_owner:
+            raise ValueError(f"message nested shape lacks an exact spec owner: {shape.name}")
+        add_fields(
+            "message-nested", shape.fields, shape.spec_domain, shape.spec_owner, "nested", shape.name
+        )
+    if actual_root_relations != root_relations:
+        stale = sorted(root_relations - actual_root_relations)
+        raise ValueError(f"catalog root relation inventory is stale: {stale}")
+    if used_nested_links != set(target_mappings):
+        raise ValueError(
+            f"catalog nested-link target inventory is stale: {sorted(set(target_mappings) - used_nested_links)}"
+        )
+    if used_terminal_targets != admitted_terminal_targets:
+        raise ValueError(
+            "catalog terminal nested-target inventory is stale: "
+            f"{sorted(admitted_terminal_targets - used_terminal_targets, key=str)}"
+        )
+    if used_nested_identities != set(nested_identities):
+        raise ValueError(
+            "catalog nested-target identity inventory is stale: "
+            f"{sorted(set(nested_identities) - used_nested_identities)}"
+        )
+    return (
+        tuple(references),
+        (*surface.REQUEST_SPEC_WAIVERS, *surface.SERVER_SPEC_WAIVERS),
+        tuple(roots),
+        tuple(shape_mappings_by_name.values()),
+    )
+
+
+def _catalog_references() -> tuple[
+    tuple[CatalogWireReference, ...],
+    tuple[tuple[str, str], ...],
+    tuple[CatalogRootReference, ...],
+    tuple[CatalogShapeMapping, ...],
+]:
+    catalog_path = ROOT / "docs/htsp-protocol/htsp_surface.py"
+    if not catalog_path.is_file() or catalog_path.is_symlink():
+        raise ValueError("surface catalog must be a regular non-symlink file")
+    sys.path.insert(0, str(catalog_path.parent))
+    try:
+        import htsp_surface as surface
+    finally:
+        sys.path.pop(0)
+    return _catalog_references_from_surface(surface)
+
+
+def check_spec_consistency() -> None:
+    spec_path = ROOT / "docs/htsp-protocol/htsp_spec.json"
+    if not spec_path.is_file() or spec_path.is_symlink():
+        raise ValueError("checked-in HTSP spec must be a regular non-symlink file")
+    try:
+        spec = parse_spec_json(spec_path.read_text(encoding="utf-8"), "checked-in HTSP spec")
+    except (OSError, UnicodeError, ValueError) as error:
+        raise ValueError(f"checked-in HTSP spec is unreadable: {error}") from error
+    references, waivers, roots, shape_mappings = _catalog_references()
+    validate_spec_consistency(spec, references, waivers, roots, shape_mappings)
+
+
+def validate_generated_outputs(root: Path) -> None:
+    for relative in GENERATED_OUTPUTS:
+        output = root / relative
+        if not output.is_file() or output.is_symlink():
+            raise ValueError(f"generated output must be a regular non-symlink file: {relative}")
+
+
+def replace_namespace(value: SimpleNamespace, **changes: object) -> SimpleNamespace:
+    return SimpleNamespace(**{**vars(value), **changes})
+
+
+def self_test() -> None:
+    duplicate_json = '{"schemaVersion":1,"schemaVersion":1,"clientMethods":[],"serverMessages":[],"shapes":{}}'
+    try:
+        parse_spec_json(duplicate_json, "self-test duplicate fixture")
+    except ValueError as error:
+        if "duplicate JSON object key" not in str(error):
+            raise AssertionError(f"duplicate JSON mutation produced the wrong diagnostic: {error}") from error
+    else:
+        raise AssertionError("duplicate JSON object key mutation was accepted")
+
+    spec = {
+        "schemaVersion": 1,
+        "clientMethods": [{
+            "name": "example",
+            "requestFields": [{
+                "name": "value",
+                "type": "u32",
+                "direction": "request",
+                "minVersion": 7,
+            }],
+            "replyFields": [],
+        }],
+        "serverMessages": [],
+        "shapes": {},
+    }
+    reference = CatalogWireReference(
+        identity="request.example.value.wire.value",
+        spec_domain="request",
+        spec_owner="example",
+        wire_name="value",
+        wire_type="u32",
+        direction="request",
+        minimum_version=7,
+    )
+
+    validate_spec_consistency(spec, (reference,), ())
+
+    def expect_rejection(
+        label: str,
+        expected: str,
+        *,
+        mutated_spec=spec,
+        references=(reference,),
+        waivers=(),
+        roots=(),
+        shape_mappings=(),
+    ) -> None:
+        try:
+            validate_spec_consistency(mutated_spec, references, waivers, roots, shape_mappings)
+        except ValueError as error:
+            if expected not in str(error):
+                raise AssertionError(
+                    f"{label} produced the wrong diagnostic; expected {expected!r}, got {error}"
+                ) from error
+            return
+        raise AssertionError(f"consistency mutation was accepted: {label}")
+
+    missing = copy.deepcopy(spec)
+    missing["clientMethods"][0]["requestFields"] = []
+    expect_rejection("missing spec field", "spec is missing", mutated_spec=missing)
+    expect_rejection("wrong type", "expected type=s64", references=(replace(reference, wire_type="s64"),))
+    expect_rejection("wrong direction", "expected type=u32, direction=reply", references=(replace(reference, direction="reply"),))
+    expect_rejection("wrong minimum version", "minVersion=None", references=(replace(reference, minimum_version=None),))
+    expect_rejection("absent needed waiver", "spec is missing", references=(replace(reference, wire_name="legacy"),))
+    expect_rejection("unused waiver", "unused waiver", waivers=((reference.identity, "not needed"),))
+    expect_rejection(
+        "blank waiver reason",
+        "waiver reason must be one nonblank line",
+        references=(replace(reference, wire_name="legacy"),),
+        waivers=((reference.identity, "  "),),
+    )
+    expect_rejection(
+        "duplicate waiver",
+        "duplicate waiver identity",
+        references=(replace(reference, wire_name="legacy"),),
+        waivers=((reference.identity, "legacy alias"), (reference.identity, "duplicate")),
+    )
+    expect_rejection(
+        "malformed waiver identity",
+        "malformed waiver identity",
+        references=(replace(reference, wire_name="legacy"),),
+        waivers=(("request.example.bad identity.wire.value", "reason"),),
+    )
+    expect_rejection(
+        "malformed waiver pair",
+        "waivers must be exact",
+        references=(replace(reference, wire_name="legacy"),),
+        waivers=((reference.identity,),),
+    )
+    malformed = copy.deepcopy(spec)
+    malformed["clientMethods"][0]["requestFields"][0]["name"] = 3
+    expect_rejection("malformed spec record", "malformed field identity", mutated_spec=malformed)
+    ambiguous = copy.deepcopy(spec)
+    ambiguous["clientMethods"].append(copy.deepcopy(ambiguous["clientMethods"][0]))
+    expect_rejection("ambiguous spec identity", "ambiguous identity", mutated_spec=ambiguous)
+
+    def field(owner: str, name: str, *wire_names: str, decoder: str = "u32", nested_shape=None):
+        return SimpleNamespace(
+            owner=owner,
+            kotlin_property=name,
+            wire_names=tuple(wire_names),
+            nested_wire_names=(),
+            wire_type="list" if nested_shape and decoder != "root-shape" else "u32",
+            decoder=decoder,
+            nested_shape=nested_shape,
+            minimum_version=None,
+        )
+
+    nested_field = field("widget", "inner", "inner")
+    nested_shape = SimpleNamespace(
+        name="widget",
+        fields=(nested_field,),
+        spec_domain="shape",
+        spec_owner="widget",
+        spec_reference_target="message:eventAdd",
+    )
+    request_field = field("example", "items", "items", nested_shape="widget")
+    ids_field = field("example", "ids", "ids", nested_shape="id-list")
+    text_field = field("example", "text", "text", nested_shape="other-id-list")
+    root_field = field("eventAdd", "event", "<root>", decoder="root-shape", nested_shape="widget")
+    projection_root_field = field(
+        "projection", "event", "<root>", decoder="root-shape", nested_shape="widget"
+    )
+    fake_surface = SimpleNamespace(
+        REQUEST_SPEC_CONSISTENCY_STATUS="verified-v44",
+        SERVER_SPEC_CONSISTENCY_STATUS="verified-v44",
+        CATALOG=(SimpleNamespace(method="example"),),
+        REQUEST_FIELDS_BY_METHOD={"example": (request_field, ids_field, text_field)},
+        REPLY_FIELDS_BY_METHOD={"example": ()},
+        REQUEST_REPLY_NESTED_SHAPES=(nested_shape,),
+        SERVER_MESSAGE_CATALOG=(
+            SimpleNamespace(method="eventAdd", fields=(root_field,)),
+            SimpleNamespace(method="projection", fields=(projection_root_field,)),
+        ),
+        SERVER_NESTED_SHAPES=(nested_shape,),
+        SPEC_SHAPE_LINK_TARGETS={
+            "example.items": {"items": ("shape", "widget")},
+            "example.ids": {"ids": ("shape", "u32")},
+            "example.text": {"text": ("shape", "u32")},
+            "eventAdd.event": {"<root>": ("message", "eventAdd")},
+            "projection.event": {"<root>": ("message", "projection")},
+        },
+        TERMINAL_NESTED_SPEC_TARGETS={
+            "id-list": (("shape", "u32"),),
+            "other-id-list": (("shape", "u32"),),
+        },
+        CATALOG_NESTED_LINK_IDENTITIES={
+            "message.eventAdd.event": "widget",
+            "message.projection.event": "widget",
+            "request.example.ids": "id-list",
+            "request.example.items": "widget",
+            "request.example.text": "other-id-list",
+        },
+        ROOT_SPEC_RELATIONS=(
+            ("widget", "message", "eventAdd"),
+            ("widget", "message", "projection"),
+        ),
+        ROOT_SPEC_PAYLOAD_SIGNATURES={
+            ("widget", "message", "eventAdd"): (("inner", "u32", None, None),),
+            ("widget", "message", "projection"): (("inner", "u32", None, None),),
+        },
+        REQUEST_SPEC_WAIVERS=(),
+        SERVER_SPEC_WAIVERS=(),
+    )
+    linked_spec = {
+        "schemaVersion": 1,
+        "clientMethods": [{
+            "name": "example",
+            "requestFields": [{
+                "name": "items", "type": "list", "direction": "request",
+                "minVersion": None, "shapeRef": "widget",
+            }, {
+                "name": "ids", "type": "list", "direction": "request",
+                "minVersion": None, "shapeRef": "u32",
+            }, {
+                "name": "text", "type": "list", "direction": "request",
+                "minVersion": None, "shapeRef": "u32",
+            }],
+            "replyFields": [],
+        }],
+        "serverMessages": [{
+            "name": "eventAdd",
+            "fields": [{"name": "inner", "type": "u32", "direction": "message", "minVersion": None}],
+        }, {
+            "name": "projection",
+            "fields": [{"name": "inner", "type": "u32", "direction": "message", "minVersion": None}],
+        }],
+        "shapes": {
+            "widget": {
+                "kind": "reference", "target": "serverMessage:eventAdd",
+                "completeness": "complete", "evidence": "self-test",
+            },
+            "u32": {
+                "kind": "scalar", "wireType": "u32",
+                "completeness": "complete", "evidence": "self-test",
+            },
+        },
+    }
+    linked_refs, linked_waivers, linked_roots, linked_mappings = _catalog_references_from_surface(fake_surface)
+    validate_spec_consistency(linked_spec, linked_refs, linked_waivers, linked_roots, linked_mappings)
+
+    wrong_root_signature_surface = copy.deepcopy(fake_surface)
+    wrong_root_signature_surface.ROOT_SPEC_PAYLOAD_SIGNATURES[
+        ("widget", "message", "projection")
+    ] = (("inner", "s64", None, None),)
+    signature_refs, signature_waivers, signature_roots, signature_mappings = (
+        _catalog_references_from_surface(wrong_root_signature_surface)
+    )
+    expect_rejection(
+        "mutated expected root signature fact",
+        "non-waivable root-link payload mismatch",
+        mutated_spec=linked_spec,
+        references=signature_refs,
+        waivers=signature_waivers,
+        roots=signature_roots,
+        shape_mappings=signature_mappings,
+    )
+
+    missing_projected_field_spec = copy.deepcopy(linked_spec)
+    missing_projected_field_spec["serverMessages"][1]["fields"] = []
+    expect_rejection(
+        "different-owner root projection loses linked field",
+        "non-waivable root-link payload mismatch",
+        mutated_spec=missing_projected_field_spec,
+        references=linked_refs,
+        waivers=(("message-nested.widget.inner.wire.inner", "attempted root bypass"),),
+        roots=linked_roots,
+        shape_mappings=linked_mappings,
+    )
+
+    def expect_surface_rejection(label: str, expected: str, surface: object) -> None:
+        try:
+            _catalog_references_from_surface(surface)
+        except ValueError as error:
+            if expected not in str(error):
+                raise AssertionError(
+                    f"{label} produced the wrong diagnostic; expected {expected!r}, got {error}"
+                ) from error
+            return
+        raise AssertionError(f"catalog traversal mutation was accepted: {label}")
+
+    wrong_owner_surface = copy.deepcopy(fake_surface)
+    wrong_owner_surface.REQUEST_FIELDS_BY_METHOD["example"] = (
+        replace_namespace(request_field, owner="other"), ids_field, text_field,
+    )
+    expect_surface_rejection("same-named field under wrong owner", "catalog owner mismatch", wrong_owner_surface)
+
+    wrong_terminal_surface = copy.deepcopy(fake_surface)
+    wrong_terminal_surface.REQUEST_FIELDS_BY_METHOD["example"] = (
+        request_field,
+        replace_namespace(ids_field, nested_shape="other-id-list"),
+        text_field,
+    )
+    expect_surface_rejection(
+        "wrong terminal catalog nested-shape target",
+        "nested-target identity mismatch",
+        wrong_terminal_surface,
+    )
+
+    wrong_link_spec = copy.deepcopy(linked_spec)
+    wrong_link_spec["shapes"]["other"] = {
+        "kind": "object", "completeness": "complete", "evidence": "self-test", "fields": [],
+    }
+    wrong_link_spec["clientMethods"][0]["requestFields"][0]["shapeRef"] = "other"
+    expect_rejection(
+        "wrong spec shape link",
+        "non-waivable field shape link mismatch",
+        mutated_spec=wrong_link_spec,
+        references=linked_refs,
+        roots=linked_roots,
+        shape_mappings=linked_mappings,
+    )
+    wrong_reference_spec = copy.deepcopy(linked_spec)
+    wrong_reference_spec["serverMessages"].append(copy.deepcopy(wrong_reference_spec["serverMessages"][0]))
+    wrong_reference_spec["serverMessages"][-1]["name"] = "other"
+    wrong_reference_spec["shapes"]["widget"]["target"] = "serverMessage:other"
+    expect_rejection(
+        "wrong reference target",
+        "non-waivable shape reference target mismatch",
+        mutated_spec=wrong_reference_spec,
+        references=linked_refs,
+        roots=linked_roots,
+        shape_mappings=linked_mappings,
+    )
+
+    for label, mutated_root, diagnostic in (
+        ("empty root vocabulary", replace_namespace(root_field, wire_names=()), "exact ('<root>',)"),
+        ("real wire name masquerading as root", replace_namespace(root_field, wire_names=("eventId",)), "exact ('<root>',)"),
+        ("missing root target", replace_namespace(root_field, nested_shape=None), "missing or unknown"),
+        ("unknown root target", replace_namespace(root_field, nested_shape="missing"), "missing or unknown"),
+    ):
+        mutated_surface = copy.deepcopy(fake_surface)
+        mutated_surface.SERVER_MESSAGE_CATALOG = (SimpleNamespace(method="eventAdd", fields=(mutated_root,)),)
+        expect_surface_rejection(label, diagnostic, mutated_surface)
+    nonroot_literal_surface = copy.deepcopy(fake_surface)
+    nonroot_literal_surface.REQUEST_FIELDS_BY_METHOD["example"] = (
+        replace_namespace(request_field, wire_names=("<root>",), decoder="u32"),
+    )
+    expect_surface_rejection("root literal on non-root field", "exact ('<root>',)", nonroot_literal_surface)
+    wrong_root_surface = copy.deepcopy(fake_surface)
+    other_shape = replace_namespace(
+        nested_shape,
+        name="other",
+        fields=(replace_namespace(nested_field, owner="other"),),
+    )
+    wrong_root_surface.REQUEST_REPLY_NESTED_SHAPES = (nested_shape, other_shape)
+    wrong_root_surface.SPEC_SHAPE_LINK_TARGETS["eventAdd.event"] = {
+        "<root>": ("message", "eventAdd"),
+    }
+    wrong_root_surface.CATALOG_NESTED_LINK_IDENTITIES["message.eventAdd.event"] = "other"
+    wrong_root_surface.SERVER_MESSAGE_CATALOG = (
+        SimpleNamespace(method="eventAdd", fields=(replace_namespace(root_field, nested_shape="other"),)),
+    )
+    expect_surface_rejection("wrong root target", "root target mismatch", wrong_root_surface)
+
+    malformed_kind = copy.deepcopy(linked_spec)
+    malformed_kind["shapes"]["widget"]["kind"] = "mystery"
+    expect_rejection(
+        "unknown shape kind", "unknown or malformed kind", mutated_spec=malformed_kind,
+        references=linked_refs, roots=linked_roots, shape_mappings=linked_mappings,
+    )
+    malformed_reference = copy.deepcopy(linked_spec)
+    malformed_reference["shapes"]["widget"]["target"] = "eventAdd"
+    expect_rejection(
+        "malformed reference target", "malformed reference target/fields structure",
+        mutated_spec=malformed_reference, references=linked_refs,
+        roots=linked_roots, shape_mappings=linked_mappings,
+    )
+    malformed_object = copy.deepcopy(linked_spec)
+    malformed_object["shapes"]["widget"] = {
+        "kind": "object", "completeness": "complete", "evidence": "self-test",
+    }
+    expect_rejection(
+        "malformed object shape", "complete object requires fields",
+        mutated_spec=malformed_object, references=linked_refs,
+        roots=linked_roots, shape_mappings=linked_mappings,
+    )
+
+    with tempfile.TemporaryDirectory() as directory:
+        output_root = Path(directory)
+        for relative in GENERATED_OUTPUTS:
+            output = output_root / relative
+            output.parent.mkdir(parents=True, exist_ok=True)
+            output.write_text("generated", encoding="utf-8")
+        validate_generated_outputs(output_root)
+        symlink_output = output_root / GENERATED_OUTPUTS[0]
+        symlink_output.unlink()
+        symlink_output.symlink_to(output_root / GENERATED_OUTPUTS[1])
+        try:
+            validate_generated_outputs(output_root)
+        except ValueError as error:
+            if "regular non-symlink file" not in str(error):
+                raise AssertionError(f"symlink output mutation produced the wrong diagnostic: {error}") from error
+        else:
+            raise AssertionError("generated output symlink mutation was accepted")
+        symlink_output.unlink()
+        try:
+            validate_generated_outputs(output_root)
+        except ValueError as error:
+            if "regular non-symlink file" not in str(error):
+                raise AssertionError(f"missing output mutation produced the wrong diagnostic: {error}") from error
+        else:
+            raise AssertionError("missing generated output mutation was accepted")
+        symlink_output.mkdir()
+        try:
+            validate_generated_outputs(output_root)
+        except ValueError as error:
+            if "regular non-symlink file" not in str(error):
+                raise AssertionError(f"non-regular output mutation produced the wrong diagnostic: {error}") from error
+        else:
+            raise AssertionError("non-regular generated output mutation was accepted")
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--self-test", action="store_true")
+    args = parser.parse_args(argv)
+    if args.self_test:
+        self_test()
+        print("HTSP generated-source drift checker self-test passed")
+        return 0
+
     errors: list[str] = []
+    if Path(__file__).is_symlink():
+        errors.append("drift checker must be invoked from a regular non-symlink file")
+    try:
+        self_test()
+        check_spec_consistency()
+        validate_generated_outputs(ROOT)
+    except (AssertionError, ImportError, ValueError) as error:
+        errors.append(str(error))
+    if errors:
+        for error in errors:
+            print(f"error: {error}", file=sys.stderr)
+        return 1
     for relative in GENERATORS:
         generator = ROOT / relative
         if not generator.is_file() or generator.is_symlink():

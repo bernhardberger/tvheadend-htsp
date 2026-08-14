@@ -962,6 +962,8 @@ def validate_catalog(
     nested_shapes: tuple[NestedShape, ...] = REQUEST_REPLY_NESTED_SHAPES,
     conditional_rules: tuple[ConditionalPresenceRule, ...] = REPLY_CONDITIONAL_PRESENCE_RULES,
     coupled_groups: tuple[CoupledPresenceGroup, ...] = REPLY_COUPLED_PRESENCE_GROUPS,
+    spec_status: str = REQUEST_SPEC_CONSISTENCY_STATUS,
+    spec_waivers: tuple[tuple[str, str], ...] = REQUEST_SPEC_WAIVERS,
 ) -> None:
     methods = tuple(entry.method for entry in entries)
     if len(methods) != 39 or len(set(methods)) != 39:
@@ -975,8 +977,17 @@ def validate_catalog(
         raise ValueError("every request must expose stable request and reply field collections")
     if REQUEST_VERBATIM_ESCAPES:
         raise ValueError("G2 must not use verbatim Kotlin escapes")
-    if REQUEST_SPEC_CONSISTENCY_STATUS != "pending-g3" or not REQUEST_SPEC_WAIVERS:
-        raise ValueError("G2 must retain pending G3 enforcement and explicit reviewed discrepancy data")
+    if spec_status != "verified-v44":
+        raise ValueError("request catalog must retain verified-v44 spec consistency status")
+    for waiver in spec_waivers:
+        if (
+            not isinstance(waiver, tuple)
+            or len(waiver) != 2
+            or not all(isinstance(value, str) for value in waiver)
+            or not waiver[0]
+            or not waiver[1].strip()
+        ):
+            raise ValueError("request spec waivers require one exact identity and a nonblank reason")
     request_fields = tuple(
         field for entry in entries for field in request_fields_by_method[entry.method]
     )
@@ -996,6 +1007,8 @@ def validate_catalog(
     if len(shape_names) != len(set(shape_names)):
         raise ValueError("reply nested shape names must be unique")
     for shape in nested_shapes:
+        if shape.spec_domain not in {"shape", "reply-shape"} or not shape.spec_owner:
+            raise ValueError(f"{shape.name}: nested reply shape lacks an exact spec owner mapping")
         for field in shape.fields:
             if field.owner != shape.name:
                 raise ValueError(f"{shape.name}.{field.kotlin_property}: nested reply field owner drift")
@@ -1121,6 +1134,11 @@ def self_test() -> None:
             divergent_file_close_model,
             *REQUEST_MODEL_CATALOG[file_close_model_index + 1:],
         ),
+    )
+    expect_catalog_rejection("pending spec consistency status", spec_status="pending-g3")
+    expect_catalog_rejection(
+        "blank spec waiver reason",
+        spec_waivers=((REQUEST_SPEC_WAIVERS[0][0], " "),),
     )
 
     get_event_fields = REPLY_FIELDS_BY_METHOD["getEvent"]

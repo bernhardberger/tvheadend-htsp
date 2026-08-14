@@ -104,6 +104,9 @@ class NestedShape:
     kotlin_type: str
     decoder: str
     fields: tuple[WireField, ...]
+    spec_domain: str = "shape"
+    spec_owner: str | None = None
+    spec_reference_target: str | None = None
 
 
 @dataclass(frozen=True)
@@ -238,6 +241,11 @@ LIST = "list"
 MAP = "map"
 REQ = "required"
 OPT = "optional"
+
+
+def _spec_waivers(reason: str, *identities: str) -> tuple[tuple[str, str], ...]:
+    """Attach one reviewed reason to each exact catalog occurrence."""
+    return tuple((identity, reason) for identity in identities)
 
 
 CHANNEL_NUMBER_KEYS = ("channelNumber", "number", "lcn", "channelNum", "channelno")
@@ -489,11 +497,18 @@ SOURCE_FIELDS = tuple(W("source-info", p, STR, OPT, "string", w, minimum_version
     ("provider", "provider"), ("service", "service"), ("satellitePosition", "satpos"),
 ))
 SERVER_NESTED_SHAPES = (
-    NestedShape("service", "HtspChannelService", "decodeServerChannelService", SERVICE_FIELDS),
-    NestedShape("dvr-file", "HtspDvrRecordingFile", "decodeDvrRecordingFile", DVR_FILE_FIELDS),
-    NestedShape("event", "HtspEvent", "decodeServerEvent", EVENT_FIELDS),
-    NestedShape("stream", "HtspSubscriptionStream", "decodeSubscriptionStream", STREAM_FIELDS),
-    NestedShape("source-info", "HtspSubscriptionSourceInfo", "decodeSubscriptionSourceInfo", SOURCE_FIELDS),
+    NestedShape("service", "HtspChannelService", "decodeServerChannelService", SERVICE_FIELDS, spec_owner="service"),
+    NestedShape("dvr-file", "HtspDvrRecordingFile", "decodeDvrRecordingFile", DVR_FILE_FIELDS, spec_owner="recordingFile"),
+    NestedShape(
+        "event",
+        "HtspEvent",
+        "decodeServerEvent",
+        EVENT_FIELDS,
+        spec_owner="event",
+        spec_reference_target="message:eventAdd",
+    ),
+    NestedShape("stream", "HtspSubscriptionStream", "decodeSubscriptionStream", STREAM_FIELDS, spec_owner="stream"),
+    NestedShape("source-info", "HtspSubscriptionSourceInfo", "decodeSubscriptionSourceInfo", SOURCE_FIELDS, spec_owner="sourceInfo"),
 )
 
 
@@ -643,7 +658,7 @@ SERVER_MESSAGE_CATALOG: tuple[ServerMessageEntry, ...] = (
     ServerMessageEntry("timerecEntryAdd", "HtspTimerecEntryAddMessage", "decodeTimerecEntryAdd", 18, timerec_fields("timerecEntryAdd", False)),
     ServerMessageEntry("timerecEntryUpdate", "HtspTimerecEntryUpdateMessage", "decodeTimerecEntryUpdate", 18, timerec_fields("timerecEntryUpdate", True)),
     ServerMessageEntry("timerecEntryDelete", "HtspTimerecEntryDeleteMessage", "decodeTimerecEntryDelete", 18, (W("timerecEntryDelete", "id", STR, REQ, "string", "id"),)),
-    ServerMessageEntry("eventAdd", "HtspEventAddMessage", "decodeEventAdd", 6, (W("eventAdd", "event", MAP, REQ, "root-shape", nested_shape="event"), W("eventAdd", "genre", STR, OPT, "event-genre", "genre", "category"), W("eventAdd", "episodeId", U32, OPT, "u32", "episodeId"), WF("eventAdd", "seriesLinkId", U32, OPT, "u32", ("serieslinkId", "seriesLinkId")))),
+    ServerMessageEntry("eventAdd", "HtspEventAddMessage", "decodeEventAdd", 6, (W("eventAdd", "event", MAP, REQ, "root-shape", "<root>", nested_shape="event"), W("eventAdd", "genre", STR, OPT, "event-genre", "genre", "category"), W("eventAdd", "episodeId", U32, OPT, "u32", "episodeId"), WF("eventAdd", "seriesLinkId", U32, OPT, "u32", ("serieslinkId", "seriesLinkId")))),
     ServerMessageEntry("eventUpdate", "HtspEventUpdateMessage", "decodeEventUpdate", 6, event_update_fields("eventUpdate")),
     ServerMessageEntry("eventDelete", "HtspEventDeleteMessage", "decodeEventDelete", 6, (WF("eventDelete", "eventId", U32, REQ, "u32", EVENT_ID_KEYS),)),
     ServerMessageEntry("initialSyncCompleted", "HtspInitialSyncCompletedMessage", "decodeInitialSyncCompleted", 2, ()),
@@ -699,11 +714,136 @@ SERVER_WIRE_FIELDS: tuple[WireField, ...] = tuple(
     field for entry in SERVER_MESSAGE_CATALOG for field in entry.fields
 ) + tuple(field for shape in SERVER_NESTED_SHAPES for field in shape.fields)
 
-# No G1 assertion is made about agreement with htsp_spec.json.  The structured
-# transcription was checked against the base Kotlin behavior; exhaustive spec
-# consistency enforcement and any required waivers remain pending G3.
-SERVER_SPEC_WAIVERS: tuple[tuple[str, str], ...] = ()
-SERVER_SPEC_CONSISTENCY_STATUS = "pending-g3"
+# Exact catalog occurrences that intentionally preserve accepted wire vocabulary
+# not represented identically by the pinned-v44 evidence.  G3 requires every
+# entry to be consumed by one mismatch and rejects stale or canonical waivers.
+SERVER_SPEC_WAIVERS: tuple[tuple[str, str], ...] = (
+    *_spec_waivers(
+        "shipped decoder accepts this exact compatibility wire name; pinned-v44 owner inventory omits it",
+        "message.channelAdd.channelNumber.wire.number",
+        "message.channelAdd.channelNumber.wire.lcn",
+        "message.channelAdd.channelNumber.wire.channelNum",
+        "message.channelAdd.channelNumber.wire.channelno",
+        "message.channelAdd.tagIds.wire.tagIds",
+        "message.channelAdd.tagIds.wire.channelTags",
+        "message.channelUpdate.channelNumber.wire.number",
+        "message.channelUpdate.channelNumber.wire.lcn",
+        "message.channelUpdate.channelNumber.wire.channelNum",
+        "message.channelUpdate.channelNumber.wire.channelno",
+        "message.channelUpdate.tagIds.wire.tagIds",
+        "message.channelUpdate.tagIds.wire.channelTags",
+        "message.tagAdd.tagId.wire.id",
+        "message.tagAdd.tagIndex.wire.index",
+        "message.tagAdd.tagName.wire.name",
+        "message.tagUpdate.tagId.wire.id",
+        "message.tagUpdate.tagIndex.wire.index",
+        "message.tagUpdate.tagName.wire.name",
+        "message.tagDelete.tagId.wire.id",
+        "message.dvrEntryAdd.entryId.wire.dvrId",
+        "message.dvrEntryAdd.channelId.wire.channelId",
+        "message.dvrEntryAdd.playCount.wire.playCount",
+        "message.dvrEntryAdd.playPositionSeconds.wire.playPosition",
+        "message.dvrEntryAdd.seasonNumber.wire.seasonNumber",
+        "message.dvrEntryAdd.episodeNumber.wire.episodeNumber",
+        "message.dvrEntryAdd.episodeCount.wire.episodeCount",
+        "message.dvrEntryAdd.partNumber.wire.partNumber",
+        "message.dvrEntryAdd.partCount.wire.partCount",
+        "message.dvrEntryAdd.state.wire.status",
+        "message.dvrEntryAdd.error.wire.statusError",
+        "message.dvrEntryUpdate.entryId.wire.dvrId",
+        "message.dvrEntryUpdate.channelId.wire.channelId",
+        "message.dvrEntryUpdate.playCount.wire.playCount",
+        "message.dvrEntryUpdate.playPositionSeconds.wire.playPosition",
+        "message.dvrEntryUpdate.seasonNumber.wire.seasonNumber",
+        "message.dvrEntryUpdate.episodeNumber.wire.episodeNumber",
+        "message.dvrEntryUpdate.episodeCount.wire.episodeCount",
+        "message.dvrEntryUpdate.partNumber.wire.partNumber",
+        "message.dvrEntryUpdate.partCount.wire.partCount",
+        "message.dvrEntryUpdate.state.wire.status",
+        "message.dvrEntryUpdate.error.wire.statusError",
+        "message.dvrEntryDelete.entryId.wire.dvrId",
+        "message.eventAdd.genre.wire.genre",
+        "message.eventAdd.episodeId.wire.episodeId",
+        "message.eventAdd.seriesLinkId.wire.serieslinkId",
+        "message.eventAdd.seriesLinkId.wire.seriesLinkId",
+        "message.eventUpdate.eventId.wire.id",
+        "message.eventUpdate.channelId.wire.channel",
+        "message.eventUpdate.start.wire.startTime",
+        "message.eventUpdate.stop.wire.stopTime",
+        "message.eventUpdate.title.wire.eventTitle",
+        "message.eventUpdate.title.wire.name",
+        "message.eventUpdate.genre.wire.genre",
+        "message.eventUpdate.contentType.wire.content",
+        "message.eventUpdate.seasonNumber.wire.season",
+        "message.eventUpdate.seasonNumber.nested-wire.season",
+        "message.eventUpdate.seasonCount.nested-wire.count",
+        "message.eventUpdate.episodeNumber.nested-wire.number",
+        "message.eventUpdate.episodeCount.nested-wire.count",
+        "message.eventUpdate.partNumber.wire.part",
+        "message.eventUpdate.partNumber.nested-wire.part",
+        "message.eventUpdate.episodeId.wire.episodeId",
+        "message.eventUpdate.seriesLinkId.wire.serieslinkId",
+        "message.eventUpdate.seriesLinkId.wire.seriesLinkId",
+        "message.eventDelete.eventId.wire.id",
+        "message.subscriptionStart.subscriptionId.wire.id",
+        "message.subscriptionStart.status.wire.state",
+        "message.subscriptionStart.status.wire.status",
+        "message.subscriptionStart.subscriptionError.wire.subscriptionError",
+        "message.subscriptionStart.subscriptionError.wire.error",
+        "message.subscriptionStop.subscriptionId.wire.id",
+        "message.subscriptionStop.status.wire.state",
+        "message.subscriptionStop.subscriptionError.wire.error",
+        "message.subscriptionStatus.subscriptionId.wire.id",
+        "message.subscriptionStatus.status.wire.state",
+        "message.subscriptionStatus.subscriptionError.wire.error",
+        "message-nested.dvr-file.fileId.wire.id",
+        "message-nested.dvr-file.path.wire.filename",
+        "message-nested.dvr-file.path.wire.path",
+        "message-nested.dvr-file.start.wire.start",
+        "message-nested.dvr-file.stop.wire.stop",
+        "message-nested.dvr-file.sizeBytes.wire.size",
+        "message-nested.event.eventId.wire.id",
+        "message-nested.event.channelId.wire.channel",
+        "message-nested.event.start.wire.startTime",
+        "message-nested.event.stop.wire.stopTime",
+        "message-nested.event.title.wire.eventTitle",
+        "message-nested.event.title.wire.name",
+        "message-nested.event.contentType.wire.content",
+        "message-nested.event.seasonNumber.wire.season",
+        "message-nested.event.seasonNumber.nested-wire.season",
+        "message-nested.event.seasonCount.nested-wire.count",
+        "message-nested.event.episodeNumber.nested-wire.number",
+        "message-nested.event.episodeCount.nested-wire.count",
+        "message-nested.event.partNumber.wire.part",
+        "message-nested.event.partNumber.nested-wire.part",
+    ),
+    *_spec_waivers(
+        "shipped decoder preserves Boolean flag handling; pinned-v44 emitter evidence records u32",
+        "message.autorecEntryAdd.enabled.wire.enabled",
+        "message.autorecEntryAdd.fullText.wire.fulltext",
+        "message.autorecEntryAdd.mergeText.wire.mergetext",
+        "message.autorecEntryUpdate.enabled.wire.enabled",
+        "message.autorecEntryUpdate.fullText.wire.fulltext",
+        "message.autorecEntryUpdate.mergeText.wire.mergetext",
+        "message.timerecEntryAdd.enabled.wire.enabled",
+        "message.timerecEntryUpdate.enabled.wire.enabled",
+    ),
+    *_spec_waivers(
+        "shipped decoder preserves signed channel handling; pinned-v44 emitter evidence records u32",
+        "message.timerecEntryAdd.channelId.wire.channel",
+        "message.timerecEntryUpdate.channelId.wire.channel",
+    ),
+    *_spec_waivers(
+        "shipped decoder accepts a scalar compatibility alias; pinned-v44 canonical field is a list",
+        "message.eventAdd.genre.wire.category",
+        "message.eventUpdate.genre.wire.category",
+    ),
+    *_spec_waivers(
+        "shipped catalog distinguishes the accepted map container; pinned-v44 evidence records generic msg",
+        "message.subscriptionStart.sourceInfo.wire.sourceinfo",
+    ),
+)
+SERVER_SPEC_CONSISTENCY_STATUS = "verified-v44"
 
 # G1 uses no per-entry verbatim Kotlin escape.  Irregular event/timerec/nested
 # behavior is represented by named decoder and validation features above.
@@ -1476,24 +1616,31 @@ _EVENT_REPLY_FIELDS = _reply_fields("event",
 REQUEST_REPLY_NESTED_SHAPES: tuple[NestedShape, ...] = (
     NestedShape("profile", "HtspProfile", "profileFromFields", _reply_fields("profile",
         ("profileUuid", "uuid", STR, REQ, "string"), ("name", "name", STR, REQ, "string"),
-        ("comment", "comment", STR, REQ, "string"))),
+        ("comment", "comment", STR, REQ, "string")), spec_owner="profile"),
     NestedShape("dvr-config", "HtspDvrConfig", "dvrConfigFromFields", _reply_fields("dvr-config",
         ("dvrConfigUuid", "uuid", STR, REQ, "string"), ("name", "name", STR, REQ, "string"),
-        ("comment", "comment", STR, REQ, "string"))),
+        ("comment", "comment", STR, REQ, "string")), spec_owner="dvrConfig"),
     NestedShape("channel-service", "HtspChannelService", "serviceFromFields", _reply_fields("channel-service",
         ("name", "name", STR, REQ, "string"), ("type", "type", STR, REQ, "string"),
         ("content", "content", U32, REQ, "u32"), ("conditionalAccessId", "caid", U32, OPT, "u32"),
         ("conditionalAccessName", "caname", STR, OPT, "string"),
-        ("providerName", "providername", STR, OPT, "string"))),
-    NestedShape("event", "HtspEvent", "eventFromFields", _EVENT_REPLY_FIELDS),
+        ("providerName", "providername", STR, OPT, "string")), spec_owner="service"),
+    NestedShape(
+        "event",
+        "HtspEvent",
+        "eventFromFields",
+        _EVENT_REPLY_FIELDS,
+        spec_owner="event",
+        spec_reference_target="message:eventAdd",
+    ),
     NestedShape("cutpoint", "HtspDvrCutpoint", "cutpointFromFields", _reply_fields("cutpoint",
         ("start", "start", U32, REQ, "u32"), ("end", "end", U32, REQ, "u32"),
-        ("type", "type", U32, REQ, "u32"))),
+        ("type", "type", U32, REQ, "u32")), spec_owner="cutpoint"),
     NestedShape("epg-episode-number", "HtspEpgEpisodeNumber", "optionalEpgEpisodeNumber", _reply_fields("epg-episode-number",
         ("episodeNumber", "enum", U32, OPT, "u32"), ("episodeCount", "ecnt", U32, OPT, "u32"),
         ("seasonNumber", "snum", U32, OPT, "u32"), ("seasonCount", "scnt", U32, OPT, "u32"),
         ("partNumber", "pnum", U32, OPT, "u32"), ("partCount", "pcnt", U32, OPT, "u32"),
-        ("text", "text", STR, OPT, "string"))),
+        ("text", "text", STR, OPT, "string")), spec_owner="epgEpisodeNumber"),
     NestedShape("epg-broadcast", "HtspEpgBroadcastObject", "epgBroadcastObjectFromFields", _reply_fields("epg-broadcast",
         ("objectType", "tp", U32, REQ, "broadcast-type"), ("id", "id", U32, REQ, "u32"),
         ("updatedUnixSeconds", "up", S64, REQ, "s64"), ("startUnixSeconds", "start", S64, REQ, "s64"),
@@ -1517,12 +1664,233 @@ REQUEST_REPLY_NESTED_SHAPES: tuple[NestedShape, ...] = (
         ("copyrightYear", "cyear", U32, OPT, "u32"), ("firstAiredUnixSeconds", "fair", S64, OPT, "s64"),
         ("categories", "cat", LIST, OPT, "sorted-unique-string-list", None, "string-list", False),
         ("keywords", "key", LIST, OPT, "sorted-unique-string-list", None, "string-list", False),
-        ("seriesLinkUri", "slink", STR, OPT, "string"), ("episodeLinkUri", "elink", STR, OPT, "string"))),
+        ("seriesLinkUri", "slink", STR, OPT, "string"), ("episodeLinkUri", "elink", STR, OPT, "string")),
+        spec_domain="reply-shape", spec_owner="getEpgObject"),
 )
 
 REQUEST_REPLY_TERMINAL_NESTED_TARGETS: tuple[str, ...] = (
     "api-value", "localized-string-map", "string-list", "u32-list",
 )
+
+# Every catalog nested link resolves through one explicit pinned-spec target.
+# ``None`` records an intentionally unconstrained container with no shapeRef in
+# the committed evidence. Root projections additionally require an exact
+# owner/target relation below.
+SPEC_SHAPE_LINK_TARGETS: dict[str, dict[str, tuple[str, str] | None]] = {
+    "api.args": {"args": None},
+    "api.response": {"response": None},
+    "channelAdd.services": {"services": ("shape", "service")},
+    "channelAdd.tagIds": {"tagIds": None, "tags": ("shape", "u32"), "channelTags": None},
+    "channelUpdate.services": {"services": ("shape", "service")},
+    "channelUpdate.tagIds": {"tagIds": None, "tags": ("shape", "u32"), "channelTags": None},
+    "dvrEntryAdd.files": {"files": ("shape", "recordingFile")},
+    "dvrEntryUpdate.files": {"files": ("shape", "recordingFile")},
+    "epg-broadcast.categories": {"cat": ("shape", "str")},
+    "epg-broadcast.descriptions": {"des": ("shape", "epgLanguageStrings")},
+    "epg-broadcast.episodeNumber": {"epn": ("shape", "epgEpisodeNumber")},
+    "epg-broadcast.genres": {"genre": ("shape", "u32")},
+    "epg-broadcast.keywords": {"key": ("shape", "str")},
+    "epg-broadcast.subtitles": {"sti": ("shape", "epgLanguageStrings")},
+    "epg-broadcast.summaries": {"sum": ("shape", "epgLanguageStrings")},
+    "epg-broadcast.titles": {"tit": ("shape", "epgLanguageStrings")},
+    "epgQuery.eventIds": {"eventIds": ("shape", "u32")},
+    "epgQuery.events": {"events": ("shape", "event")},
+    "event.categories": {"category": ("shape", "str")},
+    "event.keywords": {"keyword": ("shape", "str")},
+    "eventAdd.event": {"<root>": ("message", "eventAdd")},
+    "eventAdd.genre": {"genre": None, "category": ("shape", "str")},
+    "eventUpdate.categories": {"category": ("shape", "str")},
+    "eventUpdate.genre": {"genre": None, "category": ("shape", "str")},
+    "eventUpdate.keywords": {"keyword": ("shape", "str")},
+    "getChannel.services": {"services": ("shape", "service")},
+    "getChannel.tagIds": {"tags": ("shape", "u32")},
+    "getDvrConfigs.configurations": {"dvrconfigs": ("shape", "dvrConfig")},
+    "getDvrCutpoints.cutpoints": {"cutpoints": ("shape", "cutpoint")},
+    "getEpgObject.broadcast": {"<root>": ("reply", "getEpgObject")},
+    "getEvent.event": {"<root>": ("reply", "getEvent")},
+    "getEvents.events": {"events": ("shape", "event")},
+    "getProfiles.profiles": {"profiles": ("shape", "profile")},
+    "hello.serverCapabilities": {"servercapability": None},
+    "subscriptionFilterStream.disable": {"disable": ("shape", "u32")},
+    "subscriptionFilterStream.enable": {"enable": ("shape", "u32")},
+    "subscriptionStart.sourceInfo": {"sourceinfo": ("shape", "sourceInfo")},
+    "subscriptionStart.streams": {"streams": ("shape", "stream")},
+    "tagAdd.channelIds": {"members": ("shape", "u32")},
+    "tagUpdate.channelIds": {"members": ("shape", "u32")},
+}
+
+# Terminal decoder targets do not own catalog field declarations. Each one
+# still records the complete set of pinned-spec links admitted for its uses;
+# ``None`` is intentional where the evidence has no shapeRef.
+TERMINAL_NESTED_SPEC_TARGETS: dict[
+    str,
+    tuple[tuple[str, str] | None, ...],
+] = {
+    "api-object": (None,),
+    "api-value": (None,),
+    "localized-string-map": (("shape", "epgLanguageStrings"),),
+    "string-list": (("shape", "str"), None),
+    "u32-list": (("shape", "u32"),),
+}
+
+# Exact catalog target identity for every occurrence that traverses another
+# catalog shape or a terminal decoder target. Spec targets alone are not
+# injective (for example, both API targets intentionally map to no shapeRef).
+CATALOG_NESTED_LINK_IDENTITIES: dict[str, str] = {
+    "message.channelAdd.services": "service",
+    "message.channelUpdate.services": "service",
+    "message.dvrEntryAdd.files": "dvr-file",
+    "message.dvrEntryUpdate.files": "dvr-file",
+    "message.eventAdd.event": "event",
+    "message.subscriptionStart.sourceInfo": "source-info",
+    "message.subscriptionStart.streams": "stream",
+    "reply.api.response": "api-value",
+    "reply.epgQuery.eventIds": "u32-list",
+    "reply.epgQuery.events": "event",
+    "reply.getChannel.services": "channel-service",
+    "reply.getChannel.tagIds": "u32-list",
+    "reply.getDvrConfigs.configurations": "dvr-config",
+    "reply.getDvrCutpoints.cutpoints": "cutpoint",
+    "reply.getEpgObject.broadcast": "epg-broadcast",
+    "reply.getEvent.event": "event",
+    "reply.getEvents.events": "event",
+    "reply.getProfiles.profiles": "profile",
+    "reply.hello.serverCapabilities": "string-list",
+    "request.api.args": "api-object",
+    "request.subscriptionFilterStream.disable": "u32-list",
+    "request.subscriptionFilterStream.enable": "u32-list",
+    "request-nested.epg-broadcast.categories": "string-list",
+    "request-nested.epg-broadcast.descriptions": "localized-string-map",
+    "request-nested.epg-broadcast.episodeNumber": "epg-episode-number",
+    "request-nested.epg-broadcast.genres": "u32-list",
+    "request-nested.epg-broadcast.keywords": "string-list",
+    "request-nested.epg-broadcast.subtitles": "localized-string-map",
+    "request-nested.epg-broadcast.summaries": "localized-string-map",
+    "request-nested.epg-broadcast.titles": "localized-string-map",
+    "request-nested.event.categories": "string-list",
+    "request-nested.event.keywords": "string-list",
+}
+
+ROOT_SPEC_RELATIONS: tuple[tuple[str, str, str], ...] = (
+    ("event", "message", "eventAdd"),
+    ("event", "reply", "getEvent"),
+    ("epg-broadcast", "reply", "getEpgObject"),
+)
+
+# Explicit root-owner spec fields represented by each linked domain-specific
+# catalog shape. These non-waivable signatures permit unrelated extra owner
+# fields while preventing an ordinary compatibility waiver from masking root
+# payload drift.
+ROOT_SPEC_PAYLOAD_SIGNATURES: dict[
+    tuple[str, str, str],
+    tuple[tuple[str, str, int | None, str | None], ...],
+] = {
+    ("event", "message", "eventAdd"): (
+        ("ageRating", "u32", None, None),
+        ("category", "list", None, "str"),
+        ("channelId", "u32", None, None),
+        ("contentType", "u32", None, None),
+        ("copyrightYear", "u32", None, None),
+        ("description", "str", None, None),
+        ("dvrId", "u32", None, None),
+        ("episodeCount", "u32", None, None),
+        ("episodeNumber", "u32", None, None),
+        ("episodeOnscreen", "str", None, None),
+        ("episodeUri", "str", None, None),
+        ("eventId", "u32", None, None),
+        ("firstAired", "s64", None, None),
+        ("image", "str", None, None),
+        ("isNew", "u32", None, None),
+        ("keyword", "list", None, "str"),
+        ("nextEventId", "u32", None, None),
+        ("partCount", "u32", None, None),
+        ("partNumber", "u32", None, None),
+        ("ratingAuthority", "str", 41, None),
+        ("ratingCountry", "str", 41, None),
+        ("ratingIcon", "str", None, None),
+        ("ratingLabel", "str", None, None),
+        ("seasonCount", "u32", None, None),
+        ("seasonNumber", "u32", None, None),
+        ("serieslinkUri", "str", None, None),
+        ("starRating", "u32", None, None),
+        ("start", "s64", None, None),
+        ("stop", "s64", None, None),
+        ("subtitle", "str", None, None),
+        ("summary", "str", None, None),
+        ("title", "str", None, None),
+    ),
+    ("event", "reply", "getEvent"): (
+        ("ageRating", "u32", None, None),
+        ("category", "list", None, "str"),
+        ("channelId", "u32", None, None),
+        ("contentType", "u32", None, None),
+        ("copyrightYear", "u32", None, None),
+        ("description", "str", None, None),
+        ("dvrId", "u32", None, None),
+        ("episodeCount", "u32", None, None),
+        ("episodeNumber", "u32", None, None),
+        ("episodeOnscreen", "str", None, None),
+        ("episodeUri", "str", None, None),
+        ("eventId", "u32", None, None),
+        ("firstAired", "s64", None, None),
+        ("image", "str", None, None),
+        ("isNew", "u32", None, None),
+        ("keyword", "list", None, "str"),
+        ("nextEventId", "u32", None, None),
+        ("partCount", "u32", None, None),
+        ("partNumber", "u32", None, None),
+        ("ratingAuthority", "str", None, None),
+        ("ratingCountry", "str", None, None),
+        ("ratingIcon", "str", None, None),
+        ("ratingLabel", "str", None, None),
+        ("seasonCount", "u32", None, None),
+        ("seasonNumber", "u32", None, None),
+        ("serieslinkUri", "str", None, None),
+        ("starRating", "u32", None, None),
+        ("start", "s64", None, None),
+        ("stop", "s64", None, None),
+        ("subtitle", "str", None, None),
+        ("summary", "str", None, None),
+        ("title", "str", None, None),
+    ),
+    ("epg-broadcast", "reply", "getEpgObject"): (
+        ("age", "u32", None, None),
+        ("aspect", "u32", None, None),
+        ("cat", "list", None, "str"),
+        ("ch", "str", None, None),
+        ("cyear", "u32", None, None),
+        ("des", "msg", None, "epgLanguageStrings"),
+        ("eid", "u32", None, None),
+        ("elink", "str", None, None),
+        ("epn", "msg", None, "epgEpisodeNumber"),
+        ("fair", "s64", None, None),
+        ("genre", "list", None, "u32"),
+        ("gr", "str", None, None),
+        ("id", "u32", None, None),
+        ("img", "str", None, None),
+        ("is_ad", "u32", None, None),
+        ("is_bw", "u32", None, None),
+        ("is_de", "u32", None, None),
+        ("is_hd", "u32", None, None),
+        ("is_n", "u32", None, None),
+        ("is_r", "u32", None, None),
+        ("is_st", "u32", None, None),
+        ("is_wd", "u32", None, None),
+        ("key", "list", None, "str"),
+        ("lines", "u32", None, None),
+        ("ratlab", "str", None, None),
+        ("slink", "str", None, None),
+        ("star", "u32", None, None),
+        ("start", "s64", None, None),
+        ("sti", "msg", None, "epgLanguageStrings"),
+        ("stop", "s64", None, None),
+        ("sum", "msg", None, "epgLanguageStrings"),
+        ("tit", "msg", None, "epgLanguageStrings"),
+        ("tp", "u32", None, None),
+        ("up", "s64", None, None),
+        ("xeid", "str", None, None),
+    ),
+}
 
 
 _MUTATION_REPLY = (
@@ -1640,19 +2008,92 @@ REPLY_WIRE_FIELDS: tuple[WireField, ...] = tuple(
     field for entry in CATALOG for field in REPLY_FIELDS_BY_METHOD[entry.method]
 ) + tuple(field for shape in REQUEST_REPLY_NESTED_SHAPES for field in shape.fields)
 
-# Exhaustive checked-in evidence enforcement remains a G3 gate.  This catalog
-# records the known accepted source/document mismatch without changing wire
-# behavior in G2; the pinned v44 dispatch evidence and shipped decoder both use
-# s32 for getSysTime `time`, while the upstream prose method page says s64.
+# Exact catalog occurrences that intentionally preserve accepted wire vocabulary
+# not represented identically by the pinned-v44 evidence.  G3 requires every
+# entry to be consumed by one mismatch and rejects stale or canonical waivers.
 REQUEST_SPEC_WAIVERS: tuple[tuple[str, str], ...] = (
-    ("getSysTime.reply.time", "shipped and pinned-v44 type is s32; upstream prose page says s64"),
-    ("addDvrEntry.reply.dvrId", "shipped decoder accepts the legacy dvrId alias when id is absent"),
-    ("updateDvrEntry.reply.error", "shipped mutation decoder accepts error text although bounded v44 evidence lists only success"),
-    ("stopDvrEntry.reply.error", "shipped mutation decoder accepts error text although complete success evidence lists only success=1"),
-    ("cancelDvrEntry.reply.error", "shipped mutation decoder accepts error text although bounded v44 evidence lists only success"),
-    ("deleteDvrEntry.reply.error", "shipped mutation decoder accepts error text although bounded v44 evidence lists only success"),
+    *_spec_waivers(
+        "shipped field-level compatibility gate is retained; pinned-v44 field evidence records no minimum",
+        "request.getEvent.language.wire.language",
+        "request.addDvrEntry.selector.wire.channelId",
+        "request.addDvrEntry.selector.wire.start",
+        "request.addDvrEntry.selector.wire.stop",
+        "request.addDvrEntry.title.wire.title",
+        "request.addDvrEntry.subtitle.wire.subtitle",
+        "request.addDvrEntry.description.wire.description",
+        "request.addDvrEntry.ageRating.wire.ageRating",
+        "request.updateDvrEntry.channelId.wire.channelId",
+        "request.updateDvrEntry.subtitle.wire.subtitle",
+        "request.updateDvrEntry.description.wire.description",
+        "request.updateDvrEntry.comment.wire.comment",
+        "request.updateDvrEntry.playCount.wire.playcount",
+        "request.updateDvrEntry.playPosition.wire.playposition",
+        "request.updateDvrEntry.enabled.wire.enabled",
+        "request.updateDvrEntry.startExtra.wire.startExtra",
+        "request.updateDvrEntry.stopExtra.wire.stopExtra",
+        "request.updateDvrEntry.retention.wire.retention",
+        "request.updateDvrEntry.priority.wire.priority",
+        "request.updateDvrEntry.ageRating.wire.ageRating",
+        "request.addTimerecEntry.name.wire.name",
+        "request.updateTimerecEntry.name.wire.name",
+        "request.subscribe.profile.wire.profile",
+        "request.subscribe.ninetyKhz.wire.90khz",
+        "request.subscribe.timeshiftPeriodSeconds.wire.timeshiftPeriod",
+        "request.subscribe.queueDepth.wire.queueDepth",
+    ),
+    *_spec_waivers(
+        "shipped reply decoder accepts this compatibility field; pinned-v44 method reply does not inventory it",
+        "reply.addDvrEntry.entryId.wire.dvrId",
+        "reply.updateDvrEntry.error.wire.error",
+        "reply.stopDvrEntry.error.wire.error",
+        "reply.cancelDvrEntry.error.wire.error",
+        "reply.deleteDvrEntry.error.wire.error",
+    ),
+    *_spec_waivers(
+        "shipped catalog distinguishes the accepted map container; pinned-v44 evidence records generic msg",
+        "request.api.args.wire.args",
+        "reply.api.response.wire.response",
+    ),
+    *_spec_waivers(
+        "shipped catalog distinguishes the accepted list container; pinned-v44 evidence records generic msg",
+        "reply.hello.serverCapabilities.wire.servercapability",
+    ),
+    *_spec_waivers(
+        "shipped bounded nested mapping is retained; its pinned-v44 shape is intentionally opaque",
+        "request-nested.profile.profileUuid.wire.uuid",
+        "request-nested.profile.name.wire.name",
+        "request-nested.profile.comment.wire.comment",
+        "request-nested.dvr-config.dvrConfigUuid.wire.uuid",
+        "request-nested.dvr-config.name.wire.name",
+        "request-nested.dvr-config.comment.wire.comment",
+    ),
+    *_spec_waivers(
+        "shipped versionless nested decoder remains compatible; pinned-v44 evidence records a field minimum",
+        "request-nested.channel-service.providerName.wire.providername",
+        "request-nested.event.ratingAuthority.wire.ratingAuthority",
+        "request-nested.event.ratingCountry.wire.ratingCountry",
+    ),
+    *_spec_waivers(
+        "shipped decoder preserves Boolean flag handling; pinned-v44 emitter evidence records u32",
+        "request-nested.epg-broadcast.widescreen.wire.is_wd",
+        "request-nested.epg-broadcast.highDefinition.wire.is_hd",
+        "request-nested.epg-broadcast.blackAndWhite.wire.is_bw",
+        "request-nested.epg-broadcast.deafSigned.wire.is_de",
+        "request-nested.epg-broadcast.subtitled.wire.is_st",
+        "request-nested.epg-broadcast.audioDescribed.wire.is_ad",
+        "request-nested.epg-broadcast.isNew.wire.is_n",
+        "request-nested.epg-broadcast.isRepeat.wire.is_r",
+    ),
+    *_spec_waivers(
+        "shipped catalog distinguishes the accepted map container; pinned-v44 evidence records generic msg",
+        "request-nested.epg-broadcast.titles.wire.tit",
+        "request-nested.epg-broadcast.subtitles.wire.sti",
+        "request-nested.epg-broadcast.summaries.wire.sum",
+        "request-nested.epg-broadcast.descriptions.wire.des",
+        "request-nested.epg-broadcast.episodeNumber.wire.epn",
+    ),
 )
-REQUEST_SPEC_CONSISTENCY_STATUS = "pending-g3"
+REQUEST_SPEC_CONSISTENCY_STATUS = "verified-v44"
 REQUEST_VERBATIM_ESCAPES: tuple[tuple[str, str], ...] = ()
 
 # KDoc on nested public declarations is catalog data too; the model renderer
