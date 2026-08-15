@@ -69,10 +69,14 @@ tasks.register("verifyProductionDependencyGraph") {
     group = "verification"
     description = "Checks the JVM-only production dependency graph."
     doLast {
-        val direct = configurations.getByName("api").dependencies.map { dependency ->
-            "${dependency.group}:${dependency.name}:${dependency.version}"
-        }
-        check(direct == listOf("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2")) {
+        val direct = configurations.getByName("api").dependencies
+            .map { dependency -> "${dependency.group}:${dependency.name}:${dependency.version}" }
+            .toSortedSet()
+        val expectedDirect = sortedSetOf(
+            "org.jetbrains.kotlin:kotlin-stdlib:2.3.10",
+            "org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2",
+        )
+        check(direct == expectedDirect) {
             "Unexpected direct production dependencies: $direct"
         }
         val resolved = configurations.getByName("runtimeClasspath")

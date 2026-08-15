@@ -54,6 +54,38 @@ ATTRIBUTES_POLICY = (
     "*.jar binary\n"
     "*.hex text eol=lf\n"
 )
+DIRECT_DEPENDENCY_TASK_CONTRACT = """
+        val direct = configurations.getByName("api").dependencies
+            .map { dependency -> "${dependency.group}:${dependency.name}:${dependency.version}" }
+            .toSortedSet()
+        val expectedDirect = sortedSetOf(
+            "org.jetbrains.kotlin:kotlin-stdlib:2.3.10",
+            "org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2",
+        )
+        check(direct == expectedDirect) {
+            "Unexpected direct production dependencies: $direct"
+        }
+""".strip("\n")
+DIRECT_DEPENDENCY_TASK_BODY_CONTRACT = f"""
+    group = "verification"
+    description = "Checks the JVM-only production dependency graph."
+    doLast {{
+{DIRECT_DEPENDENCY_TASK_CONTRACT}
+        val resolved = configurations.getByName("runtimeClasspath")
+            .incoming.resolutionResult.allComponents
+            .mapNotNull {{ component -> component.id as? ModuleComponentIdentifier }}
+            .map {{ identifier -> "${{identifier.group}}:${{identifier.module}}:${{identifier.version}}" }}
+            .toSet()
+        val allowed = setOf(
+            "org.jetbrains:annotations:23.0.0",
+            "org.jetbrains.kotlin:kotlin-stdlib:2.3.10",
+            "org.jetbrains.kotlinx:kotlinx-coroutines-bom:1.10.2",
+            "org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2",
+            "org.jetbrains.kotlinx:kotlinx-coroutines-core-jvm:1.10.2",
+        )
+        check(resolved == allowed) {{ "Unexpected production resolution graph: $resolved" }}
+    }}
+""".strip("\n")
 
 ROOT_ENTRIES = {
     ".git", ".gitattributes", ".github", ".gitignore", "AGENTS.md", "CONTRIBUTING.md",
@@ -102,6 +134,209 @@ def read(path: Path, errors: list[str]) -> str:
     except (OSError, UnicodeError) as error:
         errors.append(f"{path}: required UTF-8 file is unavailable ({error})")
         return ""
+
+
+def kotlin_tokens(text: str) -> tuple[list[tuple[str, str, int, int]], str | None]:
+    """Tokenize only the Kotlin syntax needed to locate a bounded task body."""
+    tokens: list[tuple[str, str, int, int]] = []
+    index = 0
+    while index < len(text):
+        character = text[index]
+        if character.isspace():
+            index += 1
+            continue
+        if text.startswith("//", index):
+            newline = text.find("\n", index + 2)
+            index = len(text) if newline < 0 else newline + 1
+            continue
+        if text.startswith("/*", index):
+            depth = 1
+            index += 2
+            while index < len(text) and depth:
+                if text.startswith("/*", index):
+                    depth += 1
+                    index += 2
+                elif text.startswith("*/", index):
+                    depth -= 1
+                    index += 2
+                else:
+                    index += 1
+            if depth:
+                return tokens, "unclosed block comment"
+            continue
+        if text.startswith('"""', index):
+            start = index
+            closing = text.find('"""', index + 3)
+            if closing < 0:
+                return tokens, "unclosed triple-quoted string"
+            index = closing + 3
+            tokens.append(("string", text[start:index], start, index))
+            continue
+        if character in {'"', "'"}:
+            start = index
+            quote = character
+            index += 1
+            while index < len(text):
+                if text[index] == "\\":
+                    index += 2
+                elif text[index] == quote:
+                    index += 1
+                    tokens.append(("string" if quote == '"' else "character", text[start:index], start, index))
+                    break
+                elif text[index] == "\n":
+                    return tokens, "unclosed quoted literal"
+                else:
+                    index += 1
+            else:
+                return tokens, "unclosed quoted literal"
+            continue
+        if character.isalpha() or character == "_":
+            start = index
+            index += 1
+            while index < len(text) and (text[index].isalnum() or text[index] == "_"):
+                index += 1
+            tokens.append(("identifier", text[start:index], start, index))
+            continue
+        tokens.append(("symbol", character, index, index + 1))
+        index += 1
+    return tokens, None
+
+
+def matching_brace(tokens: list[tuple[str, str, int, int]], opening: int) -> int | None:
+    depth = 0
+    for index in range(opening, len(tokens)):
+        value = tokens[index][1]
+        if value == "{":
+            depth += 1
+        elif value == "}":
+            depth -= 1
+            if depth == 0:
+                return index
+    return None
+
+
+def kotlin_brace_balance_error(tokens: list[tuple[str, str, int, int]]) -> str | None:
+    depth = 0
+    for token in tokens:
+        if token[1] == "{":
+            depth += 1
+        elif token[1] == "}":
+            depth -= 1
+            if depth < 0:
+                return "build Kotlin structure is unbalanced: unmatched closing brace"
+    if depth != 0:
+        return "build Kotlin structure is unbalanced: unmatched opening brace"
+    return None
+
+
+def direct_dependency_task_errors(build: str) -> list[str]:
+    tokens, lexical_error = kotlin_tokens(build)
+    if lexical_error is not None:
+        return [f"target task declaration malformed: {lexical_error}"]
+    brace_balance_error = kotlin_brace_balance_error(tokens)
+
+    target = '"verifyProductionDependencyGraph"'
+    declarations: list[tuple[int, int]] = []
+    for index in range(len(tokens) - 4):
+        if (
+            tokens[index][0:2] == ("identifier", "tasks")
+            and tokens[index + 1][1] == "."
+            and tokens[index + 2][0:2] == ("identifier", "register")
+            and tokens[index + 3][1] == "("
+            and tokens[index + 4][0:2] == ("string", target)
+        ):
+            declarations.append((index, index + 4))
+    if not declarations:
+        return ["target task declaration missing"]
+    if len(declarations) != 1:
+        return ["target task declaration duplicated"]
+
+    declaration, name = declarations[0]
+    if name + 2 >= len(tokens) or tokens[name + 1][1] != ")" or tokens[name + 2][1] != "{":
+        return ["target task declaration malformed"]
+
+    task_open = name + 2
+    task_close = matching_brace(tokens, task_open)
+    if task_close is None:
+        return ["target task body is unbalanced"]
+    if brace_balance_error is not None:
+        return [brace_balance_error]
+
+    prefix_depth = {"{": 0, "(": 0, "[": 0}
+    closing_to_opening = {"}": "{", ")": "(", "]": "["}
+    for token in tokens[:declaration]:
+        value = token[1]
+        if value in prefix_depth:
+            prefix_depth[value] += 1
+        elif value in closing_to_opening:
+            opening = closing_to_opening[value]
+            prefix_depth[opening] -= 1
+    previous = tokens[declaration - 1][1] if declaration else None
+    if any(prefix_depth.values()) or previous == ".":
+        return ["target task declaration must be a standalone top-level expression"]
+    if previous in {"=", "by"}:
+        return ["target task declaration must be an uncaptured top-level expression"]
+
+    task_depth = 1
+    do_last_identifiers: list[int] = []
+    for index in range(task_open + 1, task_close):
+        value = tokens[index][1]
+        if tokens[index][0:2] == ("identifier", "doLast") and task_depth == 1:
+            do_last_identifiers.append(index)
+        if value == "{":
+            task_depth += 1
+        elif value == "}":
+            task_depth -= 1
+    if (
+        len(do_last_identifiers) != 1
+        or tokens[do_last_identifiers[0] - 1][1] == "."
+        or do_last_identifiers[0] + 1 >= task_close
+        or tokens[do_last_identifiers[0] + 1][1] != "{"
+    ):
+        return ["target task action must be one unqualified doLast"]
+    do_last_open = do_last_identifiers[0] + 1
+    do_last_close = matching_brace(tokens, do_last_open)
+    if do_last_close is None or do_last_close >= task_close:
+        return ["target task body is unbalanced"]
+
+    task_tokens = tokens[task_open + 1:task_close]
+    for index in range(len(task_tokens) - 2):
+        values = tuple(token[1] for token in task_tokens[index:index + 3])
+        if values == ("enabled", "=", "false"):
+            return ["target task executable bypass forbidden: enabled = false"]
+        if values == ("return", "@", "doLast"):
+            return ["target task executable bypass forbidden: return@doLast"]
+    for index, token in enumerate(task_tokens):
+        if token[0:2] != ("identifier", "onlyIf"):
+            continue
+        opening = index + 1
+        while opening < len(task_tokens) and task_tokens[opening][1] != "{":
+            opening += 1
+        if opening < len(task_tokens):
+            closing = matching_brace(task_tokens, opening)
+            if closing is not None and [item[0:2] for item in task_tokens[opening + 1:closing]] == [
+                ("identifier", "false")
+            ]:
+                return ["target task executable bypass forbidden: onlyIf false"]
+
+    target_name_tokens = [
+        token for token in tokens
+        if token[0] == "string" and token[1] in {target, f'"""{target[1:-1]}"""'}
+    ]
+    if len(target_name_tokens) != 1:
+        return ["target task reconfiguration outside declaration is forbidden"]
+
+    expected_tokens, expected_error = kotlin_tokens(DIRECT_DEPENDENCY_TASK_BODY_CONTRACT)
+    if expected_error is not None:
+        raise AssertionError(f"invalid pinned target task contract: {expected_error}")
+    if [token[0:2] for token in task_tokens] != [token[0:2] for token in expected_tokens]:
+        return ["target task body contract mismatch"]
+    trailing_tokens = tokens[task_close + 1:]
+    if trailing_tokens:
+        if trailing_tokens[0][1] == ".":
+            return ["target task declaration must be a standalone final expression"]
+        return ["executable tokens after target task are forbidden"]
+    return []
 
 
 def category_files(root: Path) -> dict[str, list[Path]]:
@@ -357,6 +592,7 @@ def build_errors(root: Path) -> list[str]:
     ]
     if all_dependency_lines != expected_dependency_lines:
         errors.append(f"root build dependency set/order mismatch: {all_dependency_lines}")
+    errors.extend(direct_dependency_task_errors(build))
     if settings.count('rootProject.name = "htsp"') != 1:
         errors.append("root project name must be htsp")
     if (
@@ -618,10 +854,150 @@ def self_test() -> None:
     production = "src/main/kotlin/at/bernhardberger/tvheadend/htsp/connection/HtspConnection.kt"
     test_source = next(path.relative_to(ROOT).as_posix() for path in sorted((ROOT / "src/test/kotlin").rglob("*.kt")))
     golden = next(path.relative_to(ROOT).as_posix() for path in sorted((ROOT / "src/test/resources").rglob("*.hex")))
+
+    def stale_direct_expectation(root: Path) -> None:
+        replace(
+            root,
+            "build.gradle.kts",
+            '            "org.jetbrains.kotlin:kotlin-stdlib:2.3.10",\n',
+            "",
+        )
+
+    def stale_direct_with_block_comment(root: Path) -> None:
+        stale_direct_expectation(root)
+        replace(
+            root,
+            "build.gradle.kts",
+            '        val resolved = configurations.getByName("runtimeClasspath")',
+            f'        /*\n{DIRECT_DEPENDENCY_TASK_CONTRACT}\n        */\n'
+            '        val resolved = configurations.getByName("runtimeClasspath")',
+        )
+
+    def stale_direct_with_triple_string(root: Path) -> None:
+        stale_direct_expectation(root)
+        replace(
+            root,
+            "build.gradle.kts",
+            '        val resolved = configurations.getByName("runtimeClasspath")',
+            f'        val dependencyContractDecoy = """\n{DIRECT_DEPENDENCY_TASK_CONTRACT}\n        """\n'
+            '        val resolved = configurations.getByName("runtimeClasspath")',
+        )
+
+    def stale_direct_with_ordinary_string(root: Path) -> None:
+        stale_direct_expectation(root)
+        literal = (
+            '"'
+            + DIRECT_DEPENDENCY_TASK_CONTRACT
+            .replace("\\", "\\\\")
+            .replace('"', '\\"')
+            .replace("$", "\\$")
+            .replace("\n", "\\n")
+            + '"'
+        )
+        replace(
+            root,
+            "build.gradle.kts",
+            '        val resolved = configurations.getByName("runtimeClasspath")',
+            f"        val dependencyContractDecoy = {literal}\n"
+            '        val resolved = configurations.getByName("runtimeClasspath")',
+        )
+
+    def stale_direct_with_other_task(root: Path) -> None:
+        stale_direct_expectation(root)
+        append(
+            root,
+            "build.gradle.kts",
+            f'\ntasks.register("dependencyContractDecoy") {{\n    doLast {{\n{DIRECT_DEPENDENCY_TASK_CONTRACT}\n    }}\n}}\n',
+        )
+
+    def unbalance_direct_task(root: Path) -> None:
+        path = root / "build.gradle.kts"
+        text = path.read_text(encoding="utf-8")
+        if not text.endswith("\n    }\n}\n"):
+            raise AssertionError("self-test cannot remove target task closing brace")
+        path.write_text(text[:-2], encoding="utf-8")
+
+    def receiver_prefix_direct_action(root: Path) -> None:
+        replace(
+            root,
+            "build.gradle.kts",
+            '    description = "Checks the JVM-only production dependency graph."\n    doLast {',
+            '    description = "Checks the JVM-only production dependency graph."\n'
+            '    tasks.named("help").get().doLast {',
+        )
+
+    def chain_direct_task_configuration(root: Path) -> None:
+        path = root / "build.gradle.kts"
+        text = path.read_text(encoding="utf-8")
+        if not text.endswith("\n}\n"):
+            raise AssertionError("self-test cannot chain target task configuration")
+        path.write_text(text[:-1] + ".configure { enabled = false }\n", encoding="utf-8")
+
+    def capture_and_configure_direct_task(root: Path) -> None:
+        replace(
+            root,
+            "build.gradle.kts",
+            'tasks.register("verifyProductionDependencyGraph") {',
+            'val dependencyGuard = tasks.register("verifyProductionDependencyGraph") {',
+        )
+        append(root, "build.gradle.kts", "\ndependencyGuard.configure { enabled = false }\n")
+
+    def enclose_direct_task(root: Path) -> None:
+        replace(
+            root,
+            "build.gradle.kts",
+            'tasks.register("verifyProductionDependencyGraph") {',
+            'run {\n    tasks.register("verifyProductionDependencyGraph") {',
+        )
+        append(root, "build.gradle.kts", "}\n")
+
+    def append_unbalanced_syntax(root: Path) -> None:
+        append(root, "build.gradle.kts", "\nif (true) {\n")
+
+    def append_inert_bypass_decoys(root: Path) -> None:
+        replace(
+            root,
+            "build.gradle.kts",
+            'tasks.register("verifyProductionDependencyGraph") {',
+            'val dependencyGuardDecoy = "enabled = false; onlyIf { false }; '
+            'return@doLast; tasks.named(\\"verifyProductionDependencyGraph\\")"\n'
+            'tasks.register("verifyProductionDependencyGraph") {',
+        )
+        append(
+            root,
+            "build.gradle.kts",
+            '\n// enabled = false; onlyIf { false }; return@doLast\n'
+            '/* tasks.named("verifyProductionDependencyGraph") { enabled = false } */\n'
+        )
+
     mutations: list[tuple[str, str, Callable[[Path], None]]] = [
         ("extra topology", "root topology mismatch", lambda root: (root / "unexpected.txt").write_text("x")),
         ("extra package", "production package set mismatch", lambda root: (root / "src/main/kotlin/hostile/Extra.kt").parent.mkdir(parents=True, exist_ok=True) or (root / "src/main/kotlin/hostile/Extra.kt").write_text("package hostile.sixth\n", encoding="utf-8")),
         ("extra dependency", "one production dependency", lambda root: append(root, "build.gradle.kts", '\nimplementation("example:bad:1")\n')),
+        ("stale direct task expectation", "target task body contract mismatch", lambda root: replace(root, "build.gradle.kts", '            "org.jetbrains.kotlin:kotlin-stdlib:2.3.10",\n', "")),
+        ("changed direct task expectation", "target task body contract mismatch", lambda root: replace(root, "build.gradle.kts", '            "org.jetbrains.kotlin:kotlin-stdlib:2.3.10",', '            "org.jetbrains.kotlin:kotlin-stdlib:2.3.9",')),
+        ("extra direct task expectation", "target task body contract mismatch", lambda root: replace(root, "build.gradle.kts", '            "org.jetbrains.kotlin:kotlin-stdlib:2.3.10",', '            "example:unexpected:1",\n            "org.jetbrains.kotlin:kotlin-stdlib:2.3.10",')),
+        ("stale direct task with block-comment decoy", "target task body contract mismatch", stale_direct_with_block_comment),
+        ("stale direct task with ordinary-string decoy", "target task body contract mismatch", stale_direct_with_ordinary_string),
+        ("stale direct task with triple-string decoy", "target task body contract mismatch", stale_direct_with_triple_string),
+        ("stale direct task with other-task decoy", "target task body contract mismatch", stale_direct_with_other_task),
+        ("missing direct dependency task", "target task declaration missing", lambda root: replace(root, "build.gradle.kts", 'tasks.register("verifyProductionDependencyGraph")', 'tasks.register("verifyProductionDependencyGraphMissing")')),
+        ("duplicate direct dependency task", "target task declaration duplicated", lambda root: append(root, "build.gradle.kts", '\ntasks.register("verifyProductionDependencyGraph") {}\n')),
+        ("malformed direct dependency task", "target task declaration malformed", lambda root: replace(root, "build.gradle.kts", 'tasks.register("verifyProductionDependencyGraph") {', 'tasks.register("verifyProductionDependencyGraph" {')),
+        ("unbalanced direct dependency task", "target task body is unbalanced", unbalance_direct_task),
+        ("receiver-prefixed direct task action", "target task action must be one unqualified doLast", receiver_prefix_direct_action),
+        ("receiver-prefixed direct task declaration", "target task declaration must be a standalone top-level expression", lambda root: replace(root, "build.gradle.kts", 'tasks.register("verifyProductionDependencyGraph") {', 'project.tasks.register("verifyProductionDependencyGraph") {')),
+        ("enclosed direct task declaration", "target task declaration must be a standalone top-level expression", enclose_direct_task),
+        ("chained direct task configuration", "target task declaration must be a standalone final expression", chain_direct_task_configuration),
+        ("captured provider later configured", "target task declaration must be an uncaptured top-level expression", capture_and_configure_direct_task),
+        ("assigned provider", "target task declaration must be an uncaptured top-level expression", lambda root: replace(root, "build.gradle.kts", 'tasks.register("verifyProductionDependencyGraph") {', 'dependencyGuard = tasks.register("verifyProductionDependencyGraph") {')),
+        ("unbalanced syntax after direct task", "build Kotlin structure is unbalanced", append_unbalanced_syntax),
+        ("executable statement after direct task", "executable tokens after target task are forbidden", lambda root: append(root, "build.gradle.kts", '\ntasks.named("help") {}\n')),
+        ("executable declaration after direct task", "executable tokens after target task are forbidden", lambda root: append(root, "build.gradle.kts", '\nval later = "hostile"\n')),
+        ("disabled direct dependency task", "target task executable bypass forbidden: enabled = false", lambda root: replace(root, "build.gradle.kts", 'tasks.register("verifyProductionDependencyGraph") {', 'tasks.register("verifyProductionDependencyGraph") {\n    enabled = false')),
+        ("false-onlyIf direct dependency task", "target task executable bypass forbidden: onlyIf false", lambda root: replace(root, "build.gradle.kts", 'tasks.register("verifyProductionDependencyGraph") {', 'tasks.register("verifyProductionDependencyGraph") {\n    onlyIf { false }')),
+        ("early-return direct dependency task", "target task executable bypass forbidden: return@doLast", lambda root: replace(root, "build.gradle.kts", "    doLast {\n        val direct", "    doLast {\n        return@doLast\n        val direct")),
+        ("outside target-task reconfiguration", "target task reconfiguration outside declaration is forbidden", lambda root: append(root, "build.gradle.kts", '\ntasks.named("verifyProductionDependencyGraph") { doLast { } }\n')),
         ("wrong version", "root build policy missing", lambda root: replace(root, "build.gradle.kts", 'version = "0.1.0-alpha.1-SNAPSHOT"', 'version = "9.9"')),
         ("wrong toolchain", "root build policy missing", lambda root: replace(root, "build.gradle.kts", "jvmToolchain(21)", "jvmToolchain(17)")),
         ("untyped public suspend API", "typed outcome", lambda root: append(root, production, "\npublic suspend fun hostile(): String = \"bad\"\n")),
@@ -660,15 +1036,29 @@ def self_test() -> None:
 
     mutations.append(("symlink/escape topology", "symlinks or escapes", symlink_mutation))
 
+    accepted_controls: list[tuple[str, Callable[[Path], None]]] = [
+        ("comment/string bypass decoys", append_inert_bypass_decoys),
+    ]
+
     failures: list[str] = []
     for label, expected, mutate in mutations:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary) / "repository"
             shutil.copytree(ROOT, root, symlinks=True, ignore=shutil.ignore_patterns(".git", ".gradle", "build"))
+            (root / ".git").mkdir()
             mutate(root)
             findings = repository_errors(root)
             if not any(expected in finding for finding in findings):
                 failures.append(f"{label} mutation was accepted or had wrong diagnostic: {findings}")
+    for label, mutate in accepted_controls:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "repository"
+            shutil.copytree(ROOT, root, symlinks=True, ignore=shutil.ignore_patterns(".git", ".gradle", "build"))
+            (root / ".git").mkdir()
+            mutate(root)
+            findings = repository_errors(root)
+            if findings:
+                failures.append(f"{label} control was rejected: {findings}")
     if failures:
         raise AssertionError("; ".join(failures))
 
