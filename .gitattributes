@@ -1,5 +1,5 @@
 * text=auto eol=lf
 gradlew text eol=lf
-gradlew.bat text eol=crlf
+gradlew.bat text eol=lf
 *.jar binary
 *.hex text eol=lf

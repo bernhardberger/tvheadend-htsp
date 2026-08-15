@@ -47,6 +47,13 @@ DIST_URL = "https\\://services.gradle.org/distributions/gradle-9.0.0-bin.zip"
 DIST_HASH = "8fad3d78296ca518113f3d29016617c7f9367dc005f932bd9d93bf45ba46072b"
 CHECKOUT_SHA = "11bd71901bbe5b1630ceea73d27597364c9af683"
 JAVA_SHA = "c5195efecf7bdfc987ee8bae7a71cb8b11521c00"
+ATTRIBUTES_POLICY = (
+    "* text=auto eol=lf\n"
+    "gradlew text eol=lf\n"
+    "gradlew.bat text eol=lf\n"
+    "*.jar binary\n"
+    "*.hex text eol=lf\n"
+)
 
 ROOT_ENTRIES = {
     ".git", ".gitattributes", ".github", ".gitignore", "AGENTS.md", "CONTRIBUTING.md",
@@ -207,8 +214,18 @@ def immutable_errors(root: Path) -> list[str]:
     return errors
 
 
-def wrapper_errors(root: Path) -> list[str]:
+def attributes_errors(root: Path) -> list[str]:
     errors: list[str] = []
+    attributes = read(root / ".gitattributes", errors)
+    if attributes != ATTRIBUTES_POLICY:
+        errors.append(
+            ".gitattributes: exact policy mismatch; expected gradlew.bat text eol=lf"
+        )
+    return errors
+
+
+def wrapper_errors(root: Path) -> list[str]:
+    errors = attributes_errors(root)
     for relative, expected in WRAPPER_HASHES.items():
         path = root / relative
         if not path.is_file() or path.is_symlink() or sha256(path) != expected:
@@ -622,6 +639,7 @@ def self_test() -> None:
         ("fixture repository bypass", "repository/dependency bypass", lambda root: append(root, "consumer-contract/settings.gradle.kts", "\nmavenLocal()\n")),
         ("README source mismatch", "root README: static source identity mismatch", lambda root: replace(root, "README.md", "enum class ProtocolFailurePolicy", "enum class ChangedProtocolFailurePolicy")),
         ("wrapper hash", "wrapper hash mismatch", lambda root: append(root, "gradlew", "\n")),
+        ("attributes CRLF policy", "expected gradlew.bat text eol=lf", lambda root: replace(root, ".gitattributes", "gradlew.bat text eol=lf", "gradlew.bat text eol=crlf")),
         ("wrapper URL", "wrapper properties", lambda root: replace(root, "gradle/wrapper/gradle-wrapper.properties", "gradle-9.0.0-bin.zip", "gradle-9.1.0-bin.zip")),
         ("wrapper checksum", "wrapper properties", lambda root: replace(root, "gradle/wrapper/gradle-wrapper.properties", DIST_HASH, "0" * 64)),
         ("action SHA", "CI exact policy mismatch", lambda root: replace(root, ".github/workflows/ci.yml", CHECKOUT_SHA, "0" * 40)),
