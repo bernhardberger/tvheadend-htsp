@@ -1,0 +1,7 @@
+.gradle/
+build/
+consumer-contract/.gradle/
+consumer-contract/build/
+local.properties
+__pycache__/
+*.pyc

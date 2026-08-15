@@ -1,0 +1,459 @@
+#!/usr/bin/env python3
+"""Verify public suspending SDK calls report failure as typed outcomes.
+
+Rationale
+---------
+A public suspending call that performs a server round trip must return a typed
+outcome. Signalling failure by throwing forces every consumer to rediscover
+which exceptions are reachable, and it cannot be modelled by the deterministic
+frontend fakes. The normative rule is stated in
+``docs/public-api.md``.
+
+The extracted protocol library has no grandfathered declarations. Any new
+non-conforming public suspending declaration fails the check.
+"""
+
+from __future__ import annotations
+
+import re
+import sys
+from dataclasses import dataclass
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[1]
+AUTHORITY_PATH = "docs/public-api.md"
+AUTHORITY_HEADING = "## Public call outcomes"
+
+# Production API modules. Test fixtures and consumer contracts are excluded:
+# they mirror whatever the production surface already declares.
+SCANNED_MODULES = ("src/main",)
+
+# Return types that already express failure as a value, attributed to the one
+# production module that owns each declaration. Calls in another module may
+# return these types through an API dependency, but a same-named type elsewhere
+# does not become an accepted outcome implicitly.
+ACCEPTED_OUTCOME_TYPES = frozenset({
+    ("htsp", "at.bernhardberger.tvheadend.htsp.connection.HtspConnectOutcome"),
+    ("htsp", "at.bernhardberger.tvheadend.htsp.connection.HtspResult"),
+})
+
+# Interfaces the *consumer* implements and the SDK calls. Their members are
+# inbound SPI, so the outcome rule does not apply to them.
+CONSUMER_IMPLEMENTED_TYPES = frozenset()
+
+# Terminal or state-mutating lifecycle commands legitimately return no value.
+ACCEPTED_UNIT_TYPES = frozenset({"Unit", ""})
+
+# Declarations that predate the rule. This set may shrink, never grow.
+# Slice T1 removes the `TvheadendClient` query entries.
+GRANDFATHERED = frozenset()
+
+INTEGRATION_ANNOTATION = "@PlaybackIntegrationApi"
+DECLARATION = re.compile(r"public\s+suspend\s+fun\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(")
+
+
+@dataclass(frozen=True)
+class Finding:
+    module: str
+    path: str
+    line: int
+    name: str
+    returns: str
+
+
+def module_of(relative: str) -> str:
+    del relative
+    return "htsp"
+
+
+def balanced_end(text: str, open_index: int) -> int:
+    depth = 0
+    index = open_index
+    while index < len(text):
+        char = text[index]
+        if char == "(":
+            depth += 1
+        elif char == ")":
+            depth -= 1
+            if depth == 0:
+                return index
+        index += 1
+    return -1
+
+
+def return_type(text: str, close_index: int) -> str:
+    """Read the declared return type following a parameter list."""
+    tail = text[close_index + 1:]
+    match = re.match(r"\s*:\s*([^=\n{]+)", tail)
+    if not match:
+        return ""  # no `: Type` => Unit
+    declared = match.group(1).strip()
+    # Strip a trailing `where` clause or opening brace remnant.
+    declared = re.split(r"\bwhere\b", declared)[0].strip()
+    return declared
+
+
+def outer_type_reference(declared: str) -> str:
+    """Reduce `List<Foo>?` / `pkg.Foo<Bar>` to the outer type reference."""
+    stripped = declared.strip().rstrip("?").strip()
+    stripped = re.sub(r"<.*>$", "", stripped).strip()
+    return stripped
+
+
+TYPE_DECLARATION = re.compile(
+    r"^(?P<annotations>(?:[ \t]*@[A-Za-z_][\w.]*(?:\([^\n]*\))?[ \t]*\n)*)"
+    r"[ \t]*public\s+(?:sealed\s+|abstract\s+|open\s+|data\s+|value\s+|fun\s+)*"
+    r"(?:interface|class|object)\s+(?P<name>[A-Za-z_]\w*)",
+    re.M,
+)
+ANY_TYPE_DECLARATION = re.compile(
+    r"^[ \t]*(?:(?:public|internal|private|protected|sealed|abstract|open|data|value|fun)\s+)*"
+    r"(?P<kind>interface|class|object|typealias)\s+(?P<name>[A-Za-z_]\w*)",
+    re.M,
+)
+PACKAGE_DECLARATION = re.compile(r"^[ \t]*package\s+([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)", re.M)
+IMPORT_DECLARATION = re.compile(
+    r"^[ \t]*import\s+(?P<fq>[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)"
+    r"(?:\s+as\s+(?P<alias>[A-Za-z_]\w*))?[ \t]*$",
+    re.M,
+)
+
+
+def enclosing_types(text: str) -> list[tuple[int, int, str, str]]:
+    """Return (start, end, name, annotations) spans for public top-level types."""
+    spans: list[tuple[int, int, str, str]] = []
+    for match in TYPE_DECLARATION.finditer(text):
+        brace = text.find("{", match.end())
+        if brace < 0:
+            continue
+        depth, index = 0, brace
+        while index < len(text):
+            if text[index] == "{":
+                depth += 1
+            elif text[index] == "}":
+                depth -= 1
+                if depth == 0:
+                    break
+            index += 1
+        spans.append((brace, index, match.group("name"), match.group("annotations")))
+    return spans
+
+
+def is_integration_api(text: str, declaration_index: int, spans) -> bool:
+    """True when the declaration, or the type enclosing it, is playback-internal SPI."""
+    # Annotation attached directly to this declaration.
+    line_start = text.rfind("\n", 0, declaration_index) + 1
+    preceding_block_start = max(
+        text.rfind("\n\n", 0, line_start),
+        text.rfind("}", 0, line_start),
+        text.rfind("{", 0, line_start),
+    )
+    if INTEGRATION_ANNOTATION in text[preceding_block_start:line_start]:
+        return True
+    # Annotation on the enclosing public type.
+    for start, end, _name, annotations in spans:
+        if start <= declaration_index <= end and INTEGRATION_ANNOTATION in annotations:
+            return True
+    return False
+
+
+def is_consumer_implemented(
+    module: str,
+    package_name: str,
+    declaration_index: int,
+    spans,
+) -> bool:
+    for start, end, name, _annotations in spans:
+        if (
+            start <= declaration_index <= end
+            and (module, f"{package_name}.{name}") in CONSUMER_IMPLEMENTED_TYPES
+        ):
+            return True
+    return False
+
+
+@dataclass(frozen=True)
+class SourceTypes:
+    package: str
+    imports: dict[str, str]
+    local_declarations: frozenset[str]
+
+
+def source_types(text: str) -> SourceTypes:
+    package_match = PACKAGE_DECLARATION.search(text)
+    package_name = package_match.group(1) if package_match else ""
+    imports: dict[str, str] = {}
+    for match in IMPORT_DECLARATION.finditer(text):
+        fq_name = match.group("fq")
+        visible_name = match.group("alias") or fq_name.rsplit(".", 1)[-1]
+        imports[visible_name] = fq_name
+    declarations = frozenset(match.group("name") for match in ANY_TYPE_DECLARATION.finditer(text))
+    return SourceTypes(package_name, imports, declarations)
+
+
+def resolve_type_identity(declared: str, types: SourceTypes) -> str | None:
+    reference = outer_type_reference(declared)
+    if not reference or "*" in reference or "(" in reference or "->" in reference:
+        return None
+    if "." in reference:
+        first, remainder = reference.split(".", 1)
+        imported = types.imports.get(first)
+        return f"{imported}.{remainder}" if imported is not None else reference
+    if reference in types.local_declarations:
+        return f"{types.package}.{reference}" if types.package else reference
+    imported = types.imports.get(reference)
+    if imported is not None:
+        return imported
+    return f"{types.package}.{reference}" if types.package else reference
+
+
+def declaration_evidence(
+    module: str,
+    relative: str,
+    text: str,
+) -> list[tuple[str, str, int, str, str]]:
+    package_match = PACKAGE_DECLARATION.search(text)
+    package_name = package_match.group(1) if package_match else ""
+    return [
+        (
+            f"{package_name}.{match.group('name')}" if package_name else match.group("name"),
+            module,
+            relative,
+            text.count("\n", 0, match.start()) + 1,
+            match.group("kind"),
+        )
+        for match in ANY_TYPE_DECLARATION.finditer(text)
+    ]
+
+
+def check_attributions() -> list[str]:
+    errors: list[str] = []
+    found: dict[str, list[tuple[str, str, int, str]]] = {
+        fq_name: [] for _module, fq_name in ACCEPTED_OUTCOME_TYPES
+    }
+    for module_root in SCANNED_MODULES:
+        root = ROOT / module_root
+        if not root.is_dir():
+            continue
+        for source in sorted(root.rglob("*.kt")):
+            module = module_of(source.relative_to(ROOT).as_posix())
+            text = source.read_text(encoding="utf-8", errors="replace")
+            relative = source.relative_to(ROOT).as_posix()
+            for fq_name, evidence_module, path, line, kind in declaration_evidence(
+                module,
+                relative,
+                text,
+            ):
+                if fq_name in found:
+                    found[fq_name].append((evidence_module, path, line, kind))
+    for owner, fq_name in sorted(ACCEPTED_OUTCOME_TYPES):
+        error = accepted_declaration_error(owner, fq_name, found[fq_name])
+        if error is not None:
+            errors.append(error)
+    return errors
+
+
+def accepted_declaration_error(
+    owner: str,
+    fq_name: str,
+    declarations: list[tuple[str, str, int, str]],
+) -> str | None:
+    if (
+        len(declarations) == 1
+        and declarations[0][0] == owner
+        and declarations[0][3] != "typealias"
+    ):
+        return None
+    return (
+        f"accepted outcome {owner}:{fq_name} must have exactly one non-typealias "
+        "declaration; "
+        f"found {declarations or ['none']}"
+    )
+
+
+def scan_source(module: str, relative: str, text: str) -> tuple[list[Finding], set[tuple[str, str]]]:
+    findings: list[Finding] = []
+    seen: set[tuple[str, str]] = set()
+    outcome_identities = {fq_name for _module, fq_name in ACCEPTED_OUTCOME_TYPES}
+    types = source_types(text)
+    spans = enclosing_types(text)
+    for match in DECLARATION.finditer(text):
+        name = match.group(1)
+        open_index = text.index("(", match.end() - 1)
+        close_index = balanced_end(text, open_index)
+        if close_index < 0:
+            continue
+        if is_integration_api(text, match.start(), spans):
+            continue
+        if is_consumer_implemented(module, types.package, match.start(), spans):
+            continue
+        declared_return = return_type(text, close_index)
+        declared = outer_type_reference(declared_return)
+        identity = resolve_type_identity(declared_return, types)
+        key = (module, name)
+        if declared in ACCEPTED_UNIT_TYPES or identity in outcome_identities:
+            continue
+        seen.add(key)
+        if key in GRANDFATHERED:
+            continue
+        line = text.count("\n", 0, match.start()) + 1
+        findings.append(Finding(module, relative, line, name, declared or "Unit"))
+    return findings, seen
+
+
+def scan() -> tuple[list[Finding], set[tuple[str, str]]]:
+    findings: list[Finding] = []
+    seen: set[tuple[str, str]] = set()
+    for module_root in SCANNED_MODULES:
+        root = ROOT / module_root
+        if not root.is_dir():
+            continue
+        for source in sorted(root.rglob("*.kt")):
+            relative = source.relative_to(ROOT).as_posix()
+            module = module_of(relative)
+            text = source.read_text(encoding="utf-8", errors="replace")
+            source_findings, source_seen = scan_source(module, relative, text)
+            findings.extend(source_findings)
+            seen.update(source_seen)
+    return findings, seen
+
+
+def check_authority() -> list[str]:
+    path = ROOT / AUTHORITY_PATH
+    if not path.is_file():
+        return [f"missing normative authority: {AUTHORITY_PATH}"]
+    if AUTHORITY_HEADING not in path.read_text(encoding="utf-8", errors="replace"):
+        return [f"{AUTHORITY_PATH} must contain the '{AUTHORITY_HEADING}' section"]
+    return []
+
+
+def outcome_checker_self_test_errors() -> list[str]:
+    errors: list[str] = []
+    local_alias_findings, _ = scan_source(
+        "htsp",
+        "synthetic/LocalAlias.kt",
+        "package hostile\n"
+        "typealias HtspResult = String\n"
+        "public suspend fun hostile(): HtspResult = error(\"test\")\n",
+    )
+    if len(local_alias_findings) != 1:
+        errors.append(
+            "outcome resolver self-test failed to reject a local non-owner "
+            "typealias HtspResult"
+        )
+    external_findings, _ = scan_source(
+        "htsp",
+        "synthetic/ExternalHomonym.kt",
+        "package hostile\n"
+        "import external.example.HtspResult\n"
+        "public suspend fun hostile(): HtspResult = error(\"test\")\n",
+    )
+    if len(external_findings) != 1:
+        errors.append(
+            "outcome resolver self-test failed to reject an explicitly imported "
+            "external HtspResult homonym"
+        )
+    legitimate_findings, _ = scan_source(
+        "htsp",
+        "synthetic/LegitimateImport.kt",
+        "package hostile\n"
+        "import at.bernhardberger.tvheadend.htsp.connection.HtspResult\n"
+        "public suspend fun legitimate(): HtspResult<Unit> = error(\"test\")\n",
+    )
+    if legitimate_findings:
+        errors.append(
+            "outcome resolver self-test failed to accept the imported HtspResult owner"
+        )
+    duplicate_evidence = [
+        ("htsp", "synthetic/One.kt", 1, "interface"),
+        ("htsp", "synthetic/Two.kt", 1, "interface"),
+    ]
+    if accepted_declaration_error(
+        "htsp",
+        "at.bernhardberger.tvheadend.htsp.connection.HtspResult",
+        duplicate_evidence,
+    ) is None:
+        errors.append(
+            "outcome attribution self-test failed to reject duplicate accepted "
+            "HtspResult declaration evidence"
+        )
+    if accepted_declaration_error(
+        "htsp",
+        "at.bernhardberger.tvheadend.htsp.connection.HtspResult",
+        [("other", "synthetic/Misattributed.kt", 1, "interface")],
+    ) is None:
+        errors.append(
+            "outcome attribution self-test failed to reject misattributed accepted "
+            "HtspResult declaration evidence"
+        )
+    alias_fq_name = "at.bernhardberger.tvheadend.htsp.connection.HtspResult"
+    alias_evidence = [
+        (module, path, line, kind)
+        for fq_name, module, path, line, kind in declaration_evidence(
+            "htsp",
+            "synthetic/HtspResult.kt",
+            "package at.bernhardberger.tvheadend.htsp.connection\n"
+            "public typealias HtspResult = String\n",
+        )
+        if fq_name == alias_fq_name
+    ]
+    if accepted_declaration_error(
+        "htsp",
+        alias_fq_name,
+        alias_evidence,
+    ) is None:
+        errors.append(
+            "outcome attribution self-test failed to reject same-owner same-FQ "
+            "typealias declaration evidence for HtspResult"
+        )
+    return errors
+
+
+def main() -> int:
+    if sys.argv[1:] == ["--self-test"]:
+        errors = outcome_checker_self_test_errors()
+        if errors:
+            for error in errors:
+                print(f"error: {error}", file=sys.stderr)
+            return 1
+        print("check-public-api-outcomes hostile self-tests passed")
+        return 0
+    if sys.argv[1:]:
+        print("usage: check-public-api-outcomes [--self-test]", file=sys.stderr)
+        return 2
+    errors = outcome_checker_self_test_errors()
+    errors.extend(check_authority())
+    errors.extend(check_attributions())
+    findings, seen = scan()
+
+    for finding in findings:
+        errors.append(
+            f"{finding.path}:{finding.line}: public suspend fun {finding.name} returns "
+            f"'{finding.returns}'; a public suspending SDK call must return a typed "
+            f"outcome. See {AUTHORITY_PATH}."
+        )
+
+    stale = sorted(GRANDFATHERED - seen)
+    for module, name in stale:
+        errors.append(
+            f"stale grandfathered entry {module}:{name} no longer matches any "
+            f"non-conforming declaration; remove it from tools/check-public-api-outcomes."
+        )
+
+    if errors:
+        print("check-public-api-outcomes: FAIL", file=sys.stderr)
+        for error in errors:
+            print(f"  {error}", file=sys.stderr)
+        return 1
+
+    remaining = len(GRANDFATHERED)
+    print(
+        "check-public-api-outcomes: OK "
+        f"({remaining} grandfathered declaration(s) remaining)"
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

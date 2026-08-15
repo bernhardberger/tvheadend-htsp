@@ -83,6 +83,24 @@ UNQUALIFIED_API_CALL = re.compile(r"(?<![.\w])api\s*\(")
 EXPECTED_SOURCE_SETS = {"main", "test"}
 PRODUCTION_SOURCE_SETS = {"main"}
 EXCLUDED_SOURCE_SETS = {"test"}
+STANDALONE_JSONAPI_PATH = (
+    "at",
+    "bernhardberger",
+    "tvheadend",
+    "htsp",
+    "jsonapi",
+)
+STANDALONE_JSONAPI_BRIDGE_PATHS = {
+    (
+        "kotlin",
+        "at",
+        "bernhardberger",
+        "tvheadend",
+        "htsp",
+        "requests",
+        "GeneratedHtspRequests.kt",
+    ),
+}
 
 
 def mask_kotlin(text: str) -> str:
@@ -464,6 +482,74 @@ def scan_repository(root: Path, anchor: Path | None = None) -> list[str]:
     return sorted(findings)
 
 
+def scan_standalone(root: Path, scan_stats: dict[str, int] | None = None) -> list[str]:
+    """Scan every non-owner production source in the standalone artifact."""
+    findings: list[str] = []
+    source_root = root / "src/main"
+    scanned_non_jsonapi = 0
+    if failures := safe_directory(source_root, root, "production source root"):
+        if scan_stats is not None:
+            scan_stats["non_jsonapi_sources"] = 0
+        return failures
+
+    exact_jsonapi_owner = ("kotlin", *STANDALONE_JSONAPI_PATH)
+
+    def visit(directory: Path) -> None:
+        try:
+            entries = sorted(os.scandir(directory), key=lambda item: item.name)
+        except OSError as error:
+            findings.append(topology(directory, root, f"production directory cannot be enumerated ({error.__class__.__name__})"))
+            return
+        for entry in entries:
+            path = Path(entry.path)
+            try:
+                mode = entry.stat(follow_symlinks=False).st_mode
+            except OSError as error:
+                findings.append(topology(path, root, f"production entry cannot be inspected ({error.__class__.__name__})"))
+                continue
+            if stat.S_ISLNK(mode):
+                findings.append(topology(path, root, "production entry must not be symlinked"))
+            elif stat.S_ISDIR(mode):
+                if mode & 0o444 == 0 or mode & 0o111 == 0:
+                    findings.append(topology(path, root, "production directory must be readable and traversable"))
+                else:
+                    relative_directory = path.relative_to(source_root).parts
+                    if (
+                        len(relative_directory) == len(exact_jsonapi_owner) + 1
+                        and relative_directory[: len(exact_jsonapi_owner)] == exact_jsonapi_owner
+                    ):
+                        findings.append(
+                            topology(path, root, "unexpected deeper jsonapi owner topology")
+                        )
+                    visit(path)
+            elif not stat.S_ISREG(mode):
+                findings.append(topology(path, root, "production entry must be a regular file or directory"))
+            elif mode & 0o444 == 0:
+                findings.append(topology(path, root, "production file must be readable"))
+            elif path.suffix in {".kt", ".java"}:
+                try:
+                    text = path.read_text(encoding="utf-8")
+                except (OSError, UnicodeError) as error:
+                    findings.append(topology(path, root, f"production source cannot be read as UTF-8 ({error.__class__.__name__})"))
+                else:
+                    relative_parts = path.relative_to(source_root).parts
+                    jsonapi_owner_source = (
+                        len(relative_parts) == len(exact_jsonapi_owner) + 1
+                        and relative_parts[:-1] == exact_jsonapi_owner
+                    )
+                    if not jsonapi_owner_source:
+                        nonlocal scanned_non_jsonapi
+                        scanned_non_jsonapi += 1
+                        source_findings = scan_source(shown(path, root), text)
+                        if relative_parts not in STANDALONE_JSONAPI_BRIDGE_PATHS:
+                            findings.extend(source_findings)
+
+    visit(source_root)
+    if scan_stats is not None:
+        scan_stats["non_jsonapi_sources"] = scanned_non_jsonapi
+    return sorted(findings)
+
+
 def self_test() -> int:
     failures: list[str] = []
     rejected = {
@@ -524,6 +610,142 @@ def self_test() -> int:
     malformed_java = scan_source("malformed.java", "class X { \\u12G4 value; }")
     if len(malformed_java) != 1 or "malformed Java Unicode escape" not in malformed_java[0]:
         failures.append(f"malformed Java Unicode escape did not fail closed: {malformed_java}")
+
+    with tempfile.TemporaryDirectory() as temporary:
+        sandbox = Path(temporary)
+
+        def make_standalone(base: Path) -> Path:
+            package_root = (
+                base
+                / "src/main/kotlin/at/bernhardberger/tvheadend/htsp"
+            )
+            package_root.mkdir(parents=True)
+            owner = package_root / "jsonapi"
+            owner.mkdir()
+            (owner / "Owned.kt").write_text(
+                "package at.bernhardberger.tvheadend.htsp.jsonapi\n"
+                "val owned: ApiRequest? = null\n",
+                encoding="utf-8",
+            )
+            requests = package_root / "requests"
+            requests.mkdir()
+            (requests / "GeneratedHtspRequests.kt").write_text(
+                "package at.bernhardberger.tvheadend.htsp.requests\n"
+                "import at.bernhardberger.tvheadend.htsp.jsonapi.*\n"
+                "@OptIn(HtspJsonApi::class) internal object JsonCodec\n",
+                encoding="utf-8",
+            )
+            test = base / "src/test/kotlin"
+            test.mkdir(parents=True)
+            (test / "Excluded.kt").write_text(
+                "import at.bernhardberger.tvheadend.htsp.jsonapi.*\n",
+                encoding="utf-8",
+            )
+            return package_root
+
+        kotlin_hostile = sandbox / "standalone-kotlin-hostile"
+        kotlin_packages = make_standalone(kotlin_hostile)
+        connection = kotlin_packages / "connection"
+        connection.mkdir()
+        (connection / "Bridge.kt").write_text(
+            "package at.bernhardberger.tvheadend.htsp.connection\n"
+            "import at.bernhardberger.tvheadend.htsp.jsonapi.*\n",
+            encoding="utf-8",
+        )
+        if not any("bridge-import" in finding for finding in scan_standalone(kotlin_hostile)):
+            failures.append("standalone production Kotlin wildcard traversal mutation was accepted")
+
+        java_hostile = sandbox / "standalone-java-hostile"
+        make_standalone(java_hostile)
+        java_package = (
+            java_hostile
+            / "src/main/java/at/bernhardberger/tvheadend/htsp/messages"
+        )
+        java_package.mkdir(parents=True)
+        (java_package / "Bridge.java").write_text(
+            "package at.bernhardberger.tvheadend.htsp.messages;\n"
+            "class Bridge { at.bernhardberger.tvheadend.htsp.jsonapi.HtspApi\\u0056alue value; }\n",
+            encoding="utf-8",
+        )
+        if not any("bridge-symbol" in finding for finding in scan_standalone(java_hostile)):
+            failures.append("standalone production Java Unicode traversal mutation was accepted")
+
+        unreadable_source = sandbox / "standalone-unreadable-source"
+        unreadable_packages = make_standalone(unreadable_source)
+        unreadable_connection = unreadable_packages / "connection"
+        unreadable_connection.mkdir()
+        unreadable_file = unreadable_connection / "Unreadable.kt"
+        unreadable_file.write_text(
+            "package at.bernhardberger.tvheadend.htsp.connection\nval safe = Unit\n",
+            encoding="utf-8",
+        )
+        unreadable_file.chmod(0)
+        unreadable_findings = scan_standalone(unreadable_source)
+        unreadable_file.chmod(0o644)
+        if not any("production file must be readable" in finding for finding in unreadable_findings):
+            failures.append("mode-000 standalone production source was accepted")
+
+        descendant_hostile = sandbox / "standalone-jsonapi-descendant"
+        descendant_packages = make_standalone(descendant_hostile)
+        descendant = descendant_packages / "jsonapi/hostile"
+        descendant.mkdir()
+        (descendant / "Bridge.kt").write_text(
+            "package at.bernhardberger.tvheadend.htsp.jsonapi.hostile\n"
+            "import at.bernhardberger.tvheadend.htsp.jsonapi.*\n",
+            encoding="utf-8",
+        )
+        descendant_findings = scan_standalone(descendant_hostile)
+        if not any("unexpected deeper jsonapi owner topology" in finding for finding in descendant_findings):
+            failures.append("hostile jsonapi descendant topology was accepted")
+        if not any("bridge-import" in finding for finding in descendant_findings):
+            failures.append("hostile jsonapi descendant bridge use was recursively exempted")
+
+        valid_standalone = sandbox / "standalone-valid"
+        make_standalone(valid_standalone)
+        valid_stats: dict[str, int] = {}
+        if findings := scan_standalone(valid_standalone, valid_stats):
+            failures.append(f"standalone owner/test exclusions produced findings: {findings}")
+        if valid_stats.get("non_jsonapi_sources") != 1:
+            failures.append(f"standalone traversal scan count was vacuous: {valid_stats}")
+
+        missing_standalone = sandbox / "standalone-missing"
+        if not scan_standalone(missing_standalone):
+            failures.append("missing standalone production topology was accepted")
+        malformed_standalone = sandbox / "standalone-malformed"
+        malformed_standalone.write_text("not a directory", encoding="utf-8")
+        if not scan_standalone(malformed_standalone):
+            failures.append("malformed standalone production topology was accepted")
+        unreadable_standalone = sandbox / "standalone-unreadable"
+        make_standalone(unreadable_standalone)
+        unreadable_root = unreadable_standalone / "src/main"
+        unreadable_root.chmod(0o600)
+        if not scan_standalone(unreadable_standalone):
+            failures.append("unreadable standalone production topology was accepted")
+        unreadable_root.chmod(0o700)
+        symlinked_standalone = sandbox / "standalone-symlinked"
+        (symlinked_standalone / "src").mkdir(parents=True)
+        (symlinked_standalone / "src/main").symlink_to(
+            valid_standalone / "src/main",
+            target_is_directory=True,
+        )
+        if not any("must not be symlinked" in finding for finding in scan_standalone(symlinked_standalone)):
+            failures.append("symlinked standalone production root was accepted")
+        escaped_standalone = sandbox / "standalone-escaped"
+        escaped_packages = make_standalone(escaped_standalone)
+        outside = sandbox / "Outside.kt"
+        outside.write_text(
+            "import at.bernhardberger.tvheadend.htsp.jsonapi.*\n",
+            encoding="utf-8",
+        )
+        (escaped_packages / "connection").mkdir()
+        (escaped_packages / "connection/Escaped.kt").symlink_to(outside)
+        if not any("must not be symlinked" in finding for finding in scan_standalone(escaped_standalone)):
+            failures.append("escaped standalone production source was accepted")
+        unexpected_standalone = sandbox / "standalone-unexpected"
+        unexpected_packages = make_standalone(unexpected_standalone)
+        os.mkfifo(unexpected_packages / "wire-pipe")
+        if not any("regular file or directory" in finding for finding in scan_standalone(unexpected_standalone)):
+            failures.append("unexpected standalone production topology was accepted")
 
     with tempfile.TemporaryDirectory() as temporary:
         sandbox = Path(temporary)
@@ -624,10 +846,15 @@ def main(arguments: list[str]) -> int:
     if arguments:
         print("usage: check-htsp-json-api-containment [--self-test]", file=sys.stderr)
         return 2
-    findings = scan_repository(REPOSITORY_ROOT / SDK_ROOT, REPOSITORY_ROOT)
+    scan_stats: dict[str, int] = {}
+    findings = scan_standalone(REPOSITORY_ROOT, scan_stats)
     for finding in findings:
         print(finding, file=sys.stderr)
-    print(f"HTSP JSON API containment findings: {len(findings)}")
+    print(
+        "HTSP JSON API containment findings: "
+        f"{len(findings)}; non-jsonapi production sources scanned: "
+        f"{scan_stats.get('non_jsonapi_sources', 0)}"
+    )
     return 1 if findings else 0
 
 

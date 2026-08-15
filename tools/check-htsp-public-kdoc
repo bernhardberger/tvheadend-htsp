@@ -15,7 +15,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCE_ROOT = ROOT / "sdk/htsp-protocol/src/main/kotlin/at/bernhardberger/tvheadend/htsp"
+SOURCE_ROOT = ROOT / "src/main/kotlin/at/bernhardberger/tvheadend/htsp"
 CATALOG_PATH = ROOT / "docs/htsp-protocol/htsp_surface.py"
 GENERATED_OWNERS = {
     "requests/GeneratedHtspRequests.kt": "generated-request-json-types",

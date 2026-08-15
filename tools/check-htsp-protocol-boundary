@@ -13,9 +13,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 PROTOCOL_PACKAGE = "at.bernhardberger.tvheadend.htsp"
 PROTOCOL_PACKAGE_OWNERS = frozenset({"connection", "jsonapi", "messages", "requests", "wire"})
-PROTOCOL_MODULE_MAIN = Path("sdk/htsp-protocol/src/main")
+PROTOCOL_MODULE_MAIN = Path("src/main")
 PROTOCOL_ROOT = Path(
-    "sdk/htsp-protocol/src/main/kotlin/at/bernhardberger/tvheadend/htsp"
+    "src/main/kotlin/at/bernhardberger/tvheadend/htsp"
 )
 SOURCE_SUFFIXES = {".java", ".kt"}
 IGNORED_DIRECTORIES = {".git", ".gradle", ".idea", "build", "out"}

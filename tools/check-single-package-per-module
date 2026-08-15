@@ -44,6 +44,13 @@ EXPECTED_PACKAGE_SETS = {
         "at.bernhardberger.tvhplayer.player.htsp.utils",
     },
 }
+STANDALONE_PACKAGES = {
+    "at.bernhardberger.tvheadend.htsp.connection",
+    "at.bernhardberger.tvheadend.htsp.jsonapi",
+    "at.bernhardberger.tvheadend.htsp.messages",
+    "at.bernhardberger.tvheadend.htsp.requests",
+    "at.bernhardberger.tvheadend.htsp.wire",
+}
 
 
 @dataclass(frozen=True)
@@ -365,6 +372,26 @@ def package_ownership_errors(
     return sorted(set(errors))
 
 
+def standalone_package_errors(root: Path) -> list[str]:
+    sources, errors = production_sources(root, root)
+    actual: set[str] = set()
+    for source in sources:
+        package_name, source_errors = declared_package(source, root)
+        errors.extend(source_errors)
+        if package_name is not None:
+            actual.add(package_name)
+    missing = sorted(STANDALONE_PACKAGES - actual)
+    extra = sorted(actual - STANDALONE_PACKAGES)
+    if missing or extra:
+        details = []
+        if missing:
+            details.append(f"missing [{', '.join(missing)}]")
+        if extra:
+            details.append(f"extra [{', '.join(extra)}]")
+        errors.append("htsp: declared production package set mismatch; " + "; ".join(details))
+    return sorted(set(errors))
+
+
 def write_module_source(root: Path, module: str, source_set: str, package_name: str) -> Path:
     module_root = root / "sdk" / module
     module_root.mkdir(parents=True, exist_ok=True)
@@ -563,7 +590,7 @@ def main() -> int:
         errors = self_test_errors()
         label = "Exact production package-set checker self-tests"
     elif not sys.argv[1:]:
-        errors = package_ownership_errors(ROOT)
+        errors = standalone_package_errors(ROOT)
         label = "Exact production package-set check"
     else:
         print("usage: check-single-package-per-module [--self-test]", file=sys.stderr)

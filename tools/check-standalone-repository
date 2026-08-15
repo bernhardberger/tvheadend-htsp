@@ -1,0 +1,680 @@
+#!/usr/bin/env python3
+"""Fail-closed standalone HTSP repository, CI, and fixture policy."""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import os
+import re
+import shutil
+import stat
+import tempfile
+from pathlib import Path
+from typing import Callable
+
+
+ROOT = Path(__file__).resolve().parents[1]
+COORDINATE = "at.bernhardberger.tvheadend:htsp:0.1.0-alpha.1-SNAPSHOT"
+PACKAGES = {
+    "at.bernhardberger.tvheadend.htsp.connection",
+    "at.bernhardberger.tvheadend.htsp.jsonapi",
+    "at.bernhardberger.tvheadend.htsp.messages",
+    "at.bernhardberger.tvheadend.htsp.requests",
+    "at.bernhardberger.tvheadend.htsp.wire",
+}
+IMMUTABLE = {
+    "production": (24, "741dc4cc91200e29e100e5e82bef754117cd6f0cf56e8bb273aaef8f9e0b3784"),
+    "tests": (20, "f8670a9f57424891da52da648a280aa4fcbd90e3aa6f14c396f55940b3cf98e7"),
+    "golden": (5, "32c537545c6252a72544e090fc3f061628c16b238a90c15d7692606d34d01896"),
+    "api": (1, "d25d2dedf65d676d94a3a0cbd8e2dbb430c27531078a3abbc5e66267fc5c4948"),
+    "protocol evidence": (11, "75f496be1b1221245acea05b631c16004e3e2d608924c7192ee11a017b8230b5"),
+    "generated": (6, "f96f30d25028627c697a3bcfec7b725f6c5336da5b5e2f23b737436861640a1a"),
+}
+WRAPPER_HASHES = {
+    "gradlew": "3238afb2aed5cb16eb7d6718077e7138059108f007b54179e9cc157c5a6e0e89",
+    "gradlew.bat": "94102713eb8fb22d032397924c0f38ab2da783ba60d07054339f1190a0c4e2cd",
+    "gradle/wrapper/gradle-wrapper.jar": "76805e32c009c0cf0dd5d206bddc9fb22ea42e84db904b764f3047de095493f3",
+}
+PENDING_HASHES = {
+    "tools/check-api-compatibility-policy": "cc52560111c26e46ed95103ffabd86247873900e3141b127468f41bda4cdb317",
+    "tools/check-published-jvm-compatibility": "317536eedfd34a343e07bfd4266a1b5e0953bb0b46a6ab24c976cb42378147ce",
+}
+MAP_HASH = "c5fad8e6bd00bc6f692405cef79c661325df404c91a0a59ac47c1497f3bb7f27"
+MANIFEST_HASH = "d45c5da0048201eae10a6760d92ae4d6f1abf64ca1bb4e6a60d31dd610244270"
+DIST_URL = "https\\://services.gradle.org/distributions/gradle-9.0.0-bin.zip"
+DIST_HASH = "8fad3d78296ca518113f3d29016617c7f9367dc005f932bd9d93bf45ba46072b"
+CHECKOUT_SHA = "11bd71901bbe5b1630ceea73d27597364c9af683"
+JAVA_SHA = "c5195efecf7bdfc987ee8bae7a71cb8b11521c00"
+
+ROOT_ENTRIES = {
+    ".git", ".gitattributes", ".github", ".gitignore", "AGENTS.md", "CONTRIBUTING.md",
+    "LICENSE", "NOTICE.md", "README.md", "api", "build.gradle.kts",
+    "consumer-contract", "docs", "gradle", "gradlew", "gradlew.bat",
+    "settings.gradle.kts", "src", "tools",
+}
+DOC_FILES = {
+    "docs/README.md", "docs/licensing.md", "docs/public-api.md", "docs/versioning.md",
+    "docs/wrapper-provenance.md", "docs/adr/0001-standalone-protocol-decisions.md",
+    "docs/extraction/manifest.json", "docs/extraction/source-to-filtered.tsv",
+    *{
+        f"docs/htsp-protocol/{name}" for name in (
+            "HTSP_METHOD_MATRIX.md", "README.md", "WIRE_FORMAT.md", "derive.py",
+            "generate_typed_request_models.py", "generate_typed_requests.py",
+            "generate_typed_server_message_models.py", "generate_typed_server_messages.py",
+            "htsp_spec.json", "htsp_surface.py", "report.py", "upstream.json",
+        )
+    },
+}
+TOOL_FILES = {
+    f"tools/{name}" for name in (
+        "check-api-compatibility-policy", "check-htsp-generated-drift",
+        "check-htsp-json-api-containment", "check-htsp-protocol-boundary",
+        "check-htsp-public-kdoc", "check-license-attribution",
+        "check-public-api-outcomes", "check-published-jvm-compatibility",
+        "check-single-package-per-module", "check-standalone-repository", "verify-htsp",
+    )
+}
+FIXTURE_FILES = {
+    "consumer-contract/build.gradle.kts",
+    "consumer-contract/settings.gradle.kts",
+    "consumer-contract/src/main/kotlin/at/bernhardberger/tvheadend/protocolconsumer/ProtocolQuickStart.kt",
+}
+
+
+def sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def read(path: Path, errors: list[str]) -> str:
+    try:
+        if path.is_symlink() or not path.is_file():
+            raise OSError("not a regular file")
+        return path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as error:
+        errors.append(f"{path}: required UTF-8 file is unavailable ({error})")
+        return ""
+
+
+def category_files(root: Path) -> dict[str, list[Path]]:
+    return {
+        "production": sorted((root / "src/main/kotlin").rglob("*.kt")),
+        "tests": sorted((root / "src/test/kotlin").rglob("*.kt")),
+        "golden": sorted((root / "src/test/resources").rglob("*.hex")),
+        "api": [root / "api/htsp.api"],
+        "protocol evidence": sorted(
+            path for path in (root / "docs/htsp-protocol").iterdir()
+            if path.name != "README.md"
+        ) if (root / "docs/htsp-protocol").is_dir() else [],
+        "generated": sorted((root / "src/main/kotlin").rglob("Generated*.kt")),
+    }
+
+
+def category_digest(root: Path, paths: list[Path]) -> str:
+    manifest = "".join(
+        f"{sha256(path)}  {path.relative_to(root).as_posix()}\n" for path in paths
+    )
+    return hashlib.sha256(manifest.encode()).hexdigest()
+
+
+def topology_errors(root: Path) -> list[str]:
+    errors: list[str] = []
+    try:
+        mode = root.lstat().st_mode
+    except OSError as error:
+        return [f"repository topology is unavailable: {error}"]
+    if stat.S_ISLNK(mode) or not stat.S_ISDIR(mode):
+        return ["repository root must be a real directory"]
+    actual_root = {entry.name for entry in os.scandir(root)}
+    if actual_root != ROOT_ENTRIES:
+        errors.append(
+            f"root topology mismatch; missing={sorted(ROOT_ENTRIES - actual_root)}, "
+            f"extra={sorted(actual_root - ROOT_ENTRIES)}"
+        )
+
+    files: set[str] = set()
+    for directory, names, names_files in os.walk(root, followlinks=False):
+        current = Path(directory)
+        relative_directory = current.relative_to(root)
+        if relative_directory == Path(".git"):
+            names[:] = []
+            continue
+        names[:] = sorted(name for name in names if name != "__pycache__" and not (
+            relative_directory == Path(".") and name == ".git"
+        ))
+        if relative_directory != Path(".") and not names and not names_files:
+            errors.append(f"{relative_directory.as_posix()}: empty directory is not allowed")
+        for name in [*names, *(name for name in names_files if not name.endswith(".pyc"))]:
+            path = current / name
+            relative = path.relative_to(root).as_posix()
+            try:
+                entry_mode = path.lstat().st_mode
+            except OSError:
+                errors.append(f"{relative}: topology entry cannot be inspected")
+                continue
+            if stat.S_ISLNK(entry_mode):
+                errors.append(f"{relative}: topology must not contain symlinks or escapes")
+                if name in names:
+                    names.remove(name)
+            elif name in names and not stat.S_ISDIR(entry_mode):
+                errors.append(f"{relative}: topology directory must be real")
+            elif name in names_files and not stat.S_ISREG(entry_mode):
+                errors.append(f"{relative}: topology file must be regular")
+            elif name in names_files:
+                files.add(relative)
+
+    fixed = {
+        ".gitattributes", ".gitignore", "AGENTS.md", "CONTRIBUTING.md", "LICENSE",
+        "NOTICE.md", "README.md", "build.gradle.kts", "gradlew", "gradlew.bat",
+        "settings.gradle.kts", ".github/workflows/ci.yml", "api/htsp.api",
+        "gradle/wrapper/gradle-wrapper.jar", "gradle/wrapper/gradle-wrapper.properties",
+        *DOC_FILES, *TOOL_FILES, *FIXTURE_FILES,
+    }
+    dynamic = {
+        path for path in files if (
+            (path.startswith("src/main/kotlin/") and path.endswith(".kt"))
+            or (path.startswith("src/test/kotlin/") and path.endswith(".kt"))
+            or (path.startswith("src/test/resources/") and path.endswith(".hex"))
+        )
+    }
+    if files != fixed | dynamic:
+        errors.append(
+            f"file topology mismatch; missing={sorted((fixed | dynamic) - files)}, "
+            f"extra={sorted(files - fixed - dynamic)}"
+        )
+    for executable in {"gradlew", *TOOL_FILES}:
+        path = root / executable
+        try:
+            if path.stat().st_mode & 0o111 == 0:
+                errors.append(f"{executable}: required executable mode is missing")
+        except OSError:
+            pass
+    return errors
+
+
+def immutable_errors(root: Path) -> list[str]:
+    errors: list[str] = []
+    for label, paths in category_files(root).items():
+        expected_count, expected_digest = IMMUTABLE[label]
+        regular = [path for path in paths if path.is_file() and not path.is_symlink()]
+        actual_digest = category_digest(root, regular)
+        if len(regular) != expected_count or actual_digest != expected_digest:
+            errors.append(
+                f"immutable {label} drift: count={len(regular)}/{expected_count}, "
+                f"digest={actual_digest}/{expected_digest}"
+            )
+    return errors
+
+
+def wrapper_errors(root: Path) -> list[str]:
+    errors: list[str] = []
+    for relative, expected in WRAPPER_HASHES.items():
+        path = root / relative
+        if not path.is_file() or path.is_symlink() or sha256(path) != expected:
+            errors.append(f"wrapper hash mismatch: {relative}")
+    properties = read(root / "gradle/wrapper/gradle-wrapper.properties", errors)
+    required = (
+        f"distributionUrl={DIST_URL}", f"distributionSha256Sum={DIST_HASH}",
+        "validateDistributionUrl=true",
+    )
+    for value in required:
+        if properties.count(value) != 1:
+            errors.append(f"wrapper properties must contain exactly one {value}")
+    provenance = read(root / "docs/wrapper-provenance.md", errors)
+    for value in (*WRAPPER_HASHES.values(), DIST_HASH, "68e20fba3b21579ea9eea6271a4dae0d6b0b12a8"):
+        if provenance.count(value) != 1:
+            errors.append(f"wrapper provenance pin mismatch: {value}")
+    for value in (
+        "## Version-neutral launcher and wrapper JAR",
+        "## Official distribution pin",
+        DIST_URL.replace(r"\:", ":"),
+    ):
+        if provenance.count(value) != 1:
+            errors.append(f"wrapper provenance separation mismatch: {value}")
+    return errors
+
+
+def fenced_block(text: str, marker: str) -> str | None:
+    matches = re.findall(
+        rf"<!-- {re.escape(marker)} -->\s*```kotlin\n(.*?)```",
+        text,
+        flags=re.S,
+    )
+    return matches[0] if len(matches) == 1 else None
+
+
+def quick_start_errors(root: Path) -> list[str]:
+    errors: list[str] = []
+    readme = read(root / "README.md", errors)
+    protocol_readme = read(root / "docs/htsp-protocol/README.md", errors)
+    source = read(
+        root / "consumer-contract/src/main/kotlin/at/bernhardberger/tvheadend/protocolconsumer/ProtocolQuickStart.kt",
+        errors,
+    )
+    expected_dependency = f'dependencies {{\n    implementation("{COORDINATE}")\n}}\n'
+    for label, document in (("root README", readme), ("protocol README", protocol_readme)):
+        if fenced_block(document, "dependency-static:htsp") != expected_dependency:
+            errors.append(f"{label}: static dependency identity mismatch")
+        if fenced_block(document, "source-static:htsp") != source:
+            errors.append(f"{label}: static source identity mismatch")
+
+    fixture_build = read(root / "consumer-contract/build.gradle.kts", errors)
+    dependency_lines = re.findall(
+        r'^\s*(?:api|implementation|compileOnly|runtimeOnly)\("([^"]+)"\)\s*$',
+        fixture_build,
+        flags=re.M,
+    )
+    if dependency_lines != [COORDINATE]:
+        errors.append(f"consumer fixture dependency must be exactly {COORDINATE}")
+    fixture_required_counts = {
+        'kotlin("jvm") version "2.3.10"': 1,
+        "jvmToolchain(21)": 1,
+        "JvmTarget.JVM_17": 2,
+        'freeCompilerArgs.add("-Xjdk-release=17")': 2,
+        "JavaVersion.VERSION_17": 2,
+        "options.release.set(17)": 1,
+    }
+    for value, count in fixture_required_counts.items():
+        if fixture_build.count(value) != count:
+            errors.append(f"consumer fixture build policy mismatch: {value}")
+    fixture_settings = read(root / "consumer-contract/settings.gradle.kts", errors)
+    fixture_combined = fixture_build + "\n" + fixture_settings
+    forbidden = (
+        "mavenLocal", "includeBuild", "ProjectDependency", "FileCollectionDependency",
+        "project(", "files(", "fileTree(", "flatDir", "exclusiveContent", "local-maven",
+        "maven-publish", "publishing {", "signing",
+    )
+    for token in forbidden:
+        if token in fixture_combined:
+            errors.append(f"consumer fixture repository/dependency bypass is forbidden: {token}")
+    if fixture_settings.count("mavenCentral()") != 2:
+        errors.append("consumer fixture must use only its two declared Maven Central repositories")
+    if (
+        fixture_settings.count("gradlePluginPortal()") != 1
+        or fixture_settings.count("RepositoriesMode.FAIL_ON_PROJECT_REPOS") != 1
+        or fixture_settings.count('rootProject.name = "htsp-consumer-contract"') != 1
+    ):
+        errors.append("consumer fixture settings policy mismatch")
+    return errors
+
+
+def build_errors(root: Path) -> list[str]:
+    errors: list[str] = []
+    build = read(root / "build.gradle.kts", errors)
+    settings = read(root / "settings.gradle.kts", errors)
+    required_counts = {
+        "`java-library`": 1,
+        'kotlin("jvm") version "2.3.10"': 1,
+        'group = "at.bernhardberger.tvheadend"': 1,
+        'version = "0.1.0-alpha.1-SNAPSHOT"': 1,
+        "jvmToolchain(21)": 1,
+        "explicitApi()": 1,
+        "JvmTarget.JVM_17": 2,
+        'freeCompilerArgs.add("-Xjdk-release=17")': 2,
+        "JavaLanguageVersion.of(21)": 1,
+        "JavaVersion.VERSION_17": 2,
+        "options.release.set(17)": 1,
+        "abiValidation {": 1,
+        "enabled.set(true)": 1,
+        'tasks.register("verifyClassMajor61")': 1,
+        'tasks.register("verifyProductionDependencyGraph")': 1,
+    }
+    for value, count in required_counts.items():
+        if build.count(value) != count:
+            errors.append(f"root build policy missing or duplicated: {value}")
+    production_lines = re.findall(
+        r'^\s*(api|implementation|compileOnly|runtimeOnly)\("([^"]+)"\)\s*$', build, re.M
+    )
+    if production_lines != [("api", "org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2")]:
+        errors.append(f"root build must declare one production dependency: {production_lines}")
+    all_dependency_lines = re.findall(
+        r'^\s*(api|implementation|compileOnly|runtimeOnly|testImplementation|testCompileOnly|testRuntimeOnly)\("([^"]+)"\)\s*$',
+        build,
+        re.M,
+    )
+    expected_dependency_lines = [
+        ("api", "org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2"),
+        ("testImplementation", "junit:junit:4.13.2"),
+        ("testImplementation", "org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2"),
+    ]
+    if all_dependency_lines != expected_dependency_lines:
+        errors.append(f"root build dependency set/order mismatch: {all_dependency_lines}")
+    if settings.count('rootProject.name = "htsp"') != 1:
+        errors.append("root project name must be htsp")
+    if (
+        settings.count("gradlePluginPortal()") != 1
+        or settings.count("mavenCentral()") != 2
+        or settings.count("RepositoriesMode.FAIL_ON_PROJECT_REPOS") != 1
+    ):
+        errors.append("root settings repository policy mismatch")
+    combined = build + "\n" + settings
+    for token in (
+        "maven-publish", "publishing {", "MavenPublication", "mavenLocal", "signing",
+        "com.android", "application", "includeBuild", "project(", "files(",
+    ):
+        if token in combined:
+            errors.append(f"root build contains forbidden publication/repository policy: {token}")
+    return errors
+
+
+def package_and_outcome_errors(root: Path) -> list[str]:
+    errors: list[str] = []
+    packages: set[str] = set()
+    for source in sorted((root / "src/main/kotlin").rglob("*.kt")):
+        text = read(source, errors)
+        match = re.search(r"(?m)^package\s+([A-Za-z0-9_.]+)\s*$", text)
+        if match is None:
+            errors.append(f"{source.relative_to(root)}: production source has no exact package")
+        else:
+            packages.add(match.group(1))
+        for declaration in re.finditer(r"public\s+suspend\s+fun(?:\s*<[^>]+>)?\s+(?:[^\s(]+\.)?([A-Za-z_]\w*)\s*\(", text):
+            opening = text.find("(", declaration.start())
+            depth = 0
+            closing = -1
+            for index in range(opening, len(text)):
+                depth += text[index] == "("
+                depth -= text[index] == ")"
+                if depth == 0:
+                    closing = index
+                    break
+            tail = text[closing + 1:] if closing >= 0 else ""
+            return_match = re.match(r"\s*:\s*([^=\n{]+)", tail)
+            returned = "Unit" if return_match is None else return_match.group(1).strip()
+            outer = returned.split("<", 1)[0].rstrip("?").rsplit(".", 1)[-1]
+            if outer not in {"Unit", "HtspResult", "HtspConnectOutcome"}:
+                line = text.count("\n", 0, declaration.start()) + 1
+                errors.append(
+                    f"{source.relative_to(root)}:{line}: public suspend call must return a typed outcome, not {returned}"
+                )
+    if packages != PACKAGES:
+        errors.append(f"production package set mismatch: {sorted(packages)}")
+    return errors
+
+
+def governance_errors(root: Path) -> list[str]:
+    errors: list[str] = []
+    readme = read(root / "README.md", errors)
+    notice = read(root / "NOTICE.md", errors)
+    licensing = read(root / "docs/licensing.md", errors)
+    required = {
+        "README.md": ("independently maintained GPLv3", "Preclikos/tvhstream", "not official TVHeadend software", "not affiliated"),
+        "NOTICE.md": ("GPLv3", "Preclikos/tvhstream", "TVHClient", "not affiliated"),
+        "docs/licensing.md": ("GNU General Public License v3.0", "Preclikos/tvhstream", "not wholly original", "independently"),
+    }
+    for label, document in (("README.md", readme), ("NOTICE.md", notice), ("docs/licensing.md", licensing)):
+        for phrase in required[label]:
+            if phrase not in document:
+                errors.append(f"{label}: missing GPLv3/lineage/unofficial attribution: {phrase}")
+
+    authority = read(root / "docs/README.md", errors)
+    public_api = read(root / "docs/public-api.md", errors)
+    versioning = read(root / "docs/versioning.md", errors)
+    adr = read(root / "docs/adr/0001-standalone-protocol-decisions.md", errors)
+    for phrase in (
+        "[`public-api.md`](public-api.md)", "[`versioning.md`](versioning.md)",
+        "[`licensing.md`](licensing.md)",
+        "[`htsp-protocol/README.md`](htsp-protocol/README.md)",
+        "[`adr/0001-standalone-protocol-decisions.md`](adr/0001-standalone-protocol-decisions.md)",
+        "[`extraction/manifest.json`](extraction/manifest.json)",
+        "[`wrapper-provenance.md`](wrapper-provenance.md)",
+        "Current repository code and tests override",
+    ):
+        if authority.count(phrase) != 1:
+            errors.append(f"documentation authority index mismatch: {phrase}")
+    for phrase in (
+        "HtspConnectOutcome", "HtspResult", "CancellationException",
+        "Throwing is not a supported server-failure channel",
+    ):
+        if public_api.count(phrase) != 1:
+            errors.append(f"public API policy mismatch: {phrase}")
+    for phrase in (
+        "at.bernhardberger.tvheadend", "0.1.0-alpha.1-SNAPSHOT",
+        "no external publication or availability claim",
+    ):
+        if versioning.count(phrase) != 1:
+            errors.append(f"versioning policy mismatch: {phrase}")
+    for decision in range(1, 8):
+        if adr.count(f"D{decision} —") != 1:
+            errors.append(f"ADR must record D{decision} exactly once")
+    normalized_adr = re.sub(r"\s+", " ", adr)
+    for phrase in (
+        "session façade", "wire-value AST", "capability profile", "mux-stream API",
+        "Gradle 9 migration of the source monorepo", "deliberately not implemented",
+    ):
+        if normalized_adr.count(phrase) != 1:
+            errors.append(f"ADR deferred-work mismatch: {phrase}")
+
+    map_path = root / "docs/extraction/source-to-filtered.tsv"
+    if not map_path.is_file() or map_path.is_symlink() or sha256(map_path) != MAP_HASH:
+        errors.append("source-to-filtered map digest mismatch")
+    manifest_path = root / "docs/extraction/manifest.json"
+    if not manifest_path.is_file() or manifest_path.is_symlink() or sha256(manifest_path) != MANIFEST_HASH:
+        errors.append("extraction manifest digest mismatch")
+    try:
+        manifest = json.loads(read(manifest_path, errors))
+    except json.JSONDecodeError as error:
+        errors.append(f"extraction manifest is invalid JSON: {error}")
+        manifest = {}
+    expected_manifest = {
+        "frozenSourceCommit": "68e20fba3b21579ea9eea6271a4dae0d6b0b12a8",
+        "filteredTip": "781d5a264a7cb99de6478658dbc51c1d6112432a",
+        "historySelectedTreeEntryCount": 74,
+        "historySelectedTreeManifestSha256": "6c8d562513a08f7e5c5dcc96dac76b12878f4a1f7795392a28da4ebe3b1b7b47",
+        "bootstrapProvenanceOnlyEntryCount": 5,
+        "inheritedAndProvenanceEntryCount": 79,
+        "standaloneGovernanceBuildEntryCount": 19,
+        "completeStandaloneEntryCount": 98,
+        "ancestryMappingCount": 142,
+        "retainedCommitCount": 59,
+        "prunedCommitCount": 83,
+        "selectedPathSourceCommitCount": 59,
+        "sourceToFilteredMapSha256": MAP_HASH,
+    }
+    for key, value in expected_manifest.items():
+        if manifest.get(key) != value:
+            errors.append(f"extraction manifest mismatch: {key}")
+
+    for relative, expected in PENDING_HASHES.items():
+        path = root / relative
+        if not path.is_file() or path.is_symlink() or sha256(path) != expected:
+            errors.append(f"P3-E2-pending checker was weakened: {relative}")
+    verify = read(root / "tools/verify-htsp", errors)
+    ci = read(root / ".github/workflows/ci.yml", errors)
+    for pending in ("check-api-compatibility-policy", "check-published-jvm-compatibility"):
+        if pending in verify or pending in ci:
+            errors.append(f"P3-E2-pending checker was activated: {pending}")
+    return errors
+
+
+def ci_and_verify_errors(root: Path) -> list[str]:
+    errors: list[str] = []
+    ci = read(root / ".github/workflows/ci.yml", errors)
+    verify = read(root / "tools/verify-htsp", errors)
+    required_ci = (
+        "runs-on: ubuntu-24.04", f"actions/checkout@{CHECKOUT_SHA}",
+        "persist-credentials: false", f"actions/setup-java@{JAVA_SHA}",
+        "distribution: temurin", "java-version: '21'", "permissions:\n  contents: read",
+        "run: ./tools/check-standalone-repository --wrapper-only",
+        "run: ./tools/verify-htsp",
+    )
+    for value in required_ci:
+        if ci.count(value) != 1:
+            errors.append(f"CI exact policy mismatch: {value}")
+    trigger_and_permissions = (
+        "on:\n  push:\n    branches: [main]\n  pull_request:\n\n"
+        "permissions:\n  contents: read\n"
+    )
+    if ci.count(trigger_and_permissions) != 1 or ci.count("permissions:") != 1:
+        errors.append("CI triggers/permissions must be exactly main push, pull request, and contents read")
+    uses = re.findall(r"^\s*uses:\s*(\S+)\s*$", ci, flags=re.M)
+    if uses != [f"actions/checkout@{CHECKOUT_SHA}", f"actions/setup-java@{JAVA_SHA}"]:
+        errors.append(f"CI action set/order mismatch: {uses}")
+    runs = re.findall(r"^\s*run:\s*(.+?)\s*$", ci, flags=re.M)
+    expected_runs = [
+        "./tools/check-standalone-repository --wrapper-only",
+        "./tools/verify-htsp",
+    ]
+    if runs != expected_runs:
+        errors.append(f"CI command set/order mismatch: {runs}")
+    if ci.find("--wrapper-only") > ci.find("run: ./tools/verify-htsp"):
+        errors.append("CI must verify wrapper provenance before default verification")
+    if "run: ./tools/verify-htsp --non-gradle" in ci:
+        errors.append("CI bypasses default Gradle verification")
+    gradle_command = (
+        "./gradlew --no-daemon clean test check checkLegacyAbi "
+        "verifyClassMajor61 verifyProductionDependencyGraph"
+    )
+    if verify.count(gradle_command) != 1:
+        errors.append("default verifier Gradle 9 task contract mismatch")
+    expected_verify_commands = [
+        "./tools/check-standalone-repository --self-test",
+        "./tools/check-standalone-repository",
+        "./tools/check-htsp-protocol-boundary --self-test",
+        "./tools/check-htsp-protocol-boundary",
+        "./tools/check-htsp-generated-drift --self-test",
+        "./tools/check-htsp-generated-drift",
+        "./tools/check-htsp-public-kdoc --self-test",
+        "./tools/check-htsp-public-kdoc",
+        "./tools/check-htsp-json-api-containment --self-test",
+        "./tools/check-htsp-json-api-containment",
+        "./tools/check-single-package-per-module --self-test",
+        "./tools/check-single-package-per-module",
+        "./tools/check-public-api-outcomes --self-test",
+        "./tools/check-public-api-outcomes",
+        "./tools/check-license-attribution --self-test",
+        "./tools/check-license-attribution",
+        "python3 docs/htsp-protocol/report.py --check",
+        "python3 docs/htsp-protocol/generate_typed_requests.py --self-test",
+        "python3 docs/htsp-protocol/generate_typed_request_models.py --self-test",
+        "python3 docs/htsp-protocol/generate_typed_server_messages.py --self-test",
+        "python3 docs/htsp-protocol/generate_typed_server_message_models.py --self-test",
+        gradle_command,
+    ]
+    actual_verify_commands = [
+        line.strip()
+        for line in verify.splitlines()
+        if line.startswith(("./tools/", "python3 docs/", "./gradlew "))
+    ]
+    if actual_verify_commands != expected_verify_commands:
+        errors.append("verifier static/Gradle command set or order mismatch")
+    if verify.count('if [ "${1-}" = "--non-gradle" ]; then') != 1:
+        errors.append("verifier must gate Gradle only after the --non-gradle exit")
+    forbidden = ("consumer-contract", "maven-publish", "publish", "signing", "local-maven")
+    for token in forbidden:
+        if token in verify or token in ci:
+            errors.append(f"CI/default verifier contains forbidden consumer/publication path: {token}")
+    return errors
+
+
+def repository_errors(root: Path) -> list[str]:
+    errors = topology_errors(root)
+    errors.extend(immutable_errors(root))
+    errors.extend(wrapper_errors(root))
+    errors.extend(build_errors(root))
+    errors.extend(package_and_outcome_errors(root))
+    errors.extend(quick_start_errors(root))
+    errors.extend(governance_errors(root))
+    errors.extend(ci_and_verify_errors(root))
+    return sorted(set(errors))
+
+
+def append(root: Path, relative: str, text: str) -> None:
+    path = root / relative
+    path.write_text(path.read_text(encoding="utf-8") + text, encoding="utf-8")
+
+
+def replace(root: Path, relative: str, old: str, new: str) -> None:
+    path = root / relative
+    text = path.read_text(encoding="utf-8")
+    if old not in text:
+        raise AssertionError(f"self-test cannot mutate {relative}: {old!r}")
+    path.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+
+def self_test() -> None:
+    baseline = repository_errors(ROOT)
+    if baseline:
+        raise AssertionError("clean repository fixture failed: " + "; ".join(baseline))
+
+    generated = "src/main/kotlin/at/bernhardberger/tvheadend/htsp/requests/GeneratedHtspRequests.kt"
+    production = "src/main/kotlin/at/bernhardberger/tvheadend/htsp/connection/HtspConnection.kt"
+    test_source = next(path.relative_to(ROOT).as_posix() for path in sorted((ROOT / "src/test/kotlin").rglob("*.kt")))
+    golden = next(path.relative_to(ROOT).as_posix() for path in sorted((ROOT / "src/test/resources").rglob("*.hex")))
+    mutations: list[tuple[str, str, Callable[[Path], None]]] = [
+        ("extra topology", "root topology mismatch", lambda root: (root / "unexpected.txt").write_text("x")),
+        ("extra package", "production package set mismatch", lambda root: (root / "src/main/kotlin/hostile/Extra.kt").parent.mkdir(parents=True, exist_ok=True) or (root / "src/main/kotlin/hostile/Extra.kt").write_text("package hostile.sixth\n", encoding="utf-8")),
+        ("extra dependency", "one production dependency", lambda root: append(root, "build.gradle.kts", '\nimplementation("example:bad:1")\n')),
+        ("wrong version", "root build policy missing", lambda root: replace(root, "build.gradle.kts", 'version = "0.1.0-alpha.1-SNAPSHOT"', 'version = "9.9"')),
+        ("wrong toolchain", "root build policy missing", lambda root: replace(root, "build.gradle.kts", "jvmToolchain(21)", "jvmToolchain(17)")),
+        ("untyped public suspend API", "typed outcome", lambda root: append(root, production, "\npublic suspend fun hostile(): String = \"bad\"\n")),
+        ("stale generated", "immutable generated drift", lambda root: append(root, generated, "\n")),
+        ("stale API", "immutable api drift", lambda root: append(root, "api/htsp.api", "\n")),
+        ("stale production", "immutable production drift", lambda root: append(root, production, "\n")),
+        ("stale test", "immutable tests drift", lambda root: append(root, test_source, "\n")),
+        ("stale golden", "immutable golden drift", lambda root: append(root, golden, "\n")),
+        ("stale spec", "immutable protocol evidence drift", lambda root: append(root, "docs/htsp-protocol/htsp_spec.json", "\n")),
+        ("stale matrix", "immutable protocol evidence drift", lambda root: append(root, "docs/htsp-protocol/HTSP_METHOD_MATRIX.md", "\n")),
+        ("stale catalog", "immutable protocol evidence drift", lambda root: append(root, "docs/htsp-protocol/htsp_surface.py", "\n")),
+        ("stale generator", "immutable protocol evidence drift", lambda root: append(root, "docs/htsp-protocol/generate_typed_requests.py", "\n")),
+        ("fixture source identity", "static source identity mismatch", lambda root: append(root, next(iter(FIXTURE_FILES - {"consumer-contract/build.gradle.kts", "consumer-contract/settings.gradle.kts"})), "\n")),
+        ("fixture project bypass", "repository/dependency bypass", lambda root: append(root, "consumer-contract/build.gradle.kts", '\nimplementation(project(":"))\n')),
+        ("fixture repository bypass", "repository/dependency bypass", lambda root: append(root, "consumer-contract/settings.gradle.kts", "\nmavenLocal()\n")),
+        ("README source mismatch", "root README: static source identity mismatch", lambda root: replace(root, "README.md", "enum class ProtocolFailurePolicy", "enum class ChangedProtocolFailurePolicy")),
+        ("wrapper hash", "wrapper hash mismatch", lambda root: append(root, "gradlew", "\n")),
+        ("wrapper URL", "wrapper properties", lambda root: replace(root, "gradle/wrapper/gradle-wrapper.properties", "gradle-9.0.0-bin.zip", "gradle-9.1.0-bin.zip")),
+        ("wrapper checksum", "wrapper properties", lambda root: replace(root, "gradle/wrapper/gradle-wrapper.properties", DIST_HASH, "0" * 64)),
+        ("action SHA", "CI exact policy mismatch", lambda root: replace(root, ".github/workflows/ci.yml", CHECKOUT_SHA, "0" * 40)),
+        ("CI permissions", "CI exact policy mismatch", lambda root: replace(root, ".github/workflows/ci.yml", "contents: read", "contents: write")),
+        ("CI bypass", "CI bypasses default", lambda root: replace(root, ".github/workflows/ci.yml", "run: ./tools/verify-htsp\n", "run: ./tools/verify-htsp --non-gradle\n")),
+        ("missing attribution", "missing GPLv3/lineage/unofficial attribution", lambda root: replace(root, "README.md", "not official TVHeadend software", "third-party software")),
+        ("pending activation", "P3-E2-pending checker was activated", lambda root: append(root, "tools/verify-htsp", "\n./tools/check-api-compatibility-policy\n")),
+        ("pending weakening", "P3-E2-pending checker was weakened", lambda root: append(root, "tools/check-api-compatibility-policy", "\n")),
+        ("map drift", "source-to-filtered map digest mismatch", lambda root: append(root, "docs/extraction/source-to-filtered.tsv", "\n")),
+    ]
+
+    def symlink_mutation(root: Path) -> None:
+        target = root.parent / "outside.txt"
+        target.write_text("outside", encoding="utf-8")
+        path = root / "README.md"
+        path.unlink()
+        path.symlink_to(target)
+
+    mutations.append(("symlink/escape topology", "symlinks or escapes", symlink_mutation))
+
+    failures: list[str] = []
+    for label, expected, mutate in mutations:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "repository"
+            shutil.copytree(ROOT, root, symlinks=True, ignore=shutil.ignore_patterns(".git", ".gradle", "build"))
+            mutate(root)
+            findings = repository_errors(root)
+            if not any(expected in finding for finding in findings):
+                failures.append(f"{label} mutation was accepted or had wrong diagnostic: {findings}")
+    if failures:
+        raise AssertionError("; ".join(failures))
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument("--self-test", action="store_true")
+    group.add_argument("--wrapper-only", action="store_true")
+    args = parser.parse_args()
+    if args.self_test:
+        self_test()
+        print("Standalone repository hostile self-tests passed.")
+        return 0
+    errors = wrapper_errors(ROOT) if args.wrapper_only else repository_errors(ROOT)
+    if errors:
+        print("Standalone repository policy failed:")
+        for error in errors:
+            print(f"  - {error}")
+        return 1
+    label = "wrapper/provenance" if args.wrapper_only else "repository/CI/fixture"
+    print(f"Standalone {label} policy passed.")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -7,6 +7,7 @@ import argparse
 import copy
 import json
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -23,13 +24,14 @@ GENERATORS = (
     "docs/htsp-protocol/generate_typed_server_message_models.py",
 )
 GENERATED_OUTPUTS = (
-    "sdk/htsp-protocol/src/main/kotlin/at/bernhardberger/tvheadend/htsp/requests/GeneratedHtspExtensions.kt",
-    "sdk/htsp-protocol/src/main/kotlin/at/bernhardberger/tvheadend/htsp/requests/GeneratedHtspRequests.kt",
-    "sdk/htsp-protocol/src/main/kotlin/at/bernhardberger/tvheadend/htsp/messages/GeneratedHtspServerMessageDispatch.kt",
-    "sdk/htsp-protocol/src/main/kotlin/at/bernhardberger/tvheadend/htsp/messages/GeneratedHtspServerMessages.kt",
-    "sdk/htsp-protocol/src/main/kotlin/at/bernhardberger/tvheadend/htsp/jsonapi/GeneratedHtspJsonApiExtensions.kt",
-    "sdk/htsp-protocol/src/main/kotlin/at/bernhardberger/tvheadend/htsp/jsonapi/GeneratedHtspJsonApiModels.kt",
+    "src/main/kotlin/at/bernhardberger/tvheadend/htsp/requests/GeneratedHtspExtensions.kt",
+    "src/main/kotlin/at/bernhardberger/tvheadend/htsp/requests/GeneratedHtspRequests.kt",
+    "src/main/kotlin/at/bernhardberger/tvheadend/htsp/messages/GeneratedHtspServerMessageDispatch.kt",
+    "src/main/kotlin/at/bernhardberger/tvheadend/htsp/messages/GeneratedHtspServerMessages.kt",
+    "src/main/kotlin/at/bernhardberger/tvheadend/htsp/jsonapi/GeneratedHtspJsonApiExtensions.kt",
+    "src/main/kotlin/at/bernhardberger/tvheadend/htsp/jsonapi/GeneratedHtspJsonApiModels.kt",
 )
+HISTORICAL_OUTPUT_PREFIX = Path("sdk/htsp-protocol")
 
 
 @dataclass(frozen=True)
@@ -708,6 +710,19 @@ def validate_generated_outputs(root: Path) -> None:
             raise ValueError(f"generated output must be a regular non-symlink file: {relative}")
 
 
+def projected_generator_root() -> tempfile.TemporaryDirectory[str]:
+    """Project immutable generators onto their retained historical output paths."""
+    temporary = tempfile.TemporaryDirectory()
+    root = Path(temporary.name)
+    shutil.copytree(ROOT / "docs", root / "docs")
+    for relative in GENERATED_OUTPUTS:
+        source = ROOT / relative
+        target = root / HISTORICAL_OUTPUT_PREFIX / Path(relative)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(source, target)
+    return temporary
+
+
 def replace_namespace(value: SimpleNamespace, **changes: object) -> SimpleNamespace:
     return SimpleNamespace(**{**vars(value), **changes})
 
@@ -1107,15 +1122,19 @@ def main(argv: list[str] | None = None) -> int:
         for error in errors:
             print(f"error: {error}", file=sys.stderr)
         return 1
+    projection = projected_generator_root()
+    projected_root = Path(projection.name)
     for relative in GENERATORS:
         generator = ROOT / relative
         if not generator.is_file() or generator.is_symlink():
             errors.append(f"required generator must be a regular file: {relative}")
             continue
         for mode in ("--self-test", "--check"):
+            execution_root = ROOT if mode == "--self-test" else projected_root
+            execution_generator = execution_root / relative
             completed = subprocess.run(
-                [sys.executable, str(generator), mode],
-                cwd=ROOT,
+                [sys.executable, str(execution_generator), mode],
+                cwd=execution_root,
                 check=False,
                 capture_output=True,
                 text=True,
@@ -1123,6 +1142,7 @@ def main(argv: list[str] | None = None) -> int:
             if completed.returncode != 0:
                 detail = (completed.stderr or completed.stdout).strip()
                 errors.append(f"{relative} {mode} failed: {detail or completed.returncode}")
+    projection.cleanup()
     if errors:
         for error in errors:
             print(f"error: {error}", file=sys.stderr)

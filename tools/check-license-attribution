@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verify visible SDK licensing, lineage, and independence documentation."""
+"""Verify visible library licensing, lineage, and independence documentation."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-AUTHORITY_PATH = "docs/licensing-and-attribution.md"
+AUTHORITY_PATH = "docs/licensing.md"
 ROOT_README_PATH = "README.md"
 DOCUMENTATION_INDEX_PATH = "docs/README.md"
 NOTICE_PATH = "NOTICE.md"
@@ -20,16 +20,16 @@ PREDECESSOR_URL = "https://github.com/Preclikos/tvhstream"
 TVHEADEND_URL = "https://github.com/tvheadend/tvheadend"
 
 GPL_STATEMENT = (
-    "The combined SDK work is licensed under the GNU General Public License v3.0."
+    "The combined HTSP library work is licensed under the GNU General Public License v3.0."
 )
 INDEPENDENCE_STATEMENT = (
-    "The SDK is developed and maintained independently of the TVHeadend project."
+    "The library is developed and maintained independently of the TVHeadend project."
 )
 NOT_WHOLLY_ORIGINAL_STATEMENT = (
     "It incorporates predecessor work and is not wholly original."
 )
 EXTRACTION_BOUNDARY_STATEMENT = (
-    "The standalone repository begins with the SDK extraction baseline instead "
+    "The standalone repository begins with the HTSP protocol extraction baseline instead "
     "of embedding the predecessor application's unrelated Git history."
 )
 
@@ -179,7 +179,7 @@ def validate_documents(documents: Documents, label: str) -> list[str]:
             "controlling-license boundary",
         ),
         (
-            r"conveying covered SDK work.*keep intact applicable copyright, "
+            r"conveying covered library work.*keep intact applicable copyright, "
             r"license, and no-warranty notices.*give recipients a copy of GPLv3",
             "source-conveyance notice obligation",
         ),
@@ -198,7 +198,7 @@ def validate_documents(documents: Documents, label: str) -> list[str]:
         (re.escape(NOT_WHOLLY_ORIGINAL_STATEMENT), "not-wholly-original statement"),
         (
             re.escape(EXTRACTION_BOUNDARY_STATEMENT),
-            "SDK extraction-history boundary",
+            "library extraction-history boundary",
         ),
         (re.escape(INDEPENDENCE_STATEMENT), "independence statement"),
         (
@@ -229,7 +229,7 @@ def validate_documents(documents: Documents, label: str) -> list[str]:
         (r"descends from.*Preclikos/tvhstream", "root predecessor attribution"),
         (
             re.escape(EXTRACTION_BOUNDARY_STATEMENT),
-            "root SDK extraction-history boundary",
+            "root library extraction-history boundary",
         ),
     )
     for pattern, description in root_patterns:
@@ -246,7 +246,7 @@ def validate_documents(documents: Documents, label: str) -> list[str]:
         ),
         (
             re.escape(EXTRACTION_BOUNDARY_STATEMENT),
-            "notice SDK extraction-history boundary",
+            "notice library extraction-history boundary",
         ),
     )
     for pattern, description in notice_patterns:
@@ -255,14 +255,6 @@ def validate_documents(documents: Documents, label: str) -> list[str]:
     authority_links = (
         ("LICENSE", "controlling LICENSE"),
         ("NOTICE.md", "NOTICE attribution"),
-        (
-            "sdk/decoder-ffmpeg-binary/README.md",
-            "native distribution authority",
-        ),
-        (
-            "sdk/decoder-ffmpeg-binary/native-dependencies.json",
-            "machine-readable native provenance",
-        ),
         (PREDECESSOR_URL, "predecessor attribution"),
         (TVHEADEND_URL, "TVHeadend project identity"),
     )
@@ -444,7 +436,7 @@ def verify_mutation_coverage(documents: Documents, errors: list[str]) -> None:
     contradiction_mutations = (
         (
             "contradictory GPL version claim",
-            "The combined SDK work is licensed under GPLv2 only.",
+        "The combined HTSP library work is licensed under GPLv2 only.",
             "contradictory GPL version claim",
         ),
         (
@@ -529,6 +521,9 @@ def read_documents(errors: list[str]) -> Documents:
 
 
 def main() -> int:
+    if sys.argv[1:] not in ([], ["--self-test"]):
+        print("usage: check-license-attribution [--self-test]", file=sys.stderr)
+        return 2
     errors: list[str] = []
     documents = read_documents(errors)
     errors.extend(validate_documents(documents, "current documentation"))
@@ -539,8 +534,9 @@ def main() -> int:
     if errors:
         return 1
 
+    label = " hostile self-tests" if sys.argv[1:] else " governance"
     print(
-        "Licensing and attribution governance passed: visible GPLv3 obligations, "
+        f"Licensing and attribution{label} passed: visible GPLv3 obligations, "
         "TVHStream lineage, and independent TVHeadend identity",
     )
     return 0

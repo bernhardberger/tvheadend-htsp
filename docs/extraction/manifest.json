@@ -1,0 +1,62 @@
+{
+  "schemaVersion": 2,
+  "sourceRepository": "Preclikos/tvhstream-derived TVHeadend Player SDK monorepo",
+  "frozenSourceCommit": "68e20fba3b21579ea9eea6271a4dae0d6b0b12a8",
+  "filteredTip": "781d5a264a7cb99de6478658dbc51c1d6112432a",
+  "historyBoundaryCommit": "6ee02b1da51d2a60caf3c3838c01466281838733",
+  "historySelectedTreeEntryCount": 74,
+  "historySelectedTreeManifestSha256": "6c8d562513a08f7e5c5dcc96dac76b12878f4a1f7795392a28da4ebe3b1b7b47",
+  "bootstrapProvenanceOnlyEntryCount": 5,
+  "inheritedAndProvenanceEntryCount": 79,
+  "standaloneGovernanceBuildEntryCount": 19,
+  "completeStandaloneEntryCount": 98,
+  "ancestryMappingCount": 142,
+  "retainedCommitCount": 59,
+  "prunedCommitCount": 83,
+  "selectedPathSourceCommitCount": 59,
+  "selectedPathMergeCount": 0,
+  "sourceToFilteredMap": "source-to-filtered.tsv",
+  "sourceToFilteredMapSha256": "c5fad8e6bd00bc6f692405cef79c661325df404c91a0a59ac47c1497f3bb7f27",
+  "historySelection": [
+    "sdk/htsp-protocol/**",
+    "sdk/protocol-consumer-contract/**",
+    "docs/htsp-protocol/** except docs/htsp-protocol/README.md",
+    "six enumerated history-selected tools/check-* files",
+    "CONTRIBUTING.md",
+    "LICENSE"
+  ],
+  "bootstrapProvenanceOnly": [
+    {
+      "path": "NOTICE.md",
+      "sourceMode": "100644",
+      "sourceBlob": "c933c813495a33f3be1430edbeb7c1e016be4901",
+      "bootstrapTreatment": "reviewed narrowed standalone adaptation"
+    },
+    {
+      "path": "docs/htsp-protocol/README.md",
+      "sourceMode": "100644",
+      "sourceBlob": "8f068b5ff5cfa7ecf77d8c1f5e6acc8e329fe1a8",
+      "bootstrapTreatment": "reviewed standalone adaptation"
+    },
+    {
+      "path": "tools/check-api-compatibility-policy",
+      "sourceMode": "100755",
+      "sourceBlob": "ae56b67dee63f9734fe59ef7e8dedf0e93f52b37",
+      "bootstrapTreatment": "exact frozen bytes and mode; inactive pending P3-E2"
+    },
+    {
+      "path": "tools/check-published-jvm-compatibility",
+      "sourceMode": "100755",
+      "sourceBlob": "9eb6e9c85581959ca3e2991b59c2f6d45fb91f4e",
+      "bootstrapTreatment": "exact frozen bytes and mode; inactive pending P3-E2"
+    },
+    {
+      "path": "tools/check-public-api-outcomes",
+      "sourceMode": "100755",
+      "sourceBlob": "9430291aa62d1f1040c225e720ef244e639ca866",
+      "sourceSha256": "c58ea9fb4532489b0709e2bf5feaeec6b9dca4a04d31c4539b771138ff3c5aea",
+      "bootstrapTreatment": "reviewed active standalone adaptation with zero grandfathered declarations"
+    }
+  ],
+  "note": "Static path predicates intentionally do not follow pre-boundary copies or renames. All five provenance-only paths are absent from filtered history and enter only in the future bootstrap commit; root moves also occur only in that commit."
+}

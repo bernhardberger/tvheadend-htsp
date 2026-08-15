@@ -1,0 +1,695 @@
+#!/usr/bin/env python3
+"""Verify JVM compatibility from the published SDK coordinate artifacts."""
+
+from __future__ import annotations
+
+import copy
+import hashlib
+import io
+import json
+import re
+import struct
+import sys
+import tempfile
+import zipfile
+import xml.etree.ElementTree as ElementTree
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+
+ROOT = Path(__file__).resolve().parents[1]
+REPOSITORY = ROOT / "build/local-maven"
+SDK_GROUP = "at.bernhardberger.tvheadend"
+SDK_VERSION = "0.1.0-SNAPSHOT"
+EXPECTED_JVM_VERSION = 17
+EXPECTED_SDK_CLASS_MAJOR = 61
+PINNED_DECODER_SHA256 = (
+    "1716bd964aa4ac3e7cd868ee036161f8d5cfa47fe6564a3d57b3b8723ab3f2e0"
+)
+
+
+@dataclass(frozen=True)
+class PublishedArtifact:
+    module: str
+    extension: str
+    library_variants: frozenset[str]
+    representative_class: str
+    expected_class_major: int
+    sdk_generated_bytecode: bool = True
+    expected_sha256: str | None = None
+
+    @property
+    def canonical_primary_name(self) -> str:
+        return f"{self.module}-{SDK_VERSION}.{self.extension}"
+
+
+ARTIFACTS = (
+    PublishedArtifact(
+        module="core",
+        extension="jar",
+        library_variants=frozenset({"apiElements", "runtimeElements"}),
+        representative_class=(
+            "at/bernhardberger/tvheadend/core/TimeshiftState.class"
+        ),
+        expected_class_major=EXPECTED_SDK_CLASS_MAJOR,
+    ),
+    PublishedArtifact(
+        module="htsp-protocol",
+        extension="jar",
+        library_variants=frozenset({"apiElements", "runtimeElements"}),
+        representative_class=(
+            "at/bernhardberger/tvheadend/htsp/connection/HtspConnectionGeneration.class"
+        ),
+        expected_class_major=EXPECTED_SDK_CLASS_MAJOR,
+    ),
+    PublishedArtifact(
+        module="client-htsp",
+        extension="jar",
+        library_variants=frozenset({"apiElements", "runtimeElements"}),
+        representative_class=(
+            "at/bernhardberger/tvheadend/client/TvheadendClient.class"
+        ),
+        expected_class_major=EXPECTED_SDK_CLASS_MAJOR,
+    ),
+    PublishedArtifact(
+        module="client-testing",
+        extension="jar",
+        library_variants=frozenset({"apiElements", "runtimeElements"}),
+        representative_class=(
+            "at/bernhardberger/tvheadend/client/testing/FakeFrontendClient.class"
+        ),
+        expected_class_major=EXPECTED_SDK_CLASS_MAJOR,
+    ),
+    PublishedArtifact(
+        module="playback-media3",
+        extension="aar",
+        library_variants=frozenset(
+            {
+                "releaseVariantReleaseApiPublication",
+                "releaseVariantReleaseRuntimePublication",
+            },
+        ),
+        representative_class=(
+            "at/bernhardberger/tvheadend/playback/Media3PlaybackRuntime.class"
+        ),
+        expected_class_major=EXPECTED_SDK_CLASS_MAJOR,
+    ),
+    PublishedArtifact(
+        module="playback-android-session",
+        extension="aar",
+        library_variants=frozenset(
+            {
+                "releaseVariantReleaseApiPublication",
+                "releaseVariantReleaseRuntimePublication",
+            },
+        ),
+        representative_class=(
+            "at/bernhardberger/tvheadend/session/TvheadendPlayerSession.class"
+        ),
+        expected_class_major=EXPECTED_SDK_CLASS_MAJOR,
+    ),
+    PublishedArtifact(
+        module="playback-android-testing",
+        extension="aar",
+        library_variants=frozenset(
+            {
+                "releaseVariantReleaseApiPublication",
+                "releaseVariantReleaseRuntimePublication",
+            },
+        ),
+        representative_class=(
+            "at/bernhardberger/tvheadend/session/testing/FakePlayerSession.class"
+        ),
+        expected_class_major=EXPECTED_SDK_CLASS_MAJOR,
+    ),
+    # The decoder is an immutable, audited upstream binary rather than SDK-built
+    # bytecode. Its publication remains in JVM-metadata scope, while its pinned
+    # Java 8 representative explicitly proves why it is outside the major-61 set.
+    PublishedArtifact(
+        module="decoder-ffmpeg",
+        extension="aar",
+        library_variants=frozenset({"decoderPublicationRuntimeElements"}),
+        representative_class="androidx/media3/decoder/ffmpeg/FfmpegLibrary.class",
+        expected_class_major=52,
+        sdk_generated_bytecode=False,
+        expected_sha256=PINNED_DECODER_SHA256,
+    ),
+)
+
+
+def group_directory(repository: Path) -> Path:
+    return repository.joinpath(*SDK_GROUP.split("."))
+
+
+def required_xml_child(
+    parent: ElementTree.Element,
+    name: str,
+    label: str,
+    errors: list[str],
+) -> ElementTree.Element | None:
+    matches = parent.findall(name)
+    if len(matches) != 1:
+        errors.append(f"{label}: expected exactly one <{name}> element")
+        return None
+    return matches[0]
+
+
+def required_xml_text(
+    parent: ElementTree.Element,
+    name: str,
+    label: str,
+    errors: list[str],
+) -> str | None:
+    element = required_xml_child(parent, name, label, errors)
+    if element is None:
+        return None
+    value = (element.text or "").strip()
+    if not value:
+        errors.append(f"{label}: <{name}> must contain text")
+        return None
+    return value
+
+
+def resolve_snapshot_files(
+    version_directory: Path,
+    artifact: PublishedArtifact,
+    errors: list[str],
+) -> dict[str, Path]:
+    label = f"{artifact.module} Maven metadata"
+    metadata_path = version_directory / "maven-metadata.xml"
+    if not metadata_path.is_file() or metadata_path.is_symlink():
+        errors.append(f"{label}: missing regular {metadata_path.name}")
+        return {}
+    try:
+        root = ElementTree.parse(metadata_path).getroot()
+    except (OSError, ElementTree.ParseError) as error:
+        errors.append(f"{label}: invalid XML: {error}")
+        return {}
+    if root.tag != "metadata":
+        errors.append(f"{label}: root element is <{root.tag}>, expected <metadata>")
+        return {}
+
+    group = required_xml_text(root, "groupId", label, errors)
+    module = required_xml_text(root, "artifactId", label, errors)
+    version = required_xml_text(root, "version", label, errors)
+    if group is not None and group != SDK_GROUP:
+        errors.append(f"{label}: groupId is {group!r}, expected {SDK_GROUP!r}")
+    if module is not None and module != artifact.module:
+        errors.append(
+            f"{label}: artifactId is {module!r}, expected {artifact.module!r}",
+        )
+    if version is not None and version != SDK_VERSION:
+        errors.append(f"{label}: version is {version!r}, expected {SDK_VERSION!r}")
+
+    versioning = required_xml_child(root, "versioning", label, errors)
+    if versioning is None:
+        return {}
+    snapshot = required_xml_child(versioning, "snapshot", label, errors)
+    snapshot_versions = required_xml_child(
+        versioning,
+        "snapshotVersions",
+        label,
+        errors,
+    )
+    if snapshot is None or snapshot_versions is None:
+        return {}
+    timestamp = required_xml_text(snapshot, "timestamp", label, errors)
+    build_number = required_xml_text(snapshot, "buildNumber", label, errors)
+    if timestamp is None or build_number is None:
+        return {}
+    if re.fullmatch(r"[0-9]{8}\.[0-9]{6}", timestamp) is None:
+        errors.append(f"{label}: invalid snapshot timestamp {timestamp!r}")
+        return {}
+    if re.fullmatch(r"[0-9]+", build_number) is None:
+        errors.append(f"{label}: invalid snapshot build number {build_number!r}")
+        return {}
+
+    requested_extensions = {"module", artifact.extension}
+    values: dict[str, list[str]] = {
+        extension: [] for extension in requested_extensions
+    }
+    entries = snapshot_versions.findall("snapshotVersion")
+    if not entries:
+        errors.append(f"{label}: contains no <snapshotVersion> entries")
+        return {}
+    for index, entry in enumerate(entries):
+        entry_label = f"{label} snapshotVersion {index}"
+        extension = required_xml_text(entry, "extension", entry_label, errors)
+        value = required_xml_text(entry, "value", entry_label, errors)
+        classifiers = entry.findall("classifier")
+        if len(classifiers) > 1:
+            errors.append(f"{entry_label}: contains duplicate <classifier> elements")
+            continue
+        classifier = None
+        if classifiers:
+            classifier = (classifiers[0].text or "").strip()
+            if not classifier:
+                errors.append(f"{entry_label}: classifier must contain text")
+                continue
+        if extension in requested_extensions and classifier is None and value is not None:
+            values[extension].append(value)
+
+    base_version = SDK_VERSION.removesuffix("-SNAPSHOT")
+    expected_value = f"{base_version}-{timestamp}-{build_number}"
+    resolved: dict[str, Path] = {}
+    for extension in sorted(requested_extensions):
+        matches = values[extension]
+        if matches != [expected_value]:
+            errors.append(
+                f"{label}: unclassified {extension} snapshot values {matches} "
+                f"do not match [{expected_value!r}]",
+            )
+            continue
+        file_name = f"{artifact.module}-{expected_value}.{extension}"
+        candidate = version_directory / file_name
+        if not candidate.is_file() or candidate.is_symlink():
+            errors.append(f"{label}: resolved file is not a regular file: {file_name}")
+            continue
+        resolved[extension] = candidate
+
+    expected_module_name = f"{artifact.module}-{expected_value}.module"
+    actual_module_names = {
+        path.name for path in version_directory.glob("*.module") if path.is_file()
+    }
+    if actual_module_names != {expected_module_name}:
+        errors.append(
+            f"{label}: module file inventory {sorted(actual_module_names)} does not "
+            f"match {[expected_module_name]}",
+        )
+    expected_primary_name = (
+        f"{artifact.module}-{expected_value}.{artifact.extension}"
+    )
+    actual_primary_names = {
+        path.name
+        for path in version_directory.glob(f"*.{artifact.extension}")
+        if path.is_file() and "-sources." not in path.name
+    }
+    if actual_primary_names != {expected_primary_name}:
+        errors.append(
+            f"{label}: primary file inventory {sorted(actual_primary_names)} does not "
+            f"match {[expected_primary_name]}",
+        )
+    return resolved
+
+
+def required_mapping(
+    value: Any,
+    label: str,
+    errors: list[str],
+) -> dict[str, Any] | None:
+    if not isinstance(value, dict):
+        errors.append(f"{label}: expected a JSON object")
+        return None
+    if not all(isinstance(key, str) for key in value):
+        errors.append(f"{label}: contains a non-string key")
+        return None
+    return value
+
+
+def metadata_errors(
+    model: Any,
+    artifact: PublishedArtifact,
+    label: str,
+) -> list[str]:
+    errors: list[str] = []
+    root = required_mapping(model, label, errors)
+    if root is None:
+        return errors
+
+    if root.get("formatVersion") != "1.1":
+        errors.append(f"{label}: formatVersion is not exactly 1.1")
+
+    component = required_mapping(root.get("component"), f"{label} component", errors)
+    if component is not None:
+        expected_component = {
+            "group": SDK_GROUP,
+            "module": artifact.module,
+            "version": SDK_VERSION,
+        }
+        actual_component = {
+            field: component.get(field) for field in expected_component
+        }
+        if actual_component != expected_component:
+            errors.append(
+                f"{label}: component {actual_component} does not match "
+                f"{expected_component}",
+            )
+
+    variants = root.get("variants")
+    if not isinstance(variants, list):
+        errors.append(f"{label}: variants is not an array")
+        return errors
+
+    library_variants: dict[str, dict[str, Any]] = {}
+    for index, value in enumerate(variants):
+        variant = required_mapping(value, f"{label} variant {index}", errors)
+        if variant is None:
+            continue
+        attributes = required_mapping(
+            variant.get("attributes"),
+            f"{label} variant {index} attributes",
+            errors,
+        )
+        if attributes is None or attributes.get("org.gradle.category") != "library":
+            continue
+        name = variant.get("name")
+        if not isinstance(name, str) or not name:
+            errors.append(f"{label} library variant {index}: missing non-empty name")
+            continue
+        if name in library_variants:
+            errors.append(f"{label}: duplicate library variant {name}")
+            continue
+        library_variants[name] = variant
+
+    actual_names = frozenset(library_variants)
+    if actual_names != artifact.library_variants:
+        errors.append(
+            f"{label}: library variants {sorted(actual_names)} do not match "
+            f"{sorted(artifact.library_variants)}",
+        )
+
+    for name in sorted(artifact.library_variants & actual_names):
+        variant = library_variants[name]
+        attributes = variant["attributes"]
+        advertised_version = attributes.get("org.gradle.jvm.version")
+        if type(advertised_version) is not int or advertised_version != EXPECTED_JVM_VERSION:
+            errors.append(
+                f"{label} variant {name}: org.gradle.jvm.version is "
+                f"{advertised_version!r}, expected integer {EXPECTED_JVM_VERSION}",
+            )
+
+        files = variant.get("files")
+        if not isinstance(files, list) or len(files) != 1:
+            errors.append(f"{label} variant {name}: expected exactly one file")
+            continue
+        published_file = required_mapping(
+            files[0],
+            f"{label} variant {name} file",
+            errors,
+        )
+        if published_file is None:
+            continue
+        expected_file = artifact.canonical_primary_name
+        if published_file.get("name") != expected_file:
+            errors.append(
+                f"{label} variant {name}: file name is "
+                f"{published_file.get('name')!r}, expected {expected_file!r}",
+            )
+        if published_file.get("url") != expected_file:
+            errors.append(
+                f"{label} variant {name}: file URL is "
+                f"{published_file.get('url')!r}, expected {expected_file!r}",
+            )
+    return errors
+
+
+def class_file_errors(
+    class_bytes: bytes,
+    expected_major: int,
+    label: str,
+) -> list[str]:
+    if len(class_bytes) < 8:
+        return [f"{label}: too short to be a JVM class file"]
+    if class_bytes[:4] != b"\xca\xfe\xba\xbe":
+        return [f"{label}: missing JVM class-file magic"]
+    major = struct.unpack(">H", class_bytes[6:8])[0]
+    if major != expected_major:
+        return [
+            f"{label}: class-file major is {major}, expected {expected_major}",
+        ]
+    return []
+
+
+def representative_class_bytes(
+    primary_file: Path,
+    artifact: PublishedArtifact,
+    errors: list[str],
+) -> bytes | None:
+    try:
+        with zipfile.ZipFile(primary_file) as primary_archive:
+            if artifact.extension == "aar":
+                try:
+                    classes_jar = primary_archive.read("classes.jar")
+                except KeyError:
+                    errors.append(f"{artifact.module}: published AAR has no classes.jar")
+                    return None
+                with zipfile.ZipFile(io.BytesIO(classes_jar)) as class_archive:
+                    return class_archive.read(artifact.representative_class)
+            return primary_archive.read(artifact.representative_class)
+    except KeyError:
+        errors.append(
+            f"{artifact.module}: published {artifact.extension} lacks representative "
+            f"{artifact.representative_class}",
+        )
+    except (OSError, zipfile.BadZipFile) as error:
+        errors.append(f"{artifact.module}: cannot read published artifact: {error}")
+    return None
+
+
+def verify_mutation_coverage(errors: list[str]) -> None:
+    artifact = ARTIFACTS[0]
+    variants = [
+        {
+            "name": name,
+            "attributes": {
+                "org.gradle.category": "library",
+                "org.gradle.jvm.version": EXPECTED_JVM_VERSION,
+            },
+            "files": [
+                {
+                    "name": artifact.canonical_primary_name,
+                    "url": artifact.canonical_primary_name,
+                },
+            ],
+        }
+        for name in sorted(artifact.library_variants)
+    ]
+    baseline = {
+        "formatVersion": "1.1",
+        "component": {
+            "group": SDK_GROUP,
+            "module": artifact.module,
+            "version": SDK_VERSION,
+        },
+        "variants": variants,
+    }
+    if metadata_errors(baseline, artifact, "synthetic baseline"):
+        errors.append("governance self-test rejected valid JVM metadata")
+
+    mutations = {
+        "missing JVM metadata": lambda model: model["variants"][0][
+            "attributes"
+        ].pop("org.gradle.jvm.version"),
+        "wrong JVM metadata": lambda model: model["variants"][0][
+            "attributes"
+        ].update({"org.gradle.jvm.version": 11}),
+        "empty library variants": lambda model: model.update({"variants": []}),
+    }
+    for name, mutate in mutations.items():
+        mutated = copy.deepcopy(baseline)
+        mutate(mutated)
+        if not metadata_errors(mutated, artifact, f"synthetic {name}"):
+            errors.append(f"governance self-test accepted {name}")
+
+    valid_class = b"\xca\xfe\xba\xbe\x00\x00" + struct.pack(
+        ">H", EXPECTED_SDK_CLASS_MAJOR,
+    )
+    if class_file_errors(valid_class, EXPECTED_SDK_CLASS_MAJOR, "synthetic class"):
+        errors.append("governance self-test rejected valid class major")
+    wrong_class = valid_class[:6] + struct.pack(">H", 60)
+    if not class_file_errors(
+        wrong_class,
+        EXPECTED_SDK_CLASS_MAJOR,
+        "synthetic wrong class major",
+    ):
+        errors.append("governance self-test accepted wrong class major")
+    if not class_file_errors(
+        b"\x00\xfe\xba\xbe\x00\x00" + struct.pack(
+            ">H", EXPECTED_SDK_CLASS_MAJOR,
+        ),
+        EXPECTED_SDK_CLASS_MAJOR,
+        "synthetic invalid class",
+    ):
+        errors.append("governance self-test accepted invalid class magic")
+    if not class_file_errors(
+        b"\xca\xfe\xba\xbe\x00\x00\x00",
+        EXPECTED_SDK_CLASS_MAJOR,
+        "synthetic truncated class",
+    ):
+        errors.append("governance self-test accepted a truncated class header")
+
+    timestamp = "20260803.123456"
+    build_number = "1"
+    snapshot_value = f"0.1.0-{timestamp}-{build_number}"
+    metadata = f"""<?xml version="1.0" encoding="UTF-8"?>
+<metadata modelVersion="1.1.0">
+  <groupId>{SDK_GROUP}</groupId>
+  <artifactId>{artifact.module}</artifactId>
+  <versioning>
+    <snapshot>
+      <timestamp>{timestamp}</timestamp>
+      <buildNumber>{build_number}</buildNumber>
+    </snapshot>
+    <snapshotVersions>
+      <snapshotVersion>
+        <extension>module</extension>
+        <value>{snapshot_value}</value>
+      </snapshotVersion>
+      <snapshotVersion>
+        <extension>{artifact.extension}</extension>
+        <value>{snapshot_value}</value>
+      </snapshotVersion>
+    </snapshotVersions>
+  </versioning>
+  <version>{SDK_VERSION}</version>
+</metadata>
+"""
+    with tempfile.TemporaryDirectory(dir="/tmp/opencode") as temporary_directory:
+        version_directory = Path(temporary_directory) / SDK_VERSION
+        version_directory.mkdir()
+        (version_directory / "maven-metadata.xml").write_text(
+            metadata,
+            encoding="utf-8",
+        )
+        module_file = version_directory / f"{artifact.module}-{snapshot_value}.module"
+        primary_file = (
+            version_directory /
+            f"{artifact.module}-{snapshot_value}.{artifact.extension}"
+        )
+        module_file.write_bytes(b"module")
+        primary_file.write_bytes(b"primary")
+        baseline_errors: list[str] = []
+        resolved = resolve_snapshot_files(version_directory, artifact, baseline_errors)
+        if baseline_errors or set(resolved) != {"module", artifact.extension}:
+            errors.append("governance self-test rejected valid snapshot resolution")
+
+        renamed_primary = (
+            version_directory /
+            f"{artifact.module}-substitute.{artifact.extension}"
+        )
+        primary_file.rename(renamed_primary)
+        mutated_errors: list[str] = []
+        resolve_snapshot_files(version_directory, artifact, mutated_errors)
+        if not mutated_errors:
+            errors.append("governance self-test accepted a renamed primary artifact")
+        renamed_primary.rename(primary_file)
+
+        renamed_module = version_directory / f"{artifact.module}-substitute.module"
+        module_file.rename(renamed_module)
+        module_mutation_errors: list[str] = []
+        resolve_snapshot_files(
+            version_directory,
+            artifact,
+            module_mutation_errors,
+        )
+        if not module_mutation_errors:
+            errors.append("governance self-test accepted renamed module metadata")
+
+
+def verify_repository(repository: Path) -> list[str]:
+    errors: list[str] = []
+    repository = repository.resolve()
+    expected_repository = (ROOT / "build/local-maven").resolve()
+    if repository != expected_repository:
+        return [
+            f"published repository {repository} is not the checkout-local "
+            f"repository {expected_repository}",
+        ]
+    if not repository.is_dir():
+        return [
+            f"published repository is missing: {repository}; run the local SDK "
+            "publication first",
+        ]
+
+    modules_directory = group_directory(repository)
+    if not modules_directory.is_dir():
+        return [f"published SDK group directory is missing: {modules_directory}"]
+
+    actual_modules = {
+        path.name for path in modules_directory.iterdir() if path.is_dir()
+    }
+    expected_modules = {artifact.module for artifact in ARTIFACTS}
+    if actual_modules != expected_modules:
+        errors.append(
+            f"published modules {sorted(actual_modules)} do not match "
+            f"{sorted(expected_modules)}",
+        )
+
+    for artifact in ARTIFACTS:
+        version_directory = modules_directory / artifact.module / SDK_VERSION
+        if not version_directory.is_dir():
+            errors.append(
+                f"{artifact.module}: published version directory is missing: "
+                f"{version_directory}",
+            )
+            continue
+
+        snapshot_files = resolve_snapshot_files(
+            version_directory,
+            artifact,
+            errors,
+        )
+        module_file = snapshot_files.get("module")
+        primary_file = snapshot_files.get(artifact.extension)
+        if module_file is not None:
+            try:
+                model = json.loads(module_file.read_text(encoding="utf-8"))
+            except (OSError, UnicodeError, json.JSONDecodeError) as error:
+                errors.append(f"{artifact.module}: invalid module metadata: {error}")
+            else:
+                errors.extend(
+                    metadata_errors(model, artifact, artifact.module),
+                )
+
+        if primary_file is None:
+            continue
+        if artifact.expected_sha256 is not None:
+            actual_sha256 = hashlib.sha256(primary_file.read_bytes()).hexdigest()
+            if actual_sha256 != artifact.expected_sha256:
+                errors.append(
+                    f"{artifact.module}: published AAR SHA-256 is {actual_sha256}, "
+                    f"expected {artifact.expected_sha256}",
+                )
+        class_bytes = representative_class_bytes(primary_file, artifact, errors)
+        if class_bytes is not None:
+            errors.extend(
+                class_file_errors(
+                    class_bytes,
+                    artifact.expected_class_major,
+                    f"{artifact.module}:{artifact.representative_class}",
+                ),
+            )
+    return errors
+
+
+def main() -> int:
+    errors: list[str] = []
+    verify_mutation_coverage(errors)
+    errors.extend(verify_repository(REPOSITORY))
+    for error in errors:
+        print(f"error: {error}", file=sys.stderr)
+    if errors:
+        return 1
+
+    sdk_generated_count = sum(
+        artifact.sdk_generated_bytecode for artifact in ARTIFACTS
+    )
+    variant_count = sum(len(artifact.library_variants) for artifact in ARTIFACTS)
+    print(
+        "Published JVM compatibility passed: "
+        f"{sdk_generated_count} SDK-built representatives use class major "
+        f"{EXPECTED_SDK_CLASS_MAJOR}; {variant_count} library variants advertise "
+        f"JVM {EXPECTED_JVM_VERSION}; mutation coverage rejected missing/wrong "
+        "metadata, renamed outputs, and wrong/invalid class headers",
+    )
+    print(
+        "Decoder disposition: immutable published AAR hash is pinned, its upstream "
+        "representative remains class major 52, and only its JVM 17 publication "
+        "metadata participates in the SDK compatibility contract",
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
