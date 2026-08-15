@@ -29,7 +29,7 @@ IMMUTABLE = {
     "tests": (20, "f8670a9f57424891da52da648a280aa4fcbd90e3aa6f14c396f55940b3cf98e7"),
     "golden": (5, "32c537545c6252a72544e090fc3f061628c16b238a90c15d7692606d34d01896"),
     "api": (1, "d25d2dedf65d676d94a3a0cbd8e2dbb430c27531078a3abbc5e66267fc5c4948"),
-    "protocol evidence": (11, "75f496be1b1221245acea05b631c16004e3e2d608924c7192ee11a017b8230b5"),
+    "protocol evidence": (11, "b63e10c84d20fec5613a0e93de06fb64c28c157f9410137532307f6d4b0548aa"),
     "generated": (6, "f96f30d25028627c697a3bcfec7b725f6c5336da5b5e2f23b737436861640a1a"),
 }
 WRAPPER_HASHES = {

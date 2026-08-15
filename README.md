@@ -1,12 +1,41 @@
 # HTSP for Kotlin/JVM
 
-## Quick Start
+A Kotlin/JVM client library for the HTSP protocol spoken by
+[TVHeadend](https://github.com/tvheadend/tvheadend) servers. It gives you the
+protocol as typed Kotlin requests, responses, and server messages instead of
+raw method strings and maps, on top of a coroutines-based transport.
 
-This provisional coordinate is not externally published by this repository.
-P3-E1 verifies the dependency and source snippets below against the moved
-`consumer-contract` files using static, offline checks. It does **not** resolve
-the coordinate or compile an independent consumer; that first isolated compile
-and its staging/artifact evidence belong to P3-E2.
+The public API lives under `at.bernhardberger.tvheadend.htsp` in five packages:
+
+- `connection`: connect, authenticate, observe server push messages, and manage
+  the connection lifecycle.
+- `requests`: the typed catalog of all 39 client-to-server HTSP methods, with
+  generated convenience functions on the connection.
+- `messages`: the 30 typed server-to-client messages, delivered through a
+  Kotlin `Flow`.
+- `wire`: the binary framing and protocol value types underneath.
+- `jsonapi`: an opt-in bridge to TVHeadend's separate HTTP JSON API.
+
+The only runtime dependency is `kotlinx-coroutines-core`. The artifact contains
+no Android, Media3, or decoder code.
+
+## Status
+
+This is a pre-release snapshot. The API is provisional and may change between
+snapshots, and the coordinate below is not yet published to any Maven
+repository. Until the first release, build the jar from source with
+`./gradlew build`.
+
+## Requirements
+
+- A Java 17 or newer runtime. The artifact is compiled for JVM 17.
+- A TVHeadend server. The request catalog is derived from TVHeadend's HTSP v44
+  sources, and the client negotiates the protocol version with the server
+  during the handshake.
+
+## Adding the dependency
+
+Once releases begin, the Gradle coordinate will be:
 
 <!-- dependency-static:htsp -->
 ```kotlin
@@ -15,10 +44,56 @@ dependencies {
 }
 ```
 
-The complete example keeps endpoint and credential values caller-owned, uses
-typed round-trip outcomes, preserves cancellation, and closes its connection.
-It is byte-identical to
-[`consumer-contract/.../ProtocolQuickStart.kt`](consumer-contract/src/main/kotlin/at/bernhardberger/tvheadend/protocolconsumer/ProtocolQuickStart.kt).
+That version is a provisional snapshot, so nothing can resolve it yet; see
+[Status](#status).
+
+## Quick start
+
+```kotlin
+import at.bernhardberger.tvheadend.htsp.connection.HtspConnectOutcome
+import at.bernhardberger.tvheadend.htsp.connection.HtspEndpoint
+import at.bernhardberger.tvheadend.htsp.connection.createHtspConnection
+import at.bernhardberger.tvheadend.htsp.connection.getOrNull
+import at.bernhardberger.tvheadend.htsp.requests.getSysTime
+import kotlinx.coroutines.Dispatchers
+
+suspend fun main() {
+    val connection = createHtspConnection(ioDispatcher = Dispatchers.IO)
+    try {
+        val endpoint = HtspEndpoint("tvh.example.com", 9982, username = "user", password = "secret")
+        when (val outcome = connection.connect(endpoint)) {
+            is HtspConnectOutcome.Failed ->
+                println("Could not connect: ${outcome.failure.kind}")
+            is HtspConnectOutcome.Connected -> {
+                val serverTime = connection.getSysTime().getOrNull()
+                println("Server time: ${serverTime?.unixTimeSeconds}")
+            }
+        }
+    } finally {
+        connection.close()
+    }
+}
+```
+
+`connect` performs the handshake and authentication and reports the outcome as
+a value. Every request works the same way: the suspending call returns a typed
+outcome with explicit success and failure cases, so a "no access" answer or a
+timeout is something you handle, not something you catch. Cancelling the
+calling coroutine cancels the call. See
+[API behavior: outcomes, errors, and cancellation](docs/public-api.md) for the
+details.
+
+## A complete example
+
+The longer example below is kept byte-identical to an independent consumer
+project in this repository
+([`consumer-contract/.../ProtocolQuickStart.kt`](consumer-contract/src/main/kotlin/at/bernhardberger/tvheadend/protocolconsumer/ProtocolQuickStart.kt)),
+so what you read here is exactly what a consumer project contains. It shows the
+parts the quick start leaves out: collecting asynchronous server messages,
+fencing calls to the connection generation they were issued on, classifying
+per-request failures, and cleaning up even when the surrounding scope is
+cancelled. You supply the endpoint and credentials; passwords are redacted from
+`toString` output and never appear in outcome values.
 
 <!-- source-static:htsp -->
 ```kotlin
@@ -153,39 +228,19 @@ private fun policyFor(failure: HtspFailure): ProtocolFailurePolicy = when (failu
 }
 ```
 
-## Public API boundary
+## Documentation
 
-The artifact is `at.bernhardberger.tvheadend:htsp` and the root project is
-`htsp`. Under `at.bernhardberger.tvheadend.htsp`, production API is confined to
-exactly five shallow packages:
+- [API behavior: outcomes, errors, and cancellation](docs/public-api.md)
+- [Versioning and compatibility](docs/versioning.md)
+- [Protocol reference for contributors](docs/htsp-protocol/README.md)
+- [Documentation index](docs/README.md)
 
-- `connection`: transport lifecycle, typed outcomes, and generation fencing;
-- `requests`: the finite typed client request catalog and conveniences;
-- `messages`: finite typed asynchronous server messages and dispatch;
-- `wire`: framing and defensive protocol value support; and
-- `jsonapi`: the explicit opt-in bridge to TVHeadend's separate JSON API.
+## License and attribution
 
-`HtspConnection.execute` accepts an already-constructed request from the finite
-catalog. Public suspending server round trips report failure through
-`HtspConnectOutcome` or `HtspResult`; cancellation remains cancellation. The
-artifact has exactly one declared production dependency,
-`kotlinx-coroutines-core`, and has no Android, Media3, native decoder, logging,
-network-client, application, or other SDK-module dependency.
-
-The pinned HTSP v44 inventory, generated matrix, reviewed surface catalog, and
-generator guidance are [repository engineering evidence](docs/htsp-protocol/README.md),
-not a support, completeness, stability, release, or distribution promise.
-
-## License, lineage, and status
-
-This is an independently maintained GPLv3 library that descends from
-[Preclikos/tvhstream](https://github.com/Preclikos/tvhstream). It incorporates
-predecessor work and is not wholly original. The standalone repository begins
-with the HTSP protocol extraction baseline instead of embedding the predecessor
-application's unrelated Git history.
-
-It is not official TVHeadend software and is not affiliated with or endorsed by
-the TVHeadend project. The TVHeadend name describes compatibility only. There is
-no external publication, support, release-readiness, or distribution claim.
-See the [licensing and attribution authority](docs/licensing.md), `NOTICE.md`,
-and `LICENSE`.
+This independently maintained GPLv3 library descends from
+[Preclikos/tvhstream](https://github.com/Preclikos/tvhstream). It is not official TVHeadend software and is not affiliated with or endorsed by the
+TVHeadend project; the TVHeadend name describes compatibility only. The
+standalone repository begins with the HTSP protocol extraction baseline instead
+of embedding the predecessor application's unrelated Git history. See
+[LICENSE](LICENSE), [NOTICE.md](NOTICE.md), and the
+[licensing and attribution notes](docs/licensing.md).
