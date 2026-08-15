@@ -19,13 +19,6 @@ The public API lives under `at.bernhardberger.tvheadend.htsp` in five packages:
 The only runtime dependency is `kotlinx-coroutines-core`. The artifact contains
 no Android, Media3, or decoder code.
 
-## Status
-
-This is a pre-release snapshot. The API is provisional and may change between
-snapshots, and the coordinate below is not yet published to any Maven
-repository. Until the first release, build the jar from source with
-`./gradlew build`.
-
 ## Requirements
 
 - A Java 17 or newer runtime. The artifact is compiled for JVM 17.
@@ -33,9 +26,12 @@ repository. Until the first release, build the jar from source with
   sources, and the client negotiates the protocol version with the server
   during the handshake.
 
-## Adding the dependency
+## Installation
 
-Once releases begin, the Gradle coordinate will be:
+The library is not yet on Maven Central. Until the first release, build it from
+source with `./gradlew build`.
+
+The planned Gradle coordinate is:
 
 <!-- dependency-static:htsp -->
 ```kotlin
@@ -44,8 +40,8 @@ dependencies {
 }
 ```
 
-That version is a provisional snapshot, so nothing can resolve it yet; see
-[Status](#status).
+The API is pre-release and may change; see [versioning and
+compatibility](docs/versioning.md).
 
 ## Quick start
 
@@ -85,15 +81,9 @@ details.
 
 ## A complete example
 
-The longer example below is kept byte-identical to an independent consumer
-project in this repository
-([`consumer-contract/.../ProtocolQuickStart.kt`](consumer-contract/src/main/kotlin/at/bernhardberger/tvheadend/protocolconsumer/ProtocolQuickStart.kt)),
-so what you read here is exactly what a consumer project contains. It shows the
-parts the quick start leaves out: collecting asynchronous server messages,
-fencing calls to the connection generation they were issued on, classifying
-per-request failures, and cleaning up even when the surrounding scope is
-cancelled. You supply the endpoint and credentials; passwords are redacted from
-`toString` output and never appear in outcome values.
+This example covers server messages, connection generations, request failures,
+and cleanup; it is also available as a [standalone consumer
+fixture](consumer-contract/src/main/kotlin/at/bernhardberger/tvheadend/protocolconsumer/ProtocolQuickStart.kt).
 
 <!-- source-static:htsp -->
 ```kotlin
@@ -232,15 +222,13 @@ private fun policyFor(failure: HtspFailure): ProtocolFailurePolicy = when (failu
 
 - [API behavior: outcomes, errors, and cancellation](docs/public-api.md)
 - [Versioning and compatibility](docs/versioning.md)
-- [Protocol reference for contributors](docs/htsp-protocol/README.md)
+- [HTSP protocol reference](docs/htsp-protocol/README.md)
 - [Documentation index](docs/README.md)
 
 ## License and attribution
 
 This independently maintained GPLv3 library descends from
 [Preclikos/tvhstream](https://github.com/Preclikos/tvhstream). It is not official TVHeadend software and is not affiliated with or endorsed by the
-TVHeadend project; the TVHeadend name describes compatibility only. The
-standalone repository begins with the HTSP protocol extraction baseline instead
-of embedding the predecessor application's unrelated Git history. See
+TVHeadend project; the TVHeadend name describes compatibility only. See
 [LICENSE](LICENSE), [NOTICE.md](NOTICE.md), and the
 [licensing and attribution notes](docs/licensing.md).

@@ -38,9 +38,3 @@ Requests reach the server only through the finite typed catalog:
 `HtspConnection.execute` accepts those request types and nothing else, so there
 is no raw "method string plus map" escape hatch and no way to subclass in a
 custom request from outside the library.
-
-## For contributors
-
-The outcome policy above is enforced by `./tools/check-public-api-outcomes`
-plus the API dump checks in CI. Run them, and the focused tests, before
-changing any public signature.

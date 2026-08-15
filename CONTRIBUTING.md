@@ -1,20 +1,16 @@
 # Contributing
 
-Start with `AGENTS.md` and the [documentation index](docs/README.md); they
-explain how the repository is organized and which document governs which kind
-of change.
+Start with `AGENTS.md` and the [documentation index](docs/README.md).
 
-A few rules matter for every change:
-
-- Keep the five-package protocol boundary, the typed-outcome error policy, the
-  generated protocol evidence, and the attribution notices intact.
-- Runtime, lifecycle, protocol, or API changes need a failing regression test
-  first.
-- A change that adds an HTSP method or maps a new wire field must regenerate
-  the protocol evidence in the same commit (see
-  [`docs/htsp-protocol/README.md`](docs/htsp-protocol/README.md)).
-- Run `./tools/verify-htsp --non-gradle` before pushing. CI runs the same
-  checks plus the Gradle build.
-
-Publication, signing, release, Android, Media3, and application work are out of
-scope for ordinary library changes.
+- Public suspending server round trips return typed outcomes. Cancellation
+  propagates as cancellation.
+- Update the API dump for every intentional public API change. ABI
+  compatibility is fail-closed: an unexplained dump difference must fail.
+- Production code stays in exactly five shallow packages below
+  `at.bernhardberger.tvheadend.htsp`: `connection`, `jsonapi`, `messages`,
+  `requests`, and `wire`. Run `tools/check-htsp-protocol-boundary` after package
+  or dependency changes.
+- Keep `htsp_surface.py`, the generators, generated Kotlin, `htsp_spec.json`,
+  and `HTSP_METHOD_MATRIX.md` synchronized. A method or wire-field change must
+  update its catalog and generated evidence together.
+- Run focused tests and `tools/verify-htsp` before submitting a change.

@@ -227,10 +227,6 @@ def validate_documents(documents: Documents, label: str) -> list[str]:
             "root independence statement",
         ),
         (r"descends from.*Preclikos/tvhstream", "root predecessor attribution"),
-        (
-            re.escape(EXTRACTION_BOUNDARY_STATEMENT),
-            "root library extraction-history boundary",
-        ),
     )
     for pattern, description in root_patterns:
         require_visible_pattern(errors, normalized_root, pattern, description, label)
@@ -390,6 +386,28 @@ def verify_mutation_coverage(documents: Documents, errors: list[str]) -> None:
             (name, replace(documents, authority=mutated), required_error),
         )
 
+    def hide_extraction_boundary(
+        name: str,
+        field: str,
+        required_error: str,
+    ) -> None:
+        original = getattr(documents, field)
+        whitespace_flexible_statement = re.escape(
+            EXTRACTION_BOUNDARY_STATEMENT,
+        ).replace(r"\ ", r"\s+")
+        mutated, count = re.subn(
+            whitespace_flexible_statement,
+            f"<!-- {EXTRACTION_BOUNDARY_STATEMENT} -->",
+            original,
+            count=1,
+        )
+        if count != 1:
+            errors.append(f"governance self-test could not create {name}")
+            return
+        mutations.append(
+            (name, replace(documents, **{field: mutated}), required_error),
+        )
+
     mutate_authority(
         "missing GPLv3 claim",
         GPL_STATEMENT,
@@ -419,6 +437,16 @@ def verify_mutation_coverage(documents: Documents, errors: list[str]) -> None:
         NOT_WHOLLY_ORIGINAL_STATEMENT,
         f"```text\n{NOT_WHOLLY_ORIGINAL_STATEMENT}\n```",
         "not-wholly-original statement",
+    )
+    hide_extraction_boundary(
+        "comment-hidden authority extraction boundary",
+        "authority",
+        "library extraction-history boundary",
+    )
+    hide_extraction_boundary(
+        "comment-hidden notice extraction boundary",
+        "notice",
+        "notice library extraction-history boundary",
     )
     mutations.append(
         (

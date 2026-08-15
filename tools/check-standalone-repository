@@ -29,7 +29,7 @@ IMMUTABLE = {
     "tests": (20, "f8670a9f57424891da52da648a280aa4fcbd90e3aa6f14c396f55940b3cf98e7"),
     "golden": (5, "32c537545c6252a72544e090fc3f061628c16b238a90c15d7692606d34d01896"),
     "api": (1, "d25d2dedf65d676d94a3a0cbd8e2dbb430c27531078a3abbc5e66267fc5c4948"),
-    "protocol evidence": (11, "b63e10c84d20fec5613a0e93de06fb64c28c157f9410137532307f6d4b0548aa"),
+    "protocol evidence": (11, "12da2bc219c4ded67f9bf120162925405b77e5b5e5e33accba1901bf964fd6ab"),
     "generated": (6, "f96f30d25028627c697a3bcfec7b725f6c5336da5b5e2f23b737436861640a1a"),
 }
 WRAPPER_HASHES = {
@@ -505,11 +505,13 @@ def quick_start_errors(root: Path) -> list[str]:
         errors,
     )
     expected_dependency = f'dependencies {{\n    implementation("{COORDINATE}")\n}}\n'
-    for label, document in (("root README", readme), ("protocol README", protocol_readme)):
-        if fenced_block(document, "dependency-static:htsp") != expected_dependency:
-            errors.append(f"{label}: static dependency identity mismatch")
-        if fenced_block(document, "source-static:htsp") != source:
-            errors.append(f"{label}: static source identity mismatch")
+    if fenced_block(readme, "dependency-static:htsp") != expected_dependency:
+        errors.append("root README: static dependency identity mismatch")
+    if fenced_block(readme, "source-static:htsp") != source:
+        errors.append("root README: static source identity mismatch")
+    for marker in ("dependency-static:htsp", "source-static:htsp"):
+        if f"<!-- {marker} -->" in protocol_readme:
+            errors.append(f"protocol README: root-owned static snippet duplicated: {marker}")
 
     fixture_build = read(root / "consumer-contract/build.gradle.kts", errors)
     dependency_lines = re.findall(
@@ -1014,6 +1016,7 @@ def self_test() -> None:
         ("fixture project bypass", "repository/dependency bypass", lambda root: append(root, "consumer-contract/build.gradle.kts", '\nimplementation(project(":"))\n')),
         ("fixture repository bypass", "repository/dependency bypass", lambda root: append(root, "consumer-contract/settings.gradle.kts", "\nmavenLocal()\n")),
         ("README source mismatch", "root README: static source identity mismatch", lambda root: replace(root, "README.md", "enum class ProtocolFailurePolicy", "enum class ChangedProtocolFailurePolicy")),
+        ("protocol README duplicate dependency", "root-owned static snippet duplicated", lambda root: append(root, "docs/htsp-protocol/README.md", '\n<!-- dependency-static:htsp -->\n```kotlin\ndependencies {\n    implementation("at.bernhardberger.tvheadend:htsp:0.1.0-alpha.1-SNAPSHOT")\n}\n```\n')),
         ("wrapper hash", "wrapper hash mismatch", lambda root: append(root, "gradlew", "\n")),
         ("attributes CRLF policy", "expected gradlew.bat text eol=lf", lambda root: replace(root, ".gitattributes", "gradlew.bat text eol=lf", "gradlew.bat text eol=crlf")),
         ("wrapper URL", "wrapper properties", lambda root: replace(root, "gradle/wrapper/gradle-wrapper.properties", "gradle-9.0.0-bin.zip", "gradle-9.1.0-bin.zip")),
@@ -1038,6 +1041,7 @@ def self_test() -> None:
 
     accepted_controls: list[tuple[str, Callable[[Path], None]]] = [
         ("comment/string bypass decoys", append_inert_bypass_decoys),
+        ("ordinary protocol prose", lambda root: append(root, "docs/htsp-protocol/README.md", "\nThe root README contains the installation and complete examples.\n")),
     ]
 
     failures: list[str] = []

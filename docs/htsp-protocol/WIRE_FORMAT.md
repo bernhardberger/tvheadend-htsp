@@ -1,15 +1,13 @@
 # HTSP binary wire format
 
-Reference for the golden frame fixtures under `src/test/resources/htsp-wire/`
-and for the codec's deliberate differences from the pinned TVHeadend server.
-This is test documentation for contributors; it adds no public API and no
-server-support claim.
+The golden frame fixtures under `src/test/resources/htsp-wire/` record the
+codec's deliberate differences from the pinned TVHeadend server.
 
 Each `.hex` file holds one complete frame. Whitespace separates two-digit
 hexadecimal bytes, and `#` starts a comment that runs to the end of the line.
 The test loader rejects any other token.
 
-Most fixtures are byte-identical decode/re-encode tests. A few are decode-only,
+Most fixtures are decoded and then re-encoded to the same bytes. A few are decode-only,
 because the pinned server's output cannot always be reproduced byte-for-byte by
 the local encoder. Decode-only fixtures pin the exact bytes and the decoded
 values and are explicitly exempt from re-encode. `boolean-false.hex` is one:
@@ -72,10 +70,9 @@ decode-only `boolean-false.hex` fixture pins its exact 30-byte body and the
 
 ## Where the local codec is more lenient
 
-The local codec is intentionally more permissive than the pinned server, for
-forward compatibility with other TVHeadend builds. This is an accepted local
-decision, not an accident and not a server-conformance claim. The draining
-described below applies only inside a scalar field's declared data slice;
+The local codec is intentionally more permissive than the pinned server for
+forward compatibility with other TVHeadend builds. The draining described
+below applies only inside a scalar field's declared data slice;
 residue at the root or inside a container is parsed as another field, never
 silently drained.
 
@@ -88,10 +85,9 @@ silently drained.
 
 ## Malformed and truncated input
 
-`HtspFramingException` and its failure/byte-offset values are an internal local
-taxonomy. Physical EOF while reading a declared header, name, or data region
-remains `EOFException`. Neither outcome is public API, and neither asserts
-anything about the pinned server's error reporting.
+`HtspFramingException` carries the local failure taxonomy and byte offset.
+Physical EOF while reading a declared header, name, or data region remains
+`EOFException`.
 
 | Condition | Local outcome | Pinned server | Pinning test |
 |---|---|---|---|

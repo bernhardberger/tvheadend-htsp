@@ -6,12 +6,12 @@ Guides for people using the library, and references for people working on it.
 
 - [`public-api.md`](public-api.md): how calls report success and failure,
   covering typed outcomes, cancellation, and what error values never carry.
-- [`versioning.md`](versioning.md): the current version, its snapshot status,
+- [`versioning.md`](versioning.md): the current version, its pre-release status,
   and what compatibility you can expect.
 - [`licensing.md`](licensing.md): GPLv3 obligations, attribution, and project
   lineage.
 
-## Working on the library
+## Repository internals
 
 - [`htsp-protocol/README.md`](htsp-protocol/README.md): the pinned HTSP v44
   protocol evidence, wire-level reference, and code generators behind the
