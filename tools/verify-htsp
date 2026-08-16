@@ -13,8 +13,8 @@ fi
 
 ./tools/check-standalone-repository --self-test
 ./tools/check-standalone-repository
-./tools/check-release-candidate --self-test
-./tools/check-release-candidate --check-setup
+./tools/publish-central-release --self-test
+./tools/publish-central-release --check-setup
 ./tools/check-api-compatibility-policy --self-test
 ./tools/check-api-compatibility-policy
 ./tools/check-published-jvm-compatibility --self-test
@@ -46,10 +46,6 @@ fi
 
 ./gradlew --no-daemon clean build test check checkLegacyAbi verifyClassMajor61 verifyProductionDependencyGraph stageLocalPublication
 ./tools/check-published-jvm-compatibility
-./tools/check-published-jvm-compatibility --write-manifest build/publication-first.json
-rm -rf build/local-maven
-./gradlew --no-daemon stageLocalPublication
-./tools/check-published-jvm-compatibility --compare-manifest build/publication-first.json
 if [ "$(python3 -c 'import re; print(re.findall(r"^version = \"([^\"]+)\"$", open("build.gradle.kts", encoding="utf-8").read(), re.M)[0])')" = "0.1.0-SNAPSHOT" ]; then
     ./gradlew --no-daemon --refresh-dependencies -p consumer-contract clean compileKotlin verifyConsumerDependencyGraph
 fi

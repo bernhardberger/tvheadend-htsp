@@ -1,43 +1,43 @@
-# Public OpenPGP verification material
+# OpenPGP release trust model
 
-This directory defines the public-only verification contract for the planned
-first Maven Central release. The tracked public key and primary fingerprint are
-the verification identity for release signatures. Candidate creation remains
-release-only.
+This directory contains the public verification identity for Maven releases.
+The owner created a dedicated Maven/OpenPGP key. The Android APK PKCS#12 key is
+a separate credential and must never be reused. The approved public UID is
+exactly `Bernhard Berger <bernhard.berger@gmail.com>`. The key has no expiry,
+and its primary key is signing-capable.
 
-The owner created a dedicated Maven/OpenPGP key on the isolated signing host.
-The Android APK PKCS#12 key is a separate credential and must never be reused.
-The approved public UID is exactly
-`Bernhard Berger <bernhard.berger@gmail.com>`. The key has no expiry. Its
-primary key must itself be signing-capable.
+The directory contains two tracked regular files:
 
-The directory contains these two tracked regular files:
-
-- `public-key.asc`: one ASCII-armored public key block containing no secret or
-  private key packets, including no secret primary or secret subkey packet;
-- `primary-fingerprint.txt`: the full 40-hex uppercase primary fingerprint,
-  followed by one newline.
+- `public-key.asc`: one ASCII-armored public key block with no secret primary
+  or secret subkey packets;
+- `primary-fingerprint.txt`: the full 40-hex uppercase primary fingerprint
+  `EAB02E488E7B944EAA6D65814BF0412FD2A3B741`, followed by one newline.
 
 Placeholders, short key IDs, subkey fingerprints, multiple primary keys,
-ambiguous UIDs, invalid, never-valid, disabled, revoked, or expired key or UID
-states, expiring keys, and private packets are rejected. The armor must begin
-with the public block header, end with the matching footer and newline, and
-contain no prefix, suffix, or additional armor block. Verification imports only
-the tracked public material into a new
-temporary keyring. A detached signature is accepted only when machine-readable
-`VALIDSIG` evidence names the tracked fingerprint as both signer and primary
-fingerprint.
+ambiguous UIDs, invalid, disabled, revoked, expired, or expiring keys and UIDs,
+and private packets are rejected. Release signatures must produce machine-
+readable `VALIDSIG` evidence naming the tracked fingerprint as both signer and
+primary fingerprint.
 
-The private key and its passphrase remain on the isolated owner-controlled
-signing host. The passphrase is entered only through the ordinary interactive
-gpg-agent and pinentry flow. It must not enter source, arguments, environment
-variables, files, Gradle properties, logs, reports, CI, or this engineering
-host.
+Reviewed exact-tag GitHub Actions and repository `main` are the accepted release
+trust boundary. The encrypted `MAVEN_GPG_PRIVATE_KEY` and
+`MAVEN_GPG_PASSPHRASE` values live only in the `central` GitHub Environment and
+are exposed only to the release publish step. For a new Central deployment, the
+tool imports the private key through subprocess standard input into an ephemeral
+`GNUPGHOME`, selects the full primary fingerprint, and passes the passphrase only
+through subprocess standard input. Recovery of an already published release
+does not read the private key or passphrase. Both paths verify signatures in a
+separate public-only temporary keyring loaded from `public-key.asc`.
 
-The public key is published at `keyserver.ubuntu.com`, a keyserver
-currently supported by Maven Central, and is retrievable by its full
-fingerprint. The tracked export matches the retrieved public key. The owner also
-verifies the public export, full fingerprint, exact UID, no-expiry state,
-primary signing capability, and absence of secret packets before accepting the
-tracked public-only change. Key generation, public export, keyserver
-publication, and approval are owner operations outside the release tooling.
+Never print the private key, passphrase, or Central token or place them in
+source, process arguments, artifacts, logs, reports, or generated output. A
+malicious approved release workflow, GitHub compromise, or repository-
+administration compromise could use or exfiltrate the release credentials. The
+owner accepts that residual risk for the automatic release path.
+
+The public key is published at `keyserver.ubuntu.com`, which Maven Central
+supports, and is retrievable by its full fingerprint. The tracked export matches
+that public key. Key creation, public export, keyserver publication, and GitHub
+Environment setup are one-time owner operations. Publication has not occurred
+until the tagged workflow completes and the coordinate resolves with matching
+bytes.

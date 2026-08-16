@@ -1,23 +1,24 @@
 #!/usr/bin/env python3
-"""Fail-closed P3-E2 standalone repository and local-publication policy."""
+"""Verify the standalone HTSP repository, publication, and release topology."""
 
 from __future__ import annotations
 
 import argparse
-import ast
 import hashlib
 import os
 import re
 import shutil
 import stat
+import subprocess
+import sys
 import tempfile
 from pathlib import Path
 from typing import Callable
 
 
 ROOT = Path(__file__).resolve().parents[1]
-COORDINATE = "at.bernhardberger.tvheadend:htsp:0.1.0-SNAPSHOT"
 GROUP = "at.bernhardberger.tvheadend"
+SNAPSHOT_COORDINATE = f"{GROUP}:htsp:0.1.0-SNAPSHOT"
 PACKAGES = {
     "at.bernhardberger.tvheadend.htsp.connection",
     "at.bernhardberger.tvheadend.htsp.jsonapi",
@@ -39,62 +40,21 @@ WRAPPER_HASHES = {
     "gradlew.bat": "94102713eb8fb22d032397924c0f38ab2da783ba60d07054339f1190a0c4e2cd",
     "gradle/wrapper/gradle-wrapper.jar": "76805e32c009c0cf0dd5d206bddc9fb22ea42e84db904b764f3047de095493f3",
 }
+POLICY_HASHES = {
+    "LICENSE": "e1c0ad728983d8a57335e52cf1064f1affd1d454173d8cebd3ed8b4a72b48704",
+    "NOTICE.md": "44316f90d6b63349d285ad434253afa6afb16255b88fcb07f1e96cac9259ee0d",
+    "README.md": "930278636d09dd5b7d1b147b6748282b202f3fa3df2293e82014839b1234622a",
+    "docs/licensing.md": "49b6c6219728e929e67ed034fa15be19df653e96c61689d3e09b43cf9f20d44f",
+    "CONTRIBUTING.md": "bba3f92f3b381c6355d8da2513badf75b7cf738cd31c14d5d4a5aba9c9ab3b42",
+    "release/openpgp/public-key.asc": "27ab16237b1ed916cb3b79846ff5955ffd8c427738e128d09f90f5c4c9e763e5",
+    "release/openpgp/primary-fingerprint.txt": "404a615dc5286a38756edc63f9adaabca8a3340c98cb3531e47ae97e2bb48661",
+}
 DIST_URL = "https\\://services.gradle.org/distributions/gradle-9.0.0-bin.zip"
 DIST_HASH = "8fad3d78296ca518113f3d29016617c7f9367dc005f932bd9d93bf45ba46072b"
 CHECKOUT_SHA = "11bd71901bbe5b1630ceea73d27597364c9af683"
 JAVA_SHA = "c5195efecf7bdfc987ee8bae7a71cb8b11521c00"
-UPLOAD_SHA = "ea165f8d65b6e75b540449e92b4886f43607fa02"
-CI_ACTIVE_POLICY = tuple(line for line in r"""name: CI
-on:
-  push:
-    branches: [main]
-  pull_request:
-permissions:
-  contents: read
-jobs:
-  verify:
-    runs-on: ubuntu-24.04
-    steps:
-      - name: Check out exact source
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-        with:
-          persist-credentials: false
-      - name: Set up Temurin 21
-        uses: actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00
-        with:
-          distribution: temurin
-          java-version: '21'
-      - name: Verify wrapper and provenance pins
-        run: ./tools/check-standalone-repository --wrapper-only
-      - name: Verify standalone HTSP library
-        run: ./tools/verify-htsp
-      - name: Prepare release candidate and log exact TAR SHA-256
-        id: candidate
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        shell: bash
-        run: |
-          source_tree=$(git rev-parse 'HEAD^{tree}')
-          RELEASE_SOURCE_TREE="$source_tree" ./tools/check-release-candidate --prepare-if-release --output build/release/htsp-0.1.0-candidate.tar
-          if test -f build/release/htsp-0.1.0-candidate.tar; then
-            printf 'release=true\n' >> "$GITHUB_OUTPUT"
-          else
-            printf 'release=false\n' >> "$GITHUB_OUTPUT"
-          fi
-      - name: Retain exact release candidate
-        if: steps.candidate.outputs.release == 'true' && github.event_name == 'push' && github.ref == 'refs/heads/main'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: htsp-0.1.0-candidate-${{ github.sha }}
-          path: build/release/htsp-0.1.0-candidate.tar
-          if-no-files-found: error
-          retention-days: 7
-          compression-level: 0
-          overwrite: false
-          include-hidden-files: false
-""".splitlines() if line.strip())
 MAP_HASH = "c5fad8e6bd00bc6f692405cef79c661325df404c91a0a59ac47c1497f3bb7f27"
 MANIFEST_HASH = "d45c5da0048201eae10a6760d92ae4d6f1abf64ca1bb4e6a60d31dd610244270"
-API_POLICY_AST_HASH = "c42f4a2b7ce6184d4b7368e48073da3a19e7ad331f8e552666fa41baa04fab86"
 ATTRIBUTES_POLICY = (
     "* text=auto eol=lf\n"
     "gradlew text eol=lf\n"
@@ -149,7 +109,7 @@ LICENSED_ARCHIVE_CONTRACT = '''tasks.withType<Jar>()
             into("META-INF")
         }
     }'''
-SHARED_SOURCES_ARTIFACT_CONTRACT = '''afterEvaluate {
+SHARED_SOURCES_CONTRACT = '''afterEvaluate {
     val sourceArtifacts = configurations
         .getByName("sourcesElements")
         .outgoing
@@ -186,48 +146,29 @@ TOOL_FILES = {f"tools/{name}" for name in (
     "check-api-compatibility-policy", "check-htsp-generated-drift",
     "check-htsp-json-api-containment", "check-htsp-protocol-boundary",
     "check-htsp-public-kdoc", "check-license-attribution", "check-public-api-outcomes",
-    "check-published-jvm-compatibility", "check-release-candidate",
-    "check-single-package-per-module", "check-standalone-repository",
-    "sign-central-bundle", "verify-htsp",
+    "check-published-jvm-compatibility", "check-single-package-per-module",
+    "check-standalone-repository", "publish-central-release", "verify-htsp",
 )}
-OPENPGP_REQUIRED = {"release/openpgp/README.md"}
-OPENPGP_OPTIONAL = {
-    "release/openpgp/public-key.asc",
-    "release/openpgp/primary-fingerprint.txt",
-}
 FIXTURE_FILES = {
     "consumer-contract/build.gradle.kts",
     "consumer-contract/settings.gradle.kts",
     "consumer-contract/src/main/kotlin/at/bernhardberger/tvheadend/protocolconsumer/ProtocolQuickStart.kt",
 }
-TEMP_CHECKERS = (
-    "tools/check-standalone-repository",
-    "tools/check-published-jvm-compatibility",
-)
-VERSION_POLICY_FILES = (
-    ".github/workflows/ci.yml", "AGENTS.md", "build.gradle.kts",
-    "consumer-contract/build.gradle.kts", "CHANGELOG.md", "README.md",
-    "docs/releasing.md", "docs/versioning.md",
-    "tools/check-api-compatibility-policy", "tools/check-published-jvm-compatibility",
-    "tools/check-release-candidate", "tools/check-standalone-repository", "tools/verify-htsp",
-)
+OPENPGP_FILES = {
+    "release/openpgp/README.md",
+    "release/openpgp/public-key.asc",
+    "release/openpgp/primary-fingerprint.txt",
+}
 
 
-def sha256(path: Path) -> str:
+def sha256_file(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
-
-
-def portable_ast_dump(node: ast.AST) -> str:
-    try:
-        return ast.dump(node, include_attributes=False, show_empty=True)
-    except TypeError:
-        return ast.dump(node, include_attributes=False)
 
 
 def read(root: Path, relative: str, errors: list[str]) -> str:
     path = root / relative
     try:
-        if path.is_symlink() or not path.is_file():
+        if not stat.S_ISREG(path.lstat().st_mode):
             raise OSError("not a regular file")
         return path.read_text(encoding="utf-8")
     except (OSError, UnicodeError) as error:
@@ -249,7 +190,7 @@ def category_files(root: Path) -> dict[str, list[Path]]:
 
 
 def category_digest(root: Path, paths: list[Path]) -> str:
-    manifest = "".join(f"{sha256(path)}  {path.relative_to(root).as_posix()}\n" for path in paths)
+    manifest = "".join(f"{sha256_file(path)}  {path.relative_to(root).as_posix()}\n" for path in paths)
     return hashlib.sha256(manifest.encode()).hexdigest()
 
 
@@ -258,9 +199,13 @@ def immutable_errors(root: Path) -> list[str]:
     for label, paths in category_files(root).items():
         regular = [path for path in paths if path.is_file() and not path.is_symlink()]
         expected_count, expected_digest = IMMUTABLE[label]
-        actual_digest = category_digest(root, regular)
-        if len(regular) != expected_count or actual_digest != expected_digest:
-            errors.append(f"immutable {label} drift: count={len(regular)}/{expected_count}, digest={actual_digest}/{expected_digest}")
+        digest = category_digest(root, regular)
+        if len(regular) != expected_count or digest != expected_digest:
+            errors.append(f"immutable {label} drift: count={len(regular)}/{expected_count}, digest={digest}/{expected_digest}")
+    for relative, expected in POLICY_HASHES.items():
+        path = root / relative
+        if not path.is_file() or path.is_symlink() or sha256_file(path) != expected:
+            errors.append(f"immutable license, attribution, or public-key drift: {relative}")
     return errors
 
 
@@ -282,49 +227,53 @@ def topology_errors(root: Path) -> list[str]:
             directories[:] = []
             continue
         directories[:] = sorted(name for name in directories if not (relative_directory == Path(".") and name == ".git"))
-        for name in directories:
-            if name == "__pycache__":
-                errors.append(f"{(current / name).relative_to(root).as_posix()}: Python cache directory is forbidden")
-        for name in names:
-            if name.endswith(".pyc"):
-                errors.append(f"{(current / name).relative_to(root).as_posix()}: Python cache bytecode is forbidden")
-        for name in [*directories, *names]:
+        for name in list(directories):
             path = current / name
             relative = path.relative_to(root).as_posix()
-            mode = path.lstat().st_mode
-            if stat.S_ISLNK(mode):
+            if path.is_symlink():
                 errors.append(f"{relative}: symlink/escape is forbidden")
-                if name in directories:
-                    directories.remove(name)
-            elif name in directories and not stat.S_ISDIR(mode):
-                errors.append(f"{relative}: expected real directory")
-            elif name in names and not stat.S_ISREG(mode):
+                directories.remove(name)
+            elif name == "__pycache__":
+                errors.append(f"{relative}: Python cache directory is forbidden")
+        for name in names:
+            path = current / name
+            relative = path.relative_to(root).as_posix()
+            try:
+                regular = stat.S_ISREG(path.lstat().st_mode)
+            except OSError:
+                regular = False
+            if not regular:
                 errors.append(f"{relative}: expected regular file")
-            elif name in names:
+            else:
                 files.add(relative)
+            if name.endswith(".pyc"):
+                errors.append(f"{relative}: Python cache bytecode is forbidden")
     fixed = {
-        ".gitattributes", ".gitignore", ".github/workflows/ci.yml", "AGENTS.md",
-        "CHANGELOG.md", "CONTRIBUTING.md", "LICENSE", "NOTICE.md", "README.md",
-        "api/htsp.api", "build.gradle.kts", "gradlew", "gradlew.bat",
-        "settings.gradle.kts", "gradle/wrapper/gradle-wrapper.jar",
-        "gradle/wrapper/gradle-wrapper.properties", *DOC_FILES, *TOOL_FILES,
-        *FIXTURE_FILES, *OPENPGP_REQUIRED,
+        ".gitattributes", ".gitignore", ".github/workflows/ci.yml",
+        ".github/workflows/release.yml", "AGENTS.md", "CHANGELOG.md",
+        "CONTRIBUTING.md", "LICENSE", "NOTICE.md", "README.md", "api/htsp.api",
+        "build.gradle.kts", "gradlew", "gradlew.bat", "settings.gradle.kts",
+        "gradle/wrapper/gradle-wrapper.jar", "gradle/wrapper/gradle-wrapper.properties",
+        *DOC_FILES, *TOOL_FILES, *FIXTURE_FILES, *OPENPGP_FILES,
     }
-    present_openpgp = OPENPGP_OPTIONAL & files
-    if present_openpgp and present_openpgp != OPENPGP_OPTIONAL:
-        errors.append("public OpenPGP key and primary fingerprint metadata must be tracked together")
-    fixed |= present_openpgp
     dynamic = {path for path in files if (
         (path.startswith("src/main/kotlin/") and path.endswith(".kt"))
         or (path.startswith("src/test/kotlin/") and path.endswith(".kt"))
         or (path.startswith("src/test/resources/") and path.endswith(".hex"))
     )}
-    if files != fixed | dynamic:
-        errors.append(f"file topology mismatch; missing={sorted((fixed | dynamic) - files)}, extra={sorted(files - fixed - dynamic)}")
+    expected = fixed | dynamic
+    if files != expected:
+        errors.append(f"file topology mismatch; missing={sorted(expected - files)}, extra={sorted(files - expected)}")
+    if len(files) != 105:
+        errors.append(f"tracked-source topology must contain 105 files, found {len(files)}")
     for executable in {"gradlew", *TOOL_FILES}:
         path = root / executable
         if path.is_file() and path.stat().st_mode & 0o111 == 0:
             errors.append(f"{executable}: executable mode is missing")
+    for workflow in (".github/workflows/ci.yml", ".github/workflows/release.yml"):
+        path = root / workflow
+        if path.is_file() and path.stat().st_mode & 0o111:
+            errors.append(f"{workflow}: workflow must not be executable")
     return errors
 
 
@@ -334,7 +283,7 @@ def wrapper_errors(root: Path) -> list[str]:
         errors.append(".gitattributes: exact wrapper/text policy mismatch")
     for relative, expected in WRAPPER_HASHES.items():
         path = root / relative
-        if not path.is_file() or path.is_symlink() or sha256(path) != expected:
+        if not path.is_file() or path.is_symlink() or sha256_file(path) != expected:
             errors.append(f"wrapper hash mismatch: {relative}")
     properties = read(root, "gradle/wrapper/gradle-wrapper.properties", errors)
     for value in (f"distributionUrl={DIST_URL}", f"distributionSha256Sum={DIST_HASH}", "validateDistributionUrl=true"):
@@ -356,13 +305,13 @@ def quick_start_errors(root: Path) -> list[str]:
     errors: list[str] = []
     readme = read(root, "README.md", errors)
     build = read(root, "build.gradle.kts", errors)
-    source = read(root, next(iter(FIXTURE_FILES - {"consumer-contract/build.gradle.kts", "consumer-contract/settings.gradle.kts"})), errors)
+    source_path = "consumer-contract/src/main/kotlin/at/bernhardberger/tvheadend/protocolconsumer/ProtocolQuickStart.kt"
+    source = read(root, source_path, errors)
     versions = re.findall(r'(?m)^version\s*=\s*"([^"]+)"\s*$', build)
     version = versions[0] if len(versions) == 1 and versions[0] in {"0.1.0-SNAPSHOT", "0.1.0"} else ""
-    dependency_coordinate = f"{GROUP}:htsp:{version}"
-    dependency = f'dependencies {{\n    implementation("{dependency_coordinate}")\n}}\n'
+    dependency = f'dependencies {{\n    implementation("{GROUP}:htsp:{version}")\n}}\n'
     if fenced_block(readme, "dependency-static:htsp") != dependency:
-        errors.append("README dependency differs from isolated consumer coordinate")
+        errors.append("README dependency differs from configured publication coordinate")
     if fenced_block(readme, "source-static:htsp") != source:
         errors.append("README Quick Start differs from independent consumer source")
     return errors
@@ -375,7 +324,7 @@ def build_errors(root: Path) -> list[str]:
     required_counts = {
         "`java-library`": 1, "`maven-publish`": 1,
         'kotlin("jvm") version "2.3.10"': 1,
-        'group = "at.bernhardberger.tvheadend"': 1,
+        f'group = "{GROUP}"': 1,
         'val allowedPublicationVersions = setOf(': 1,
         '    "0.1.0-SNAPSHOT",': 1,
         '    "0.1.0",': 1,
@@ -396,7 +345,7 @@ def build_errors(root: Path) -> list[str]:
         '"htsp-$publicationVersion-javadoc.jar"': 1,
         '"htsp-$publicationVersion.pom"': 1,
         '"htsp-$publicationVersion.module"': 1,
-        "MessageDigest.getInstance(\"SHA-256\")": 1,
+        'MessageDigest.getInstance("SHA-256")': 1,
         'tasks.register("verifyClassMajor61")': 1,
         'tasks.register("verifyProductionDependencyGraph")': 1,
         'name.set("HTSP for Kotlin/JVM")': 1,
@@ -415,28 +364,24 @@ def build_errors(root: Path) -> list[str]:
     for value, count in required_counts.items():
         if build.count(value) != count:
             errors.append(f"root build publication policy missing or duplicated: {value}")
-    version_assignments = re.findall(r"(?m)^version\s*=\s*(.*?)\s*$", build)
-    allowed_versions = {'"0.1.0-SNAPSHOT"', '"0.1.0"'}
-    if len(version_assignments) != 1 or version_assignments[0] not in allowed_versions:
-        errors.append(
-            "root build version must be exactly one literal 0.1.0-SNAPSHOT or "
-            f"0.1.0 assignment: {version_assignments}"
-        )
+    versions = re.findall(r'(?m)^version\s*=\s*(.*?)\s*$', build)
+    if len(versions) != 1 or versions[0] not in {'"0.1.0-SNAPSHOT"', '"0.1.0"'}:
+        errors.append(f"root build version must be one approved literal: {versions}")
     for contract, label in (
         (REPRODUCIBLE_ARCHIVE_CONTRACT, "global reproducible archive"),
         (LICENSED_ARCHIVE_CONTRACT, "licensed main/shared-sources/Javadoc archive"),
-        (SHARED_SOURCES_ARTIFACT_CONTRACT, "read-only shared sources artifact"),
+        (SHARED_SOURCES_CONTRACT, "read-only shared sources artifact"),
     ):
         if build.count(contract) != 1:
             errors.append(f"root build {label} exact contract mismatch")
     if "kotlinSourcesJar" in build:
         errors.append("root build must reuse sourcesJar and must not reference kotlinSourcesJar")
-    build_without_shared_sources_contract = build.replace(SHARED_SOURCES_ARTIFACT_CONTRACT, "", 1)
+    without_shared_sources = build.replace(SHARED_SOURCES_CONTRACT, "", 1)
     forbidden_source_artifact_access = (
         r"\b(?:sourcesElements|sourceArtifacts|sourcesJarArtifacts)\b",
         r"\bartifact\s*\(\s*tasks\s*\.\s*(?:named|register(?:ing)?)\b[\s\S]*?[\"']sourcesJar[\"']",
     )
-    if any(re.search(pattern, build_without_shared_sources_contract) for pattern in forbidden_source_artifact_access):
+    if any(re.search(pattern, without_shared_sources) for pattern in forbidden_source_artifact_access):
         errors.append("root build must not mutate or manually attach outgoing source artifacts")
     production = re.findall(r'^\s*(api|implementation|compileOnly|runtimeOnly)\("([^"]+)"\)\s*$', build, re.M)
     if production != [("api", "org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2")]:
@@ -445,12 +390,11 @@ def build_errors(root: Path) -> list[str]:
         errors.append("root build production dependency task exact final-body contract mismatch")
     if build.count("create<MavenPublication>") != 1 or build.count("publications {") != 1 or build.count("repositories {") != 1:
         errors.append("root build must configure exactly one Maven publication and one publication repository")
-    forbidden = (
+    for token in (
         "mavenLocal()", "signing", "credentials", "System.getenv", "providers.gradleProperty",
         "providers.environmentVariable", "com.android", "includeBuild", "project(", "files(",
         "PublishToMavenRepository", "sonatype", "mavenCentral()",
-    )
-    for token in forbidden:
+    ):
         if token in build:
             errors.append(f"root build contains forbidden remote/signing/credential/dependency configuration: {token}")
     allowed_urls = {
@@ -477,8 +421,8 @@ def consumer_errors(root: Path) -> list[str]:
     build = read(root, "consumer-contract/build.gradle.kts", errors)
     settings = read(root, "consumer-contract/settings.gradle.kts", errors)
     dependencies = re.findall(r'^\s*(?:api|implementation|compileOnly|runtimeOnly)\("([^"]+)"\)\s*$', build, re.M)
-    if dependencies != [COORDINATE]:
-        errors.append(f"consumer dependency must be exactly {COORDINATE}: {dependencies}")
+    if dependencies != [SNAPSHOT_COORDINATE]:
+        errors.append(f"consumer dependency must be exactly {SNAPSHOT_COORDINATE}: {dependencies}")
     expected_production_dependencies = '''        val expectedProductionDependencies = listOf(
             "api:org.jetbrains.kotlin:kotlin-stdlib:2.3.10",
             "implementation:$htspGroup:$htspModule:$htspVersion",
@@ -534,13 +478,13 @@ def consumer_errors(root: Path) -> list[str]:
         "dependencySubstitution", "maven-publish", "signing", "credentials", "http://", "https://",
     ):
         if token in combined:
-            errors.append(f"consumer repository/dependency bypass is forbidden: {token}")
+            errors.append(f"consumer repository or dependency bypass is forbidden: {token}")
     local_notation = re.compile(
         r"(?m)^\s*(?:api|implementation|compileOnly|runtimeOnly)\s*"
         r"\(\s*(?:file|files|fileTree|project)\s*\(",
     )
     if local_notation.search(build):
-        errors.append("consumer repository/dependency bypass is forbidden: local dependency notation")
+        errors.append("consumer repository or dependency bypass is forbidden: local dependency notation")
     return errors
 
 
@@ -557,1341 +501,121 @@ def package_errors(root: Path) -> list[str]:
     return errors
 
 
-def portable_temp_errors(root: Path) -> list[str]:
-    errors: list[str] = []
-    for relative in TEMP_CHECKERS:
-        text = read(root, relative, errors)
-        try:
-            tree = ast.parse(text, filename=relative)
-        except SyntaxError as error:
-            errors.append(f"{relative}: cannot inspect temporary-directory policy ({error})")
-            continue
-        parents = {
-            child: parent
-            for parent in ast.walk(tree)
-            for child in ast.iter_child_nodes(parent)
-        }
-        tempfile_imports = [
-            (node, alias)
-            for node in ast.walk(tree)
-            if isinstance(node, ast.Import)
-            for alias in node.names
-            if alias.name == "tempfile" or alias.name.startswith("tempfile.")
-        ]
-        canonical_import = (
-            len(tempfile_imports) == 1
-            and tempfile_imports[0][1].name == "tempfile"
-            and tempfile_imports[0][1].asname is None
-            and len(tempfile_imports[0][0].names) == 1
-        )
-        imported_factories = [
-            node for node in ast.walk(tree)
-            if isinstance(node, ast.ImportFrom)
-            and (node.module == "tempfile" or (node.module or "").startswith("tempfile."))
-        ]
-        alternate_tempfile_import_bindings = [
-            alias
-            for node in ast.walk(tree)
-            if isinstance(node, ast.Import)
-            for alias in node.names
-            if alias.asname == "tempfile"
-        ] + [
-            alias
-            for node in ast.walk(tree)
-            if isinstance(node, ast.ImportFrom)
-            for alias in node.names
-            if (alias.asname or alias.name) == "tempfile"
-        ]
-        tempfile_rebindings = [
-            node for node in ast.walk(tree)
-            if (
-                isinstance(node, ast.Name)
-                and not isinstance(node.ctx, ast.Load)
-                and node.id == "tempfile"
-            ) or (
-                isinstance(node, ast.arg) and node.arg == "tempfile"
-            ) or (
-                isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
-                and node.name == "tempfile"
-            ) or (
-                isinstance(node, ast.ExceptHandler) and node.name == "tempfile"
-            )
-        ]
-        loaded_modules = [
-            node for node in ast.walk(tree)
-            if isinstance(node, ast.Name)
-            and isinstance(node.ctx, ast.Load)
-            and node.id == "tempfile"
-        ]
-        attributes = [
-            node for node in ast.walk(tree)
-            if isinstance(node, ast.Attribute)
-            and isinstance(node.ctx, ast.Load)
-            and node.attr == "TemporaryDirectory"
-        ]
-        bare_factories = [
-            node for node in ast.walk(tree)
-            if isinstance(node, ast.Name)
-            and isinstance(node.ctx, ast.Load)
-            and node.id == "TemporaryDirectory"
-        ]
-        forbidden_builtin_calls = [
-            node for node in ast.walk(tree)
-            if isinstance(node, ast.Call)
-            and isinstance(node.func, ast.Name)
-            and node.func.id in {"getattr", "setattr", "__import__"}
-        ]
-        importlib_bindings = {
-            alias.asname or "importlib"
-            for node in ast.walk(tree)
-            if isinstance(node, ast.Import)
-            for alias in node.names
-            if alias.name == "importlib"
-        }
-        imported_import_module_bindings = {
-            alias.asname or alias.name
-            for node in ast.walk(tree)
-            if isinstance(node, ast.ImportFrom) and node.module == "importlib"
-            for alias in node.names
-            if alias.name == "import_module"
-        }
-        dynamic_imports = [
-            node for node in ast.walk(tree)
-            if (
-                isinstance(node, ast.Attribute)
-                and isinstance(node.ctx, ast.Load)
-                and node.attr == "import_module"
-                and isinstance(node.value, ast.Name)
-                and node.value.id in importlib_bindings
-            ) or (
-                isinstance(node, ast.Name)
-                and isinstance(node.ctx, ast.Load)
-                and node.id in imported_import_module_bindings
-            )
-        ]
-        sys_bindings = {
-            alias.asname or "sys"
-            for node in ast.walk(tree)
-            if isinstance(node, ast.Import)
-            for alias in node.names
-            if alias.name == "sys"
-        }
-        imported_sys_modules_bindings = {
-            alias.asname or alias.name
-            for node in ast.walk(tree)
-            if isinstance(node, ast.ImportFrom) and node.module == "sys"
-            for alias in node.names
-            if alias.name == "modules"
-        }
-        module_lookups = [
-            node for node in ast.walk(tree)
-            if (
-                isinstance(node, ast.Attribute)
-                and isinstance(node.ctx, ast.Load)
-                and node.attr == "modules"
-                and isinstance(node.value, ast.Name)
-                and node.value.id in sys_bindings
-            ) or (
-                isinstance(node, ast.Name)
-                and isinstance(node.ctx, ast.Load)
-                and node.id in imported_sys_modules_bindings
-            )
-        ]
-        functions = [
-            node for node in ast.walk(tree)
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == "self_test"
-        ]
-        call = parents.get(attributes[0]) if len(attributes) == 1 else None
-        item = parents.get(call) if isinstance(call, ast.Call) else None
-        statement = parents.get(item) if isinstance(item, ast.withitem) else None
-        anchored = (
-            canonical_import
-            and len(loaded_modules) == 1
-            and len(attributes) == 1
-            and attributes[0].value is loaded_modules[0]
-            and isinstance(call, ast.Call)
-            and call.func is attributes[0]
-            and isinstance(item, ast.withitem)
-            and item.context_expr is call
-            and isinstance(statement, ast.With)
-            and len(statement.items) == 1
-            and len(functions) == 1
-            and parents.get(statement) is functions[0]
-            and not bare_factories
-            and not imported_factories
-            and not alternate_tempfile_import_bindings
-            and not tempfile_rebindings
-            and not forbidden_builtin_calls
-            and not dynamic_imports
-            and not module_lookups
-        )
-        if not anchored:
-            errors.append(
-                f"{relative}: temporary-directory policy requires one direct "
-                "with tempfile.TemporaryDirectory() context in self_test and no alternate access"
-            )
-        elif call.args or call.keywords:
-            errors.append(f"{relative}: tempfile.TemporaryDirectory must use the platform default base")
-    return errors
-
-
-def visible_markdown(document: str) -> str:
-    text = re.sub(r"(?s)<!--.*?(?:-->|\Z)", "", document)
-    text = re.sub(
-        r"(?is)<template\b[^<>]*>.*?</template\s*>|"
-        r"<(?P<tag>[A-Za-z][A-Za-z0-9:-]*)\b(?=[^<>]*\bhidden\b)[^<>]*>"
-        r".*?</(?P=tag)\s*>",
-        "",
-        text,
-    )
-    lines: list[str] = []
-    fence: tuple[str, int] | None = None
-    for line in text.splitlines():
-        match = re.match(r"^\s*([`~]{3,})(.*)$", line)
-        if fence is not None:
-            if match and match.group(1)[0] == fence[0] and len(match.group(1)) >= fence[1] and not match.group(2).strip():
-                fence = None
-            continue
-        if match:
-            fence = (match.group(1)[0], len(match.group(1)))
-            continue
-        if line.startswith("    ") or line.startswith("\t"):
-            continue
-        lines.append(line)
-    return "\n".join(lines)
-
-
-def normalized_markdown(document: str) -> str:
-    return re.sub(r"\s+", " ", visible_markdown(document)).strip()
-
-
-def api_policy_static_errors(root: Path) -> list[str]:
-    relative = "tools/check-api-compatibility-policy"
-    errors: list[str] = []
-    errors.extend(api_policy_fingerprint_contract_errors(root))
-    source = read(root, relative, errors)
-    try:
-        tree = ast.parse(source, filename=relative)
-    except SyntaxError as error:
-        return errors + [f"{relative}: dual-mode API policy cannot parse ({error})"]
-    normalized_ast_hash = hashlib.sha256(portable_ast_dump(tree).encode()).hexdigest()
-    if normalized_ast_hash != API_POLICY_AST_HASH:
-        errors.append(f"{relative}: dual-mode API policy normalized AST mismatch")
-    assignments = {
-        target.id: node.value
-        for node in tree.body
-        if isinstance(node, ast.Assign) and len(node.targets) == 1
-        for target in node.targets
-        if isinstance(target, ast.Name)
-    }
-    expected_values = {"VERSION": "0.1.0-SNAPSHOT", "RELEASE": "0.1.0"}
-    for name, expected in expected_values.items():
-        node = assignments.get(name)
-        if not isinstance(node, ast.Constant) or node.value != expected:
-            errors.append(f"{relative}: dual-mode API policy {name} must be exactly {expected}")
-    expected_modes = ast.parse("(VERSION, RELEASE)", mode="eval").body
-    if "MODES" not in assignments or ast.dump(assignments["MODES"], include_attributes=False) != ast.dump(expected_modes, include_attributes=False):
-        errors.append(f"{relative}: dual-mode API policy must select only snapshot and exact release modes")
-    functions = {
-        name: [node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == name]
-        for name in ("validate", "synthetic_documents", "self_test", "main")
-    }
-    if any(len(nodes) != 1 for nodes in functions.values()):
-        errors.append(f"{relative}: dual-mode API policy function inventory mismatch")
-        return errors
-    synthetic = functions["synthetic_documents"][0]
-    if [argument.arg for argument in synthetic.args.args] != ["mode"]:
-        errors.append(f"{relative}: synthetic API policy fixture must require one explicit mode")
-    self_calls = {
-        ast.dump(node, include_attributes=False)
-        for node in ast.walk(functions["self_test"][0])
-        if isinstance(node, ast.Call)
-    }
-    for expression in ("synthetic_documents(VERSION)", "synthetic_documents(RELEASE)"):
-        expected = ast.dump(ast.parse(expression, mode="eval").body, include_attributes=False)
-        if expected not in self_calls:
-            errors.append(f"{relative}: hostile self-test must execute {expression}")
-    validate_source = ast.dump(functions["validate"][0], include_attributes=False)
-    for required in ("SNAPSHOT_VERSIONING_CLAIMS", "RELEASE_VERSIONING_CLAIMS", "SNAPSHOT_RELEASING_CLAIMS", "RELEASE_RELEASING_CLAIMS", "SNAPSHOT_CHANGELOG_CLAIMS", "RELEASE_CHANGELOG_CLAIMS"):
-        if required not in validate_source:
-            errors.append(f"{relative}: semantic validation does not preserve {required}")
-    imports = {
-        (node.module or "", alias.name)
-        for node in ast.walk(tree)
-        if isinstance(node, ast.ImportFrom)
-        for alias in node.names
-    } | {
-        ("", alias.name)
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Import)
-        for alias in node.names
-    }
-    expected_imports = {
-        ("__future__", "annotations"), ("", "re"), ("", "sys"),
-        ("dataclasses", "dataclass"), ("dataclasses", "replace"), ("pathlib", "Path"),
-    }
-    if imports != expected_imports:
-        errors.append(f"{relative}: API policy static import allowlist mismatch")
-    return errors
-
-
-def api_policy_fingerprint_contract_errors(root: Path) -> list[str]:
-    relative = "tools/check-standalone-repository"
-    errors: list[str] = []
-    source = read(root, relative, errors)
-    try:
-        tree = ast.parse(source, filename=relative)
-    except SyntaxError as error:
-        return errors + [f"{relative}: portable API policy fingerprint contract cannot parse ({error})"]
-    helpers = [
-        node for node in tree.body
-        if isinstance(node, ast.FunctionDef) and node.name == "portable_ast_dump"
-    ]
-    expected_helper = ast.parse('''def portable_ast_dump(node: ast.AST) -> str:
-    try:
-        return ast.dump(node, include_attributes=False, show_empty=True)
-    except TypeError:
-        return ast.dump(node, include_attributes=False)
-''').body[0]
-    expected_hash = ast.parse(
-        'API_POLICY_AST_HASH = "c42f4a2b7ce6184d4b7368e48073da3a19e7ad331f8e552666fa41baa04fab86"'
-    ).body[0]
-    hash_assignments = [
-        node for node in tree.body
-        if isinstance(node, ast.Assign)
-        and len(node.targets) == 1
-        and isinstance(node.targets[0], ast.Name)
-        and node.targets[0].id == "API_POLICY_AST_HASH"
-    ]
-    policy_functions = [
-        node for node in tree.body
-        if isinstance(node, ast.FunctionDef) and node.name == "api_policy_static_errors"
-    ]
-    expected_statements = ast.parse('''normalized_ast_hash = hashlib.sha256(portable_ast_dump(tree).encode()).hexdigest()
-if normalized_ast_hash != API_POLICY_AST_HASH:
-    errors.append(f"{relative}: dual-mode API policy normalized AST mismatch")
-''').body
-    actual_statements: list[ast.stmt] = []
-    if len(policy_functions) == 1:
-        for index, node in enumerate(policy_functions[0].body):
-            if (
-                isinstance(node, ast.Assign)
-                and len(node.targets) == 1
-                and isinstance(node.targets[0], ast.Name)
-                and node.targets[0].id == "normalized_ast_hash"
-            ):
-                actual_statements.extend(policy_functions[0].body[index:index + 2])
-    exact = (
-        len(helpers) == 1
-        and ast.dump(helpers[0], include_attributes=False)
-        == ast.dump(expected_helper, include_attributes=False)
-        and len(hash_assignments) == 1
-        and ast.dump(hash_assignments[0], include_attributes=False)
-        == ast.dump(expected_hash, include_attributes=False)
-        and len(actual_statements) == 2
-        and ast.dump(ast.Module(body=actual_statements, type_ignores=[]), include_attributes=False)
-        == ast.dump(ast.Module(body=expected_statements, type_ignores=[]), include_attributes=False)
-    )
-    if not exact:
-        errors.append(f"{relative}: portable API policy AST fingerprint contract mismatch")
-    return errors
-
-
 def governance_errors(root: Path) -> list[str]:
     errors: list[str] = []
     readme = read(root, "README.md", errors)
     index = read(root, "docs/README.md", errors)
-    versioning = read(root, "docs/versioning.md", errors)
     releasing = read(root, "docs/releasing.md", errors)
-    changelog = read(root, "CHANGELOG.md", errors)
-    build = read(root, "build.gradle.kts", errors)
-    versions = re.findall(r'(?m)^version\s*=\s*"([^"]+)"\s*$', build)
-    mode = versions[0] if len(versions) == 1 and versions[0] in {"0.1.0-SNAPSHOT", "0.1.0"} else None
-    normalized_readme = normalized_markdown(readme)
-    normalized_index = normalized_markdown(index)
-    normalized_versioning = normalized_markdown(versioning)
-    normalized_releasing = normalized_markdown(releasing)
-    normalized_changelog = normalized_markdown(changelog)
-    for value in (
-        "independently maintained GPLv3", "Preclikos/tvhstream",
-        "not official TVHeadend software", "not affiliated",
+    agents = read(root, "AGENTS.md", errors)
+    key_policy = read(root, "release/openpgp/README.md", errors)
+    for token in ("independently maintained GPLv3", "Preclikos/tvhstream", "not official TVHeadend software", "not affiliated"):
+        if token not in readme:
+            errors.append(f"README governance mismatch: {token}")
+    for token in ("[`releasing.md`](releasing.md)", "[`CHANGELOG.md`](../CHANGELOG.md)", "[`../release/openpgp/README.md`](../release/openpgp/README.md)"):
+        if index.count(token) != 1:
+            errors.append(f"documentation index governance mismatch: {token}")
+    combined = "\n".join((index, releasing, agents, key_policy))
+    for token in (
+        "MAVEN_GPG_PRIVATE_KEY", "MAVEN_GPG_PASSPHRASE", "CENTRAL_PORTAL_TOKEN",
+        "EAB02E488E7B944EAA6D65814BF0412FD2A3B741", "GitHub Actions",
+        "exact tag", "publication has not occurred",
     ):
-        if value not in normalized_readme:
-            errors.append(f"README governance mismatch: {value}")
-    for value in ("[`releasing.md`](releasing.md)", "[`CHANGELOG.md`](../CHANGELOG.md)", "[`../release/openpgp/README.md`](../release/openpgp/README.md)"):
-        if index.count(value) != 1:
-            errors.append(f"documentation index governance mismatch: {value}")
-    tracked_key_claims = (
-        (normalized_index, "tracked, reviewed public-only OpenPGP key export and exact primary fingerprint"),
-        (normalized_releasing, "repository now tracks the reviewed public-only key export and exact primary fingerprint"),
-        (normalized_releasing, "Setup verifies both in an isolated temporary keyring"),
-        (normalized_releasing, "verification material and setup evidence only"),
-        (normalized_releasing, "does not provide or prove access to the private key or passphrase, signing, candidate creation, publication, distribution, or release readiness"),
-    )
-    for document, claim in tracked_key_claims:
-        if claim not in document:
-            errors.append(f"tracked public-key documentation mismatch: {claim}")
-    for document, stale_claim in (
-        (normalized_index, "future tracked public-only OpenPGP key"),
-        (normalized_releasing, "are still an owner prerequisite"),
-        (normalized_releasing, "Until those files are reviewed and present"),
+        if token.casefold() not in combined.casefold():
+            errors.append(f"release trust documentation mismatch: {token}")
+    for stale in (
+        "check-release-candidate", "sign-central-bundle", "candidate TAR", "evidence TAR",
+        "isolated signing host", "Central Portal UI", "Publish or Drop",
     ):
-        if stale_claim in document:
-            errors.append(f"tracked public-key documentation retains stale claim: {stale_claim}")
-    common_claims = (
-        (normalized_versioning, "While the major version is zero, the public API and behavior are provisional."),
-        (normalized_versioning, "next minor version, not a patch version"),
-        (normalized_versioning, "No source, binary, or behavioral compatibility is promised"),
-        (normalized_releasing, "initial provisional baseline"),
-        (normalized_releasing, "do not promise compatibility or support"),
-        (normalized_releasing, "separate owner authorization"),
-        (normalized_changelog, "initial provisional baseline"),
-    )
-    if mode == "0.1.0-SNAPSHOT":
-        mode_name = "snapshot"
-        mode_claims = (
-            (normalized_readme, f"The checkout currently uses the mutable, local-only snapshot `{COORDINATE}`."),
-            (normalized_readme, "It is not available from Maven Central or another public repository."),
-            (normalized_index, "unreleased, non-normative baseline notes"),
-            (normalized_versioning, f"The current coordinate is `{COORDINATE}`."),
-            (normalized_versioning, "published release bytes must never be replaced"),
-            (normalized_releasing, "planned first provisional major-zero release"),
-            (normalized_releasing, "It has not been released or published."),
-            (normalized_changelog, "## [Unreleased]"),
-            (normalized_changelog, "not a release, publication, compatibility baseline, or support promise"),
-        )
-    elif mode == "0.1.0":
-        mode_name = "release"
-        mode_claims = (
-            (normalized_readme, "The Gradle dependency uses the exact immutable release coordinate `at.bernhardberger.tvheadend:htsp:0.1.0`."),
-            (normalized_readme, "Availability from Maven Central or another public repository must be independently verified; this repository does not claim that publication has occurred."),
-            (normalized_index, "the `0.1.0` initial provisional baseline notes"),
-            (normalized_versioning, "The current immutable release coordinate is `at.bernhardberger.tvheadend:htsp:0.1.0`."),
-            (normalized_versioning, "Release bytes for this coordinate are immutable and must never be replaced."),
-            (normalized_versioning, "Availability from Maven Central or any other public repository is independently verified external state."),
-            (normalized_releasing, "`0.1.0` is the first provisional major-zero release."),
-            (normalized_releasing, "Candidate preparation and local staging do not establish external publication or availability."),
-            (normalized_releasing, "Publication and availability are independently verified external state."),
-            (normalized_changelog, "## [0.1.0]"),
-            (normalized_changelog, "does not promise source, binary, or behavioral compatibility or support"),
-        )
-    else:
-        mode_name = "unsupported"
-        mode_claims = ()
-        errors.append(f"unsupported mode documentation: root versions {versions}")
-        if any(re.fullmatch(r"0\.1\.0-(?:alpha|beta|rc)(?:[.-][0-9A-Za-z]+)*(?:-SNAPSHOT)?", version) for version in versions):
-            errors.append("stale alpha version is forbidden in the root version assignment")
-    for document, claim in (*common_claims, *mode_claims):
-        if claim not in document:
-            errors.append(f"{mode_name} mode documentation mismatch: {claim}")
-    combined_governance = " ".join((normalized_readme, normalized_index, normalized_versioning, normalized_releasing, normalized_changelog))
-    contradictions = (
-        (r"\bThe Maven version must include an alpha suffix\.", "required Maven alpha suffix"),
-        (r"\bThe GitHub pre-release marker changes the Maven coordinate\.", "GitHub marker changes coordinate"),
-        (r"\b(?:release|0\.1\.0) (?:is|has been) (?:published|available)\b", "false release publication or availability"),
-        (r"\brelease bytes (?:may|can) be (?:replaced|overwritten|republished)\b", "mutable release"),
-        (r"\b0\.1\.0-(?:alpha|beta|rc)(?:[.-][0-9A-Za-z]+)*\b", "legacy prerelease version"),
-    )
-    for pattern, description in contradictions:
-        if re.search(pattern, combined_governance, re.IGNORECASE):
-            errors.append(f"contradictory version documentation is forbidden: {description}")
-    errors.extend(api_policy_static_errors(root))
-    for relative, expected in (("docs/extraction/source-to-filtered.tsv", MAP_HASH), ("docs/extraction/manifest.json", MANIFEST_HASH)):
+        if stale.casefold() in combined.casefold():
+            errors.append(f"superseded release documentation remains: {stale}")
+    for relative, expected in (
+        ("docs/extraction/source-to-filtered.tsv", MAP_HASH),
+        ("docs/extraction/manifest.json", MANIFEST_HASH),
+    ):
         path = root / relative
-        if not path.is_file() or path.is_symlink() or sha256(path) != expected:
+        if not path.is_file() or path.is_symlink() or sha256_file(path) != expected:
             errors.append(f"extraction provenance digest mismatch: {relative}")
     return errors
 
 
-def ast_call(expression: str) -> str:
-    return ast.dump(ast.parse(expression, mode="eval").body, include_attributes=False)
-
-
-def literal_ast_string(node: ast.AST) -> str | None:
-    if isinstance(node, ast.Constant) and isinstance(node.value, str):
-        return node.value
-    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
-        left = literal_ast_string(node.left)
-        right = literal_ast_string(node.right)
-        if left is not None and right is not None:
-            return left + right
-    return None
-
-
-def enclosing_function(node: ast.AST, parents: dict[ast.AST, ast.AST]) -> str | None:
-    current: ast.AST | None = node
-    while current is not None:
-        if isinstance(current, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            return current.name
-        current = parents.get(current)
-    return None
-
-
-def release_python_policy_errors(relative: str, text: str) -> list[str]:
-    errors: list[str] = []
-    try:
-        tree = ast.parse(text, filename=relative)
-    except SyntaxError as error:
-        return [f"{relative}: release Python policy cannot parse source: {error}"]
-    parents = {child: parent for parent in ast.walk(tree) for child in ast.iter_child_nodes(parent)}
-    if relative == "tools/check-release-candidate":
-        version_gate_helpers = [
-            node for node in tree.body
-            if isinstance(node, ast.FunctionDef) and node.name == "prepare_version_gate"
-        ]
-        expected_version_gate = ast.parse('''def prepare_version_gate(version: str, allow_snapshot_noop: bool) -> tuple[list[str], bool]:
-    if version == SNAPSHOT_VERSION:
-        if allow_snapshot_noop:
-            return [], False
-        return [f"release candidate requires version {RELEASE_VERSION}, found {SNAPSHOT_PLACEHOLDER}"], False
-    if version == RELEASE_VERSION:
-        return [], True
-    return [f"release candidate found unsupported version {version}"], False
-'''.replace("SNAPSHOT_PLACEHOLDER", "SNAPSHOT_VERSION")).body[0]
-        if (
-            len(version_gate_helpers) != 1
-            or ast.dump(version_gate_helpers[0], include_attributes=False)
-            != ast.dump(expected_version_gate, include_attributes=False)
-        ):
-            errors.append(f"{relative}: release Python policy requires the exact pure preparation version gate")
-        prepare_functions = [
-            node for node in tree.body
-            if isinstance(node, ast.FunctionDef) and node.name == "prepare"
-        ]
-        expected_gate_call = ast.parse(
-            "gate_errors, continues = prepare_version_gate(version, allow_snapshot_noop)"
-        ).body[0]
-        if (
-            len(prepare_functions) != 1
-            or len(prepare_functions[0].body) < 4
-            or ast.dump(prepare_functions[0].body[2], include_attributes=False)
-            != ast.dump(expected_gate_call, include_attributes=False)
-        ):
-            errors.append(f"{relative}: release Python policy requires production preparation to use the version gate")
-        expected_gate_guard = ast.parse('''if gate_errors or not continues:
-    return gate_errors, None
-''').body[0]
-        expected_staging_call = ast.parse("originals, staging_errors = staged_originals()").body[0]
-        valid_prepare_order = (
-            len(prepare_functions) == 1
-            and len(prepare_functions[0].body) > 9
-            and ast.dump(prepare_functions[0].body[3], include_attributes=False)
-            == ast.dump(expected_gate_guard, include_attributes=False)
-            and ast.dump(prepare_functions[0].body[9], include_attributes=False)
-            == ast.dump(expected_staging_call, include_attributes=False)
-        )
-        if not valid_prepare_order:
-            errors.append(f"{relative}: release Python policy requires the exact preparation gate before output and staging")
-        staging_wrappers = [
-            node for node in tree.body
-            if isinstance(node, ast.FunctionDef) and node.name == "staged_originals"
-        ]
-        expected_staging_wrapper = ast.parse('''def staged_originals() -> tuple[dict[str, bytes], list[str]]:
-    version_dir = ROOT.joinpath("build/local-maven", *GROUP.split("."), ARTIFACT, RELEASE_VERSION)
-    return staged_originals_from(version_dir)
-''').body[0]
-        if (
-            len(staging_wrappers) != 1
-            or ast.dump(staging_wrappers[0], include_attributes=False)
-            != ast.dump(expected_staging_wrapper, include_attributes=False)
-        ):
-            errors.append(f"{relative}: release Python policy requires the exact production staging path wrapper")
-        staging_helpers = [
-            node for node in tree.body
-            if isinstance(node, ast.FunctionDef) and node.name == "staged_originals_from"
-        ]
-        optional_assignments = [
-            node for node in tree.body
-            if isinstance(node, ast.Assign)
-            and any(isinstance(target, ast.Name) and target.id == "OPTIONAL_STAGING_SIDECARS" for target in node.targets)
-        ]
-        expected_optional = ast.parse('OPTIONAL_STAGING_SIDECARS = (".md5", ".sha1", ".sha512")').body[0]
-        expected_staging_constants = {
-            "ROOT": ast.parse("ROOT = Path(__file__).resolve().parents[1]").body[0],
-            "GROUP": ast.parse('GROUP = "at.bernhardberger.tvheadend"').body[0],
-            "GROUP_PATH": ast.parse('GROUP_PATH = GROUP.replace(".", "/")').body[0],
-            "ARTIFACT": ast.parse('ARTIFACT = "htsp"').body[0],
-            "RELEASE_VERSION": ast.parse('RELEASE_VERSION = "0.1.0"').body[0],
-            "MAVEN_BASE": ast.parse('MAVEN_BASE = f"{GROUP_PATH}/{ARTIFACT}/{RELEASE_VERSION}"').body[0],
-            "ORIGINAL_NAMES": ast.parse('''ORIGINAL_NAMES = (
-    f"{ARTIFACT}-{RELEASE_VERSION}.jar",
-    f"{ARTIFACT}-{RELEASE_VERSION}-sources.jar",
-    f"{ARTIFACT}-{RELEASE_VERSION}-javadoc.jar",
-    f"{ARTIFACT}-{RELEASE_VERSION}.pom",
-    f"{ARTIFACT}-{RELEASE_VERSION}.module",
-)''').body[0],
-            "ORIGINAL_PATHS": ast.parse('ORIGINAL_PATHS = tuple(f"{MAVEN_BASE}/{name}" for name in ORIGINAL_NAMES)').body[0],
-            "OPTIONAL_STAGING_SIDECARS": expected_optional,
-        }
-        approved_constant_targets: set[ast.Name] = set()
-        for name, expected_assignment in expected_staging_constants.items():
-            actual_assignments = [
-                node for node in tree.body
-                if isinstance(node, ast.Assign)
-                and len(node.targets) == 1
-                and isinstance(node.targets[0], ast.Name)
-                and node.targets[0].id == name
-            ]
-            if len(actual_assignments) != 1 or ast.dump(actual_assignments[0], include_attributes=False) != ast.dump(expected_assignment, include_attributes=False):
-                errors.append(f"{relative}: release Python policy staging constant {name} mismatch")
-            else:
-                approved_constant_targets.add(actual_assignments[0].targets[0])
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Name) and isinstance(node.ctx, (ast.Store, ast.Del)) and node.id in expected_staging_constants and node not in approved_constant_targets:
-                errors.append(f"{relative}: release Python policy forbids staging constant rebinding: {node.id}")
-        expected_staging_helper = ast.parse('''def staged_originals_from(version_dir: Path) -> tuple[dict[str, bytes], list[str]]:
-    errors: list[str] = []
-    absolute = version_dir.absolute()
-    current = Path(absolute.anchor)
-    for part in absolute.parts[1:]:
-        current /= part
-        if current.is_symlink():
-            return {}, [f"staging path traverses symlink: {current}"]
-    if not absolute.is_dir():
-        return {}, [f"release staging directory is missing: {absolute}"]
-    required = set(ORIGINAL_NAMES) | {name + ".sha256" for name in ORIGINAL_NAMES}
-    optional = {name + suffix for name in ORIGINAL_NAMES for suffix in OPTIONAL_STAGING_SIDECARS}
-    allowed = required | optional
-    actual: set[str] = set()
-    names: list[str] = []
-    originals: dict[str, bytes] = {}
-    try:
-        entries = list(absolute.iterdir())
-    except OSError as error:
-        return {}, [f"release staging directory is unreadable: {absolute}: {error}"]
-    for entry in entries:
-        names.append(entry.name)
-        try:
-            regular = stat.S_ISREG(entry.lstat().st_mode)
-        except OSError as error:
-            errors.append(f"staging entry metadata is unreadable: {entry.name}: {error}")
-            continue
-        if not regular:
-            errors.append(f"staging contains non-regular entry: {entry.name}")
-            continue
-        actual.add(entry.name)
-    if len({name.casefold() for name in names}) != len(names):
-        errors.append("release staging contains a case collision")
-    missing = required - actual
-    extra = actual - allowed
-    if missing or extra:
-        errors.append(f"release staging inventory mismatch; missing={sorted(missing)}, extra={sorted(extra)}")
-    for name, path in zip(ORIGINAL_NAMES, ORIGINAL_PATHS):
-        artifact = absolute / name
-        sidecar = absolute / (name + ".sha256")
-        try:
-            artifact_regular = stat.S_ISREG(artifact.lstat().st_mode)
-            sidecar_regular = stat.S_ISREG(sidecar.lstat().st_mode)
-        except OSError:
-            continue
-        if not artifact_regular or not sidecar_regular:
-            continue
-        try:
-            artifact_size = artifact.stat().st_size
-            sidecar_size = sidecar.stat().st_size
-        except OSError as error:
-            errors.append(f"staged original metadata is unreadable: {name}: {error}")
-            continue
-        if artifact_size > MAX_MEMBER:
-            errors.append(f"staged original is oversized: {name}")
-            continue
-        if sidecar_size != 65:
-            errors.append(f"staged original has stale or malformed SHA-256 evidence: {name}")
-            continue
-        try:
-            content = artifact.read_bytes()
-            sidecar_content = sidecar.read_bytes()
-        except OSError as error:
-            errors.append(f"staged original is unreadable: {name}: {error}")
-            continue
-        expected = (digest(content) + "\\n").encode("ascii")
-        if sidecar_content != expected:
-            errors.append(f"staged original has stale or malformed SHA-256 evidence: {name}")
-        originals[path] = content
-    return originals, errors
-''').body[0]
-        valid_inventory = (
-            len(staging_helpers) == 1
-            and len(optional_assignments) == 1
-            and ast.dump(optional_assignments[0], include_attributes=False)
-            == ast.dump(expected_optional, include_attributes=False)
-            and ast.dump(staging_helpers[0], include_attributes=False)
-            == ast.dump(expected_staging_helper, include_attributes=False)
-        )
-        if not valid_inventory:
-            errors.append(f"{relative}: release Python policy requires exact mandatory and optional staging inventory")
-        public_material_helpers = [
-            node for node in tree.body
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-            and node.name == "setup_public_material_errors"
-        ]
-        expected_public_material_helper = ast.parse('''def setup_public_material_errors(
-    key_path: Path = KEY_PATH,
-    fingerprint_path: Path = FINGERPRINT_PATH,
-    gpg_results: tuple[subprocess.CompletedProcess[str], ...] | None = None,
-) -> list[str]:
-    key_exists = key_path.exists() or key_path.is_symlink()
-    fingerprint_exists = fingerprint_path.exists() or fingerprint_path.is_symlink()
-    if key_exists != fingerprint_exists:
-        return ["public key export and primary fingerprint metadata must be added together"]
-    if not key_exists:
-        return []
-    return public_material_errors(key_path, fingerprint_path, gpg_results)
-''').body[0]
-        approved_public_material_helper = public_material_helpers[0] if len(public_material_helpers) == 1 else None
-        if (
-            approved_public_material_helper is None
-            or ast.dump(approved_public_material_helper, include_attributes=False)
-            != ast.dump(expected_public_material_helper, include_attributes=False)
-        ):
-            errors.append(f"{relative}: release Python policy requires the exact top-level setup public-material helper")
-        helper_loads = 0
-        for node in ast.walk(tree):
-            forbidden_helper_binding = (
-                isinstance(node, ast.Name)
-                and node.id == "setup_public_material_errors"
-                and isinstance(node.ctx, (ast.Store, ast.Del))
-            ) or (
-                isinstance(node, ast.arg) and node.arg == "setup_public_material_errors"
-            ) or (
-                isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
-                and node.name == "setup_public_material_errors"
-                and node is not approved_public_material_helper
-            ) or (
-                isinstance(node, ast.alias)
-                and (node.asname or node.name) == "setup_public_material_errors"
-            ) or (
-                isinstance(node, ast.ExceptHandler) and node.name == "setup_public_material_errors"
-            ) or (
-                isinstance(node, (ast.Global, ast.Nonlocal))
-                and "setup_public_material_errors" in node.names
-            ) or (
-                isinstance(node, ast.MatchAs)
-                and node.name == "setup_public_material_errors"
-            ) or (
-                isinstance(node, ast.MatchStar)
-                and node.name == "setup_public_material_errors"
-            ) or (
-                isinstance(node, ast.MatchMapping)
-                and node.rest == "setup_public_material_errors"
-            )
-            if forbidden_helper_binding:
-                errors.append(f"{relative}: release Python policy forbids setup public-material helper shadowing")
-            if (
-                isinstance(node, ast.Name)
-                and node.id == "setup_public_material_errors"
-                and isinstance(node.ctx, ast.Load)
-            ):
-                helper_loads += 1
-                parent = parents.get(node)
-                if not isinstance(parent, ast.Call) or parent.func is not node:
-                    errors.append(f"{relative}: release Python policy forbids setup public-material helper aliasing")
-        if helper_loads != 8:
-            errors.append(f"{relative}: release Python policy setup public-material helper call inventory mismatch")
-        setup_functions = [
-            node for node in tree.body
-            if isinstance(node, ast.FunctionDef) and node.name == "setup_errors"
-        ]
-        expected_setup_statement = ast.parse("errors.extend(setup_public_material_errors())").body[0]
-        valid_setup_integration = len(setup_functions) == 1 and len(setup_functions[0].body) > 4
-        if valid_setup_integration:
-            setup_statement = setup_functions[0].body[4]
-            valid_setup_integration = (
-                ast.dump(setup_statement, include_attributes=False)
-                == ast.dump(expected_setup_statement, include_attributes=False)
-                and not any(
-                    isinstance(node, ast.Return) and node.lineno < setup_statement.lineno
-                    for node in ast.walk(setup_functions[0])
-                )
-            )
-        if not valid_setup_integration:
-            errors.append(f"{relative}: release Python policy requires direct unconditional setup public-material verification before any return")
-    imports: list[tuple[str, str, str | None]] = []
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            imports.extend(("import", alias.name, alias.asname) for alias in node.names)
-        elif isinstance(node, ast.ImportFrom):
-            imports.extend((node.module or "", alias.name, alias.asname) for alias in node.names)
-    candidate_imports = {
-        ("__future__", "annotations", None),
-        *(("import", name, None) for name in ("argparse", "ast", "hashlib", "io", "json", "os", "re", "stat", "subprocess", "sys", "tarfile", "tempfile", "warnings", "zipfile")),
-        ("pathlib", "Path", None), ("typing", "Callable", None),
-    }
-    signer_imports = {
-        ("__future__", "annotations", None),
-        *(("import", name, None) for name in ("argparse", "importlib.machinery", "importlib.util", "os", "subprocess", "sys", "tempfile")),
-        ("pathlib", "Path", None), ("types", "ModuleType", None),
-    }
-    expected_imports = candidate_imports if relative == "tools/check-release-candidate" else signer_imports
-    if set(imports) != expected_imports or len(imports) != len(expected_imports):
-        errors.append(f"{relative}: release Python policy import allowlist mismatch")
-    reflective_names = {"getattr", "setattr", "delattr", "globals", "locals", "vars", "__builtins__"}
-    dangerous_dunders = {
-        "__annotations__", "__bases__", "__base__", "__builtins__", "__class__",
-        "__closure__", "__code__", "__defaults__", "__dict__", "__getattribute__",
-        "__globals__", "__kwdefaults__", "__mro__", "__reduce__", "__reduce_ex__",
-        "__subclasses__", "__weakref__",
-    }
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in {"eval", "exec", "compile", "__import__"}:
-            errors.append(f"{relative}: release Python policy forbids dynamic builtin {node.func.id}")
-        if isinstance(node, ast.Name) and node.id in reflective_names:
-            errors.append(f"{relative}: release Python policy forbids reflective name {node.id}")
-        if isinstance(node, ast.Attribute) and node.attr in dangerous_dunders:
-            errors.append(f"{relative}: release Python policy forbids reflective dunder {node.attr}")
-        if isinstance(node, ast.Call) and isinstance(node.func, (ast.Call, ast.Subscript)):
-            errors.append(f"{relative}: release Python policy forbids indirect call target {type(node.func).__name__}")
-        if isinstance(node, ast.Subscript) and literal_ast_string(node.slice) == "__builtins__":
-            errors.append(f"{relative}: release Python policy forbids indirect __builtins__ lookup")
-        if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name) and node.value.id == "sys" and node.attr == "modules":
-            parent = parents.get(node)
-            allowed_loader_store = (
-                relative == "tools/sign-central-bundle"
-                and enclosing_function(node, parents) == "load_policy"
-                and isinstance(parent, ast.Subscript)
-                and parent.value is node
-                and isinstance(parent.ctx, ast.Store)
-            )
-            if not allowed_loader_store:
-                errors.append(f"{relative}: release Python policy forbids loading sys.modules")
-        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
-            if isinstance(node.func.value, ast.Name) and node.func.value.id == "os" and (node.func.attr in {"system", "popen", "startfile"} or node.func.attr.startswith(("exec", "spawn"))):
-                errors.append(f"{relative}: release Python policy forbids shell execution")
-            if isinstance(node.func.value, ast.Name) and node.func.value.id == "subprocess" and node.func.attr not in {"run", "CompletedProcess"}:
-                errors.append(f"{relative}: release Python policy forbids subprocess API {node.func.attr}")
-        if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name) and node.value.id == "os" and (node.attr in {"system", "popen", "startfile"} or node.attr.startswith(("exec", "spawn"))):
-            errors.append(f"{relative}: release Python policy forbids shell API access")
-        if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name) and node.value.id == "subprocess" and node.attr not in {"run", "CompletedProcess", "DEVNULL", "PIPE"}:
-            errors.append(f"{relative}: release Python policy forbids subprocess attribute {node.attr}")
-    protected = {"os", "subprocess", "git_output", "run", "staged_originals", "staged_originals_from"} if relative == "tools/check-release-candidate" else {"os", "subprocess", "git_value", "sign", "load_policy", "signing_environment"}
-    allowed_policy_store: ast.Name | None = None
-    if relative == "tools/sign-central-bundle":
-        execute_functions = [
-            node for node in tree.body
-            if isinstance(node, ast.FunctionDef) and node.name == "execute"
-        ]
-        policy_assignments = [
-            node for node in ast.walk(tree)
-            if (
-                isinstance(node, ast.Assign)
-                and len(node.targets) == 1
-                and isinstance(node.targets[0], ast.Name)
-                and node.targets[0].id == "policy"
-                and isinstance(node.value, ast.Call)
-                and isinstance(node.value.func, ast.Name)
-                and node.value.func.id == "load_policy"
-                and not node.value.args
-                and not node.value.keywords
-            )
-        ]
-        valid_policy_assignment = (
-            len(execute_functions) == 1
-            and len(policy_assignments) == 1
-            and execute_functions[0].body
-            and execute_functions[0].body[0] is policy_assignments[0]
-        )
-        if valid_policy_assignment:
-            allowed_policy_store = policy_assignments[0].targets[0]
-        else:
-            errors.append(f"{relative}: release Python policy requires one direct leading policy = load_policy() assignment in execute")
-        expected_digest_statement = ast.parse(
-            'errors.extend(policy.candidate_digest_errors(candidate_data, candidate_sha256, "release candidate"))'
-        ).body[0]
-        valid_digest_statement = len(execute_functions) == 1 and len(execute_functions[0].body) > 6
-        if valid_digest_statement:
-            digest_statement = execute_functions[0].body[6]
-            candidate_verifications = [
-                node for node in ast.walk(execute_functions[0])
-                if (
-                    isinstance(node, ast.Call)
-                    and isinstance(node.func, ast.Attribute)
-                    and isinstance(node.func.value, ast.Name)
-                    and node.func.value.id == "policy"
-                    and node.func.attr == "verify_candidate_bytes"
-                )
-            ]
-            valid_digest_statement = (
-                ast.dump(digest_statement, include_attributes=False)
-                == ast.dump(expected_digest_statement, include_attributes=False)
-                and len(candidate_verifications) == 1
-                and digest_statement.lineno < candidate_verifications[0].lineno
-            )
-        if not valid_digest_statement:
-            errors.append(f"{relative}: release Python policy requires direct unconditional candidate digest verification before parsing")
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Name) and isinstance(node.ctx, (ast.Store, ast.Del)) and node.id in protected:
-            errors.append(f"{relative}: release Python policy forbids rebinding {node.id}")
-        if relative == "tools/sign-central-bundle" and isinstance(node, ast.Name) and node.id == "policy":
-            if isinstance(node.ctx, (ast.Store, ast.Del)) and node is not allowed_policy_store:
-                errors.append(f"{relative}: release Python policy forbids loaded-policy rebinding")
-            elif isinstance(node.ctx, ast.Load):
-                parent = parents.get(node)
-                if not (
-                    isinstance(parent, ast.Attribute)
-                    and parent.value is node
-                    and isinstance(parent.ctx, ast.Load)
-                ):
-                    errors.append(f"{relative}: release Python policy forbids loaded-policy aliasing")
-        if isinstance(node, ast.Name) and isinstance(node.ctx, (ast.Store, ast.Del)):
-            owner = enclosing_function(node, parents)
-            if (node.id == "arguments" and owner in {"git_output", "git_value"}) or (node.id == "command" and owner == "run"):
-                errors.append(f"{relative}: release Python policy forbids command-parameter mutation")
-        if isinstance(node, ast.Attribute) and isinstance(node.ctx, (ast.Store, ast.Del)) and isinstance(node.value, ast.Name) and node.value.id in {"os", "subprocess"}:
-            errors.append(f"{relative}: release Python policy forbids executable API mutation")
-        if (
-            relative == "tools/sign-central-bundle"
-            and isinstance(node, ast.Attribute)
-            and isinstance(node.ctx, (ast.Store, ast.Del))
-            and isinstance(node.value, ast.Name)
-            and node.value.id == "policy"
-        ):
-            errors.append(f"{relative}: release Python policy forbids loaded-policy attribute rebinding")
-    expected_definitions = {"git_output", "run"} if relative == "tools/check-release-candidate" else {"git_value", "sign", "load_policy"}
-    for name in expected_definitions:
-        definitions = [node for node in tree.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == name]
-        if len(definitions) != 1:
-            errors.append(f"{relative}: release Python policy requires one {name} function")
-    run_attributes = [
-        node for node in ast.walk(tree)
-        if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name)
-        and node.value.id == "subprocess" and node.attr == "run"
-    ]
-    subprocess_calls: list[ast.Call] = []
-    for attribute in run_attributes:
-        parent = parents.get(attribute)
-        if not isinstance(parent, ast.Call) or parent.func is not attribute:
-            errors.append(f"{relative}: release Python policy forbids subprocess.run aliasing")
-        else:
-            subprocess_calls.append(parent)
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load) and node.id == "subprocess" and not isinstance(parents.get(node), ast.Attribute):
-            errors.append(f"{relative}: release Python policy forbids dynamic subprocess module access")
-        if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load) and node.id == "os" and not isinstance(parents.get(node), ast.Attribute):
-            errors.append(f"{relative}: release Python policy forbids dynamic os module access")
-    helper_names = {"git_output", "run"} if relative == "tools/check-release-candidate" else {"git_value", "sign", "load_policy", "signing_environment"}
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load) and node.id in helper_names:
-            parent = parents.get(node)
-            if not isinstance(parent, ast.Call) or parent.func is not node:
-                errors.append(f"{relative}: release Python policy forbids helper aliasing for {node.id}")
-    expected_owners = {"git_output", "run"} if relative == "tools/check-release-candidate" else {"git_value", "sign"}
-    owners = [enclosing_function(call, parents) for call in subprocess_calls]
-    if set(owners) != expected_owners or len(owners) != len(expected_owners):
-        errors.append(f"{relative}: release Python policy subprocess call inventory mismatch")
-    for call, owner in zip(subprocess_calls, owners):
-        if any(keyword.arg == "shell" for keyword in call.keywords):
-            errors.append(f"{relative}: release Python policy forbids subprocess shell mode")
-        if not call.args:
-            errors.append(f"{relative}: release Python policy subprocess command is missing")
-            continue
-        if owner in {"git_output", "git_value"}:
-            command = call.args[0]
-            if not (
-                isinstance(command, ast.Tuple) and len(command.elts) == 2
-                and isinstance(command.elts[0], ast.Constant) and command.elts[0].value == "git"
-                and isinstance(command.elts[1], ast.Starred) and isinstance(command.elts[1].value, ast.Name)
-                and command.elts[1].value.id == "arguments"
-            ):
-                errors.append(f"{relative}: release Python policy git command assembly mismatch")
-        elif owner in {"run", "sign"}:
-            command = call.args[0]
-            if not (isinstance(command, ast.Name) and command.id == "command"):
-                errors.append(f"{relative}: release Python policy GPG command must use its locked local command")
-            else:
-                function = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == owner)
-                for name in ast.walk(function):
-                    if not isinstance(name, ast.Name) or name.id != "command" or not isinstance(name.ctx, ast.Load):
-                        continue
-                    parent = parents.get(name)
-                    completed = (
-                        isinstance(parent, ast.Call)
-                        and parent.args
-                        and parent.args[0] is name
-                        and isinstance(parent.func, ast.Attribute)
-                        and isinstance(parent.func.value, ast.Name)
-                        and parent.func.value.id == "subprocess"
-                        and parent.func.attr == "CompletedProcess"
-                    )
-                    if not ((isinstance(parent, ast.Call) and parent is call and parent.args and parent.args[0] is name) or completed):
-                        errors.append(f"{relative}: release Python policy forbids GPG command mutation or aliasing")
-    if relative == "tools/check-release-candidate":
-        expected_git = {
-            ast_call('git_output("status", "--porcelain=v1", "--untracked-files=all")'),
-            ast_call('git_output("rev-parse", "HEAD")'), ast_call('git_output("rev-parse", "HEAD^{tree}")'),
-        }
-        expected_gpg = {
-            ast_call('run(("gpg", "--batch", "--list-packets", str(key_path)), home)'),
-            ast_call('run(("gpg", "--batch", "--import", str(key_path)), home)'),
-            ast_call('run(("gpg", "--batch", "--with-colons", "--list-keys"), home)'),
-            ast_call('run(("gpg", "--batch", "--status-fd", "1", "--verify", str(signature_path), str(original_path)), home)'),
-        }
-        actual_git = {ast.dump(node, include_attributes=False) for node in ast.walk(tree) if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "git_output"}
-        actual_gpg = {ast.dump(node, include_attributes=False) for node in ast.walk(tree) if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "run"}
-        if actual_git != expected_git:
-            errors.append(f"{relative}: release Python policy read-only git call allowlist mismatch")
-        if actual_gpg != expected_gpg:
-            errors.append(f"{relative}: release Python policy GPG call allowlist mismatch")
-    else:
-        expected_policy_calls = (
-            ("regular_input", 'policy.regular_input(candidate_argument, "release candidate")', 1),
-            ("candidate_digest_errors", 'policy.candidate_digest_errors(candidate_data, candidate_sha256, "release candidate")', 1),
-            ("verify_candidate_bytes", "policy.verify_candidate_bytes(candidate_data)", 1),
-            ("public_key_home", "policy.public_key_home(workspace)", 1),
-            ("digest", "policy.digest(candidate_entries[path])", 1),
-            ("digest", "policy.digest(original_path.read_bytes())", 1),
-            ("digest", "policy.digest(original, algorithm)", 1),
-            ("digest", "policy.digest(original)", 4),
-            ("digest", "policy.digest(signature)", 1),
-            ("digest", "policy.digest(candidate_data)", 1),
-            ("digest", "policy.digest(candidate_entries[policy.MANIFEST_PATH])", 1),
-            ("digest", "policy.digest(Path(__file__).read_bytes())", 1),
-            ("digest", "policy.digest(portal_data)", 1),
-            ("verify_detached_with_home", "policy.verify_detached_with_home(public_home, fingerprint, signature, original_path.read_bytes(), workspace, index)", 1),
-            ("verify_detached_with_home", "policy.verify_detached_with_home(public_home, fingerprint, signature, original, workspace, next(counter))", 1),
-            ("verify_detached_with_home", "policy.verify_detached_with_home(public_home, fingerprint, signature, original, workspace, next(final_counter))", 1),
-            ("portal_zip_bytes", "policy.portal_zip_bytes(portal)", 1),
-            ("canonical_json", "policy.canonical_json(evidence)", 1),
-            ("tar_bytes", "policy.tar_bytes([(policy.SIGNED_MANIFEST_PATH, policy.canonical_json(evidence)), (policy.CANDIDATE_COPY_PATH, candidate_data), (policy.PORTAL_ZIP_PATH, portal_data), *signed])", 1),
-            ("verify_signed_bundle_bytes", "policy.verify_signed_bundle_bytes(bundle, portal_data, fingerprint, candidate_sha256, lambda signature, original: policy.verify_detached_with_home(public_home, fingerprint, signature, original, workspace, next(counter)))", 1),
-            ("verify_signed_bundle_bytes", "policy.verify_signed_bundle_bytes(read_bundle, read_portal, fingerprint, candidate_sha256, lambda signature, original: policy.verify_detached_with_home(public_home, fingerprint, signature, original, workspace, next(final_counter)))", 1),
-            ("exclusive_write", "policy.exclusive_write(target, bundle)", 1),
-            ("exclusive_write", "policy.exclusive_write(portal_target, portal_data)", 1),
-            ("signed_output_readback", "policy.signed_output_readback(target, portal_target, bundle, portal_data)", 1),
-        )
-        expected_policy_uses = {
-            ("execute", attribute, "Call.func:" + ast_call(expression)): count
-            for attribute, expression, count in expected_policy_calls
-        }
-        expected_policy_uses.update({
-            ("execute", "ARTIFACT", "Call(output_paths).args[1]"): 1,
-            ("execute", "RELEASE_VERSION", "Call(output_paths).args[2]"): 1,
-            ("execute", "ORIGINAL_PATHS", "comprehension.iter"): 1,
-            ("execute", "ORIGINAL_PATHS", "Call(enumerate).args[0]"): 1,
-            ("execute", "ORIGINAL_PATHS", "Call(set).args[0]"): 1,
-            ("execute", "ORIGINAL_PATHS", "For.iter"): 1,
-            ("execute", "COORDINATE", "Dict.values[1]"): 1,
-            ("execute", "RELEASE_VERSION", "Dict.values[2]"): 1,
-            ("execute", "CANDIDATE_COPY_PATH", "Dict.values[0]"): 1,
-            ("execute", "MANIFEST_PATH", "Subscript.slice"): 1,
-            ("execute", "PORTAL_ZIP_PATH", "Dict.values[0]"): 1,
-            ("execute", "SIGNED_MANIFEST_PATH", "Tuple.elts[0]"): 1,
-            ("execute", "CANDIDATE_COPY_PATH", "Tuple.elts[0]"): 1,
-            ("execute", "PORTAL_ZIP_PATH", "Tuple.elts[0]"): 1,
-        })
-        actual_policy_uses: dict[tuple[str | None, str, str], int] = {}
-        for node in ast.walk(tree):
-            if not (
-                isinstance(node, ast.Attribute)
-                and isinstance(node.value, ast.Name)
-                and node.value.id == "policy"
-            ):
-                continue
-            parent = parents.get(node)
-            context = f"{type(parent).__name__}.unknown"
-            if isinstance(parent, ast.Call) and parent.func is node:
-                context = "Call.func:" + ast.dump(parent, include_attributes=False)
-            elif isinstance(parent, ast.Call) and node in parent.args:
-                function_name = parent.func.id if isinstance(parent.func, ast.Name) else type(parent.func).__name__
-                context = f"Call({function_name}).args[{parent.args.index(node)}]"
-            elif parent is not None:
-                for field, value in ast.iter_fields(parent):
-                    if value is node:
-                        context = f"{type(parent).__name__}.{field}"
-                        break
-                    if isinstance(value, list) and node in value:
-                        context = f"{type(parent).__name__}.{field}[{value.index(node)}]"
-                        break
-            use = (enclosing_function(node, parents), node.attr, context)
-            actual_policy_uses[use] = actual_policy_uses.get(use, 0) + 1
-        if actual_policy_uses != expected_policy_uses:
-            errors.append(f"{relative}: release Python policy loaded-module normalized AST-use inventory mismatch")
-        policy_calls = [
-            node for node in ast.walk(tree)
-            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "load_policy"
-        ]
-        if len(policy_calls) != 1 or not policy_assignments or policy_calls[0] is not policy_assignments[0].value:
-            errors.append(f"{relative}: release Python policy loader call inventory mismatch")
-        expected_public_home = ast_call("policy.public_key_home(workspace)")
-        actual_public_home = [
-            ast.dump(node, include_attributes=False) for node in ast.walk(tree)
-            if (
-                isinstance(node, ast.Call)
-                and isinstance(node.func, ast.Attribute)
-                and isinstance(node.func.value, ast.Name)
-                and node.func.value.id == "policy"
-                and node.func.attr == "public_key_home"
-            )
-        ]
-        if actual_public_home != [expected_public_home]:
-            errors.append(f"{relative}: release Python policy public-key verifier call mismatch")
-        expected_git = {
-            ast_call('git_value("status", "--porcelain=v1", "--untracked-files=all")'),
-            ast_call('git_value("rev-parse", "HEAD")'), ast_call('git_value("rev-parse", "HEAD^{tree}")'),
-        }
-        actual_git = {ast.dump(node, include_attributes=False) for node in ast.walk(tree) if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "git_value"}
-        if actual_git != expected_git:
-            errors.append(f"{relative}: release Python policy read-only git call allowlist mismatch")
-        assignments = [
-            node for node in ast.walk(tree)
-            if isinstance(node, ast.Assign) and any(isinstance(target, ast.Name) and target.id == "command" for target in node.targets)
-        ]
-        expected_command = ast.parse('("gpg", "--armor", "--detach-sign", "--local-user", fingerprint + "!", "--status-fd", "1", "--output", str(signature), str(path))', mode="eval").body
-        valid_command_assignment = (
-            len(assignments) == 1
-            and len(assignments[0].targets) == 1
-            and isinstance(assignments[0].targets[0], ast.Name)
-            and assignments[0].targets[0].id == "command"
-            and enclosing_function(assignments[0], parents) == "sign"
-            and ast.dump(assignments[0].value, include_attributes=False) == ast.dump(expected_command, include_attributes=False)
-        )
-        if not valid_command_assignment:
-            errors.append(f"{relative}: release Python policy signing command allowlist mismatch")
-        else:
-            allowed_store = assignments[0].targets[0]
-            for node in ast.walk(tree):
-                if (
-                    isinstance(node, ast.Name)
-                    and node.id == "command"
-                    and isinstance(node.ctx, (ast.Store, ast.Del))
-                    and node is not allowed_store
-                ):
-                    errors.append(f"{relative}: release Python policy forbids signing command mutation or aliasing")
-        environment_functions = [node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "signing_environment"]
-        expected_environment = ast.parse('''def signing_environment() -> dict[str, str]:
-    allowed = (
-        "PATH", "HOME", "GNUPGHOME", "GPG_TTY", "DISPLAY", "WAYLAND_DISPLAY",
-        "TERM", "DBUS_SESSION_BUS_ADDRESS", "XAUTHORITY",
-    )
-    environment = {name: os.environ[name] for name in allowed if name in os.environ}
-    environment["LC_ALL"] = "C"
-    return environment
-''').body[0]
-        if len(environment_functions) != 1 or ast.dump(environment_functions[0], include_attributes=False) != ast.dump(expected_environment, include_attributes=False):
-            errors.append(f"{relative}: release Python policy signing environment allowlist mismatch")
-        sign_calls = [call for call, owner in zip(subprocess_calls, owners) if owner == "sign"]
-        expected_sign_call = ast.parse('''subprocess.run(
-    command, check=False, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-    stderr=subprocess.PIPE, text=True, env=signing_environment(),
-)''', mode="eval").body
-        if len(sign_calls) != 1 or ast.dump(sign_calls[0], include_attributes=False) != ast.dump(expected_sign_call, include_attributes=False):
-            errors.append(f"{relative}: release Python policy signing subprocess wrapper mismatch")
-        policy_paths = [
-            node.value for node in tree.body
-            if isinstance(node, ast.Assign) and any(isinstance(target, ast.Name) and target.id == "POLICY_PATH" for target in node.targets)
-        ]
-        expected_policy_path = ast.parse('ROOT / "tools/check-release-candidate"', mode="eval").body
-        if len(policy_paths) != 1 or ast.dump(policy_paths[0], include_attributes=False) != ast.dump(expected_policy_path, include_attributes=False):
-            errors.append(f"{relative}: release Python policy static loader path mismatch")
-        loaders = [node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "load_policy"]
-        expected_loader = ast.parse('''def load_policy() -> ModuleType:
-    sys.dont_write_bytecode = True
-    loader = importlib.machinery.SourceFileLoader("release_candidate_policy", str(POLICY_PATH))
-    specification = importlib.util.spec_from_loader(loader.name, loader)
-    if specification is None:
-        raise RuntimeError("release candidate policy cannot be loaded")
-    module = importlib.util.module_from_spec(specification)
-    sys.modules[loader.name] = module
-    loader.exec_module(module)
-    return module
-''').body[0]
-        if len(loaders) != 1 or ast.dump(loaders[0], include_attributes=False) != ast.dump(expected_loader, include_attributes=False):
-            errors.append(f"{relative}: release Python policy requires one static policy loader")
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name) and node.value.id == "importlib" and enclosing_function(node, parents) != "load_policy":
-                errors.append(f"{relative}: release Python policy forbids dynamic loading outside load_policy")
-    return sorted(set(errors))
-
-
-def release_channel_errors(root: Path) -> list[str]:
-    errors: list[str] = []
-    checker = read(root, "tools/check-release-candidate", errors)
-    signer = read(root, "tools/sign-central-bundle", errors)
-    releasing = read(root, "docs/releasing.md", errors)
-    key_policy = read(root, "release/openpgp/README.md", errors)
-    errors.extend(release_python_policy_errors("tools/check-release-candidate", checker))
-    errors.extend(release_python_policy_errors("tools/sign-central-bundle", signer))
-    exact_originals = '''ORIGINAL_NAMES = (
-    f"{ARTIFACT}-{RELEASE_VERSION}.jar",
-    f"{ARTIFACT}-{RELEASE_VERSION}-sources.jar",
-    f"{ARTIFACT}-{RELEASE_VERSION}-javadoc.jar",
-    f"{ARTIFACT}-{RELEASE_VERSION}.pom",
-    f"{ARTIFACT}-{RELEASE_VERSION}.module",
-)'''
-    for value in (
-        exact_originals,
-        'RELEASE_VERSION = "0.1.0"',
-        'SNAPSHOT_VERSION = RELEASE_VERSION + "-SNAPSHOT"',
-        'APPROVED_FINGERPRINT = "EAB02E488E7B944EAA6D65814BF0412FD2A3B741"',
-        'info.mode = 0o644',
-        'info.mtime = 0',
-        'MAX_MEMBER = 64 * 1024 * 1024',
-        'MAX_ARCHIVE = 192 * 1024 * 1024',
-        'modes.add_argument("--prepare-if-release", action="store_true")',
-        'modes.add_argument("--verify-signed-bundle", metavar="PATH")',
-        'parser.add_argument("--candidate-sha256")',
-        'parser.add_argument("--portal-zip")',
-        'print(f"CANDIDATE_TAR_SHA256={candidate_sha256}")',
-        'return [], digest(completed)',
-        'parser.error("candidate preparation rejects --candidate-sha256")',
-        'parser.error("--verify-candidate requires --candidate-sha256")',
-        'parser.error("--verify-signed-bundle requires --candidate-sha256")',
-        'parser.error("--verify-signed-bundle requires --portal-zip")',
-        'parser.error("candidate preparation rejects --portal-zip")',
-        'parser.error("--portal-zip is valid only with --verify-signed-bundle")',
-        '"release candidate requires version {RELEASE_VERSION}, found {SNAPSHOT_VERSION}"',
-        '"tracked public OpenPGP key and primary fingerprint are missing; owner must add "',
-    ):
-        if checker.count(value) != 1:
-            errors.append(f"release candidate exact policy missing or duplicated: {value}")
-    try:
-        checker_tree = ast.parse(checker, filename="tools/check-release-candidate")
-    except SyntaxError:
-        checker_tree = None
-    setup_functions = (
-        [node for node in checker_tree.body if isinstance(node, ast.FunctionDef) and node.name == "setup_errors"]
-        if checker_tree is not None else []
-    )
-    expected_setup_statement = ast.dump(
-        ast.parse("errors.extend(setup_public_material_errors())").body[0],
-        include_attributes=False,
-    )
-    valid_setup_integration = len(setup_functions) == 1 and len(setup_functions[0].body) > 4
-    if valid_setup_integration:
-        setup_statement = setup_functions[0].body[4]
-        valid_setup_integration = (
-            ast.dump(setup_statement, include_attributes=False) == expected_setup_statement
-            and not any(
-                isinstance(node, ast.Return) and node.lineno < setup_statement.lineno
-                for node in ast.walk(setup_functions[0])
-            )
-        )
-    if not valid_setup_integration:
-        errors.append("release candidate exact policy requires complete setup public-material verification")
-    if checker.count("format=tarfile.USTAR_FORMAT") != 2:
-        errors.append("release candidate deterministic USTAR creation/test contract mismatch")
-    readback = checker.find("completed = output_path.read_bytes()")
-    digest_return = checker.find("return [], digest(completed)")
-    digest_log = checker.find('print(f"CANDIDATE_TAR_SHA256={candidate_sha256}")')
-    if readback < 0 or digest_return < readback or digest_log < digest_return:
-        errors.append("candidate TAR digest must come from final write/readback before logging")
-    for value in (
-        '"gpg", "--armor", "--detach-sign", "--local-user", fingerprint + "!"',
-        '"--status-fd", "1"',
-        'policy.verify_candidate_bytes(candidate_data)',
-        'parser.add_argument("--candidate-sha256", required=True)',
-        'policy.candidate_digest_errors(candidate_data, candidate_sha256, "release candidate")',
-        'policy.signed_output_readback(',
-        'policy.exclusive_write(portal_target, portal_data)',
-        'policy.exclusive_write(target, bundle)',
-    ):
-        if signer.count(value) != 1:
-            errors.append(f"isolated signer exact policy missing or duplicated: {value}")
-    if signer.count("policy.verify_signed_bundle_bytes(") != 2:
-        errors.append("isolated signer must verify the in-memory and final readback signed outputs")
-    evidence_write = signer.find('policy.exclusive_write(target, bundle)')
-    portal_write = signer.find('policy.exclusive_write(portal_target, portal_data)')
-    if evidence_write < 0 or portal_write < 0 or evidence_write > portal_write:
-        errors.append("isolated signer must write evidence before the directly uploadable Portal ZIP")
-    final_readback = signer.find("policy.signed_output_readback(")
-    if final_readback < portal_write:
-        errors.append("isolated signer must read back both final outputs after evidence-first writes")
-    signer_digest = signer.find('policy.candidate_digest_errors(candidate_data, candidate_sha256, "release candidate")')
-    signer_parse = signer.find("policy.verify_candidate_bytes(candidate_data)")
-    if signer_digest < 0 or signer_parse < 0 or signer_digest > signer_parse:
-        errors.append("isolated signer must compare the public candidate digest before parsing")
-    for value in (
-        "owner-manual Central Portal UI upload",
-        "There is no Portal token, upload client, or\ncross-host orchestrator.",
-        "Snapshot CI skips candidate creation and upload.",
-        "Checksum sidecars\nare not signed, and `.asc` files receive no checksum sidecars.",
-        "GitHub Release may independently use its optional pre-release marker",
-        "CANDIDATE_TAR_SHA256=<lowercase-sha256>",
-        "--candidate-sha256",
-        "--portal-zip build/release/htsp-0.1.0-central.zip",
-        "The signer writes the evidence TAR first.",
-    ):
-        if value not in releasing:
-            errors.append(f"release documentation boundary mismatch: {value}")
-    for value in (
-        "Bernhard Berger <bernhard.berger@gmail.com>",
-        "The key has no expiry.",
-        "primary key must itself be signing-capable",
-        "public-key.asc", "primary-fingerprint.txt", "no secret or\n  private key packets",
-        "ordinary interactive\ngpg-agent and pinentry flow",
-        "keyserver\ncurrently supported by Maven Central",
-        "Android APK PKCS#12 key is a separate credential and must never be reused",
-    ):
-        if value not in key_policy:
-            errors.append(f"public OpenPGP policy mismatch: {value}")
-    return errors
-
-
-def yaml_active_line(line: str) -> str:
-    single = False
-    double = False
-    escaped = False
-    for index, character in enumerate(line):
-        if escaped:
-            escaped = False
-            continue
-        if character == "\\" and double:
-            escaped = True
-        elif character == "'" and not double:
-            single = not single
-        elif character == '"' and not single:
-            double = not double
-        elif character == "#" and not single and not double and (index == 0 or line[index - 1].isspace()):
-            return line[:index].rstrip()
-    return line.rstrip()
-
-
-def ci_verify_errors(root: Path) -> list[str]:
+def workflow_errors(root: Path) -> list[str]:
     errors: list[str] = []
     ci = read(root, ".github/workflows/ci.yml", errors)
+    release = read(root, ".github/workflows/release.yml", errors)
     verify = read(root, "tools/verify-htsp", errors)
-    active_ci = tuple(active for line in ci.splitlines() if (active := yaml_active_line(line)).strip())
-    if active_ci != CI_ACTIVE_POLICY:
-        errors.append("CI exact active-YAML policy mismatch")
-    if re.search(r"\bhtsp-0\.1\.0-(?:alpha|beta|rc)(?:[.-][0-9A-Za-z]+)*", "\n".join(active_ci)):
-        errors.append("stale alpha version or filename is forbidden in active CI policy")
-    bytecode_policy = "export PYTHONDONTWRITEBYTECODE=1"
-    first_invocation = min(
-        position for position in (verify.find("./tools/"), verify.find("python3 "), verify.find("./gradlew "))
-        if position >= 0
+    if ci.count(f"actions/checkout@{CHECKOUT_SHA}") != 1 or ci.count(f"actions/setup-java@{JAVA_SHA}") != 1:
+        errors.append("normal CI action pins differ from the approved full SHAs")
+    for token in (
+        "branches: [main]", "pull_request:", "contents: read", "runs-on: ubuntu-24.04",
+        "persist-credentials: false", "./tools/check-standalone-repository --wrapper-only",
+        "./tools/verify-htsp",
+    ):
+        if ci.count(token) != 1:
+            errors.append(f"normal CI policy missing or duplicated: {token}")
+    if "secrets." in ci or "publish-central-release" in ci or "upload-artifact" in ci:
+        errors.append("normal CI contains release-only behavior")
+    if not release or release.count("tools/publish-central-release --publish") != 1:
+        errors.append("tag release workflow is missing its single Central publish call")
+    if release.count("tools/publish-central-release --finalize-github-release") != 1:
+        errors.append("tag release workflow is missing its single GitHub finalizer call")
+    if "gh release create" in release or "build/release/github-assets/*" in release or "build/release/htsp-*" in release:
+        errors.append("tag release workflow retains non-idempotent GitHub CLI wildcard publication")
+    publish_position = release.find("tools/publish-central-release --publish")
+    finalizer_position = release.find("tools/publish-central-release --finalize-github-release")
+    if min(publish_position, finalizer_position) < 0 or publish_position >= finalizer_position:
+        errors.append("GitHub finalizer must run only after Central publish and resolution")
+    job_guard_tokens = (
+        "if: >-",
+        "github.repository == 'bernhardberger/tvheadend-htsp'",
+        "github.ref_type == 'tag'",
+        "startsWith(github.ref, 'refs/tags/v')",
     )
-    bytecode_position = verify.find(bytecode_policy)
-    if verify.count(bytecode_policy) != 1 or bytecode_position < 0 or bytecode_position > first_invocation:
-        errors.append("verifier must export exact PYTHONDONTWRITEBYTECODE=1 before every checker, generator, or build invocation")
-    required_order = [
+    if any(release.count(token) != 1 for token in job_guard_tokens):
+        errors.append("release job repository and v-tag guard is missing or duplicated")
+    bytecode = "export PYTHONDONTWRITEBYTECODE=1"
+    first_command = min(position for position in (verify.find("./tools/"), verify.find("python3 "), verify.find("./gradlew ")) if position >= 0)
+    if verify.count(bytecode) != 1 or verify.find(bytecode) > first_command:
+        errors.append("verifier must suppress Python bytecode before checker execution")
+    required_order = (
         "./tools/check-standalone-repository --self-test",
         "./tools/check-standalone-repository",
-        "./tools/check-release-candidate --self-test",
-        "./tools/check-release-candidate --check-setup",
+        "./tools/publish-central-release --self-test",
+        "./tools/publish-central-release --check-setup",
         "./tools/check-api-compatibility-policy --self-test",
         "./tools/check-api-compatibility-policy",
         "./tools/check-published-jvm-compatibility --self-test",
-        "if [ \"${1-}\" = \"--non-gradle\" ]; then",
+        'if [ "${1-}" = "--non-gradle" ]; then',
         "./gradlew --no-daemon clean build test check checkLegacyAbi verifyClassMajor61 verifyProductionDependencyGraph stageLocalPublication",
-        "./tools/check-published-jvm-compatibility --write-manifest build/publication-first.json",
-        "rm -rf build/local-maven",
-        "./gradlew --no-daemon stageLocalPublication",
-        "./tools/check-published-jvm-compatibility --compare-manifest build/publication-first.json",
+        "\n./tools/check-published-jvm-compatibility\n",
         "./gradlew --no-daemon --refresh-dependencies -p consumer-contract clean compileKotlin verifyConsumerDependencyGraph",
-    ]
-    positions = [verify.find(value) for value in required_order]
+    )
+    positions = [verify.find(token) for token in required_order]
     if any(position < 0 for position in positions) or positions != sorted(positions):
-        errors.append("verifier P3-E2 stage/inspect/recreate/compare/consumer ordering mismatch")
-    if verify.count("./tools/check-api-compatibility-policy") != 2 or verify.count("./tools/check-published-jvm-compatibility") != 4 or verify.count("./tools/check-release-candidate") != 2:
-        errors.append("verifier P3-E2 checker activation count mismatch")
-    if verify.count("./gradlew ") != 3 or verify.count("--no-daemon") != 3:
-        errors.append("every and only the three verifier Gradle calls must use --no-daemon")
-    non_gradle = verify.find('if [ "${1-}" = "--non-gradle" ]; then')
-    first_gradle = verify.find("./gradlew ")
-    if non_gradle < 0 or first_gradle < non_gradle:
-        errors.append("--non-gradle must exit before staging, artifact inspection, and consumer compilation")
-    for token in ("credentials {", "gh ", "git push", "publishToMavenLocal", "secrets.", "curl ", "wget ", "ssh "):
-        if token in verify:
-            errors.append(f"verifier forbidden outbound/signing/credential operation: {token}")
+        errors.append("verifier check, single stage, publication verification, and consumer ordering mismatch")
+    for obsolete in ("--write-manifest", "publication-first.json", "rm -rf build/local-maven", "--compare-manifest"):
+        if obsolete in verify:
+            errors.append(f"verifier retains obsolete publication restaging machinery: {obsolete}")
+    if verify.count("stageLocalPublication") != 1:
+        errors.append("verifier must stage the publication exactly once")
+    if verify.count("\n./tools/check-published-jvm-compatibility\n") != 1:
+        errors.append("verifier must run production publication verification exactly once")
+    if verify.count("./gradlew ") != 2 or verify.count("--no-daemon") != 2:
+        errors.append("every and only the two verifier Gradle calls must use --no-daemon")
+    for stale in ("check-release-candidate", "sign-central-bundle", "candidate.tar", "evidence.tar"):
+        if stale in verify or stale in ci or stale in release:
+            errors.append(f"superseded release path remains active: {stale}")
+    return errors
+
+
+def release_topology_errors(root: Path) -> list[str]:
+    errors: list[str] = []
+    for relative in (".github/workflows/release.yml", "tools/publish-central-release"):
+        path = root / relative
+        if not path.is_file() or path.is_symlink():
+            errors.append(f"required automatic release path is missing: {relative}")
+    for relative in ("tools/check-release-candidate", "tools/sign-central-bundle"):
+        if (root / relative).exists() or (root / relative).is_symlink():
+            errors.append(f"superseded release path is forbidden: {relative}")
     return errors
 
 
@@ -1902,11 +626,10 @@ def repository_errors(root: Path) -> list[str]:
     errors.extend(build_errors(root))
     errors.extend(consumer_errors(root))
     errors.extend(package_errors(root))
-    errors.extend(portable_temp_errors(root))
     errors.extend(quick_start_errors(root))
     errors.extend(governance_errors(root))
-    errors.extend(release_channel_errors(root))
-    errors.extend(ci_verify_errors(root))
+    errors.extend(workflow_errors(root))
+    errors.extend(release_topology_errors(root))
     return sorted(set(errors))
 
 
@@ -1919,46 +642,8 @@ def replace_once(root: Path, relative: str, old: str, new: str) -> None:
     path = root / relative
     text = path.read_text(encoding="utf-8")
     if old not in text:
-        raise AssertionError(f"self-test cannot mutate {relative}: {old!r}")
+        raise AssertionError(f"self-test fixture lacks {old!r} in {relative}")
     path.write_text(text.replace(old, new, 1), encoding="utf-8")
-
-
-def insert_before_dependency_contract(root: Path, text: str) -> None:
-    replace_once(
-        root,
-        "build.gradle.kts",
-        "\n" + DEPENDENCY_TASK_CONTRACT + "\n",
-        "\n" + text.rstrip() + "\n\n" + DEPENDENCY_TASK_CONTRACT + "\n",
-    )
-
-
-def replace_temp_context(root: Path, relative: str, replacement: str) -> None:
-    target = "with tempfile." + "TemporaryDirectory() as temporary:"
-    replace_once(root, relative, target, replacement)
-
-
-def append_temp_noncode(root: Path, relative: str) -> None:
-    append(
-        root,
-        relative,
-        '\n# from tempfile import TemporaryDirectory; getattr(tempfile, "TemporaryDirectory")\n'
-        'TEMP_POLICY_EXAMPLE = "tempfile.TemporaryDirectory(dir=\'/host-specific\')"\n'
-        'TEMP_POLICY_UNRELATED_SUBSCRIPT = {"safe": 1}["safe"]\n',
-    )
-
-
-def insert_release_setup_attack(root: Path, statement: str) -> None:
-    marker = "def setup_errors() -> list[str]:\n"
-    indented = "\n".join("    " + line for line in statement.splitlines())
-    replace_once(root, "tools/check-release-candidate", marker, marker + indented + "\n")
-
-
-def fixture_mode(root: Path) -> str | None:
-    build = (root / "build.gradle.kts").read_text(encoding="utf-8")
-    versions = re.findall(r'(?m)^version\s*=\s*"([^"]+)"\s*$', build)
-    if len(versions) == 1 and versions[0] in {"0.1.0-SNAPSHOT", "0.1.0"}:
-        return versions[0]
-    return None
 
 
 def copy_fixture(source: Path, target: Path) -> None:
@@ -1966,341 +651,22 @@ def copy_fixture(source: Path, target: Path) -> None:
     (target / ".git").mkdir()
 
 
-def set_release_document_fixture(root: Path) -> None:
-    release_coordinate = "at.bernhardberger.tvheadend:htsp:0.1.0"
-    replace_once(
-        root,
-        "README.md",
-        "The checkout currently uses the mutable, local-only snapshot\n"
-        "`at.bernhardberger.tvheadend:htsp:0.1.0-SNAPSHOT`. It is not available\n"
-        "from Maven Central or another public repository. CI stages that coordinate only\n"
-        "inside this checkout for the independent consumer contract.",
-        "The Gradle dependency uses the exact immutable release coordinate\n"
-        f"`{release_coordinate}`. Availability from Maven Central or another public\n"
-        "repository must be independently verified; this repository does not claim that\n"
-        "publication has occurred.",
-    )
-    replace_once(
-        root,
-        "README.md",
-        'implementation("at.bernhardberger.tvheadend:htsp:0.1.0-SNAPSHOT")',
-        f'implementation("{release_coordinate}")',
-    )
-    replace_once(root, "README.md", "[unreleased change history](CHANGELOG.md)", "[release change history](CHANGELOG.md)")
-    (root / "docs/versioning.md").write_text(
-        """# Versioning and compatibility
-
-The current immutable release coordinate is `at.bernhardberger.tvheadend:htsp:0.1.0`.
-`0.1.0` is the first provisional major-zero release. Release bytes for this
-coordinate are immutable and must never be replaced.
-
-Availability from Maven Central or any other public repository is independently
-verified external state. This repository does not claim that publication or
-availability has occurred.
-
-## Provisional 0.x policy
-
-While the major version is zero, the public API and behavior are provisional.
-No source, binary, or behavioral compatibility is promised for the provisional
-0.x line. A known breaking change requires the next minor version, not a patch
-version. Patch versions are reserved for backward-compatible fixes.
-
-Read the `0.1.0` release notes before using it as a baseline. Local checks and
-candidate CI do not establish publication, availability, distribution, Java 17
-runtime support, or release readiness.
-""",
-        encoding="utf-8",
-    )
-    replace_once(
-        root,
-        "docs/releasing.md",
-        "`0.1.0` is the planned first provisional major-zero release. It has not been\n"
-        "released or published. Release notes for `0.1.0` define only the initial\n"
-        "provisional baseline. They do not promise compatibility or support. Major zero\n"
-        "communicates that status; the Maven version does not need an alpha suffix.\n\n"
-        "This repository currently stages snapshots only to checkout-local\n"
-        "`build/local-maven` in CI. External publication, signing, tagging, and release\n"
-        "creation require separate owner authorization.",
-        "`0.1.0` is the first provisional major-zero release. Release notes for `0.1.0`\n"
-        "define only the initial provisional baseline. They do not promise compatibility\n"
-        "or support. Major zero communicates that status; the Maven version does not need\n"
-        "an alpha suffix.\n\n"
-        "Candidate preparation and local staging do not establish external publication or\n"
-        "availability. Publication and availability are independently verified external\n"
-        "state. External publication, signing, tagging, and release creation require\n"
-        "separate owner authorization.",
-    )
-    replace_once(root, "docs/releasing.md", "The eventual release uses the `v0.1.0` tag vocabulary.", "The release uses the `v0.1.0` tag vocabulary.")
-    replace_once(
-        root,
-        "docs/README.md",
-        "[`CHANGELOG.md`](../CHANGELOG.md): unreleased, non-normative baseline notes.",
-        "[`CHANGELOG.md`](../CHANGELOG.md): the `0.1.0` initial provisional baseline notes.",
-    )
-    (root / "CHANGELOG.md").write_text(
-        """# Changelog
-
-## [0.1.0]
-
-This release entry records the `0.1.0` initial provisional baseline. It does not
-promise source, binary, or behavioral compatibility or support.
-
-The initial provisional baseline contains the standalone Kotlin/JVM HTSP v44
-protocol library and its typed outcome API. Publication and availability are
-independently verified external state and are not established by this entry.
-""",
-        encoding="utf-8",
-    )
-
-
-def set_snapshot_document_fixture(root: Path) -> None:
-    release_coordinate = "at.bernhardberger.tvheadend:htsp:0.1.0"
-    replace_once(
-        root,
-        "README.md",
-        "The Gradle dependency uses the exact immutable release coordinate\n"
-        f"`{release_coordinate}`. Availability from Maven Central or another public\n"
-        "repository must be independently verified; this repository does not claim that\n"
-        "publication has occurred.",
-        "The checkout currently uses the mutable, local-only snapshot\n"
-        "`at.bernhardberger.tvheadend:htsp:0.1.0-SNAPSHOT`. It is not available\n"
-        "from Maven Central or another public repository. CI stages that coordinate only\n"
-        "inside this checkout for the independent consumer contract.",
-    )
-    replace_once(
-        root,
-        "README.md",
-        f'implementation("{release_coordinate}")',
-        'implementation("at.bernhardberger.tvheadend:htsp:0.1.0-SNAPSHOT")',
-    )
-    replace_once(root, "README.md", "[release change history](CHANGELOG.md)", "[unreleased change history](CHANGELOG.md)")
-    (root / "docs/versioning.md").write_text(
-        """# Versioning and compatibility
-
-The current coordinate is
-`at.bernhardberger.tvheadend:htsp:0.1.0-SNAPSHOT`.
-`0.1.0-SNAPSHOT` is a mutable, checkout-local snapshot. It is not
-available from any public repository.
-
-An immutable release must use a new version; published release bytes must never
-be replaced. Snapshots can change while retaining their coordinate and must not
-be treated as immutable releases.
-
-## Provisional 0.x policy
-
-While the major version is zero, the public API and behavior are provisional.
-No source, binary, or behavioral compatibility is promised for the provisional
-0.x line. A known breaking change requires the next minor version, not a patch
-version. Patch versions are reserved for backward-compatible fixes.
-
-The planned first release is `0.1.0`, an ordinary provisional major-zero
-release. It has not been published. Major zero communicates the
-initial-development compatibility status without a Maven alpha suffix. Read its
-release notes before using it as a baseline. Local checks and CI staging do not
-establish publication, distribution, Java 17 runtime support, or release readiness.
-""",
-        encoding="utf-8",
-    )
-    replace_once(
-        root,
-        "docs/releasing.md",
-        "`0.1.0` is the first provisional major-zero release. Release notes for `0.1.0`\n"
-        "define only the initial provisional baseline. They do not promise compatibility\n"
-        "or support. Major zero communicates that status; the Maven version does not need\n"
-        "an alpha suffix.\n\n"
-        "Candidate preparation and local staging do not establish external publication or\n"
-        "availability. Publication and availability are independently verified external\n"
-        "state. External publication, signing, tagging, and release creation require\n"
-        "separate owner authorization.",
-        "`0.1.0` is the planned first provisional major-zero release. It has not been\n"
-        "released or published. Release notes for `0.1.0` define only the initial\n"
-        "provisional baseline. They do not promise compatibility or support. Major zero\n"
-        "communicates that status; the Maven version does not need an alpha suffix.\n\n"
-        "This repository currently stages snapshots only to checkout-local\n"
-        "`build/local-maven` in CI. External publication, signing, tagging, and release\n"
-        "creation require separate owner authorization.",
-    )
-    replace_once(root, "docs/releasing.md", "The release uses the `v0.1.0` tag vocabulary.", "The eventual release uses the `v0.1.0` tag vocabulary.")
-    replace_once(
-        root,
-        "docs/README.md",
-        "[`CHANGELOG.md`](../CHANGELOG.md): the `0.1.0` initial provisional baseline notes.",
-        "[`CHANGELOG.md`](../CHANGELOG.md): unreleased, non-normative baseline notes.",
-    )
-    (root / "CHANGELOG.md").write_text(
-        """# Changelog
-
-## [Unreleased]
-
-This unreleased entry records the checkout-local `0.1.0-SNAPSHOT` baseline.
-It is not a release, publication, compatibility baseline, or support promise.
-
-The initial provisional baseline contains the standalone Kotlin/JVM HTSP v44
-protocol library and its typed outcome API.
-""",
-        encoding="utf-8",
-    )
-
-
-def set_release_mode_fixture(root: Path) -> None:
-    if fixture_mode(root) != "0.1.0-SNAPSHOT":
-        raise AssertionError("self-test release fixture requires the canonical snapshot mode")
-    replace_once(root, "build.gradle.kts", 'version = "0.1.0-SNAPSHOT"', 'version = "0.1.0"')
-    set_release_document_fixture(root)
-    if fixture_mode(root) != "0.1.0":
-        raise AssertionError("self-test did not establish the exact release mode")
-
-
-def set_snapshot_mode_fixture(root: Path) -> None:
-    if fixture_mode(root) != "0.1.0":
-        raise AssertionError("self-test snapshot fixture requires the exact release mode")
-    replace_once(root, "build.gradle.kts", 'version = "0.1.0"', 'version = "0.1.0-SNAPSHOT"')
-    set_snapshot_document_fixture(root)
-    if fixture_mode(root) != "0.1.0-SNAPSHOT":
-        raise AssertionError("self-test did not establish the canonical snapshot mode")
-
-
-def create_canonical_snapshot_fixture(source: Path, target: Path) -> list[str]:
-    mode = fixture_mode(source)
-    if mode is None:
-        return ["source checkout mode is unsupported"]
-    copy_fixture(source, target)
-    if mode == "0.1.0":
-        original = {relative: (source / relative).read_bytes() for relative in VERSION_POLICY_FILES}
-        try:
-            set_snapshot_mode_fixture(target)
-            snapshot = {relative: (target / relative).read_bytes() for relative in VERSION_POLICY_FILES}
-            set_release_mode_fixture(target)
-            recovered = {relative: (target / relative).read_bytes() for relative in VERSION_POLICY_FILES}
-            if recovered != original:
-                return ["release-to-snapshot fixture conversion is not exactly reversible"]
-            set_snapshot_mode_fixture(target)
-            if any((target / relative).read_bytes() != content for relative, content in snapshot.items()):
-                return ["release-to-snapshot fixture conversion is not deterministic"]
-        except (AssertionError, OSError, UnicodeError) as error:
-            return [f"release-to-snapshot fixture conversion failed closed: {error}"]
-    fixture_errors = repository_errors(target)
-    if fixture_errors:
-        return ["canonical snapshot fixture failed: " + "; ".join(fixture_errors)]
-    return []
-
-
 def self_test() -> list[str]:
     errors: list[str] = []
-    target_release = "0.1.0"
-    target_snapshot = target_release + "-SNAPSHOT"
-    legacy_release = "0.1.0-" + "alpha.1"
-    expected_ci_candidate = f"build/release/htsp-{target_release}-candidate.tar"
-    ci_text = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
-    docs_text = "\n".join(
-        (ROOT / relative).read_text(encoding="utf-8")
-        for relative in ("README.md", "docs/versioning.md", "docs/releasing.md", "CHANGELOG.md")
-    )
-    if COORDINATE != f"at.bernhardberger.tvheadend:htsp:{target_snapshot}":
-        errors.append("self-test rejected the legacy alpha-pinned consumer coordinate")
-    if expected_ci_candidate not in ci_text or legacy_release in ci_text:
-        errors.append("self-test rejected the legacy alpha-pinned CI candidate filename")
-    if target_release not in docs_text or legacy_release in docs_text:
-        errors.append("self-test rejected the legacy alpha-pinned documentation vocabulary")
     baseline = repository_errors(ROOT)
     if baseline:
         return ["clean repository fixture failed: " + "; ".join(baseline)]
     production = "src/main/kotlin/at/bernhardberger/tvheadend/htsp/connection/HtspConnection.kt"
     test = next(path.relative_to(ROOT).as_posix() for path in sorted((ROOT / "src/test/kotlin").rglob("*.kt")))
     golden = next(path.relative_to(ROOT).as_posix() for path in sorted((ROOT / "src/test/resources").rglob("*.hex")))
-    hostile_temp_call = "tempfile.TemporaryDirectory(dir=" + repr(str(Path("/nonexistent") / "host-specific-temp")) + ")"
-    hostile_alias_context = (
-        "temporary_directory = tempfile.TemporaryDirectory\n"
-        "    with (tempfile.TemporaryDirectory() if False else temporary_directory(dir="
-        + repr(str(Path("/nonexistent") / "host-specific-temp"))
-        + ")) as temporary:"
-    )
-    hostile_getattr_context = (
-        "with (tempfile.TemporaryDirectory() if False else "
-        "getattr(getattr(tempfile, \"TemporaryDirectory\"), \"__call__\")(dir="
-        + repr(str(Path("/nonexistent") / "host-specific-temp"))
-        + ")) as temporary:"
-    )
-    hostile_import_alias_getattr_context = (
-        "import tempfile as temp_alias\n"
-        "    with (tempfile.TemporaryDirectory() if False else "
-        "getattr(temp_alias, \"Temporary\" + \"Directory\")(dir="
-        + repr(str(Path("/nonexistent") / "host-specific-temp"))
-        + ")) as temporary:"
-    )
-    hostile_setattr_context = (
-        "setattr(type(\"Carrier\", (), {})(), \"Temporary\" + \"Directory\", object())\n"
-        "    with tempfile." + "TemporaryDirectory() as temporary:"
-    )
     mutations: list[tuple[str, str, Callable[[Path], None]]] = [
-        ("unsupported root version", "root build version", lambda root: replace_once(root, "build.gradle.kts", 'version = "0.1.0-SNAPSHOT"', 'version = "0.2.0-SNAPSHOT"')),
-        ("legacy alpha root version", "stale alpha version", lambda root: replace_once(root, "build.gradle.kts", 'version = "0.1.0-SNAPSHOT"', f'version = "{legacy_release}-SNAPSHOT"')),
-        ("multiple root versions", "root build version", lambda root: append(root, "build.gradle.kts", '\nversion = "0.1.0"\n')),
-        ("dynamic root version", "root build version", lambda root: replace_once(root, "build.gradle.kts", 'version = "0.1.0-SNAPSHOT"', 'version = providers.gradleProperty("releaseVersion").get()')),
-        ("wrong coordinate", "consumer dependency must be exactly", lambda root: replace_once(root, "consumer-contract/build.gradle.kts", COORDINATE, "example:wrong:1")),
-        ("consumer stdlib implementation scope", "consumer production dependency scope", lambda root: replace_once(root, "consumer-contract/build.gradle.kts", '"api:org.jetbrains.kotlin:kotlin-stdlib:2.3.10"', '"implementation:org.jetbrains.kotlin:kotlin-stdlib:2.3.10"')),
-        ("extra publication", "exactly one Maven publication", lambda root: append(root, "build.gradle.kts", '\ncreate<MavenPublication>("other") {}\n')),
-        ("remote publication", "unapproved remote URL", lambda root: append(root, "build.gradle.kts", '\nval hostile = "https://repo.example.invalid"\n')),
-        ("snapshot Maven Local", "forbidden remote/signing", lambda root: append(root, "build.gradle.kts", "\nmavenLocal()\n")),
-        ("signing", "forbidden remote/signing", lambda root: append(root, "build.gradle.kts", "\nsigning {}\n")),
-        ("credential lookup", "forbidden remote/signing", lambda root: append(root, "build.gradle.kts", '\nval secret = System.getenv("TOKEN")\n')),
-        ("extra dependency", "exactly one declared production dependency", lambda root: append(root, "build.gradle.kts", '\nimplementation("example:bad:1")\n')),
-        ("weakened dependency task", "production dependency task exact final-body", lambda root: replace_once(root, "build.gradle.kts", '            "org.jetbrains.kotlin:kotlin-stdlib:2.3.10",', '            "org.jetbrains.kotlin:kotlin-stdlib:2.3.9",')),
-        ("shared source matcher changed back to kotlinSourcesJar", "licensed main/shared-sources/Javadoc archive", lambda root: replace_once(root, "build.gradle.kts", '            task.name == "sourcesJar" ||', '            task.name == "kotlinSourcesJar" ||')),
-        ("shared source artifact count weakened", "read-only shared sources artifact", lambda root: replace_once(root, "build.gradle.kts", "sourceArtifacts.size == 1", "sourceArtifacts.isNotEmpty()")),
-        ("shared source task predicate weakened", "read-only shared sources artifact", lambda root: replace_once(root, "build.gradle.kts", '            task.name == "sourcesJar"\n        }\n    }\n    check(sourceArtifacts.size', '            true\n        }\n    }\n    check(sourceArtifacts.size')),
-        ("outgoing source artifact mutation reintroduced", "must not mutate or manually attach", lambda root: append(root, "build.gradle.kts", "\nafterEvaluate { sourceArtifacts.remove(sourceArtifacts.first()) }\n")),
-        ("later direct source artifact removeIf", "must not mutate or manually attach", lambda root: append(root, "build.gradle.kts", '\nconfigurations.getByName("sourcesElements").outgoing.artifacts.removeIf { true }\n')),
-        ("aliased source artifact operator mutation", "must not mutate or manually attach", lambda root: append(root, "build.gradle.kts", '\nafterEvaluate {\n    val artifactsAlias = configurations.getByName("sourcesElements").outgoing.artifacts\n    artifactsAlias -= artifactsAlias.first()\n}\n')),
-        ("manual second sources artifact", "must not mutate or manually attach", lambda root: append(root, "build.gradle.kts", '\nartifacts { add("sourcesElements", tasks.named("sourcesJar")) }\n')),
-        ("multiline named sources artifact attachment", "must not mutate or manually attach", lambda root: insert_before_dependency_contract(root, '''publishing {
-    publications.named<MavenPublication>("htsp") {
-        artifact(
-            tasks.named<Jar>(
-                "sourcesJar",
-            ),
-        )
-    }
-}''')),
-        ("multiline registering sources artifact attachment", "must not mutate or manually attach", lambda root: insert_before_dependency_contract(root, '''publishing {
-    publications.named<MavenPublication>("htsp") {
-        artifact(
-            tasks.registering<Jar>(
-                "sourcesJar",
-            ),
-        )
-    }
-}''')),
-        ("shared source LICENSE configuration weakened", "licensed main/shared-sources/Javadoc archive", lambda root: replace_once(root, "build.gradle.kts", '        from("LICENSE") {', '        from("README.md") {')),
-        ("shared source NOTICE configuration weakened", "licensed main/shared-sources/Javadoc archive", lambda root: replace_once(root, "build.gradle.kts", '        from("NOTICE.md") {', '        from("CHANGELOG.md") {')),
-        ("archive timestamp reproducibility weakened", "global reproducible archive", lambda root: replace_once(root, "build.gradle.kts", "isPreserveFileTimestamps = false", "isPreserveFileTimestamps = true")),
-        ("archive order reproducibility weakened", "global reproducible archive", lambda root: replace_once(root, "build.gradle.kts", "isReproducibleFileOrder = true", "isReproducibleFileOrder = false")),
-        ("consumer Maven Local", "consumer repository/dependency bypass", lambda root: append(root, "consumer-contract/settings.gradle.kts", "\nmavenLocal()\n")),
-        ("consumer included build", "consumer repository/dependency bypass", lambda root: append(root, "consumer-contract/settings.gradle.kts", '\nincludeBuild("..")\n')),
-        ("consumer project dependency", "consumer repository/dependency bypass", lambda root: append(root, "consumer-contract/build.gradle.kts", '\nimplementation(project(":"))\n')),
-        ("consumer file dependency", "consumer repository/dependency bypass", lambda root: append(root, "consumer-contract/build.gradle.kts", '\nimplementation(files("../build/libs/htsp.jar"))\n')),
-        ("consumer single file dependency", "consumer repository/dependency bypass", lambda root: append(root, "consumer-contract/build.gradle.kts", '\nimplementation(file("../rogue.jar"))\n')),
-        ("consumer classes dependency removed", "consumer isolation policy", lambda root: replace_once(root, "consumer-contract/build.gradle.kts", 'dependsOn("classes")', 'dependsOn("help")')),
-        ("consumer local declaration scan weakened", "consumer isolation policy", lambda root: replace_once(root, "consumer-contract/build.gradle.kts", "configuration.isCanBeDeclared", "true")),
-        ("consumer component inventory weakened", "consumer isolation policy", lambda root: replace_once(root, "consumer-contract/build.gradle.kts", "resolvedExternalComponents == expectedExternalComponents", "resolvedExternalComponents.containsAll(expectedExternalComponents)")),
-        ("consumer local artifact rejection removed", "consumer isolation policy", lambda root: replace_once(root, "consumer-contract/build.gradle.kts", '?: error("The HTSP consumer resolved a local artifact: ${artifact.file}")', '?: return@map "local"')),
-        ("consumer artifact inventory weakened", "consumer isolation policy", lambda root: replace_once(root, "consumer-contract/build.gradle.kts", "runtimeArtifactCoordinates == expectedArtifactCoordinates", "runtimeArtifactCoordinates.containsAll(expectedArtifactCoordinates)")),
-        ("consumer NIO Files alias import removed", "consumer isolation policy", lambda root: replace_once(root, "consumer-contract/build.gradle.kts", "import java.nio.file.Files as NioFiles\n", "")),
-        ("consumer NIO Files alias import renamed", "consumer isolation policy", lambda root: replace_once(root, "consumer-contract/build.gradle.kts", "import java.nio.file.Files as NioFiles", "import java.nio.file.Files as RenamedNioFiles")),
-        ("consumer NIO LinkOption alias import removed", "consumer isolation policy", lambda root: replace_once(root, "consumer-contract/build.gradle.kts", "import java.nio.file.LinkOption as NioLinkOption\n", "")),
-        ("consumer NIO LinkOption alias import renamed", "consumer isolation policy", lambda root: replace_once(root, "consumer-contract/build.gradle.kts", "import java.nio.file.LinkOption as NioLinkOption", "import java.nio.file.LinkOption as RenamedNioLinkOption")),
-        ("consumer metadata symlink guard call replaced", "consumer isolation policy", lambda root: replace_once(root, "consumer-contract/build.gradle.kts", "NioFiles.isSymbolicLink(metadata.toPath())", "metadata.isFile")),
-        ("consumer staged JAR regular-file call replaced", "consumer isolation policy", lambda root: replace_once(root, "consumer-contract/build.gradle.kts", "NioFiles.isRegularFile(\n                stagedMainJar.toPath(),", "NioFiles.exists(\n                stagedMainJar.toPath(),")),
-        ("consumer resolved JAR regular-file call replaced", "consumer isolation policy", lambda root: replace_once(root, "consumer-contract/build.gradle.kts", "NioFiles.isRegularFile(\n                htspArtifact.toPath(),", "NioFiles.exists(\n                htspArtifact.toPath(),")),
-        ("consumer staged JAR no-follow guard removed", "consumer isolation policy", lambda root: replace_once(root, "consumer-contract/build.gradle.kts", "                stagedMainJar.toPath(),\n                NioLinkOption.NOFOLLOW_LINKS,", "                stagedMainJar.toPath(),")),
-        ("consumer resolved JAR no-follow guard removed", "consumer isolation policy", lambda root: replace_once(root, "consumer-contract/build.gradle.kts", "                htspArtifact.toPath(),\n                NioLinkOption.NOFOLLOW_LINKS,", "                htspArtifact.toPath(),")),
-        ("consumer staged JAR regular-file guard weakened", "consumer isolation policy", lambda root: replace_once(root, "consumer-contract/build.gradle.kts", "stagedMainJar.toPath()", "versionDirectory.toPath()")),
-        ("consumer staged JAR identity weakened", "consumer isolation policy", lambda root: replace_once(root, "consumer-contract/build.gradle.kts", "htspArtifact.readBytes().contentEquals(stagedMainJar.readBytes())", "true")),
-        ("consumer resolved JAR regular-file guard weakened", "consumer isolation policy", lambda root: replace_once(root, "consumer-contract/build.gradle.kts", "htspArtifact.toPath()", "versionDirectory.toPath()")),
-        ("consumer fallback repository", "consumer repository/dependency bypass", lambda root: append(root, "consumer-contract/settings.gradle.kts", '\nmaven { url = uri("https://repo.example.invalid") }\n')),
-        ("consumer symlink guard removed", "consumer isolation policy", lambda root: replace_once(root, "consumer-contract/settings.gradle.kts", "checkoutLocalRepository.toRealPath() == expectedRepository", "true")),
-        ("README dependency divergence", "README dependency differs", lambda root: replace_once(root, "README.md", f'implementation("{COORDINATE}")', 'implementation("example:wrong:1")')),
-        ("README source divergence", "README Quick Start differs", lambda root: replace_once(root, "README.md", "enum class ProtocolFailurePolicy", "enum class ChangedFailurePolicy")),
+        ("unsupported root version", "root build version", lambda root: replace_once(root, "build.gradle.kts", 'version = "0.1.0"', 'version = "1.0.0"')),
+        ("extra production dependency", "exactly one declared production dependency", lambda root: append(root, "build.gradle.kts", '\nimplementation("example:bad:1")\n')),
+        ("remote publication", "forbidden remote", lambda root: append(root, "build.gradle.kts", '\nval remote = "sonatype"\n')),
+        ("signing configuration", "forbidden remote", lambda root: append(root, "build.gradle.kts", "\nsigning {}\n")),
+        ("consumer coordinate", "consumer dependency", lambda root: replace_once(root, "consumer-contract/build.gradle.kts", SNAPSHOT_COORDINATE, "example:wrong:1")),
+        ("consumer local dependency", "consumer repository or dependency bypass", lambda root: append(root, "consumer-contract/build.gradle.kts", '\nimplementation(files("../bad.jar"))\n')),
+        ("README coordinate", "README dependency differs", lambda root: replace_once(root, "README.md", f'implementation("{GROUP}:htsp:0.1.0")', 'implementation("example:wrong:1")')),
         ("production drift", "immutable production drift", lambda root: append(root, production, "\n")),
         ("test drift", "immutable tests drift", lambda root: append(root, test, "\n")),
         ("golden drift", "immutable golden drift", lambda root: append(root, golden, "\n")),
@@ -2308,171 +674,59 @@ def self_test() -> list[str]:
         ("protocol drift", "immutable protocol evidence drift", lambda root: append(root, "docs/htsp-protocol/htsp_spec.json", "\n")),
         ("generated drift", "immutable generated drift", lambda root: append(root, "src/main/kotlin/at/bernhardberger/tvheadend/htsp/requests/GeneratedHtspRequests.kt", "\n")),
         ("generator drift", "immutable generators drift", lambda root: append(root, "docs/htsp-protocol/generate_typed_requests.py", "\n")),
-        ("standalone checker temporary base override", "must use the platform default base", lambda root: replace_temp_context(root, "tools/check-standalone-repository", "with " + hostile_temp_call + " as temporary:")),
-        ("published checker temporary base override", "must use the platform default base", lambda root: replace_temp_context(root, "tools/check-published-jvm-compatibility", "with " + hostile_temp_call + " as temporary:")),
-        ("standalone checker dead decoy and active alias", "temporary-directory policy", lambda root: replace_temp_context(root, "tools/check-standalone-repository", hostile_alias_context)),
-        ("published checker dead decoy and active alias", "temporary-directory policy", lambda root: replace_temp_context(root, "tools/check-published-jvm-compatibility", hostile_alias_context)),
-        ("standalone checker dead decoy and nested getattr", "temporary-directory policy", lambda root: replace_temp_context(root, "tools/check-standalone-repository", hostile_getattr_context)),
-        ("published checker dead decoy and nested getattr", "temporary-directory policy", lambda root: replace_temp_context(root, "tools/check-published-jvm-compatibility", hostile_getattr_context)),
-        ("standalone checker dead canonical decoy, import alias, and computed getattr", "temporary-directory policy", lambda root: replace_temp_context(root, "tools/check-standalone-repository", hostile_import_alias_getattr_context)),
-        ("published checker dead canonical decoy, import alias, and computed getattr", "temporary-directory policy", lambda root: replace_temp_context(root, "tools/check-published-jvm-compatibility", hostile_import_alias_getattr_context)),
-        ("standalone checker computed setattr", "temporary-directory policy", lambda root: replace_temp_context(root, "tools/check-standalone-repository", hostile_setattr_context)),
-        ("published checker computed setattr", "temporary-directory policy", lambda root: replace_temp_context(root, "tools/check-published-jvm-compatibility", hostile_setattr_context)),
-        ("missing API checker activation", "verifier P3-E2", lambda root: replace_once(root, "tools/verify-htsp", "./tools/check-api-compatibility-policy\n", "")),
-        ("missing refresh", "verifier P3-E2", lambda root: replace_once(root, "tools/verify-htsp", "--refresh-dependencies ", "")),
-        ("missing explicit build", "verifier P3-E2", lambda root: replace_once(root, "tools/verify-htsp", "clean build test check", "clean test check")),
-        ("fake one-stage comparison", "verifier P3-E2", lambda root: replace_once(root, "tools/verify-htsp", "rm -rf build/local-maven", ": # no recreation")),
-        ("missing release checker activation", "verifier P3-E2", lambda root: replace_once(root, "tools/verify-htsp", "./tools/check-release-candidate --check-setup\n", "")),
-        ("release setup public-material verification removed", "release candidate exact policy", lambda root: replace_once(root, "tools/check-release-candidate", "    errors.extend(setup_public_material_errors())", "    errors.extend([])")),
-        ("release preparation version gate bypassed", "release Python policy", lambda root: replace_once(root, "tools/check-release-candidate", "prepare_version_gate(version, allow_snapshot_noop)", "prepare_version_gate(RELEASE_VERSION, allow_snapshot_noop)")),
-        ("release preparation gate guard bypassed", "exact preparation gate before output and staging", lambda root: replace_once(root, "tools/check-release-candidate", "    if gate_errors or not continues:\n        return gate_errors, None", "    if False:\n        return gate_errors, None")),
-        ("release production staging path bypassed", "production staging path wrapper", lambda root: replace_once(root, "tools/check-release-candidate", 'ROOT.joinpath("build/local-maven", *GROUP.split("."), ARTIFACT, RELEASE_VERSION)', 'ROOT.joinpath("build/other", ARTIFACT, RELEASE_VERSION)')),
-        ("release staging sidecar inventory widened", "mandatory and optional staging inventory", lambda root: replace_once(root, "tools/check-release-candidate", 'OPTIONAL_STAGING_SIDECARS = (".md5", ".sha1", ".sha512")', 'OPTIONAL_STAGING_SIDECARS = (".md5", ".sha1", ".sha512", ".asc")')),
-        ("release staging required inventory bypassed", "mandatory and optional staging inventory", lambda root: replace_once(root, "tools/check-release-candidate", "allowed = required | optional", "allowed = actual")),
-        ("release staging helper rebound", "forbids rebinding staged_originals_from", lambda root: append(root, "tools/check-release-candidate", "\nstaged_originals_from = lambda _path: ({}, [])\n")),
-        ("API policy release mode removed", "dual-mode API policy", lambda root: replace_once(root, "tools/check-api-compatibility-policy", "MODES = (VERSION, RELEASE)", "MODES = (VERSION,)")),
-        ("API policy release semantic fixture skipped", "hostile self-test must execute", lambda root: replace_once(root, "tools/check-api-compatibility-policy", "release_baseline = synthetic_documents(RELEASE)", "release_baseline = synthetic_documents(VERSION)")),
-        ("API policy fingerprint reverted to runtime-default AST dump", "portable API policy AST fingerprint contract", lambda root: replace_once(root, "tools/check-standalone-repository", "portable_ast_dump(tree).encode()", "ast.dump(tree, include_attributes=False).encode()")),
-        ("API policy fingerprint compatibility fallback removed", "portable API policy AST fingerprint contract", lambda root: replace_once(root, "tools/check-standalone-repository", "    except TypeError:\n        return ast.dump(node, include_attributes=False)", "    except TypeError:\n        raise")),
-        ("API policy fingerprint empty fields disabled", "portable API policy AST fingerprint contract", lambda root: replace_once(root, "tools/check-standalone-repository", "show_empty=True", "show_empty=False")),
-        ("API policy portable fingerprint weakened", "portable API policy AST fingerprint contract", lambda root: replace_once(root, "tools/check-standalone-repository", "c42f4a2b7ce6184d4b7368e48073da3a19e7ad331f8e552666fa41baa04fab86", "7659a21bfa55f956b065ef75a9046a33cf01f3caa031994f0cc02d499c19b05d")),
-        ("missing verifier bytecode suppression", "PYTHONDONTWRITEBYTECODE", lambda root: replace_once(root, "tools/verify-htsp", "export PYTHONDONTWRITEBYTECODE=1\n", "")),
-        ("weakened verifier bytecode suppression", "PYTHONDONTWRITEBYTECODE", lambda root: replace_once(root, "tools/verify-htsp", "export PYTHONDONTWRITEBYTECODE=1", "export PYTHONDONTWRITEBYTECODE=0")),
-        ("candidate upload action tag instead of SHA", "CI exact active-YAML", lambda root: replace_once(root, ".github/workflows/ci.yml", f"actions/upload-artifact@{UPLOAD_SHA}", "actions/upload-artifact@v4.6.2")),
-        ("candidate upload compression changed", "CI exact active-YAML", lambda root: replace_once(root, ".github/workflows/ci.yml", "compression-level: 0", "compression-level: 9")),
-        ("candidate upload retention changed", "CI exact active-YAML", lambda root: replace_once(root, ".github/workflows/ci.yml", "retention-days: 7", "retention-days: 90")),
-        ("candidate upload path changed", "CI exact active-YAML", lambda root: replace_once(root, ".github/workflows/ci.yml", "path: build/release/htsp-0.1.0-candidate.tar", "path: build/release")),
-        ("legacy alpha candidate filename", "stale alpha version", lambda root: replace_once(root, ".github/workflows/ci.yml", "htsp-0.1.0-candidate.tar", f"htsp-{legacy_release}-candidate.tar")),
-        ("snapshot candidate production enabled", "CI exact active-YAML", lambda root: replace_once(root, ".github/workflows/ci.yml", "--prepare-if-release", "--prepare")),
-        ("candidate upload snapshot condition weakened", "CI exact active-YAML", lambda root: replace_once(root, ".github/workflows/ci.yml", "if: steps.candidate.outputs.release == 'true' && github.event_name == 'push' && github.ref == 'refs/heads/main'", "if: always()")),
-        ("candidate digest log discarded", "CI exact active-YAML", lambda root: replace_once(root, ".github/workflows/ci.yml", "--output build/release/htsp-0.1.0-candidate.tar", "--output build/release/htsp-0.1.0-candidate.tar > /dev/null")),
-        ("required Maven alpha suffix documented", "contradictory version documentation", lambda root: append(root, "docs/versioning.md", "\nThe Maven version must include an alpha suffix.\n")),
-        ("GitHub marker changes coordinate", "contradictory version documentation", lambda root: append(root, "docs/releasing.md", "\nThe GitHub pre-release marker changes the Maven coordinate.\n")),
-        ("candidate digest handoff undocumented", "release documentation boundary", lambda root: replace_once(root, "docs/releasing.md", "CANDIDATE_TAR_SHA256=<lowercase-sha256>", "candidate digest omitted")),
-        ("documentation index restores future key claim", "retains stale claim", lambda root: append(root, "docs/README.md", "\nThe future tracked public-only OpenPGP key remains pending.\n")),
-        ("release guide restores prerequisite key claim", "retains stale claim", lambda root: append(root, "docs/releasing.md", "\nThe files are still an owner prerequisite.\n")),
-        ("release guide removes current tracked-key truth", "tracked public-key documentation mismatch", lambda root: replace_once(root, "docs/releasing.md", "The repository now tracks the reviewed public-only key export and exact primary\nfingerprint.", "The repository contains OpenPGP notes.")),
-        ("signer writes Portal ZIP first", "write evidence before", lambda root: replace_once(root, "tools/sign-central-bundle", "policy.exclusive_write(target, bundle)\n            created.append(target)\n            policy.exclusive_write(portal_target, portal_data)", "policy.exclusive_write(portal_target, portal_data)\n            created.append(portal_target)\n            policy.exclusive_write(target, bundle)")),
-        ("release checker dynamic subprocess", "release Python policy", lambda root: append(root, "tools/check-release-candidate", '\nsubprocess.run(["cu" + "rl", "example.invalid"])\n')),
-        ("release checker os system", "release Python policy", lambda root: append(root, "tools/check-release-candidate", '\nos.system("curl example.invalid")\n')),
-        ("signer network import", "release Python policy", lambda root: append(root, "tools/sign-central-bundle", '\nimport urllib.request\n')),
-        ("signer passphrase environment", "release Python policy", lambda root: replace_once(root, "tools/sign-central-bundle", '        "TERM", "DBUS_SESSION_BUS_ADDRESS", "XAUTHORITY",', '        "TERM", "DBUS_SESSION_BUS_ADDRESS", "XAUTHORITY", "PINENTRY_USER_DATA",')),
-        ("signer extra environment", "release Python policy", lambda root: replace_once(root, "tools/sign-central-bundle", '        "TERM", "DBUS_SESSION_BUS_ADDRESS", "XAUTHORITY",', '        "TERM", "DBUS_SESSION_BUS_ADDRESS", "XAUTHORITY", "SSH_AUTH_SOCK",')),
-        ("signer environment copy", "release Python policy", lambda root: replace_once(root, "tools/sign-central-bundle", 'environment = {name: os.environ[name] for name in allowed if name in os.environ}', 'environment = dict(os.environ)')),
-        ("signer bytecode suppression removed", "release Python policy", lambda root: replace_once(root, "tools/sign-central-bundle", "    sys.dont_write_bytecode = True\n", "")),
-        ("signer bytecode suppression late", "release Python policy", lambda root: (
-            replace_once(root, "tools/sign-central-bundle", "    sys.dont_write_bytecode = True\n    loader = importlib.machinery.SourceFileLoader", "    loader = importlib.machinery.SourceFileLoader"),
-            replace_once(root, "tools/sign-central-bundle", "    specification = importlib.util.spec_from_loader", "    sys.dont_write_bytecode = True\n    specification = importlib.util.spec_from_loader"),
+        ("license drift", "immutable license", lambda root: append(root, "LICENSE", "\n")),
+        ("wrapper drift", "wrapper hash", lambda root: append(root, "gradlew", "\n")),
+        ("CI secret", "normal CI contains release-only behavior", lambda root: append(root, ".github/workflows/ci.yml", "\n# secrets.BAD\n")),
+        ("old release tool", "superseded release path", lambda root: (root / "tools/check-release-candidate").write_text("old\n", encoding="utf-8")),
+        ("missing release workflow", "required automatic release path", lambda root: (root / ".github/workflows/release.yml").unlink()),
+        ("missing release setup call", "verifier check", lambda root: replace_once(root, "tools/verify-htsp", "./tools/publish-central-release --check-setup\n", "")),
+        ("missing release job guard", "release job repository and v-tag guard", lambda root: replace_once(root, ".github/workflows/release.yml", "      github.repository == 'bernhardberger/tvheadend-htsp' &&\n", "")),
+        ("missing GitHub finalizer", "GitHub finalizer", lambda root: replace_once(root, ".github/workflows/release.yml", "./tools/publish-central-release --finalize-github-release", "true")),
+        ("one-shot GitHub CLI release", "GitHub CLI wildcard", lambda root: append(root, ".github/workflows/release.yml", "\n# gh release create build/release/github-assets/*\n")),
+        ("GitHub finalizer before Central", "only after Central", lambda root: (
+            replace_once(root, ".github/workflows/release.yml", "./tools/publish-central-release --publish", "true"),
+            append(root, ".github/workflows/release.yml", "\n# tools/publish-central-release --publish\n"),
         )),
-        ("signer command clear", "release Python policy", lambda root: replace_once(root, "tools/sign-central-bundle", "    try:\n        result = subprocess.run(\n            command,", "    command.clear()\n    try:\n        result = subprocess.run(\n            command,")),
-        ("signer command extend", "release Python policy", lambda root: replace_once(root, "tools/sign-central-bundle", "    try:\n        result = subprocess.run(\n            command,", '    command.extend(("--output", "/tmp/other"))\n    try:\n        result = subprocess.run(\n            command,')),
-        ("signer command append", "release Python policy", lambda root: replace_once(root, "tools/sign-central-bundle", "    try:\n        result = subprocess.run(\n            command,", '    command.append("--version")\n    try:\n        result = subprocess.run(\n            command,')),
-        ("signer command slice replacement", "release Python policy", lambda root: replace_once(root, "tools/sign-central-bundle", "    try:\n        result = subprocess.run(\n            command,", '    command[:] = ["gpg", "--version"]\n    try:\n        result = subprocess.run(\n            command,')),
-        ("signer command item replacement", "release Python policy", lambda root: replace_once(root, "tools/sign-central-bundle", "    try:\n        result = subprocess.run(\n            command,", '    command[0] = "curl"\n    try:\n        result = subprocess.run(\n            command,')),
-        ("signer command alias mutation", "release Python policy", lambda root: replace_once(root, "tools/sign-central-bundle", "    try:\n        result = subprocess.run(\n            command,", '    command_alias = command\n    command_alias[:] = ["gpg", "--version"]\n    try:\n        result = subprocess.run(\n            command,')),
-        ("signer loaded policy function rebinding", "release Python policy", lambda root: replace_once(root, "tools/sign-central-bundle", "    candidate_path, errors = policy.regular_input", "    policy.verify_candidate_bytes = lambda _data: ([], {}, {})\n    candidate_path, errors = policy.regular_input")),
-        ("signer loaded policy alias function rebinding", "release Python policy", lambda root: replace_once(root, "tools/sign-central-bundle", "    candidate_path, errors = policy.regular_input", "    policy_alias = policy\n    policy_alias.verify_candidate_bytes = lambda _data: ([], {}, {})\n    candidate_path, errors = policy.regular_input")),
-        ("signer loaded policy nested code mutation", "release Python policy", lambda root: replace_once(root, "tools/sign-central-bundle", "    candidate_path, errors = policy.regular_input", "    policy.candidate_digest_errors.__code__ = (lambda *_: []).__code__\n    candidate_path, errors = policy.regular_input")),
-        ("signer candidate digest validation in dead code", "release Python policy", lambda root: replace_once(root, "tools/sign-central-bundle", '    errors.extend(policy.candidate_digest_errors(candidate_data, candidate_sha256, "release candidate"))', '    if False:\n        errors.extend(policy.candidate_digest_errors(\n            candidate_data, candidate_sha256, "release candidate"\n        ))')),
-        ("signer inherited signing environment", "release Python policy", lambda root: replace_once(root, "tools/sign-central-bundle", "text=True, env=signing_environment(),", "text=True, env=os.environ,")),
-        ("signer signing environment rebinding", "release Python policy", lambda root: replace_once(root, "tools/sign-central-bundle", "    try:\n        result = subprocess.run(\n            command,", "    signing_environment = lambda: dict(os.environ)\n    try:\n        result = subprocess.run(\n            command,")),
-        ("signer signing environment aliasing", "release Python policy", lambda root: (
-            replace_once(root, "tools/sign-central-bundle", "    try:\n        result = subprocess.run(\n            command,", "    environment_factory = signing_environment\n    try:\n        result = subprocess.run(\n            command,"),
-            replace_once(root, "tools/sign-central-bundle", "text=True, env=signing_environment(),", "text=True, env=environment_factory(),"),
-        )),
-        ("release setup public-material validation in dead code", "release candidate exact policy", lambda root: replace_once(root, "tools/check-release-candidate", "    errors.extend(setup_public_material_errors())", "    if False:\n        errors.extend(setup_public_material_errors())")),
-        ("release setup early return before public-material validation", "release candidate exact policy", lambda root: replace_once(root, "tools/check-release-candidate", "    errors.extend(setup_public_material_errors())", "    return errors\n    errors.extend(setup_public_material_errors())")),
-        ("release setup public-material same-slot local shadow", "release Python policy", lambda root: replace_once(root, "tools/check-release-candidate", "    texts: dict[str, str] = {}", "    texts, setup_public_material_errors = {}, lambda: []")),
-        ("release setup public-material parameter shadow", "release Python policy", lambda root: replace_once(root, "tools/check-release-candidate", "def setup_errors() -> list[str]:", "def setup_errors(setup_public_material_errors=lambda: []) -> list[str]:")),
-        ("release setup public-material pattern-capture shadow", "release Python policy", lambda root: replace_once(root, "tools/check-release-candidate", "    for relative in required:\n        path = ROOT / relative", "    for relative in required:\n        match (lambda: []):\n            case setup_public_material_errors:\n                pass\n        path = ROOT / relative")),
-        ("release checker dynamic import", "release Python policy", lambda root: append(root, "tools/check-release-candidate", '\n__import__("sub" + "process")\n')),
-        ("release checker reviewer reflective bypass", "release Python policy", lambda root: insert_release_setup_attack(root, 'getattr(sys.modules["o" + "s"], "sys" + "tem")("curl https://example.invalid")')),
-        ("release checker globals builtins bypass", "release Python policy", lambda root: insert_release_setup_attack(root, 'globals()["__builtins__"]["ev" + "al"]("1 + 1")')),
-        ("release checker direct builtins bypass", "release Python policy", lambda root: insert_release_setup_attack(root, '__builtins__["ev" + "al"]("1 + 1")')),
-        ("release checker call target from call", "release Python policy", lambda root: insert_release_setup_attack(root, 'getattr(os, "sys" + "tem")("curl https://example.invalid")')),
-        ("release checker call target from subscript", "release Python policy", lambda root: insert_release_setup_attack(root, '{"run": print}["run"]("unsafe")')),
-        ("release checker reflective alias", "release Python policy", lambda root: insert_release_setup_attack(root, 'reflect = getattr\nreflect(os, "sys" + "tem")("curl https://example.invalid")')),
-        ("release checker reflective rebinding", "release Python policy", lambda root: insert_release_setup_attack(root, 'getattr = print')),
-        ("release checker locals vars reflection", "release Python policy", lambda root: insert_release_setup_attack(root, 'vars(locals())')),
-        ("release checker dangerous dunder", "release Python policy", lambda root: insert_release_setup_attack(root, 'object.__subclasses__()')),
-        ("hidden Python cache directory", "Python cache", lambda root: ((root / "tools/__pycache__").mkdir(), (root / "tools/__pycache__/hidden.pyc").write_bytes(b"cache"))),
-        ("hidden Python bytecode", "Python cache", lambda root: (root / "tools/hidden.pyc").write_bytes(b"cache")),
+        ("duplicate publication stage", "stage the publication exactly once", lambda root: append(root, "tools/verify-htsp", "\n./gradlew --no-daemon stageLocalPublication\n")),
+        ("duplicate publication verification", "publication verification exactly once", lambda root: append(root, "tools/verify-htsp", "\n./tools/check-published-jvm-compatibility\n")),
+        ("legacy publication manifest", "obsolete publication restaging machinery", lambda root: append(root, "tools/verify-htsp", "\n# --write-manifest publication-first.json\n")),
+        ("release tool mode", "executable mode", lambda root: (root / "tools/publish-central-release").chmod(0o644)),
+        ("Python cache", "Python cache", lambda root: ((root / "tools/__pycache__").mkdir(), (root / "tools/__pycache__/bad.pyc").write_bytes(b"cache"))),
     ]
     with tempfile.TemporaryDirectory() as temporary:
         temporary_root = Path(temporary)
-        snapshot_baseline = temporary_root / "canonical-snapshot-baseline"
-        fixture_errors = create_canonical_snapshot_fixture(ROOT, snapshot_baseline)
-        if fixture_errors:
-            return fixture_errors
-        release_case = temporary_root / "positive-release-version"
-        copy_fixture(snapshot_baseline, release_case)
-        set_release_mode_fixture(release_case)
-        release_errors = repository_errors(release_case)
-        if release_errors:
-            errors.append("self-test rejected exact release-mode repository fixture: " + "; ".join(release_errors))
-
-        crossed_release = temporary_root / "crossed-release-with-snapshot-docs"
-        copy_fixture(snapshot_baseline, crossed_release)
-        replace_once(crossed_release, "build.gradle.kts", 'version = "0.1.0-SNAPSHOT"', 'version = "0.1.0"')
-        crossed_release_errors = repository_errors(crossed_release)
-        if not any("mode documentation" in item for item in crossed_release_errors):
-            errors.append(f"self-test accepted release build with stale snapshot documentation: {crossed_release_errors}")
-
-        crossed_snapshot = temporary_root / "crossed-snapshot-with-release-docs"
-        copy_fixture(snapshot_baseline, crossed_snapshot)
-        set_release_document_fixture(crossed_snapshot)
-        crossed_snapshot_errors = repository_errors(crossed_snapshot)
-        if not any("mode documentation" in item for item in crossed_snapshot_errors):
-            errors.append(f"self-test accepted snapshot build with release documentation: {crossed_snapshot_errors}")
         for index, (name, expected, mutate) in enumerate(mutations):
             case = temporary_root / f"case-{index}"
-            copy_fixture(snapshot_baseline, case)
+            copy_fixture(ROOT, case)
             mutate(case)
             actual = repository_errors(case)
             if not any(expected in error for error in actual):
                 errors.append(f"self-test accepted {name} without {expected!r}: {actual}")
-        for index, relative in enumerate(TEMP_CHECKERS):
-            case = temporary_root / f"case-positive-{index}"
-            copy_fixture(snapshot_baseline, case)
-            append_temp_noncode(case, relative)
-            actual = repository_errors(case)
-            if actual:
-                errors.append(f"self-test rejected temporary-policy comment/string fixture in {relative}: {actual}")
-        case = temporary_root / "case-positive-release-comments"
-        copy_fixture(snapshot_baseline, case)
-        append(case, "tools/check-release-candidate", "\n# Portal token\n")
-        append(case, "tools/check-release-candidate", '\nREFLECTIVE_POLICY_EXAMPLE = \'getattr(sys.modules["os"], "system") and __builtins__\'\n')
-        append(case, "tools/check-api-compatibility-policy", "\n# Exact dual-mode behavior remains unchanged.\n")
-        append(case, "tools/sign-central-bundle", "\n# --passphrase-file\n")
-        append(case, ".github/workflows/ci.yml", "\n# Portal token\n# --passphrase-file\n")
-        replace_once(case, ".github/workflows/ci.yml", "compression-level: 0", "compression-level: 0 # Portal token")
-        actual = repository_errors(case)
-        if actual:
-            errors.append(f"self-test rejected harmless release-policy comments: {actual}")
-        case = temporary_root / "case-positive-unrelated-collection-removal"
-        copy_fixture(snapshot_baseline, case)
-        replace_once(
-            case,
-            "build.gradle.kts",
-            "\n" + DEPENDENCY_TASK_CONTRACT + "\n",
-            '\nval unrelatedItems = mutableListOf("stale", "keep")\n'
-            'unrelatedItems.removeIf { item -> item == "stale" }\n'
-            'unrelatedItems.remove("keep")\n\n'
-            + DEPENDENCY_TASK_CONTRACT
-            + "\n",
-        )
-        actual = repository_errors(case)
-        if actual:
-            errors.append(f"self-test rejected unrelated collection removal fixture: {actual}")
         case = temporary_root / "case-symlink"
-        copy_fixture(snapshot_baseline, case)
+        copy_fixture(ROOT, case)
         target = case / "README.md"
         target.unlink()
         target.symlink_to("/etc/passwd")
         actual = repository_errors(case)
-        if not any("symlink/escape" in error for error in actual):
-            errors.append(f"self-test accepted repository symlink/escape: {actual}")
+        if not any("symlink/escape" in error or "expected regular file" in error for error in actual):
+            errors.append(f"self-test accepted repository symlink: {actual}")
     return errors
+
+
+def release_setup_call() -> list[str]:
+    environment = {name: os.environ[name] for name in ("PATH", "HOME", "TMPDIR") if name in os.environ}
+    environment["PYTHONDONTWRITEBYTECODE"] = "1"
+    result = subprocess.run(
+        (str(ROOT / "tools/publish-central-release"), "--check-setup"),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        check=False,
+        env=environment,
+    )
+    if result.returncode == 0:
+        return []
+    return ["automatic release setup call-through failed"]
 
 
 def main() -> int:
@@ -2487,10 +741,12 @@ def main() -> int:
         success = "Standalone wrapper policy passed"
     elif arguments.self_test:
         errors = self_test()
-        success = "Standalone repository hostile self-tests passed"
+        success = "Standalone repository focused self-tests passed"
     else:
         errors = repository_errors(ROOT)
-        success = "Standalone Gate C0 / P3-E2A repository policy passed"
+        if not errors:
+            errors.extend(release_setup_call())
+        success = "Standalone repository policy passed"
     for error in errors:
         print(f"error: {error}", file=sys.stderr)
     if errors:
@@ -2500,5 +756,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    import sys
     raise SystemExit(main())

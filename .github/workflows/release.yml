@@ -1,0 +1,48 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    if: >-
+      github.repository == 'bernhardberger/tvheadend-htsp' &&
+      github.ref_type == 'tag' &&
+      startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    environment: central
+    steps:
+      - name: Check out exact tag
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Set up Temurin 21
+        uses: actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Verify wrapper and provenance pins
+        run: ./tools/check-standalone-repository --wrapper-only
+      - name: Verify and stage the release once
+        run: ./tools/verify-htsp
+      - name: Sign, publish, and verify Central
+        env:
+          MAVEN_GPG_PRIVATE_KEY: ${{ secrets.MAVEN_GPG_PRIVATE_KEY }}
+          MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_GPG_PASSPHRASE }}
+          CENTRAL_PORTAL_TOKEN: ${{ secrets.CENTRAL_PORTAL_TOKEN }}
+        run: ./tools/publish-central-release --publish
+      - name: Finalize GitHub prerelease from verified outputs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: ./tools/publish-central-release --finalize-github-release

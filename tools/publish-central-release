@@ -1,0 +1,1828 @@
+#!/usr/bin/env python3
+"""Sign, publish, and verify one already-staged HTSP Maven release."""
+
+from __future__ import annotations
+
+import argparse
+import base64
+import binascii
+import hashlib
+import io
+import json
+import os
+import re
+import shutil
+import stat
+import subprocess
+import sys
+import tempfile
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+import uuid
+import zipfile
+from dataclasses import dataclass, replace
+from pathlib import Path
+from typing import Callable
+
+
+ROOT = Path(__file__).resolve().parents[1]
+REPOSITORY = "bernhardberger/tvheadend-htsp"
+GROUP = "at.bernhardberger.tvheadend"
+ARTIFACT = "htsp"
+FINGERPRINT = "EAB02E488E7B944EAA6D65814BF0412FD2A3B741"
+CHECKOUT_SHA = "11bd71901bbe5b1630ceea73d27597364c9af683"
+JAVA_SHA = "c5195efecf7bdfc987ee8bae7a71cb8b11521c00"
+UPLOAD_URL = "https://central.sonatype.com/api/v1/publisher/upload"
+STATUS_URL = "https://central.sonatype.com/api/v1/publisher/status"
+MAVEN_URL = "https://repo1.maven.org/maven2"
+SECRET_NAMES = (
+    "MAVEN_GPG_PRIVATE_KEY",
+    "MAVEN_GPG_PASSPHRASE",
+    "CENTRAL_PORTAL_TOKEN",
+)
+STAGING_CHECKSUM_SUFFIXES = (".md5", ".sha1", ".sha256", ".sha512")
+SEMVER = re.compile(r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)")
+UUID = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}")
+MAX_ORIGINAL = 64 * 1024 * 1024
+POLL_SECONDS = 10
+PUBLISH_TIMEOUT_SECONDS = 30 * 60
+RESOLUTION_TIMEOUT_SECONDS = 10 * 60
+GITHUB_API_URL = "https://api.github.com"
+GITHUB_RELEASE_PAGE_LIMIT = 10
+
+
+class ReleaseError(RuntimeError):
+    """A release invariant failed without exposing secret data."""
+
+
+@dataclass(frozen=True)
+class ReleaseIdentity:
+    version: str
+    tag: str
+    coordinate: str
+
+
+@dataclass(frozen=True)
+class Original:
+    name: str
+    relative_path: str
+    data: bytes
+    sha256: str
+
+
+@dataclass(frozen=True)
+class HttpResponse:
+    status: int
+    body: bytes
+
+
+HttpClient = Callable[[str, str, dict[str, str], bytes | None], HttpResponse]
+SignatureVerifier = Callable[[str, bytes, bytes], bool]
+
+
+def sha256(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def md5(data: bytes) -> str:
+    return hashlib.md5(data).hexdigest()
+
+
+def sha1(data: bytes) -> str:
+    return hashlib.sha1(data).hexdigest()
+
+
+def read_regular(path: Path, label: str) -> bytes:
+    try:
+        if not stat.S_ISREG(path.lstat().st_mode):
+            raise ReleaseError(f"{label} is not a regular file")
+        return path.read_bytes()
+    except FileNotFoundError as error:
+        raise ReleaseError(f"{label} is missing") from error
+    except OSError as error:
+        raise ReleaseError(f"{label} cannot be read: {error}") from error
+
+
+def configured_identity(build_text: str, tag: str | None = None) -> ReleaseIdentity:
+    groups = re.findall(r'(?m)^group\s*=\s*"([^"]+)"\s*$', build_text)
+    versions = re.findall(r'(?m)^version\s*=\s*"([^"]+)"\s*$', build_text)
+    if groups != [GROUP]:
+        raise ReleaseError(f"configured release group must be exactly {GROUP}")
+    if len(versions) != 1:
+        raise ReleaseError("configured release version must be one literal assignment")
+    version = versions[0]
+    match = SEMVER.fullmatch(version)
+    if match is None:
+        raise ReleaseError("configured release version must be strict SemVer without snapshot, prerelease, or build metadata")
+    if match.group(1) != "0":
+        raise ReleaseError("the current release lane accepts only major-zero versions")
+    expected_tag = f"v{version}"
+    if tag is not None and tag != expected_tag:
+        raise ReleaseError(f"release tag must be exactly {expected_tag}")
+    return ReleaseIdentity(version, expected_tag, f"{GROUP}:{ARTIFACT}:{version}")
+
+
+def original_names(identity: ReleaseIdentity) -> tuple[str, ...]:
+    stem = f"{ARTIFACT}-{identity.version}"
+    return (
+        f"{stem}.jar",
+        f"{stem}-sources.jar",
+        f"{stem}-javadoc.jar",
+        f"{stem}.pom",
+        f"{stem}.module",
+    )
+
+
+def maven_base(identity: ReleaseIdentity) -> str:
+    return f"{GROUP.replace('.', '/')}/{ARTIFACT}/{identity.version}"
+
+
+def staged_originals(version_directory: Path, identity: ReleaseIdentity) -> tuple[Original, ...]:
+    names = original_names(identity)
+    required = set(names) | {name + ".sha256" for name in names}
+    allowed = set(names) | {
+        name + suffix
+        for name in names
+        for suffix in STAGING_CHECKSUM_SUFFIXES
+    }
+    try:
+        entries = list(version_directory.iterdir())
+    except FileNotFoundError as error:
+        raise ReleaseError("release staging directory is missing") from error
+    except OSError as error:
+        raise ReleaseError(f"release staging directory is unreadable: {error}") from error
+    actual: set[str] = set()
+    folded: set[str] = set()
+    for entry in entries:
+        try:
+            regular = stat.S_ISREG(entry.lstat().st_mode)
+        except OSError as error:
+            raise ReleaseError(f"staging entry metadata is unreadable: {entry.name}") from error
+        if not regular:
+            raise ReleaseError(f"staging contains a non-regular entry: {entry.name}")
+        folded_name = entry.name.casefold()
+        if folded_name in folded:
+            raise ReleaseError("release staging contains a case collision")
+        folded.add(folded_name)
+        actual.add(entry.name)
+    missing = required - actual
+    extra = actual - allowed
+    if missing or extra:
+        raise ReleaseError(f"release staging inventory mismatch; missing={sorted(missing)}, extra={sorted(extra)}")
+    originals: list[Original] = []
+    base = maven_base(identity)
+    for name in names:
+        data = read_regular(version_directory / name, f"staged original {name}")
+        if len(data) > MAX_ORIGINAL:
+            raise ReleaseError(f"staged original is oversized: {name}")
+        digest = sha256(data)
+        checksum = read_regular(version_directory / (name + ".sha256"), f"staged checksum {name}.sha256")
+        if checksum != (digest + "\n").encode("ascii"):
+            raise ReleaseError(f"staged SHA-256 does not match original: {name}")
+        originals.append(Original(name, f"{base}/{name}", data, digest))
+    return tuple(originals)
+
+
+def release_manifest(identity: ReleaseIdentity, commit: str, originals: tuple[Original, ...]) -> dict[str, object]:
+    return {
+        "schema": "tvheadend-htsp-release-manifest-v1",
+        "coordinate": identity.coordinate,
+        "tag": identity.tag,
+        "commit": commit,
+        "fingerprint": FINGERPRINT,
+        "files": [
+            {
+                "path": original.relative_path,
+                "size": len(original.data),
+                "sha256": original.sha256,
+            }
+            for original in sorted(originals, key=lambda item: item.relative_path)
+        ],
+    }
+
+
+def manifest_bytes(manifest: dict[str, object]) -> bytes:
+    return (json.dumps(manifest, indent=2, sort_keys=True) + "\n").encode("utf-8")
+
+
+def validate_manifest(manifest: dict[str, object], originals: tuple[Original, ...]) -> None:
+    expected = [
+        {"path": item.relative_path, "size": len(item.data), "sha256": sha256(item.data)}
+        for item in sorted(originals, key=lambda value: value.relative_path)
+    ]
+    if manifest.get("files") != expected:
+        raise ReleaseError("release manifest does not match the five original bytes")
+
+
+def sidecars(originals: tuple[Original, ...]) -> dict[str, bytes]:
+    result: dict[str, bytes] = {}
+    for original in originals:
+        result[original.name + ".md5"] = (md5(original.data) + "\n").encode("ascii")
+        result[original.name + ".sha1"] = (sha1(original.data) + "\n").encode("ascii")
+    return result
+
+
+def asset_map(
+    originals: tuple[Original, ...],
+    signatures: dict[str, bytes],
+    checksums: dict[str, bytes],
+) -> dict[str, bytes]:
+    assets = {item.name: item.data for item in originals}
+    assets.update({name + ".asc": data for name, data in signatures.items()})
+    assets.update(checksums)
+    expected = 4 * len(originals)
+    if len(assets) != expected:
+        raise ReleaseError(f"release asset inventory must contain exactly {expected} files")
+    return assets
+
+
+def zip_bytes(identity: ReleaseIdentity, assets: dict[str, bytes]) -> bytes:
+    output = io.BytesIO()
+    base = maven_base(identity)
+    with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        for name in sorted(assets):
+            archive.writestr(f"{base}/{name}", assets[name])
+    return output.getvalue()
+
+
+def zip_member_map(data: bytes) -> dict[str, bytes]:
+    try:
+        with zipfile.ZipFile(io.BytesIO(data), "r") as archive:
+            infos = archive.infolist()
+            names = [info.filename for info in infos]
+            if len(names) != len(set(names)):
+                raise ReleaseError("Central ZIP contains duplicate members")
+            if any(info.is_dir() for info in infos):
+                raise ReleaseError("Central ZIP contains a directory member")
+            return {name: archive.read(name) for name in names}
+    except (OSError, zipfile.BadZipFile, RuntimeError) as error:
+        if isinstance(error, ReleaseError):
+            raise
+        raise ReleaseError(f"Central ZIP cannot be read: {error}") from error
+
+
+def verify_zip(
+    data: bytes,
+    identity: ReleaseIdentity,
+    originals: tuple[Original, ...],
+    manifest: dict[str, object],
+    verifier: SignatureVerifier,
+) -> None:
+    validate_manifest(manifest, originals)
+    members = zip_member_map(data)
+    base = maven_base(identity)
+    expected = {
+        f"{base}/{item.name}{suffix}"
+        for item in originals
+        for suffix in ("", ".asc", ".md5", ".sha1")
+    }
+    if set(members) != expected or len(members) != 20:
+        raise ReleaseError(f"Central ZIP inventory mismatch; expected 20 members, found {len(members)}")
+    for original in originals:
+        path = f"{base}/{original.name}"
+        current = members[path]
+        if current != original.data or sha256(current) != original.sha256:
+            raise ReleaseError(f"Central ZIP original differs from manifest: {original.name}")
+        if members[path + ".md5"] != (md5(current) + "\n").encode("ascii"):
+            raise ReleaseError(f"Central ZIP MD5 sidecar mismatch: {original.name}")
+        if members[path + ".sha1"] != (sha1(current) + "\n").encode("ascii"):
+            raise ReleaseError(f"Central ZIP SHA-1 sidecar mismatch: {original.name}")
+        if not verifier(original.name, members[path + ".asc"], current):
+            raise ReleaseError(f"Central ZIP signature verification failed: {original.name}")
+
+
+def safe_subprocess_environment(gnupg_home: Path | None = None) -> dict[str, str]:
+    allowed = ("PATH", "HOME", "TMPDIR")
+    environment = {name: os.environ[name] for name in allowed if name in os.environ}
+    environment["LC_ALL"] = "C"
+    if gnupg_home is not None:
+        environment["GNUPGHOME"] = str(gnupg_home)
+    return environment
+
+
+def run_process(command: tuple[str, ...], data: bytes | None = None, gnupg_home: Path | None = None) -> subprocess.CompletedProcess[bytes]:
+    try:
+        return subprocess.run(
+            command,
+            input=data,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+            env=safe_subprocess_environment(gnupg_home),
+        )
+    except OSError as error:
+        raise ReleaseError(f"required executable failed to start: {command[0]}") from error
+
+
+def git_text(*arguments: str) -> str:
+    result = run_process(("git", *arguments))
+    if result.returncode != 0:
+        raise ReleaseError(f"Git context check failed: {' '.join(arguments)}")
+    try:
+        return result.stdout.decode("utf-8").strip()
+    except UnicodeError as error:
+        raise ReleaseError("Git context output is not UTF-8") from error
+
+
+def require_publish_context(identity: ReleaseIdentity) -> str:
+    expected = {
+        "GITHUB_ACTIONS": "true",
+        "GITHUB_EVENT_NAME": "push",
+        "GITHUB_REF_TYPE": "tag",
+        "GITHUB_REPOSITORY": REPOSITORY,
+        "GITHUB_REF": f"refs/tags/{identity.tag}",
+        "GITHUB_REF_NAME": identity.tag,
+    }
+    for name, value in expected.items():
+        if os.environ.get(name) != value:
+            raise ReleaseError(f"release requires exact tag-triggered GitHub Actions context: {name}")
+    head = git_text("rev-parse", "HEAD")
+    if os.environ.get("GITHUB_SHA") != head:
+        raise ReleaseError("GITHUB_SHA does not equal the checked-out commit")
+    tag_ref = f"refs/tags/{identity.tag}"
+    if git_text("cat-file", "-t", tag_ref) != "tag":
+        raise ReleaseError("release tag must be annotated")
+    if git_text("rev-parse", f"{tag_ref}^{{commit}}") != head:
+        raise ReleaseError("annotated release tag does not resolve to the checked-out commit")
+    ancestry = run_process(("git", "merge-base", "--is-ancestor", head, "refs/remotes/origin/main"))
+    if ancestry.returncode != 0:
+        raise ReleaseError("release commit is not reachable from origin/main")
+    if git_text("status", "--porcelain=v1", "--untracked-files=all"):
+        raise ReleaseError("working tree is not clean")
+    return head
+
+
+def secret_primary_fingerprints(colon_listing: str) -> tuple[str, ...]:
+    fingerprints: list[str] = []
+    awaiting = False
+    for line in colon_listing.splitlines():
+        fields = line.split(":")
+        record = fields[0] if fields else ""
+        if record == "sec":
+            awaiting = True
+        elif record == "fpr" and awaiting:
+            if len(fields) > 9:
+                fingerprints.append(fields[9].upper())
+            awaiting = False
+        elif record in {"ssb", "pub"}:
+            awaiting = False
+    return tuple(fingerprints)
+
+
+def require_secret_primary_fingerprint(colon_listing: str) -> None:
+    if secret_primary_fingerprints(colon_listing) != (FINGERPRINT,):
+        raise ReleaseError("secret key primary fingerprint does not match the approved fingerprint")
+
+
+def import_secret_key(home: Path, private_key: bytes) -> None:
+    imported = run_process(("gpg", "--batch", "--yes", "--import"), private_key, home)
+    if imported.returncode != 0:
+        raise ReleaseError("dedicated Maven secret key import failed")
+    listing = run_process(("gpg", "--batch", "--with-colons", "--fingerprint", "--list-secret-keys"), None, home)
+    if listing.returncode != 0:
+        raise ReleaseError("dedicated Maven secret key cannot be inspected")
+    try:
+        colon_listing = listing.stdout.decode("utf-8")
+    except UnicodeError as error:
+        raise ReleaseError("secret-key fingerprint output is malformed") from error
+    require_secret_primary_fingerprint(colon_listing)
+
+
+def import_public_key(home: Path, public_key: bytes) -> None:
+    imported = run_process(("gpg", "--batch", "--yes", "--import"), public_key, home)
+    if imported.returncode != 0:
+        raise ReleaseError("tracked public key import failed")
+
+
+def validsig_fingerprints(status: bytes) -> tuple[tuple[str, str], ...]:
+    results: list[tuple[str, str]] = []
+    try:
+        lines = status.decode("utf-8").splitlines()
+    except UnicodeError as error:
+        raise ReleaseError("GPG status output is malformed") from error
+    for line in lines:
+        prefix = "[GNUPG:] VALIDSIG "
+        if not line.startswith(prefix):
+            continue
+        fields = line[len(prefix):].split()
+        if len(fields) >= 9:
+            signer = fields[0].upper()
+            primary = fields[9].upper() if len(fields) >= 10 and re.fullmatch(r"[0-9A-Fa-f]{40}", fields[9]) else signer
+            results.append((signer, primary))
+    return tuple(results)
+
+
+def verify_signature_file(home: Path, signature: Path, original: Path) -> None:
+    result = run_process(
+        ("gpg", "--batch", "--status-fd", "1", "--verify", str(signature), str(original)),
+        None,
+        home,
+    )
+    if result.returncode != 0 or validsig_fingerprints(result.stdout) != ((FINGERPRINT, FINGERPRINT),):
+        raise ReleaseError(f"detached signature is not valid for approved fingerprint: {original.name}")
+
+
+def public_signature_verifier(workspace: Path, public_key: bytes) -> SignatureVerifier:
+    public_home = workspace / "gnupg-public"
+    public_home.mkdir(mode=0o700)
+    import_public_key(public_home, public_key)
+    verify_counter = 0
+
+    def verify_bytes(name: str, signature_data: bytes, original_data: bytes) -> bool:
+        nonlocal verify_counter
+        verify_counter += 1
+        original_path = workspace / f"verify-{verify_counter}.original"
+        signature_path = workspace / f"verify-{verify_counter}.asc"
+        original_path.write_bytes(original_data)
+        signature_path.write_bytes(signature_data)
+        original_path.chmod(0o600)
+        signature_path.chmod(0o600)
+        try:
+            verify_signature_file(public_home, signature_path, original_path)
+            return True
+        finally:
+            original_path.unlink(missing_ok=True)
+            signature_path.unlink(missing_ok=True)
+
+    return verify_bytes
+
+
+def sign_originals(
+    workspace: Path,
+    originals: tuple[Original, ...],
+    private_key: bytes,
+    passphrase: str,
+    public_key: bytes,
+) -> tuple[dict[str, bytes], SignatureVerifier]:
+    if "\n" in passphrase or "\r" in passphrase:
+        raise ReleaseError("MAVEN_GPG_PASSPHRASE must not contain a newline")
+    if not passphrase:
+        raise ReleaseError("MAVEN_GPG_PASSPHRASE is empty")
+    private_home = workspace / "gnupg-private"
+    private_home.mkdir(mode=0o700)
+    import_secret_key(private_home, private_key)
+    verify_bytes = public_signature_verifier(workspace, public_key)
+    signed: dict[str, bytes] = {}
+
+    for index, original in enumerate(originals):
+        original_path = workspace / f"original-{index}"
+        signature_path = workspace / f"signature-{index}.asc"
+        original_path.write_bytes(original.data)
+        original_path.chmod(0o600)
+        command = (
+            "gpg", "--batch", "--yes", "--pinentry-mode", "loopback",
+            "--passphrase-fd", "0", "--local-user", FINGERPRINT + "!",
+            "--armor", "--detach-sign", "--output", str(signature_path), str(original_path),
+        )
+        result = run_process(command, (passphrase + "\n").encode("utf-8"), private_home)
+        if result.returncode != 0:
+            raise ReleaseError(f"detached signing failed: {original.name}")
+        signature = read_regular(signature_path, f"detached signature {original.name}")
+        if not verify_bytes(original.name, signature, original.data):
+            raise ReleaseError(f"detached signature verification failed: {original.name}")
+        signed[original.name] = signature
+        original_path.unlink(missing_ok=True)
+        signature_path.unlink(missing_ok=True)
+    return signed, verify_bytes
+
+
+def terminate_gpg_agents(workspace: Path, runner: Callable[..., subprocess.CompletedProcess[bytes]] = run_process) -> None:
+    for home in sorted(workspace.glob("**/gnupg-*")):
+        if not home.is_dir():
+            continue
+        try:
+            runner(("gpgconf", "--homedir", str(home), "--kill", "all"))
+        except Exception:
+            pass
+
+
+def extract_release_notes(changelog: str, version: str) -> str:
+    heading = re.compile(rf"(?m)^## \[{re.escape(version)}\]\s*$")
+    matches = list(heading.finditer(changelog))
+    if len(matches) != 1:
+        raise ReleaseError(f"CHANGELOG must contain exactly one section for {version}")
+    start = matches[0].start()
+    following = re.search(r"(?m)^## ", changelog[matches[0].end():])
+    end = matches[0].end() + following.start() if following else len(changelog)
+    section = changelog[start:end].strip()
+    body = section[len(matches[0].group(0)):].strip()
+    if not body:
+        raise ReleaseError(f"CHANGELOG section for {version} is empty")
+    return section + "\n"
+
+
+def validate_portal_token(token: str) -> None:
+    if not token or any(character.isspace() for character in token):
+        raise ReleaseError("CENTRAL_PORTAL_TOKEN is not a compact base64 value")
+    try:
+        decoded = base64.b64decode(token, validate=True)
+    except (binascii.Error, ValueError) as error:
+        raise ReleaseError("CENTRAL_PORTAL_TOKEN is not valid base64") from error
+    if decoded.count(b":") != 1:
+        raise ReleaseError("CENTRAL_PORTAL_TOKEN must encode username:password")
+    username, password = decoded.split(b":", 1)
+    if not username or not password or any(byte < 0x21 or byte == 0x7F for byte in decoded):
+        raise ReleaseError("CENTRAL_PORTAL_TOKEN has an invalid username:password shape")
+
+
+def stdlib_http(method: str, url: str, headers: dict[str, str], body: bytes | None) -> HttpResponse:
+    request = urllib.request.Request(url, data=body, headers=headers, method=method)
+    try:
+        with urllib.request.urlopen(request, timeout=60) as response:
+            return HttpResponse(response.status, response.read())
+    except urllib.error.HTTPError as error:
+        return HttpResponse(error.code, error.read())
+    except (OSError, urllib.error.URLError) as error:
+        raise ReleaseError(f"HTTPS request failed for {urllib.parse.urlsplit(url).path}") from error
+
+
+def central_urls(originals: tuple[Original, ...]) -> tuple[str, ...]:
+    return tuple(f"{MAVEN_URL}/{urllib.parse.quote(item.relative_path, safe='/')}" for item in originals)
+
+
+def central_member_url(identity: ReleaseIdentity, name: str) -> str:
+    relative = f"{maven_base(identity)}/{name}"
+    return f"{MAVEN_URL}/{urllib.parse.quote(relative, safe='/')}"
+
+
+def exact_asset_names(originals: tuple[Original, ...]) -> tuple[str, ...]:
+    return tuple(sorted(
+        original.name + suffix
+        for original in originals
+        for suffix in ("", ".asc", ".md5", ".sha1")
+    ))
+
+
+def central_resolution(originals: tuple[Original, ...], client: HttpClient) -> tuple[str, ...]:
+    states: list[str] = []
+    for original, url in zip(originals, central_urls(originals)):
+        response = client("GET", url, {}, None)
+        if response.status == 404:
+            states.append("absent")
+        elif response.status == 200:
+            states.append("matching" if sha256(response.body) == original.sha256 else "mismatch")
+        else:
+            raise ReleaseError(f"Central resolution returned HTTP {response.status} for {original.name}")
+    return tuple(states)
+
+
+def central_preflight(originals: tuple[Original, ...], client: HttpClient) -> str:
+    states = central_resolution(originals, client)
+    if set(states) == {"absent"}:
+        return "upload"
+    if set(states) == {"matching"}:
+        return "recover"
+    if "mismatch" in states:
+        raise ReleaseError("Central already contains an original with different bytes")
+    raise ReleaseError("Central contains only part of the five-original release")
+
+
+def published_asset_resolution(
+    identity: ReleaseIdentity,
+    originals: tuple[Original, ...],
+    expected: dict[str, bytes],
+    client: HttpClient,
+) -> tuple[str, ...]:
+    if set(expected) != set(exact_asset_names(originals)):
+        raise ReleaseError("uploaded Central member inventory must contain exactly 20 files")
+    states: list[str] = []
+    for name, data in sorted(expected.items()):
+        response = client("GET", central_member_url(identity, name), {}, None)
+        if response.status == 404:
+            states.append("absent")
+        elif response.status == 200:
+            states.append("matching" if response.body == data else "mismatch")
+        else:
+            raise ReleaseError(f"Central resolution returned HTTP {response.status} for {name}")
+    return tuple(states)
+
+
+def poll_published_assets(
+    identity: ReleaseIdentity,
+    originals: tuple[Original, ...],
+    expected: dict[str, bytes],
+    client: HttpClient,
+    timeout: int = RESOLUTION_TIMEOUT_SECONDS,
+) -> None:
+    deadline = time.monotonic() + timeout
+    while True:
+        states = published_asset_resolution(identity, originals, expected, client)
+        if len(states) == 20 and set(states) == {"matching"}:
+            return
+        if "mismatch" in states:
+            raise ReleaseError("resolved Central member differs from the exact uploaded bytes")
+        if time.monotonic() >= deadline:
+            raise ReleaseError("all 20 exact Central members did not resolve before timeout")
+        time.sleep(POLL_SECONDS)
+
+
+def recover_published_assets(
+    identity: ReleaseIdentity,
+    originals: tuple[Original, ...],
+    manifest: dict[str, object],
+    client: HttpClient,
+    verifier: SignatureVerifier,
+) -> tuple[dict[str, bytes], bytes]:
+    assets: dict[str, bytes] = {}
+    for name in exact_asset_names(originals):
+        response = client("GET", central_member_url(identity, name), {}, None)
+        if response.status == 404:
+            raise ReleaseError(f"published Central member is missing during recovery: {name}")
+        if response.status != 200:
+            raise ReleaseError(f"Central recovery returned HTTP {response.status} for {name}")
+        assets[name] = response.body
+    bundle = zip_bytes(identity, assets)
+    verify_zip(bundle, identity, originals, manifest, verifier)
+    return assets, bundle
+
+
+def upload_bundle(bundle: bytes, identity: ReleaseIdentity, token: str, client: HttpClient) -> str:
+    boundary = "tvheadend-htsp-" + uuid.uuid4().hex
+    body = (
+        f"--{boundary}\r\n"
+        'Content-Disposition: form-data; name="bundle"; filename="bundle.zip"\r\n'
+        "Content-Type: application/zip\r\n\r\n"
+    ).encode("ascii") + bundle + f"\r\n--{boundary}--\r\n".encode("ascii")
+    query = urllib.parse.urlencode({"name": f"{ARTIFACT}-{identity.version}", "publishingType": "AUTOMATIC"})
+    response = client(
+        "POST",
+        f"{UPLOAD_URL}?{query}",
+        {
+            "Authorization": f"Bearer {token}",
+            "Content-Type": f"multipart/form-data; boundary={boundary}",
+        },
+        body,
+    )
+    try:
+        deployment = response.body.decode("ascii").strip()
+    except UnicodeError:
+        deployment = ""
+    if response.status != 201 or UUID.fullmatch(deployment) is None:
+        raise ReleaseError(
+            f"Central upload returned HTTP {response.status} or an ambiguous deployment response; blind retry is forbidden"
+        )
+    return deployment
+
+
+def deployment_state(body: bytes) -> str:
+    try:
+        value = json.loads(body.decode("utf-8"))
+    except (UnicodeError, json.JSONDecodeError) as error:
+        raise ReleaseError("Central deployment status response is malformed") from error
+    if not isinstance(value, dict) or not isinstance(value.get("deploymentState"), str):
+        raise ReleaseError("Central deployment status lacks deploymentState")
+    return value["deploymentState"].upper()
+
+
+def status_complete(state: str) -> bool:
+    if state == "PUBLISHED":
+        return True
+    if state in {"PENDING", "VALIDATING", "VALIDATED", "PUBLISHING"}:
+        return False
+    if state == "FAILED":
+        raise ReleaseError("Central deployment entered FAILED state")
+    raise ReleaseError(f"Central deployment entered unknown state: {state}")
+
+
+def poll_published(deployment: str, token: str, client: HttpClient, timeout: int = PUBLISH_TIMEOUT_SECONDS) -> None:
+    deadline = time.monotonic() + timeout
+    query = urllib.parse.urlencode({"id": deployment})
+    while True:
+        response = client(
+            "POST",
+            f"{STATUS_URL}?{query}",
+            {"Authorization": f"Bearer {token}"},
+            b"",
+        )
+        if response.status != 200:
+            raise ReleaseError(f"Central deployment status returned HTTP {response.status}")
+        if status_complete(deployment_state(response.body)):
+            return
+        if time.monotonic() >= deadline:
+            raise ReleaseError("Central deployment did not reach PUBLISHED before timeout")
+        time.sleep(POLL_SECONDS)
+
+
+def announce_and_poll(
+    deployment: str,
+    token: str,
+    client: HttpClient,
+    stream: object | None = None,
+    timeout: int = PUBLISH_TIMEOUT_SECONDS,
+) -> None:
+    destination = sys.stdout if stream is None else stream
+    print(f"CENTRAL_DEPLOYMENT_ID={deployment}", file=destination, flush=True)
+    try:
+        poll_published(deployment, token, client, timeout)
+    except ReleaseError as error:
+        raise ReleaseError(f"Central deployment {deployment}: {error}") from error
+
+
+def ensure_output_absent(path: Path) -> None:
+    if path.exists() or path.is_symlink():
+        raise ReleaseError(f"release output already exists: {path}")
+
+
+def write_outputs(
+    target: Path,
+    identity: ReleaseIdentity,
+    assets: dict[str, bytes],
+    bundle: bytes,
+    manifest: bytes,
+    notes: str,
+) -> None:
+    ensure_output_absent(target)
+    github_assets = target / "github-assets"
+    github_assets.mkdir(parents=True)
+    for name, data in sorted(assets.items()):
+        (github_assets / name).write_bytes(data)
+    (target / f"{ARTIFACT}-{identity.version}-central.zip").write_bytes(bundle)
+    (target / "release-manifest.json").write_bytes(manifest)
+    (target / "release-notes.md").write_text(notes, encoding="utf-8")
+    if len(list(github_assets.iterdir())) != 20:
+        raise ReleaseError("GitHub asset directory does not contain the exact 20 signed Maven files")
+
+
+def github_release_inputs(
+    output: Path,
+    identity: ReleaseIdentity,
+    commit: str,
+    originals: tuple[Original, ...],
+) -> tuple[dict[str, bytes], str]:
+    expected_root = {
+        "github-assets",
+        f"{ARTIFACT}-{identity.version}-central.zip",
+        "release-manifest.json",
+        "release-notes.md",
+    }
+    try:
+        if output.is_symlink() or not output.is_dir():
+            raise ReleaseError("build/release output is not a real directory")
+        root_entries = list(output.iterdir())
+    except FileNotFoundError as error:
+        raise ReleaseError("build/release output is missing") from error
+    except OSError as error:
+        raise ReleaseError(f"build/release output cannot be inspected: {error}") from error
+    if {entry.name for entry in root_entries} != expected_root:
+        raise ReleaseError("build/release contains missing or extra output entries")
+    assets_directory = output / "github-assets"
+    try:
+        if assets_directory.is_symlink() or not assets_directory.is_dir():
+            raise ReleaseError("GitHub asset output is not a real directory")
+        asset_entries = list(assets_directory.iterdir())
+    except OSError as error:
+        raise ReleaseError(f"GitHub asset output cannot be inspected: {error}") from error
+    expected_names = set(exact_asset_names(originals))
+    if {entry.name for entry in asset_entries} != expected_names or len(asset_entries) != 20:
+        raise ReleaseError("GitHub asset output must contain exactly the 20 expected flat names")
+    assets = {
+        entry.name: read_regular(entry, f"GitHub asset output {entry.name}")
+        for entry in asset_entries
+    }
+    for original in originals:
+        if assets[original.name] != original.data:
+            raise ReleaseError(f"GitHub original differs from staged original: {original.name}")
+        if assets[original.name + ".md5"] != (md5(original.data) + "\n").encode("ascii"):
+            raise ReleaseError(f"GitHub MD5 sidecar differs from staged original: {original.name}")
+        if assets[original.name + ".sha1"] != (sha1(original.data) + "\n").encode("ascii"):
+            raise ReleaseError(f"GitHub SHA-1 sidecar differs from staged original: {original.name}")
+    manifest_data = read_regular(output / "release-manifest.json", "release manifest output")
+    try:
+        manifest = json.loads(manifest_data.decode("utf-8"))
+    except (UnicodeError, json.JSONDecodeError) as error:
+        raise ReleaseError("release manifest output is malformed") from error
+    expected_manifest = release_manifest(identity, commit, originals)
+    if manifest != expected_manifest or manifest_data != manifest_bytes(expected_manifest):
+        raise ReleaseError("release manifest output does not exactly match staged originals and release identity")
+    validate_manifest(manifest, originals)
+    central_name = f"{ARTIFACT}-{identity.version}-central.zip"
+    central_data = read_regular(output / central_name, "Central ZIP output")
+    members = zip_member_map(central_data)
+    expected_members = {
+        f"{maven_base(identity)}/{name}": data
+        for name, data in assets.items()
+    }
+    if members != expected_members:
+        raise ReleaseError("Central ZIP output does not contain the exact 20 GitHub asset bytes")
+    notes_data = read_regular(output / "release-notes.md", "release notes output")
+    try:
+        notes = notes_data.decode("utf-8")
+    except UnicodeError as error:
+        raise ReleaseError("release notes output is not UTF-8") from error
+    if not notes or notes.encode("utf-8") != notes_data:
+        raise ReleaseError("release notes output is empty or non-canonical UTF-8")
+    expected = dict(assets)
+    expected[central_name] = central_data
+    expected["release-manifest.json"] = manifest_data
+    if len(expected) != 22:
+        raise ReleaseError("GitHub release inventory must contain exactly 22 assets")
+    return expected, notes
+
+
+def github_headers(token: str, content_type: str | None = None) -> dict[str, str]:
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "Authorization": f"Bearer {token}",
+        "User-Agent": "tvheadend-htsp-release-finalizer",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    if content_type is not None:
+        headers["Content-Type"] = content_type
+    return headers
+
+
+def github_json(response: HttpResponse, label: str, statuses: tuple[int, ...]) -> object:
+    if response.status not in statuses:
+        raise ReleaseError(f"GitHub {label} returned HTTP {response.status}")
+    if not response.body:
+        return None
+    try:
+        return json.loads(response.body.decode("utf-8"))
+    except (UnicodeError, json.JSONDecodeError) as error:
+        raise ReleaseError(f"GitHub {label} response is malformed") from error
+
+
+def github_release_metadata(release: dict[str, object], identity: ReleaseIdentity, notes: str) -> None:
+    expected = {
+        "tag_name": identity.tag,
+        "name": identity.tag,
+        "body": notes,
+        "prerelease": True,
+    }
+    for key, value in expected.items():
+        if release.get(key) != value:
+            raise ReleaseError(f"existing GitHub release has incompatible {key} metadata")
+    if type(release.get("draft")) is not bool:
+        raise ReleaseError("existing GitHub release has malformed draft metadata")
+    if type(release.get("id")) is not int:
+        raise ReleaseError("existing GitHub release has malformed id metadata")
+
+
+def github_releases(token: str, client: HttpClient) -> list[dict[str, object]]:
+    releases: list[dict[str, object]] = []
+    for page in range(1, GITHUB_RELEASE_PAGE_LIMIT + 1):
+        query = urllib.parse.urlencode({"per_page": 100, "page": page})
+        response = client(
+            "GET",
+            f"{GITHUB_API_URL}/repos/{REPOSITORY}/releases?{query}",
+            github_headers(token),
+            None,
+        )
+        model = github_json(response, "release listing", (200,))
+        if not isinstance(model, list) or any(not isinstance(item, dict) for item in model):
+            raise ReleaseError("GitHub release listing response has an invalid shape")
+        releases.extend(model)
+        if len(model) < 100:
+            return releases
+    raise ReleaseError("GitHub release listing exceeded the bounded pagination limit")
+
+
+def github_refetch_release(release_id: int, token: str, client: HttpClient) -> dict[str, object]:
+    response = client(
+        "GET",
+        f"{GITHUB_API_URL}/repos/{REPOSITORY}/releases/{release_id}",
+        github_headers(token),
+        None,
+    )
+    model = github_json(response, "release fetch", (200,))
+    if not isinstance(model, dict):
+        raise ReleaseError("GitHub release fetch response has an invalid shape")
+    return model
+
+
+def github_assets(release_id: int, token: str, client: HttpClient) -> list[dict[str, object]]:
+    query = urllib.parse.urlencode({"per_page": 100, "page": 1})
+    response = client(
+        "GET",
+        f"{GITHUB_API_URL}/repos/{REPOSITORY}/releases/{release_id}/assets?{query}",
+        github_headers(token),
+        None,
+    )
+    model = github_json(response, "asset listing", (200,))
+    if not isinstance(model, list) or len(model) > 100 or any(not isinstance(item, dict) for item in model):
+        raise ReleaseError("GitHub asset listing response has an invalid shape")
+    return model
+
+
+def exact_github_asset(asset: dict[str, object], name: str, data: bytes) -> bool:
+    return (
+        asset.get("name") == name
+        and type(asset.get("size")) is int
+        and asset.get("size") == len(data)
+        and asset.get("digest") == f"sha256:{sha256(data)}"
+    )
+
+
+def verify_github_assets(release_id: int, expected: dict[str, bytes], token: str, client: HttpClient) -> None:
+    assets = github_assets(release_id, token, client)
+    names = [asset.get("name") for asset in assets]
+    if any(not isinstance(name, str) for name in names) or len(names) != len(set(names)):
+        raise ReleaseError("GitHub release contains malformed or duplicate asset names")
+    if set(names) != set(expected) or len(names) != 22:
+        raise ReleaseError("GitHub release asset inventory is not exactly the expected 22 names")
+    for asset in assets:
+        name = str(asset["name"])
+        if not exact_github_asset(asset, name, expected[name]):
+            raise ReleaseError(f"GitHub release asset size or SHA-256 digest differs: {name}")
+
+
+def finalize_github_release_state(
+    identity: ReleaseIdentity,
+    commit: str,
+    expected: dict[str, bytes],
+    notes: str,
+    token: str,
+    client: HttpClient,
+) -> None:
+    if len(expected) != 22:
+        raise ReleaseError("GitHub finalizer requires exactly 22 expected assets")
+    candidates = [
+        release
+        for release in github_releases(token, client)
+        if release.get("tag_name") == identity.tag or release.get("name") == identity.tag
+    ]
+    if len(candidates) > 1:
+        raise ReleaseError("GitHub contains duplicate releases for the exact tag or title")
+    if candidates:
+        release = candidates[0]
+        github_release_metadata(release, identity, notes)
+    else:
+        body = json.dumps({
+            "tag_name": identity.tag,
+            "target_commitish": commit,
+            "name": identity.tag,
+            "body": notes,
+            "draft": True,
+            "prerelease": True,
+            "make_latest": "false",
+        }).encode("utf-8")
+        response = client(
+            "POST",
+            f"{GITHUB_API_URL}/repos/{REPOSITORY}/releases",
+            github_headers(token, "application/json"),
+            body,
+        )
+        model = github_json(response, "draft creation", (201,))
+        if not isinstance(model, dict):
+            raise ReleaseError("GitHub draft creation response has an invalid shape")
+        release = model
+        github_release_metadata(release, identity, notes)
+        if release.get("draft") is not True:
+            raise ReleaseError("GitHub did not create the release as a draft")
+    release_id = int(release["id"])
+    release = github_refetch_release(release_id, token, client)
+    github_release_metadata(release, identity, notes)
+    if release["draft"] is False:
+        verify_github_assets(release_id, expected, token, client)
+        return
+
+    current_assets = github_assets(release_id, token, client)
+    names = [asset.get("name") for asset in current_assets]
+    if any(not isinstance(name, str) for name in names) or len(names) != len(set(names)):
+        raise ReleaseError("GitHub draft contains malformed or duplicate asset names")
+    unexpected = set(names) - set(expected)
+    if unexpected:
+        raise ReleaseError(f"GitHub draft contains unexpected assets: {sorted(unexpected)}")
+    retained: set[str] = set()
+    for asset in current_assets:
+        name = str(asset["name"])
+        if exact_github_asset(asset, name, expected[name]):
+            retained.add(name)
+            continue
+        asset_id = asset.get("id")
+        if type(asset_id) is not int:
+            raise ReleaseError(f"GitHub draft asset has malformed id metadata: {name}")
+        response = client(
+            "DELETE",
+            f"{GITHUB_API_URL}/repos/{REPOSITORY}/releases/assets/{asset_id}",
+            github_headers(token),
+            None,
+        )
+        github_json(response, f"asset deletion for {name}", (204,))
+    for name, data in sorted(expected.items()):
+        if name in retained:
+            continue
+        query = urllib.parse.urlencode({"name": name})
+        upload_url = f"https://uploads.github.com/repos/{REPOSITORY}/releases/{release_id}/assets?{query}"
+        response = client(
+            "POST",
+            upload_url,
+            github_headers(token, "application/octet-stream"),
+            data,
+        )
+        github_json(response, f"asset upload for {name}", (201,))
+    release = github_refetch_release(release_id, token, client)
+    github_release_metadata(release, identity, notes)
+    if release.get("draft") is not True:
+        raise ReleaseError("GitHub draft changed publication state before final verification")
+    verify_github_assets(release_id, expected, token, client)
+    patch = json.dumps({
+        "tag_name": identity.tag,
+        "name": identity.tag,
+        "body": notes,
+        "draft": False,
+        "prerelease": True,
+        "make_latest": "false",
+    }).encode("utf-8")
+    response = client(
+        "PATCH",
+        f"{GITHUB_API_URL}/repos/{REPOSITORY}/releases/{release_id}",
+        github_headers(token, "application/json"),
+        patch,
+    )
+    github_json(response, "draft publication", (200,))
+    release = github_refetch_release(release_id, token, client)
+    github_release_metadata(release, identity, notes)
+    if release.get("draft") is not False:
+        raise ReleaseError("GitHub release did not become a published prerelease")
+    verify_github_assets(release_id, expected, token, client)
+
+
+def workflow_step(workflow: str, name: str) -> str:
+    marker = f"      - name: {name}"
+    start = workflow.find(marker)
+    if start < 0:
+        return ""
+    following = workflow.find("\n      - name: ", start + len(marker))
+    return workflow[start:following if following >= 0 else len(workflow)]
+
+
+def release_job_guard_errors(workflow: str) -> list[str]:
+    tokens = (
+        "    if: >-",
+        "      github.repository == 'bernhardberger/tvheadend-htsp' &&",
+        "      github.ref_type == 'tag' &&",
+        "      startsWith(github.ref, 'refs/tags/v')",
+    )
+    errors = []
+    if any(workflow.count(token) != 1 for token in tokens):
+        errors.append("release job must have the exact repository, tag-type, and v-ref guard")
+    guard = workflow.find(tokens[0])
+    environment = workflow.find("    environment: central")
+    if guard < 0 or environment < 0 or guard > environment:
+        errors.append("release job guard must precede Environment resolution")
+    return errors
+
+
+def setup_errors(root: Path = ROOT) -> list[str]:
+    errors: list[str] = []
+    required = (
+        ".github/workflows/ci.yml",
+        ".github/workflows/release.yml",
+        "tools/publish-central-release",
+        "release/openpgp/public-key.asc",
+        "release/openpgp/primary-fingerprint.txt",
+    )
+    texts: dict[str, str] = {}
+    for relative in required:
+        path = root / relative
+        try:
+            if not stat.S_ISREG(path.lstat().st_mode):
+                raise OSError("not a regular file")
+            texts[relative] = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeError) as error:
+            errors.append(f"{relative}: required setup file unavailable ({error})")
+            texts[relative] = ""
+    tool = root / "tools/publish-central-release"
+    if tool.is_file() and tool.stat().st_mode & 0o111 == 0:
+        errors.append("tools/publish-central-release must be executable")
+    for old in ("tools/check-release-candidate", "tools/sign-central-bundle"):
+        if (root / old).exists() or (root / old).is_symlink():
+            errors.append(f"superseded release tool is forbidden: {old}")
+    release = texts[".github/workflows/release.yml"]
+    ci = texts[".github/workflows/ci.yml"]
+    source = texts["tools/publish-central-release"]
+    errors.extend(release_job_guard_errors(release))
+    checks = (
+        ("tags:\n      - 'v*'", "release workflow must trigger only v* tag pushes"),
+        ("contents: write", "release workflow must grant contents write"),
+        ("cancel-in-progress: false", "release concurrency must not cancel an active run"),
+        ("runs-on: ubuntu-24.04", "release runner must be ubuntu-24.04"),
+        ("timeout-minutes: 60", "release job must have a timeout"),
+        ("environment: central", "release job must use the central Environment"),
+        ("persist-credentials: false", "release checkout must not persist credentials"),
+        ("fetch-depth: 0", "release checkout must fetch tag and main history"),
+        (f"actions/checkout@{CHECKOUT_SHA}", "release checkout action must use the approved full SHA"),
+        (f"actions/setup-java@{JAVA_SHA}", "release Java action must use the approved full SHA"),
+        ("./tools/verify-htsp", "release workflow must run the complete verifier"),
+        ("./tools/publish-central-release --publish", "release workflow must invoke publish mode"),
+        ("./tools/publish-central-release --finalize-github-release", "release workflow must invoke GitHub finalizer mode"),
+    )
+    for token, message in checks:
+        if release.count(token) != 1:
+            errors.append(message)
+    action_uses = re.findall(r"(?m)^\s*uses:\s*([^\s]+)\s*$", release)
+    if action_uses != [f"actions/checkout@{CHECKOUT_SHA}", f"actions/setup-java@{JAVA_SHA}"]:
+        errors.append("release workflow action inventory or pin differs from the approved two actions")
+    for forbidden_trigger in ("branches:", "pull_request:", "workflow_dispatch:", "schedule:"):
+        if forbidden_trigger in release:
+            errors.append(f"release workflow contains a non-tag trigger: {forbidden_trigger}")
+    if release.count("permissions:") != 1 or re.findall(r"(?m)^\s{2}([a-z-]+): (read|write)$", release) != [("contents", "write")]:
+        errors.append("release workflow permissions must contain only contents: write")
+    expected_refs = {
+        f"{name}: ${{{{ secrets.{name} }}}}"
+        for name in SECRET_NAMES
+    }
+    publish_step = workflow_step(release, "Sign, publish, and verify Central")
+    release_step = workflow_step(release, "Finalize GitHub prerelease from verified outputs")
+    actual_refs = set(re.findall(r"(?m)^\s{10}([A-Z0-9_]+): \$\{\{ secrets\.([A-Z0-9_]+) \}\}$", publish_step))
+    actual_ref_lines = {f"{left}: ${{{{ secrets.{right} }}}}" for left, right in actual_refs}
+    if actual_ref_lines != expected_refs or len(actual_refs) != 3:
+        errors.append("publish step must receive only the exact three release secrets")
+    if re.findall(r"\$\{\{ secrets\.[A-Z0-9_]+ \}\}", release) != [
+        f"${{{{ secrets.{name} }}}}" for name in SECRET_NAMES
+    ]:
+        errors.append("release secret references must occur once and only in publish order")
+    if re.findall(r"(?m)^\s{10}([A-Z0-9_]+):", release_step) != ["GH_TOKEN"] or "GH_TOKEN: ${{ github.token }}" not in release_step:
+        errors.append("GitHub release step must receive only GH_TOKEN from github.token")
+    verify_position = release.find("./tools/verify-htsp")
+    secret_position = min((release.find(f"secrets.{name}") for name in SECRET_NAMES), default=-1)
+    publish_position = release.find("./tools/publish-central-release --publish")
+    github_position = release.find("./tools/publish-central-release --finalize-github-release")
+    if min(verify_position, secret_position, publish_position, github_position) < 0 or not (
+        verify_position < secret_position <= publish_position < github_position
+    ):
+        errors.append("full verifier, secret-bearing publish, and GitHub release ordering is invalid")
+    if "gh release create" in release or "build/release/github-assets/*" in release or "build/release/htsp-*" in release:
+        errors.append("GitHub release workflow must use the idempotent finalizer without CLI wildcard upload")
+    if "secrets." in ci or "publish-central-release" in ci or "upload-artifact" in ci:
+        errors.append("normal CI must not reference release secrets, publishing, or retained release output")
+    for token in (
+        'publishingType": "AUTOMATIC"',
+        f'REPOSITORY = "{REPOSITORY}"',
+        "GITHUB_REPOSITORY",
+        "GITHUB_EVENT_NAME",
+        "GITHUB_REF_TYPE",
+        "refs/tags/",
+        "refs/remotes/origin/main",
+        '"merge-base", "--is-ancestor"',
+        '"status", "--porcelain=v1", "--untracked-files=all"',
+        '"cat-file", "-t"',
+        '"gpgconf", "--homedir"',
+        '"--kill", "all"',
+        'modes.add_argument("--finalize-github-release"',
+        '"application/octet-stream"',
+        '"digest"',
+        '"draft": False',
+    ):
+        if token not in source:
+            errors.append(f"publish tool setup guard is missing: {token}")
+    if "./gradlew" in release or re.search(r"\(\s*[\"'](?:\./)?gradlew?[\"']", source):
+        errors.append("release path must not invoke Gradle after verified staging")
+    publish_source = source[source.find("def publish()"):] if "def publish()" in source else ""
+    preflight_position = publish_source.find("decision = central_preflight(")
+    secret_position_in_tool = publish_source.find('os.environ["MAVEN_GPG_PRIVATE_KEY"]')
+    signing_position = publish_source.find("sign_originals(")
+    recovery_position = publish_source.find("recover_published_assets(")
+    if min(preflight_position, secret_position_in_tool, signing_position, recovery_position) < 0 or not (
+        preflight_position < secret_position_in_tool < signing_position < recovery_position
+    ):
+        errors.append("Central preflight must select upload or recovery before private-secret access and signing")
+    recovery_branch = publish_source[recovery_position:publish_source.find("pending_output", recovery_position)]
+    if any(name in recovery_branch for name in ("MAVEN_GPG_PRIVATE_KEY", "MAVEN_GPG_PASSPHRASE", "sign_originals")):
+        errors.append("Central recovery must not access the private key, passphrase, or signing path")
+    cleanup_position = publish_source.find("terminate_gpg_agents(temporary)")
+    removal_position = publish_source.find("shutil.rmtree(temporary, ignore_errors=True)")
+    if cleanup_position < 0 or removal_position < 0 or cleanup_position > removal_position:
+        errors.append("temporary gpg-agent cleanup must precede GNUPGHOME removal")
+    documentation = "\n".join(
+        (root / relative).read_text(encoding="utf-8")
+        for relative in ("AGENTS.md", "docs/README.md", "docs/releasing.md", "release/openpgp/README.md")
+        if (root / relative).is_file()
+    )
+    for stale in (
+        "check-release-candidate",
+        "sign-central-bundle",
+        "candidate TAR",
+        "evidence TAR",
+        "isolated signing host",
+        "Central Portal UI",
+        "Publish or Drop",
+    ):
+        if stale.casefold() in (release + "\n" + ci + "\n" + documentation).casefold():
+            errors.append(f"superseded release flow remains active: {stale}")
+    fingerprint = texts["release/openpgp/primary-fingerprint.txt"]
+    if fingerprint != FINGERPRINT + "\n":
+        errors.append("tracked primary fingerprint does not match the approved full fingerprint")
+    public_key = texts["release/openpgp/public-key.asc"]
+    if (
+        public_key.count("-----BEGIN PGP PUBLIC KEY BLOCK-----") != 1
+        or public_key.count("-----END PGP PUBLIC KEY BLOCK-----") != 1
+        or "PRIVATE KEY" in public_key
+        or not public_key.endswith("\n")
+    ):
+        errors.append("tracked public key is not one public-only armored block")
+    try:
+        configured_identity((root / "build.gradle.kts").read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, ReleaseError) as error:
+        errors.append(f"configured release identity is invalid: {error}")
+    return errors
+
+
+def expect_error(errors: list[str], label: str, action: Callable[[], object]) -> None:
+    try:
+        action()
+    except ReleaseError:
+        return
+    errors.append(f"self-test accepted {label}")
+
+
+class FakeGitHub:
+    """In-memory GitHub Releases REST fixture for finalizer regression tests."""
+
+    def __init__(self) -> None:
+        self.releases: list[dict[str, object]] = []
+        self.assets: dict[int, list[dict[str, object]]] = {}
+        self.asset_bytes: dict[int, bytes] = {}
+        self.next_release_id = 1
+        self.next_asset_id = 100
+        self.fail_after_stored_upload = False
+        self.failed_once = False
+        self.published_transitions = 0
+
+    def add_release(
+        self,
+        identity: ReleaseIdentity,
+        notes: str,
+        *,
+        draft: bool,
+        name: str | None = None,
+        tag: str | None = None,
+        prerelease: bool = True,
+    ) -> dict[str, object]:
+        release_id = self.next_release_id
+        self.next_release_id += 1
+        release: dict[str, object] = {
+            "id": release_id,
+            "tag_name": identity.tag if tag is None else tag,
+            "name": identity.tag if name is None else name,
+            "body": notes,
+            "draft": draft,
+            "prerelease": prerelease,
+            "upload_url": f"https://uploads.github.test/repos/{REPOSITORY}/releases/{release_id}/assets{{?name,label}}",
+        }
+        self.releases.append(release)
+        self.assets[release_id] = []
+        return release
+
+    def add_asset(self, release: dict[str, object], name: str, data: bytes, *, digest: str | None = None) -> None:
+        asset_id = self.next_asset_id
+        self.next_asset_id += 1
+        current = {
+            "id": asset_id,
+            "name": name,
+            "size": len(data),
+            "digest": f"sha256:{sha256(data)}" if digest is None else digest,
+        }
+        self.assets[int(release["id"])].append(current)
+        self.asset_bytes[asset_id] = data
+
+    def client(self, method: str, url: str, headers: dict[str, str], body: bytes | None) -> HttpResponse:
+        if headers.get("Authorization") != "Bearer synthetic-github-token":
+            return HttpResponse(401, b"{}")
+        parsed = urllib.parse.urlsplit(url)
+        path = parsed.path
+        releases_path = f"/repos/{REPOSITORY}/releases"
+        if method == "GET" and path == releases_path:
+            page = urllib.parse.parse_qs(parsed.query).get("page", ["1"])[0]
+            return HttpResponse(200, json.dumps(self.releases if page == "1" else []).encode())
+        if method == "POST" and path == releases_path:
+            model = json.loads((body or b"").decode())
+            identity = ReleaseIdentity(model["tag_name"][1:], model["tag_name"], "unused")
+            release = self.add_release(
+                identity,
+                model["body"],
+                draft=model["draft"],
+                name=model["name"],
+                prerelease=model["prerelease"],
+            )
+            return HttpResponse(201, json.dumps(release).encode())
+        release_match = re.fullmatch(re.escape(releases_path) + r"/([0-9]+)", path)
+        if release_match:
+            release_id = int(release_match.group(1))
+            release = next((item for item in self.releases if item["id"] == release_id), None)
+            if release is None:
+                return HttpResponse(404, b"{}")
+            if method == "GET":
+                return HttpResponse(200, json.dumps(release).encode())
+            if method == "PATCH":
+                model = json.loads((body or b"").decode())
+                if release["draft"] and model.get("draft") is False:
+                    self.published_transitions += 1
+                release.update({key: value for key, value in model.items() if key != "make_latest"})
+                return HttpResponse(200, json.dumps(release).encode())
+        assets_match = re.fullmatch(re.escape(releases_path) + r"/([0-9]+)/assets", path)
+        if assets_match and method == "GET":
+            return HttpResponse(200, json.dumps(self.assets[int(assets_match.group(1))]).encode())
+        delete_match = re.fullmatch(re.escape(releases_path) + r"/assets/([0-9]+)", path)
+        if delete_match and method == "DELETE":
+            asset_id = int(delete_match.group(1))
+            for release_assets in self.assets.values():
+                release_assets[:] = [item for item in release_assets if item["id"] != asset_id]
+            self.asset_bytes.pop(asset_id, None)
+            return HttpResponse(204, b"")
+        upload_match = re.fullmatch(re.escape(releases_path) + r"/([0-9]+)/assets", path)
+        if parsed.netloc == "uploads.github.com" and upload_match and method == "POST":
+            name = urllib.parse.parse_qs(parsed.query).get("name", [""])[0]
+            release = next(item for item in self.releases if item["id"] == int(upload_match.group(1)))
+            self.add_asset(release, name, body or b"")
+            if self.fail_after_stored_upload and not self.failed_once:
+                self.failed_once = True
+                return HttpResponse(500, b"{}")
+            return HttpResponse(201, b"{}")
+        return HttpResponse(404, b"{}")
+
+
+def github_finalizer_regression_tests(
+    identity: ReleaseIdentity,
+    output: Path,
+    commit: str,
+    originals: tuple[Original, ...],
+) -> list[str]:
+    errors: list[str] = []
+    required = globals().get("github_release_inputs")
+    finalize = globals().get("finalize_github_release_state")
+    if required is None or finalize is None:
+        return ["self-test requires draft-first idempotent GitHub finalizer mode"]
+    expected, notes = required(output, identity, commit, originals)
+
+    absent = FakeGitHub()
+    finalize(identity, commit, expected, notes, "synthetic-github-token", absent.client)
+    if len(absent.releases) != 1 or absent.releases[0]["draft"] is not False:
+        errors.append("absent GitHub release did not converge through a draft to publication")
+    if set(item["name"] for item in absent.assets[1]) != set(expected) or absent.published_transitions != 1:
+        errors.append("absent GitHub release did not upload exactly 22 assets before one publish transition")
+
+    interrupted = FakeGitHub()
+    interrupted.fail_after_stored_upload = True
+    expect_error(
+        errors,
+        "injected partial GitHub asset upload failure",
+        lambda: finalize(identity, commit, expected, notes, "synthetic-github-token", interrupted.client),
+    )
+    if not interrupted.releases or interrupted.releases[0]["draft"] is not True or interrupted.published_transitions:
+        errors.append("failed partial GitHub upload published the draft")
+    finalize(identity, commit, expected, notes, "synthetic-github-token", interrupted.client)
+    if interrupted.releases[0]["draft"] is not False or set(item["name"] for item in interrupted.assets[1]) != set(expected):
+        errors.append("GitHub finalizer rerun did not converge after partial upload")
+
+    repair = FakeGitHub()
+    repair_release = repair.add_release(identity, notes, draft=True)
+    first_name = sorted(expected)[0]
+    repair.add_asset(repair_release, first_name, b"wrong")
+    finalize(identity, commit, expected, notes, "synthetic-github-token", repair.client)
+    repaired_assets = repair.assets[int(repair_release["id"])]
+    repaired = next(item for item in repaired_assets if item["name"] == first_name)
+    if not exact_github_asset(repaired, first_name, expected[first_name]) or repair_release["draft"] is not False:
+        errors.append("wrong expected draft asset was not replaced before publication")
+
+    unexpected_draft = FakeGitHub()
+    unexpected_release = unexpected_draft.add_release(identity, notes, draft=True)
+    unexpected_draft.add_asset(unexpected_release, "unexpected", b"x")
+    expect_error(
+        errors,
+        "unexpected draft GitHub asset",
+        lambda: finalize(identity, commit, expected, notes, "synthetic-github-token", unexpected_draft.client),
+    )
+    if unexpected_release["draft"] is not True:
+        errors.append("unexpected GitHub draft asset did not fail before publication")
+
+    duplicate_asset = FakeGitHub()
+    duplicate_asset_release = duplicate_asset.add_release(identity, notes, draft=True)
+    duplicate_asset.add_asset(duplicate_asset_release, first_name, expected[first_name])
+    duplicate_asset.add_asset(duplicate_asset_release, first_name, expected[first_name])
+    expect_error(
+        errors,
+        "duplicate draft GitHub asset name",
+        lambda: finalize(identity, commit, expected, notes, "synthetic-github-token", duplicate_asset.client),
+    )
+
+    published = FakeGitHub()
+    exact_release = published.add_release(identity, notes, draft=False)
+    for name, data in expected.items():
+        published.add_asset(exact_release, name, data)
+    finalize(identity, commit, expected, notes, "synthetic-github-token", published.client)
+    if published.published_transitions:
+        errors.append("exact published GitHub prerelease rerun was not idempotent")
+
+    def rejected(label: str, mutate: Callable[[FakeGitHub, dict[str, object]], None]) -> None:
+        fixture = FakeGitHub()
+        release = fixture.add_release(identity, notes, draft=False)
+        for name, data in expected.items():
+            fixture.add_asset(release, name, data)
+        mutate(fixture, release)
+        expect_error(errors, label, lambda: finalize(identity, commit, expected, notes, "synthetic-github-token", fixture.client))
+        if fixture.published_transitions:
+            errors.append(f"{label} unexpectedly mutated published state")
+
+    rejected("unexpected published GitHub asset", lambda fixture, release: fixture.add_asset(release, "unexpected", b"x"))
+    rejected("wrong published GitHub asset bytes", lambda fixture, _release: fixture.assets[1][0].update(size=999))
+    rejected("wrong published GitHub asset digest", lambda fixture, _release: fixture.assets[1][0].update(digest="sha256:" + "0" * 64))
+    rejected("wrong published GitHub notes", lambda _fixture, release: release.update(body="wrong"))
+    rejected("wrong published GitHub tag", lambda _fixture, release: release.update(tag_name="v9.9.9"))
+    rejected("wrong published GitHub title", lambda _fixture, release: release.update(name="wrong"))
+    rejected("wrong published GitHub type", lambda _fixture, release: release.update(prerelease=False))
+
+    duplicate = FakeGitHub()
+    duplicate.add_release(identity, notes, draft=True)
+    duplicate.add_release(identity, notes, draft=True)
+    expect_error(errors, "duplicate GitHub release for exact tag", lambda: finalize(identity, commit, expected, notes, "synthetic-github-token", duplicate.client))
+
+    missing = output / "release-notes.md"
+    saved = missing.read_bytes()
+    missing.unlink()
+    try:
+        expect_error(errors, "missing finalizer output", lambda: required(output, identity, commit, originals))
+    finally:
+        missing.write_bytes(saved)
+    return errors
+
+
+def setup_regression_tests() -> list[str]:
+    errors: list[str] = []
+    baseline = setup_errors(ROOT)
+    if baseline:
+        return ["self-test setup baseline failed: " + "; ".join(baseline)]
+    with tempfile.TemporaryDirectory() as temporary:
+        fixture = Path(temporary) / "repository"
+        shutil.copytree(ROOT, fixture, symlinks=True, ignore=shutil.ignore_patterns(".git", "build", "__pycache__"))
+        workflow_path = fixture / ".github/workflows/release.yml"
+        original = workflow_path.read_text(encoding="utf-8")
+        cases = (
+            (
+                "missing GitHub finalizer invocation",
+                "invoke GitHub finalizer mode",
+                original.replace("./tools/publish-central-release --finalize-github-release", "true", 1),
+            ),
+            (
+                "Central secret exposed to GitHub finalizer",
+                "release secret references",
+                original.replace(
+                    "          GH_TOKEN: ${{ github.token }}",
+                    "          GH_TOKEN: ${{ github.token }}\n          CENTRAL_PORTAL_TOKEN: ${{ secrets.CENTRAL_PORTAL_TOKEN }}",
+                    1,
+                ),
+            ),
+            (
+                "GitHub finalizer before Central publish",
+                "ordering is invalid",
+                original
+                .replace("./tools/publish-central-release --publish", "ORDER_PLACEHOLDER", 1)
+                .replace("./tools/publish-central-release --finalize-github-release", "./tools/publish-central-release --publish", 1)
+                .replace("ORDER_PLACEHOLDER", "./tools/publish-central-release --finalize-github-release", 1),
+            ),
+            (
+                "one-shot gh release creation",
+                "idempotent finalizer",
+                original + "\n# gh release create build/release/github-assets/*\n",
+            ),
+        )
+        for label, expected, workflow in cases:
+            workflow_path.write_text(workflow, encoding="utf-8")
+            actual = setup_errors(fixture)
+            if not any(expected in item for item in actual):
+                errors.append(f"self-test accepted {label} without {expected!r}: {actual}")
+        workflow_path.write_text(original, encoding="utf-8")
+    return errors
+
+
+def rewrite_zip(data: bytes, mutate: Callable[[dict[str, bytes]], None]) -> bytes:
+    members = zip_member_map(data)
+    mutate(members)
+    output = io.BytesIO()
+    with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        for name, content in sorted(members.items()):
+            archive.writestr(name, content)
+    return output.getvalue()
+
+
+def self_test() -> list[str]:
+    errors: list[str] = []
+    valid_build = f'group = "{GROUP}"\nversion = "0.1.0"\n'
+    identity = configured_identity(valid_build, "v0.1.0")
+    expect_error(errors, "snapshot version", lambda: configured_identity(valid_build.replace("0.1.0", "0.1.0-SNAPSHOT")))
+    expect_error(errors, "wrong tag", lambda: configured_identity(valid_build, "v0.1.1"))
+    expect_error(errors, "wrong GAV", lambda: configured_identity(valid_build.replace(GROUP, "example.invalid")))
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        version_directory = root / "maven"
+        version_directory.mkdir()
+        for index, name in enumerate(original_names(identity)):
+            data = f"synthetic-{index}".encode("ascii")
+            (version_directory / name).write_bytes(data)
+            (version_directory / (name + ".sha256")).write_text(sha256(data) + "\n", encoding="ascii")
+        originals = staged_originals(version_directory, identity)
+        missing = root / "missing"
+        shutil.copytree(version_directory, missing)
+        (missing / original_names(identity)[0]).unlink()
+        expect_error(errors, "missing original", lambda: staged_originals(missing, identity))
+        extra = root / "extra"
+        shutil.copytree(version_directory, extra)
+        (extra / "unexpected.jar").write_bytes(b"extra")
+        expect_error(errors, "extra original", lambda: staged_originals(extra, identity))
+        manifest = release_manifest(identity, "a" * 40, originals)
+        signatures = {item.name: b"sig:" + item.data for item in originals}
+        checksums = sidecars(originals)
+        assets = asset_map(originals, signatures, checksums)
+        bundle = zip_bytes(identity, assets)
+        synthetic_verifier = lambda _name, signature, original: signature == b"sig:" + original
+        try:
+            verify_zip(bundle, identity, originals, manifest, synthetic_verifier)
+        except ReleaseError as error:
+            errors.append(f"self-test rejected exact 20-member ZIP: {error}")
+        members = zip_member_map(bundle)
+        if len(members) != 20:
+            errors.append(f"self-test ZIP has {len(members)} members instead of 20")
+        first = originals[0]
+        changed = replace(first, data=first.data + b"changed")
+        expect_error(errors, "changed manifest hash", lambda: validate_manifest(manifest, (changed, *originals[1:])))
+        missing_signature = rewrite_zip(bundle, lambda values: values.pop(first.relative_path + ".asc"))
+        expect_error(errors, "missing signature", lambda: verify_zip(missing_signature, identity, originals, manifest, synthetic_verifier))
+        expect_error(errors, "bad signature verifier", lambda: verify_zip(bundle, identity, originals, manifest, lambda *_: False))
+        bad_sidecar = rewrite_zip(bundle, lambda values: values.__setitem__(first.relative_path + ".sha1", b"0" * 40 + b"\n"))
+        expect_error(errors, "mandatory sidecar mismatch", lambda: verify_zip(bad_sidecar, identity, originals, manifest, synthetic_verifier))
+        output = root / "release"
+        output.mkdir()
+        expect_error(errors, "pre-existing output", lambda: ensure_output_absent(output))
+        output.rmdir()
+        write_outputs(output, identity, assets, bundle, manifest_bytes(manifest), "## [0.1.0]\n\nNotes.\n")
+        if not (output / "release-manifest.json").is_file() or len(list((output / "github-assets").iterdir())) != 20:
+            errors.append("self-test release outputs are incomplete")
+        errors.extend(github_finalizer_regression_tests(identity, output, "a" * 40, originals))
+    good_listing = f"sec:u:4096:1:x:0:0::::::\nfpr:::::::::{FINGERPRINT}:\n"
+    bad_listing = good_listing.replace(FINGERPRINT, "0" * 40)
+    if secret_primary_fingerprints(good_listing) != (FINGERPRINT,):
+        errors.append("self-test rejected approved secret primary fingerprint")
+    expect_error(errors, "wrong secret primary fingerprint", lambda: require_secret_primary_fingerprint(bad_listing))
+    if deployment_state(b'{"deploymentState":"PUBLISHED"}') != "PUBLISHED" or not status_complete("PUBLISHED"):
+        errors.append("self-test rejected PUBLISHED deployment state")
+    expect_error(errors, "terminal FAILED deployment", lambda: status_complete("FAILED"))
+    expect_error(errors, "unknown deployment state", lambda: status_complete("UNKNOWN"))
+
+    def client_for(states: tuple[str, ...]) -> HttpClient:
+        mapping = dict(zip(central_urls(originals), states))
+
+        def client(_method: str, url: str, _headers: dict[str, str], _body: bytes | None) -> HttpResponse:
+            state = mapping[url]
+            if state == "absent":
+                return HttpResponse(404, b"")
+            if state == "matching":
+                original = originals[central_urls(originals).index(url)]
+                return HttpResponse(200, original.data)
+            return HttpResponse(200, b"wrong")
+
+        return client
+
+    if central_preflight(originals, client_for(("absent",) * 5)) != "upload":
+        errors.append("self-test rejected wholly absent Central coordinate")
+    if central_preflight(originals, client_for(("matching",) * 5)) != "recover":
+        errors.append("self-test rejected matching Central rerun recovery")
+    expect_error(errors, "partial Central resolution", lambda: central_preflight(originals, client_for(("matching", "absent", "absent", "absent", "absent"))))
+    expect_error(errors, "mismatched Central resolution", lambda: central_preflight(originals, client_for(("mismatch",) * 5)))
+    changelog = "# Changelog\n\n## [0.2.0]\n\nCurrent notes.\n\n## [0.1.0]\n\nOld notes.\n"
+    if extract_release_notes(changelog, "0.2.0") != "## [0.2.0]\n\nCurrent notes.\n":
+        errors.append("self-test release-note extraction mismatch")
+    expect_error(errors, "missing release notes", lambda: extract_release_notes(changelog, "0.3.0"))
+    guard_fixture = """jobs:
+  release:
+    if: >-
+      github.repository == 'bernhardberger/tvheadend-htsp' &&
+      github.ref_type == 'tag' &&
+      startsWith(github.ref, 'refs/tags/v')
+    environment: central
+"""
+    if release_job_guard_errors(guard_fixture):
+        errors.append("self-test rejected the release job repository and tag guard")
+    bad_guard = guard_fixture.replace("      github.ref_type == 'tag' &&\n", "")
+    if not release_job_guard_errors(bad_guard):
+        errors.append("self-test accepted a release job without the tag-type guard")
+    recover = globals().get("recover_published_assets")
+    if recover is None:
+        errors.append("self-test requires exact published-member recovery")
+    else:
+        published_signatures = {item.name: b"published-signature:" + item.data for item in originals}
+        published_assets = asset_map(originals, published_signatures, sidecars(originals))
+
+        def published_client(missing_name: str | None = None, changed_name: str | None = None) -> HttpClient:
+            responses = {
+                central_member_url(identity, name): data
+                for name, data in published_assets.items()
+            }
+
+            def client(_method: str, url: str, _headers: dict[str, str], _body: bytes | None) -> HttpResponse:
+                name = next((candidate for candidate in published_assets if central_member_url(identity, candidate) == url), "")
+                if name == missing_name:
+                    return HttpResponse(404, b"")
+                data = responses.get(url)
+                if data is None:
+                    return HttpResponse(404, b"")
+                return HttpResponse(200, b"changed" if name == changed_name else data)
+
+            return client
+
+        published_verifier = lambda _name, signature, original: signature == b"published-signature:" + original
+        recovered_assets, recovered_bundle = recover(
+            identity, originals, manifest, published_client(), published_verifier
+        )
+        if recovered_assets != published_assets:
+            errors.append("recovery did not preserve exact server-returned member bytes")
+        try:
+            verify_zip(recovered_bundle, identity, originals, manifest, published_verifier)
+        except ReleaseError as error:
+            errors.append(f"recovery reconstructed an invalid Central ZIP: {error}")
+        expect_error(
+            errors,
+            "missing published sidecar",
+            lambda: recover(identity, originals, manifest, published_client(missing_name=first.name + ".sha1"), published_verifier),
+        )
+        expect_error(
+            errors,
+            "mismatched published sidecar",
+            lambda: recover(identity, originals, manifest, published_client(changed_name=first.name + ".md5"), published_verifier),
+        )
+        expect_error(
+            errors,
+            "mismatched published signature",
+            lambda: recover(identity, originals, manifest, published_client(changed_name=first.name + ".asc"), published_verifier),
+        )
+        try:
+            poll_published_assets(identity, originals, published_assets, published_client(), timeout=0)
+        except ReleaseError as error:
+            errors.append(f"self-test rejected exact 20-member Central resolution: {error}")
+        expect_error(
+            errors,
+            "mismatched uploaded Central member",
+            lambda: poll_published_assets(
+                identity,
+                originals,
+                published_assets,
+                published_client(changed_name=first.name + ".asc"),
+                timeout=0,
+            ),
+        )
+    announce = globals().get("announce_and_poll")
+    if announce is None:
+        errors.append("self-test requires flushed deployment UUID output before polling")
+    else:
+        class FlushRecorder(io.StringIO):
+            flushed = False
+
+            def flush(self) -> None:
+                self.flushed = True
+                super().flush()
+
+        recorder = FlushRecorder()
+        deployment = "12345678-1234-4234-8234-123456789abc"
+        visible_before_poll = False
+
+        def failed_status(_method: str, _url: str, _headers: dict[str, str], _body: bytes | None) -> HttpResponse:
+            nonlocal visible_before_poll
+            visible_before_poll = recorder.getvalue() == f"CENTRAL_DEPLOYMENT_ID={deployment}\n" and recorder.flushed
+            return HttpResponse(200, b'{"deploymentState":"FAILED"}')
+
+        try:
+            announce(deployment, "synthetic-token", failed_status, recorder, timeout=0)
+            errors.append("self-test accepted a terminal deployment failure")
+        except ReleaseError as error:
+            if deployment not in str(error):
+                errors.append("deployment failure omitted the safe deployment UUID")
+        if recorder.getvalue() != f"CENTRAL_DEPLOYMENT_ID={deployment}\n" or not recorder.flushed:
+            errors.append("deployment UUID was not printed and flushed before status polling")
+        if not visible_before_poll:
+            errors.append("status polling began before the deployment UUID was visible")
+    with tempfile.TemporaryDirectory() as temporary:
+        cleanup_root = Path(temporary)
+        homes = (cleanup_root / "gnupg-private", cleanup_root / "nested/gnupg-public")
+        for home in homes:
+            home.mkdir(parents=True)
+        cleanup_commands: list[tuple[str, ...]] = []
+
+        def cleanup_runner(command: tuple[str, ...]) -> subprocess.CompletedProcess[bytes]:
+            cleanup_commands.append(command)
+            return subprocess.CompletedProcess(command, 0, b"", b"")
+
+        terminate_gpg_agents(cleanup_root, cleanup_runner)
+        expected_cleanup = {
+            ("gpgconf", "--homedir", str(home), "--kill", "all")
+            for home in homes
+        }
+        if set(cleanup_commands) != expected_cleanup:
+            errors.append("temporary gpg-agent cleanup did not target every GNUPGHOME")
+
+        def failing_cleanup_runner(_command: tuple[str, ...]) -> subprocess.CompletedProcess[bytes]:
+            raise RuntimeError("synthetic cleanup failure")
+
+        try:
+            terminate_gpg_agents(cleanup_root, failing_cleanup_runner)
+        except Exception:
+            errors.append("best-effort gpg-agent cleanup masked the primary result")
+    errors.extend(setup_regression_tests())
+    return errors
+
+
+def publish() -> None:
+    build_text = read_regular(ROOT / "build.gradle.kts", "build.gradle.kts").decode("utf-8")
+    tag = os.environ.get("GITHUB_REF_NAME", "")
+    identity = configured_identity(build_text, tag)
+    commit = require_publish_context(identity)
+    output = ROOT / "build/release"
+    ensure_output_absent(output)
+    version_directory = ROOT.joinpath("build/local-maven", *GROUP.split("."), ARTIFACT, identity.version)
+    originals = staged_originals(version_directory, identity)
+    changelog = read_regular(ROOT / "CHANGELOG.md", "CHANGELOG.md").decode("utf-8")
+    notes = extract_release_notes(changelog, identity.version)
+    manifest = release_manifest(identity, commit, originals)
+    validate_manifest(manifest, originals)
+    public_key = read_regular(ROOT / "release/openpgp/public-key.asc", "tracked public key")
+    decision = central_preflight(originals, stdlib_http)
+    build_directory = ROOT / "build"
+    build_directory.mkdir(exist_ok=True)
+    temporary = Path(tempfile.mkdtemp(prefix=".central-release-", dir=build_directory))
+    temporary.chmod(0o700)
+    try:
+        workspace = temporary / "private"
+        workspace.mkdir(mode=0o700)
+        if decision == "upload":
+            try:
+                private_key = os.environ["MAVEN_GPG_PRIVATE_KEY"].encode("utf-8")
+                passphrase = os.environ["MAVEN_GPG_PASSPHRASE"]
+                token = os.environ["CENTRAL_PORTAL_TOKEN"]
+            except KeyError as error:
+                raise ReleaseError(f"required release secret is unavailable: {error.args[0]}") from error
+            if not private_key:
+                raise ReleaseError("MAVEN_GPG_PRIVATE_KEY is empty")
+            validate_portal_token(token)
+            signatures, verifier = sign_originals(workspace, originals, private_key, passphrase, public_key)
+            assets = asset_map(originals, signatures, sidecars(originals))
+            bundle = zip_bytes(identity, assets)
+            verify_zip(bundle, identity, originals, manifest, verifier)
+            deployment = upload_bundle(bundle, identity, token, stdlib_http)
+            announce_and_poll(deployment, token, stdlib_http)
+            poll_published_assets(identity, originals, assets, stdlib_http)
+        else:
+            verifier = public_signature_verifier(workspace, public_key)
+            assets, bundle = recover_published_assets(identity, originals, manifest, stdlib_http, verifier)
+        pending_output = temporary / "release"
+        write_outputs(pending_output, identity, assets, bundle, manifest_bytes(manifest), notes)
+        ensure_output_absent(output)
+        os.replace(pending_output, output)
+    finally:
+        terminate_gpg_agents(temporary)
+        shutil.rmtree(temporary, ignore_errors=True)
+    print(f"Central release verified for {identity.coordinate}; GitHub assets are ready")
+
+
+def finalize_github_release() -> None:
+    build_text = read_regular(ROOT / "build.gradle.kts", "build.gradle.kts").decode("utf-8")
+    tag = os.environ.get("GITHUB_REF_NAME", "")
+    identity = configured_identity(build_text, tag)
+    commit = require_publish_context(identity)
+    for name in SECRET_NAMES:
+        if name in os.environ:
+            raise ReleaseError(f"GitHub finalizer must not receive Central or GPG secret: {name}")
+    token = os.environ.get("GH_TOKEN", "")
+    if not token or any(character.isspace() for character in token):
+        raise ReleaseError("GH_TOKEN is unavailable or malformed")
+    version_directory = ROOT.joinpath("build/local-maven", *GROUP.split("."), ARTIFACT, identity.version)
+    originals = staged_originals(version_directory, identity)
+    expected, notes = github_release_inputs(ROOT / "build/release", identity, commit, originals)
+    finalize_github_release_state(identity, commit, expected, notes, token, stdlib_http)
+    print(f"GitHub prerelease finalized for {identity.tag} with 22 exact assets")
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    modes = parser.add_mutually_exclusive_group(required=True)
+    modes.add_argument("--self-test", action="store_true")
+    modes.add_argument("--check-setup", action="store_true")
+    modes.add_argument("--publish", action="store_true")
+    modes.add_argument("--finalize-github-release", action="store_true")
+    arguments = parser.parse_args()
+    try:
+        if arguments.self_test:
+            errors = self_test()
+            success = "Central release synthetic self-tests passed"
+        elif arguments.check_setup:
+            errors = setup_errors()
+            success = "Central release setup check passed"
+        elif arguments.publish:
+            publish()
+            return 0
+        else:
+            finalize_github_release()
+            return 0
+    except (ReleaseError, UnicodeError) as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 1
+    for error in errors:
+        print(f"error: {error}", file=sys.stderr)
+    if errors:
+        return 1
+    print(success)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

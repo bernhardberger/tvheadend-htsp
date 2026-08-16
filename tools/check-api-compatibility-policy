@@ -71,12 +71,11 @@ RELEASE_RELEASING_CLAIMS = (
     f"Release notes for `{RELEASE}` define only the initial provisional baseline.",
     "They do not promise compatibility or support.",
     "Major zero communicates that status; the Maven version does not need an alpha suffix.",
-    "Candidate preparation and local staging do not establish external publication or availability.",
+    "Local staging does not establish external publication or availability.",
     "Publication and availability are independently verified external state.",
-    "External publication, signing, tagging, and release creation require separate owner authorization.",
-    f"The release uses the `v{RELEASE}` tag vocabulary.",
-    "A GitHub Release may independently use its optional pre-release marker as a later Gate C action",
-    "that marker does not change the ordinary Maven version or tag vocabulary.",
+    "This repository does not claim that publication has occurred.",
+    f"For the current release that tag is `v{RELEASE}`.",
+    "The GitHub prerelease marker does not change the Maven version or tag vocabulary.",
 )
 SNAPSHOT_CHANGELOG_CLAIMS = (
     f"This unreleased entry records the checkout-local `{VERSION}` baseline.",
