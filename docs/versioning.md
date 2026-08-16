@@ -1,8 +1,8 @@
 # Versioning and compatibility
 
 The current coordinate is
-`at.bernhardberger.tvheadend:htsp:0.1.0-alpha.1-SNAPSHOT`.
-`0.1.0-alpha.1-SNAPSHOT` is a mutable, checkout-local snapshot. It is not
+`at.bernhardberger.tvheadend:htsp:0.1.0-SNAPSHOT`.
+`0.1.0-SNAPSHOT` is a mutable, checkout-local snapshot. It is not
 available from any public repository.
 
 An immutable release must use a new version; published release bytes must never
@@ -16,6 +16,8 @@ No source, binary, or behavioral compatibility is promised for the provisional
 0.x line. A known breaking change requires the next minor version, not a patch
 version. Patch versions are reserved for backward-compatible fixes.
 
-The planned first pre-release is `0.1.0-alpha.1`. Read its release notes before
-using it as a baseline. Local checks and CI staging do not establish
-publication, distribution, Java 17 runtime support, or release readiness.
+The planned first release is `0.1.0`, an ordinary provisional major-zero
+release. It has not been published. Major zero communicates the
+initial-development compatibility status without a Maven alpha suffix. Read its
+release notes before using it as a baseline. Local checks and CI staging do not
+establish publication, distribution, Java 17 runtime support, or release readiness.

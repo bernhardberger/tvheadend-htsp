@@ -26,7 +26,7 @@ java {
 }
 
 dependencies {
-    implementation("at.bernhardberger.tvheadend:htsp:0.1.0-alpha.1-SNAPSHOT")
+    implementation("at.bernhardberger.tvheadend:htsp:0.1.0-SNAPSHOT")
 }
 
 tasks.withType<JavaCompile>().configureEach {
@@ -46,7 +46,7 @@ tasks.register("verifyConsumerDependencyGraph") {
     doLast {
         val htspGroup = "at.bernhardberger.tvheadend"
         val htspModule = "htsp"
-        val htspVersion = "0.1.0-alpha.1-SNAPSHOT"
+        val htspVersion = "0.1.0-SNAPSHOT"
 
         check(gradle.includedBuilds.isEmpty()) {
             "The HTSP consumer must not use included builds or composite substitution"
@@ -105,7 +105,7 @@ tasks.register("verifyConsumerDependencyGraph") {
             "${identifier.group}:${identifier.module}:${identifier.version}"
         }.sorted()
         val expectedExternalComponents = listOf(
-            "at.bernhardberger.tvheadend:htsp:0.1.0-alpha.1-SNAPSHOT",
+            "at.bernhardberger.tvheadend:htsp:0.1.0-SNAPSHOT",
             "org.jetbrains:annotations:23.0.0",
             "org.jetbrains.kotlin:kotlin-stdlib:2.3.10",
             "org.jetbrains.kotlinx:kotlinx-coroutines-bom:1.10.2",
@@ -178,7 +178,7 @@ tasks.register("verifyConsumerDependencyGraph") {
             "HTSP snapshot metadata is missing from $versionDirectory"
         }
         val snapshotStem = Regex(
-            "^htsp-0\\.1\\.0-alpha\\.1-\\d{8}\\.\\d{6}-[1-9]\\d*",
+            "^htsp-0\\.1\\.0-\\d{8}\\.\\d{6}-[1-9]\\d*",
         )
         val primaryArtifacts = versionDirectory.listFiles()
             .orEmpty()

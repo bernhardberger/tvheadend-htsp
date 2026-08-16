@@ -29,7 +29,7 @@ no Android, Media3, or decoder code.
 ## Installation
 
 The checkout currently uses the mutable, local-only snapshot
-`at.bernhardberger.tvheadend:htsp:0.1.0-alpha.1-SNAPSHOT`. It is not available
+`at.bernhardberger.tvheadend:htsp:0.1.0-SNAPSHOT`. It is not available
 from Maven Central or another public repository. CI stages that coordinate only
 inside this checkout for the independent consumer contract.
 
@@ -38,13 +38,13 @@ The Gradle dependency is:
 <!-- dependency-static:htsp -->
 ```kotlin
 dependencies {
-    implementation("at.bernhardberger.tvheadend:htsp:0.1.0-alpha.1-SNAPSHOT")
+    implementation("at.bernhardberger.tvheadend:htsp:0.1.0-SNAPSHOT")
 }
 ```
 
-The API is pre-release and may change; see [versioning and
-compatibility](docs/versioning.md), [release policy](docs/releasing.md), and the
-[unreleased change history](CHANGELOG.md).
+The API is provisional during the major-zero line and may change; see
+[versioning and compatibility](docs/versioning.md), [release
+policy](docs/releasing.md), and the [unreleased change history](CHANGELOG.md).
 
 ## Quick start
 

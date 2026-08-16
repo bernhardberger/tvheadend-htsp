@@ -21,7 +21,7 @@ ROOT = Path(__file__).resolve().parents[1]
 REPOSITORY = ROOT / "build/local-maven"
 GROUP = "at.bernhardberger.tvheadend"
 ARTIFACT = "htsp"
-ALLOWED_VERSIONS = {"0.1.0-alpha.1-SNAPSHOT", "0.1.0-alpha.1"}
+ALLOWED_VERSIONS = {"0.1.0-SNAPSHOT", "0.1.0"}
 
 
 def configured_version() -> str:
@@ -531,7 +531,7 @@ def write_jar(path: Path, kind: str, wrong_major: bool = False) -> None:
             archive.writestr("docs/index.md", "documentation")
 
 
-def create_fixture(root: Path, version: str = "0.1.0-alpha.1-SNAPSHOT") -> Path:
+def create_fixture(root: Path, version: str = "0.1.0-SNAPSHOT") -> Path:
     global VERSION, RELEASE_BASE
     VERSION = version
     RELEASE_BASE = VERSION.removesuffix("-SNAPSHOT")
@@ -559,7 +559,7 @@ def create_fixture(root: Path, version: str = "0.1.0-alpha.1-SNAPSHOT") -> Path:
     return repository
 
 
-def fixture_verify(repository: Path, version: str = "0.1.0-alpha.1-SNAPSHOT") -> tuple[list[str], dict[str, str]]:
+def fixture_verify(repository: Path, version: str = "0.1.0-SNAPSHOT") -> tuple[list[str], dict[str, str]]:
     global REPOSITORY, VERSION, RELEASE_BASE
     original = REPOSITORY
     original_version = VERSION
@@ -577,6 +577,9 @@ def fixture_verify(repository: Path, version: str = "0.1.0-alpha.1-SNAPSHOT") ->
 
 def self_test() -> list[str]:
     errors: list[str] = []
+    expected_versions = {"0.1.0-SNAPSHOT", "0.1.0"}
+    if ALLOWED_VERSIONS != expected_versions:
+        errors.append("self-test rejected the legacy alpha-pinned publication versions")
     with tempfile.TemporaryDirectory() as temporary:
         root = Path(temporary)
         for version in sorted(ALLOWED_VERSIONS):
@@ -584,19 +587,26 @@ def self_test() -> list[str]:
             baseline_errors, _ = fixture_verify(repository, version)
             if baseline_errors:
                 errors.append(f"self-test rejected valid {version} publication fixture: " + "; ".join(baseline_errors))
-        unsupported = "0.1.0-alpha.2"
+        unsupported = "0.2.0"
         unsupported_repository = create_fixture(root / unsupported, unsupported)
         unsupported_errors, _ = fixture_verify(unsupported_repository, unsupported)
         if not any("publication version must be exactly" in error for error in unsupported_errors):
             errors.append(f"self-test accepted unsupported publication version: {unsupported_errors}")
 
-        create_fixture(root, "0.1.0-alpha.1-SNAPSHOT")
+        legacy_release = "0.1.0-" + "alpha.1"
+        for legacy_version in (legacy_release, legacy_release + "-SNAPSHOT"):
+            legacy_repository = create_fixture(root / legacy_version, legacy_version)
+            legacy_errors, _ = fixture_verify(legacy_repository, legacy_version)
+            if not any("publication version must be exactly" in error for error in legacy_errors):
+                errors.append(f"self-test accepted legacy alpha publication version or filenames: {legacy_errors}")
+
+        create_fixture(root, "0.1.0-SNAPSHOT")
 
         def mutate_and_check(name: str, mutate: Any, expected: str) -> None:
             case_root = root / name.replace(" ", "-")
-            case_repository = create_fixture(case_root, "0.1.0-alpha.1-SNAPSHOT")
+            case_repository = create_fixture(case_root, "0.1.0-SNAPSHOT")
             mutate(case_repository)
-            actual, _ = fixture_verify(case_repository, "0.1.0-alpha.1-SNAPSHOT")
+            actual, _ = fixture_verify(case_repository, "0.1.0-SNAPSHOT")
             if not any(expected in error for error in actual):
                 errors.append(f"self-test accepted {name} without {expected!r}: {actual}")
 

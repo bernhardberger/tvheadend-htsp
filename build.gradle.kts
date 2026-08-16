@@ -15,11 +15,11 @@ plugins {
 }
 
 group = "at.bernhardberger.tvheadend"
-version = "0.1.0-alpha.1-SNAPSHOT"
+version = "0.1.0-SNAPSHOT"
 
 val allowedPublicationVersions = setOf(
-    "0.1.0-alpha.1-SNAPSHOT",
-    "0.1.0-alpha.1",
+    "0.1.0-SNAPSHOT",
+    "0.1.0",
 )
 check(version.toString() in allowedPublicationVersions) {
     "Publication version must be exactly one of $allowedPublicationVersions"
@@ -177,7 +177,7 @@ val writePublicationChecksums by tasks.registering {
         }
         val artifacts = if (publicationVersion.endsWith("-SNAPSHOT")) {
             val artifactPattern = Regex(
-                "^htsp-0\\.1\\.0-alpha\\.1-\\d{8}\\.\\d{6}-\\d+" +
+                "^htsp-0\\.1\\.0-\\d{8}\\.\\d{6}-\\d+" +
                     "(?:-sources|-javadoc)?\\.(?:jar|pom|module)$",
             )
             versionDirectory.listFiles()

@@ -1,8 +1,9 @@
 # Releasing
 
-`0.1.0-alpha.1` is the planned first release. It has not been released.
-Release notes for `0.1.0-alpha.1` define only the initial provisional baseline.
-They do not promise compatibility or support.
+`0.1.0` is the planned first provisional major-zero release. It has not been
+released or published. Release notes for `0.1.0` define only the initial
+provisional baseline. They do not promise compatibility or support. Major zero
+communicates that status; the Maven version does not need an alpha suffix.
 
 This repository currently stages snapshots only to checkout-local
 `build/local-maven` in CI. External publication, signing, tagging, and release
@@ -15,8 +16,8 @@ tooling and policy only. It is not release, signing, publication, distribution,
 or release-readiness evidence.
 
 `tools/check-published-jvm-compatibility` accepts only the current
-`0.1.0-alpha.1-SNAPSHOT` staging topology and the future
-`0.1.0-alpha.1` release topology. Every other version is rejected. Both forms
+`0.1.0-SNAPSHOT` staging topology and the future `0.1.0` release topology. Every
+other version is rejected. Both forms
 retain the exact five originals and the POM, module metadata, JVM 17 class,
 dependency, GPLv3, predecessor, and no-Android/native checks. Release originals
 use exact unsuffixed filenames and do not depend on snapshot metadata.
@@ -71,8 +72,8 @@ Candidate and signed-bundle verification require the same public CI digest:
 
 ```text
 ./tools/check-release-candidate --verify-candidate CANDIDATE_TAR --candidate-sha256 CI_SHA256
-./tools/sign-central-bundle --candidate CANDIDATE_TAR --candidate-sha256 CI_SHA256 --output build/release/htsp-0.1.0-alpha.1-signed-bundle.tar
-./tools/check-release-candidate --verify-signed-bundle build/release/htsp-0.1.0-alpha.1-signed-bundle.tar --portal-zip build/release/htsp-0.1.0-alpha.1-central.zip --candidate-sha256 CI_SHA256
+./tools/sign-central-bundle --candidate CANDIDATE_TAR --candidate-sha256 CI_SHA256 --output build/release/htsp-0.1.0-signed-bundle.tar
+./tools/check-release-candidate --verify-signed-bundle build/release/htsp-0.1.0-signed-bundle.tar --portal-zip build/release/htsp-0.1.0-central.zip --candidate-sha256 CI_SHA256
 ```
 
 The signed evidence candidate record must contain that same digest. Returned
@@ -84,8 +85,11 @@ identical to the canonical ZIP preserved in the evidence TAR and its manifest.
 The first release uses owner-manual Central Portal UI upload and the owner makes
 the Publish or Drop decision. There is no Portal token, upload client, or
 cross-host orchestrator. Candidate transfer and signed-bundle transfer are also
-owner operations. A GitHub pre-release is a later Gate C action and occurs only
-after Maven Central resolves the exact immutable coordinate.
+owner operations. The eventual release uses the `v0.1.0` tag vocabulary. A
+GitHub Release may independently use its optional pre-release marker as a later
+Gate C action, only after Maven Central resolves the exact immutable coordinate;
+that marker does not change the ordinary Maven version or tag vocabulary. No
+tag or GitHub Release is created by this preparation.
 
 The repository now tracks the reviewed public-only key export and exact primary
 fingerprint. Setup verifies both in an isolated temporary keyring. This is

@@ -25,7 +25,7 @@ ROOT = Path(__file__).resolve().parents[1]
 GROUP = "at.bernhardberger.tvheadend"
 GROUP_PATH = GROUP.replace(".", "/")
 ARTIFACT = "htsp"
-RELEASE_VERSION = "0.1.0-alpha.1"
+RELEASE_VERSION = "0.1.0"
 SNAPSHOT_VERSION = RELEASE_VERSION + "-SNAPSHOT"
 COORDINATE = f"{GROUP}:{ARTIFACT}:{RELEASE_VERSION}"
 MAVEN_BASE = f"{GROUP_PATH}/{ARTIFACT}/{RELEASE_VERSION}"
@@ -37,6 +37,7 @@ ORIGINAL_NAMES = (
     f"{ARTIFACT}-{RELEASE_VERSION}.module",
 )
 ORIGINAL_PATHS = tuple(f"{MAVEN_BASE}/{name}" for name in ORIGINAL_NAMES)
+OPTIONAL_STAGING_SIDECARS = (".md5", ".sha1", ".sha512")
 MANIFEST_PATH = "release-candidate.json"
 SIGNED_MANIFEST_PATH = "signed-evidence.json"
 CANDIDATE_COPY_PATH = "evidence/release-candidate.tar"
@@ -301,30 +302,52 @@ def trusted_ci_provenance() -> tuple[dict[str, object] | None, list[str]]:
     }, []
 
 
-def staged_originals() -> tuple[dict[str, bytes], list[str]]:
+def staged_originals_from(version_dir: Path) -> tuple[dict[str, bytes], list[str]]:
     errors: list[str] = []
-    version_dir = ROOT.joinpath("build/local-maven", *GROUP.split("."), ARTIFACT, RELEASE_VERSION)
-    current = ROOT
-    for part in version_dir.relative_to(ROOT).parts:
+    absolute = version_dir.absolute()
+    current = Path(absolute.anchor)
+    for part in absolute.parts[1:]:
         current /= part
         if current.is_symlink():
             return {}, [f"staging path traverses symlink: {current}"]
-    if not version_dir.is_dir():
-        return {}, [f"release staging directory is missing: {version_dir}"]
-    allowed = set(ORIGINAL_NAMES) | {name + ".sha256" for name in ORIGINAL_NAMES}
+    if not absolute.is_dir():
+        return {}, [f"release staging directory is missing: {absolute}"]
+    required = set(ORIGINAL_NAMES) | {name + ".sha256" for name in ORIGINAL_NAMES}
+    optional = {name + suffix for name in ORIGINAL_NAMES for suffix in OPTIONAL_STAGING_SIDECARS}
+    allowed = required | optional
     actual: set[str] = set()
+    names: list[str] = []
     originals: dict[str, bytes] = {}
-    for entry in version_dir.iterdir():
-        if entry.is_symlink() or not entry.is_file():
+    try:
+        entries = list(absolute.iterdir())
+    except OSError as error:
+        return {}, [f"release staging directory is unreadable: {absolute}: {error}"]
+    for entry in entries:
+        names.append(entry.name)
+        try:
+            regular = stat.S_ISREG(entry.lstat().st_mode)
+        except OSError as error:
+            errors.append(f"staging entry metadata is unreadable: {entry.name}: {error}")
+            continue
+        if not regular:
             errors.append(f"staging contains non-regular entry: {entry.name}")
             continue
         actual.add(entry.name)
-    if actual != allowed:
-        errors.append(f"release staging inventory mismatch; missing={sorted(allowed - actual)}, extra={sorted(actual - allowed)}")
+    if len({name.casefold() for name in names}) != len(names):
+        errors.append("release staging contains a case collision")
+    missing = required - actual
+    extra = actual - allowed
+    if missing or extra:
+        errors.append(f"release staging inventory mismatch; missing={sorted(missing)}, extra={sorted(extra)}")
     for name, path in zip(ORIGINAL_NAMES, ORIGINAL_PATHS):
-        artifact = version_dir / name
-        sidecar = version_dir / (name + ".sha256")
-        if not artifact.is_file() or artifact.is_symlink() or not sidecar.is_file() or sidecar.is_symlink():
+        artifact = absolute / name
+        sidecar = absolute / (name + ".sha256")
+        try:
+            artifact_regular = stat.S_ISREG(artifact.lstat().st_mode)
+            sidecar_regular = stat.S_ISREG(sidecar.lstat().st_mode)
+        except OSError:
+            continue
+        if not artifact_regular or not sidecar_regular:
             continue
         try:
             artifact_size = artifact.stat().st_size
@@ -349,6 +372,11 @@ def staged_originals() -> tuple[dict[str, bytes], list[str]]:
             errors.append(f"staged original has stale or malformed SHA-256 evidence: {name}")
         originals[path] = content
     return originals, errors
+
+
+def staged_originals() -> tuple[dict[str, bytes], list[str]]:
+    version_dir = ROOT.joinpath("build/local-maven", *GROUP.split("."), ARTIFACT, RELEASE_VERSION)
+    return staged_originals_from(version_dir)
 
 
 def candidate_bytes(originals: dict[str, bytes], provenance: dict[str, object]) -> bytes:
@@ -398,14 +426,23 @@ def exclusive_write(path: Path, content: bytes) -> None:
         raise
 
 
-def prepare(output: str, allow_snapshot_noop: bool) -> tuple[list[str], str | None]:
-    version, errors = project_version()
-    if errors:
-        return errors, None
+def prepare_version_gate(version: str, allow_snapshot_noop: bool) -> tuple[list[str], bool]:
     if version == SNAPSHOT_VERSION:
         if allow_snapshot_noop:
-            return [], None
-        return [f"release candidate requires version {RELEASE_VERSION}, found {SNAPSHOT_VERSION}"], None
+            return [], False
+        return [f"release candidate requires version {RELEASE_VERSION}, found {SNAPSHOT_VERSION}"], False
+    if version == RELEASE_VERSION:
+        return [], True
+    return [f"release candidate found unsupported version {version}"], False
+
+
+def prepare(output: str, allow_snapshot_noop: bool) -> tuple[list[str], str | None]:
+    version, errors = project_version()
+    if errors or version is None:
+        return errors, None
+    gate_errors, continues = prepare_version_gate(version, allow_snapshot_noop)
+    if gate_errors or not continues:
+        return gate_errors, None
     errors.extend(public_material_errors())
     output_path, output_errors = safe_output_path(output)
     errors.extend(output_errors)
@@ -902,8 +939,8 @@ jobs:
         shell: bash
         run: |
           source_tree=$(git rev-parse 'HEAD^{tree}')
-          RELEASE_SOURCE_TREE="$source_tree" ./tools/check-release-candidate --prepare-if-release --output build/release/htsp-0.1.0-alpha.1-candidate.tar
-          if test -f build/release/htsp-0.1.0-alpha.1-candidate.tar; then
+          RELEASE_SOURCE_TREE="$source_tree" ./tools/check-release-candidate --prepare-if-release --output build/release/htsp-0.1.0-candidate.tar
+          if test -f build/release/htsp-0.1.0-candidate.tar; then
             printf 'release=true\n' >> "$GITHUB_OUTPUT"
           else
             printf 'release=false\n' >> "$GITHUB_OUTPUT"
@@ -912,8 +949,8 @@ jobs:
         if: steps.candidate.outputs.release == 'true' && github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: htsp-0.1.0-alpha.1-candidate-${{ github.sha }}
-          path: build/release/htsp-0.1.0-alpha.1-candidate.tar
+          name: htsp-0.1.0-candidate-${{ github.sha }}
+          path: build/release/htsp-0.1.0-candidate.tar
           if-no-files-found: error
           retention-days: 7
           compression-level: 0
@@ -979,6 +1016,194 @@ def release_python_ast_errors(relative: str, text: str) -> list[str]:
         return [f"{relative}: release Python policy cannot parse source: {error}"]
     parents = {child: parent for parent in ast.walk(tree) for child in ast.iter_child_nodes(parent)}
     if relative == "tools/check-release-candidate":
+        version_gate_helpers = [
+            node for node in tree.body
+            if isinstance(node, ast.FunctionDef) and node.name == "prepare_version_gate"
+        ]
+        expected_version_gate = ast.parse('''def prepare_version_gate(version: str, allow_snapshot_noop: bool) -> tuple[list[str], bool]:
+    if version == SNAPSHOT_VERSION:
+        if allow_snapshot_noop:
+            return [], False
+        return [f"release candidate requires version {RELEASE_VERSION}, found {SNAPSHOT_PLACEHOLDER}"], False
+    if version == RELEASE_VERSION:
+        return [], True
+    return [f"release candidate found unsupported version {version}"], False
+'''.replace("SNAPSHOT_PLACEHOLDER", "SNAPSHOT_VERSION")).body[0]
+        if (
+            len(version_gate_helpers) != 1
+            or ast.dump(version_gate_helpers[0], include_attributes=False)
+            != ast.dump(expected_version_gate, include_attributes=False)
+        ):
+            errors.append(f"{relative}: release Python policy requires the exact pure preparation version gate")
+        prepare_functions = [
+            node for node in tree.body
+            if isinstance(node, ast.FunctionDef) and node.name == "prepare"
+        ]
+        expected_gate_call = ast.parse(
+            "gate_errors, continues = prepare_version_gate(version, allow_snapshot_noop)"
+        ).body[0]
+        if (
+            len(prepare_functions) != 1
+            or len(prepare_functions[0].body) < 4
+            or ast.dump(prepare_functions[0].body[2], include_attributes=False)
+            != ast.dump(expected_gate_call, include_attributes=False)
+        ):
+            errors.append(f"{relative}: release Python policy requires production preparation to use the version gate")
+        expected_gate_guard = ast.parse('''if gate_errors or not continues:
+    return gate_errors, None
+''').body[0]
+        expected_staging_call = ast.parse("originals, staging_errors = staged_originals()").body[0]
+        valid_prepare_order = (
+            len(prepare_functions) == 1
+            and len(prepare_functions[0].body) > 9
+            and ast.dump(prepare_functions[0].body[3], include_attributes=False)
+            == ast.dump(expected_gate_guard, include_attributes=False)
+            and ast.dump(prepare_functions[0].body[9], include_attributes=False)
+            == ast.dump(expected_staging_call, include_attributes=False)
+        )
+        if not valid_prepare_order:
+            errors.append(f"{relative}: release Python policy requires the exact preparation gate before output and staging")
+        staging_wrappers = [
+            node for node in tree.body
+            if isinstance(node, ast.FunctionDef) and node.name == "staged_originals"
+        ]
+        expected_staging_wrapper = ast.parse('''def staged_originals() -> tuple[dict[str, bytes], list[str]]:
+    version_dir = ROOT.joinpath("build/local-maven", *GROUP.split("."), ARTIFACT, RELEASE_VERSION)
+    return staged_originals_from(version_dir)
+''').body[0]
+        if (
+            len(staging_wrappers) != 1
+            or ast.dump(staging_wrappers[0], include_attributes=False)
+            != ast.dump(expected_staging_wrapper, include_attributes=False)
+        ):
+            errors.append(f"{relative}: release Python policy requires the exact production staging path wrapper")
+        staging_helpers = [
+            node for node in tree.body
+            if isinstance(node, ast.FunctionDef) and node.name == "staged_originals_from"
+        ]
+        optional_assignments = [
+            node for node in tree.body
+            if isinstance(node, ast.Assign)
+            and any(isinstance(target, ast.Name) and target.id == "OPTIONAL_STAGING_SIDECARS" for target in node.targets)
+        ]
+        expected_optional = ast.parse('OPTIONAL_STAGING_SIDECARS = (".md5", ".sha1", ".sha512")').body[0]
+        expected_original_names_source = "\n".join((
+            "ORIGINAL_NAMES = (",
+            '    f"{ARTIFACT}-{RELEASE_VERSION}.jar",',
+            '    f"{ARTIFACT}-{RELEASE_VERSION}-sources.jar",',
+            '    f"{ARTIFACT}-{RELEASE_VERSION}-javadoc.jar",',
+            '    f"{ARTIFACT}-{RELEASE_VERSION}.pom",',
+            '    f"{ARTIFACT}-{RELEASE_VERSION}.module",',
+            ")",
+        ))
+        expected_staging_constants = {
+            "ROOT": ast.parse("ROOT = Path(__file__).resolve().parents[1]").body[0],
+            "GROUP": ast.parse('GROUP = "at.bernhardberger.tvheadend"').body[0],
+            "GROUP_PATH": ast.parse('GROUP_PATH = GROUP.replace(".", "/")').body[0],
+            "ARTIFACT": ast.parse('ARTIFACT = "htsp"').body[0],
+            "RELEASE_VERSION": ast.parse('RELEASE_VERSION = "' + "0.1.0" + '"').body[0],
+            "MAVEN_BASE": ast.parse('MAVEN_BASE = f"{GROUP_PATH}/{ARTIFACT}/{RELEASE_VERSION}"').body[0],
+            "ORIGINAL_NAMES": ast.parse(expected_original_names_source).body[0],
+            "ORIGINAL_PATHS": ast.parse('ORIGINAL_PATHS = tuple(f"{MAVEN_BASE}/{name}" for name in ORIGINAL_NAMES)').body[0],
+            "OPTIONAL_STAGING_SIDECARS": expected_optional,
+        }
+        approved_constant_targets: set[ast.Name] = set()
+        for name, expected_assignment in expected_staging_constants.items():
+            actual_assignments = [
+                node for node in tree.body
+                if isinstance(node, ast.Assign)
+                and len(node.targets) == 1
+                and isinstance(node.targets[0], ast.Name)
+                and node.targets[0].id == name
+            ]
+            if len(actual_assignments) != 1 or ast.dump(actual_assignments[0], include_attributes=False) != ast.dump(expected_assignment, include_attributes=False):
+                errors.append(f"{relative}: release Python policy staging constant {name} mismatch")
+            else:
+                approved_constant_targets.add(actual_assignments[0].targets[0])
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Name) and isinstance(node.ctx, (ast.Store, ast.Del)) and node.id in expected_staging_constants and node not in approved_constant_targets:
+                errors.append(f"{relative}: release Python policy forbids staging constant rebinding: {node.id}")
+        expected_staging_helper = ast.parse('''def staged_originals_from(version_dir: Path) -> tuple[dict[str, bytes], list[str]]:
+    errors: list[str] = []
+    absolute = version_dir.absolute()
+    current = Path(absolute.anchor)
+    for part in absolute.parts[1:]:
+        current /= part
+        if current.is_symlink():
+            return {}, [f"staging path traverses symlink: {current}"]
+    if not absolute.is_dir():
+        return {}, [f"release staging directory is missing: {absolute}"]
+    required = set(ORIGINAL_NAMES) | {name + ".sha256" for name in ORIGINAL_NAMES}
+    optional = {name + suffix for name in ORIGINAL_NAMES for suffix in OPTIONAL_STAGING_SIDECARS}
+    allowed = required | optional
+    actual: set[str] = set()
+    names: list[str] = []
+    originals: dict[str, bytes] = {}
+    try:
+        entries = list(absolute.iterdir())
+    except OSError as error:
+        return {}, [f"release staging directory is unreadable: {absolute}: {error}"]
+    for entry in entries:
+        names.append(entry.name)
+        try:
+            regular = stat.S_ISREG(entry.lstat().st_mode)
+        except OSError as error:
+            errors.append(f"staging entry metadata is unreadable: {entry.name}: {error}")
+            continue
+        if not regular:
+            errors.append(f"staging contains non-regular entry: {entry.name}")
+            continue
+        actual.add(entry.name)
+    if len({name.casefold() for name in names}) != len(names):
+        errors.append("release staging contains a case collision")
+    missing = required - actual
+    extra = actual - allowed
+    if missing or extra:
+        errors.append(f"release staging inventory mismatch; missing={sorted(missing)}, extra={sorted(extra)}")
+    for name, path in zip(ORIGINAL_NAMES, ORIGINAL_PATHS):
+        artifact = absolute / name
+        sidecar = absolute / (name + ".sha256")
+        try:
+            artifact_regular = stat.S_ISREG(artifact.lstat().st_mode)
+            sidecar_regular = stat.S_ISREG(sidecar.lstat().st_mode)
+        except OSError:
+            continue
+        if not artifact_regular or not sidecar_regular:
+            continue
+        try:
+            artifact_size = artifact.stat().st_size
+            sidecar_size = sidecar.stat().st_size
+        except OSError as error:
+            errors.append(f"staged original metadata is unreadable: {name}: {error}")
+            continue
+        if artifact_size > MAX_MEMBER:
+            errors.append(f"staged original is oversized: {name}")
+            continue
+        if sidecar_size != 65:
+            errors.append(f"staged original has stale or malformed SHA-256 evidence: {name}")
+            continue
+        try:
+            content = artifact.read_bytes()
+            sidecar_content = sidecar.read_bytes()
+        except OSError as error:
+            errors.append(f"staged original is unreadable: {name}: {error}")
+            continue
+        expected = (digest(content) + "\\n").encode("ascii")
+        if sidecar_content != expected:
+            errors.append(f"staged original has stale or malformed SHA-256 evidence: {name}")
+        originals[path] = content
+    return originals, errors
+''').body[0]
+        valid_inventory = (
+            len(staging_helpers) == 1
+            and len(optional_assignments) == 1
+            and ast.dump(optional_assignments[0], include_attributes=False)
+            == ast.dump(expected_optional, include_attributes=False)
+            and ast.dump(staging_helpers[0], include_attributes=False)
+            == ast.dump(expected_staging_helper, include_attributes=False)
+        )
+        if not valid_inventory:
+            errors.append(f"{relative}: release Python policy requires exact mandatory and optional staging inventory")
         public_material_helpers = [
             node for node in tree.body
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
@@ -1123,7 +1348,7 @@ def release_python_ast_errors(relative: str, text: str) -> list[str]:
             errors.append(f"{relative}: release Python policy forbids shell API access")
         if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name) and node.value.id == "subprocess" and node.attr not in {"run", "CompletedProcess", "DEVNULL", "PIPE"}:
             errors.append(f"{relative}: release Python policy forbids subprocess attribute {node.attr}")
-    protected = {"os", "subprocess", "git_output", "run"} if relative == "tools/check-release-candidate" else {"os", "subprocess", "git_value", "sign", "load_policy", "signing_environment"}
+    protected = {"os", "subprocess", "git_output", "run", "staged_originals", "staged_originals_from"} if relative == "tools/check-release-candidate" else {"os", "subprocess", "git_value", "sign", "load_policy", "signing_environment"}
     allowed_policy_store: ast.Name | None = None
     if relative == "tools/sign-central-bundle":
         execute_functions = [
@@ -1638,12 +1863,79 @@ def synthetic_signed_bundle(candidate: bytes, fingerprint: str) -> bytes:
 
 def self_test() -> list[str]:
     errors: list[str] = []
+    expected_release = "0.1.0"
+    expected_snapshot = expected_release + "-SNAPSHOT"
+    if RELEASE_VERSION != expected_release or SNAPSHOT_VERSION != expected_snapshot:
+        errors.append("self-test rejected the legacy alpha-pinned release version contract")
+    expected_candidate = ROOT / f"build/release/{ARTIFACT}-{expected_release}-candidate.tar"
+    if safe_output_path(str(expected_candidate))[1]:
+        errors.append("self-test rejected the ordinary 0.1.0 candidate filename contract")
+    expected_prepare_error = (
+        "release candidate requires version " + RELEASE_VERSION + ", found " + SNAPSHOT_VERSION
+    )
+    snapshot_errors, snapshot_continues = prepare_version_gate(SNAPSHOT_VERSION, False)
+    if snapshot_errors != [expected_prepare_error] or snapshot_continues:
+        errors.append("self-test allowed snapshot candidate production")
+    noop_errors, noop_continues = prepare_version_gate(SNAPSHOT_VERSION, True)
+    if noop_errors or noop_continues:
+        errors.append("self-test rejected the snapshot candidate no-op")
+    release_errors, release_continues = prepare_version_gate(RELEASE_VERSION, False)
+    if release_errors or not release_continues:
+        errors.append("self-test rejected release continuation past the version gate")
+    if expected_candidate.exists():
+        errors.append("self-test produced candidate output")
     with tempfile.TemporaryDirectory() as temporary:
-        Path(temporary).chmod(0o700)
+        temporary_root = Path(temporary)
+        temporary_root.chmod(0o700)
+
+        def staging_fixture(name: str, optional: tuple[str, ...] = ()) -> Path:
+            staging = temporary_root / name
+            staging.mkdir()
+            for original_name in ORIGINAL_NAMES:
+                content = ("staged:" + original_name).encode("ascii")
+                (staging / original_name).write_bytes(content)
+                (staging / (original_name + ".sha256")).write_bytes(
+                    (digest(content) + "\n").encode("ascii")
+                )
+                for suffix in optional:
+                    (staging / (original_name + suffix)).write_text("optional\n", encoding="ascii")
+            return staging
+
+        all_sidecars = staging_fixture("all-approved-sidecars", (".md5", ".sha1", ".sha512"))
+        staged, staging_errors = staged_originals_from(all_sidecars)
+        if staging_errors or set(staged) != set(ORIGINAL_PATHS):
+            errors.append("self-test rejected staging with every approved optional sidecar: " + "; ".join(staging_errors))
+
+        def staging_case(name: str, mutate: Callable[[Path], None], expected: str) -> None:
+            staging = staging_fixture(name)
+            mutate(staging)
+            _, actual = staged_originals_from(staging)
+            if not any(expected in item for item in actual):
+                errors.append(f"self-test accepted staged {name} without {expected!r}: {actual}")
+
+        first_name = ORIGINAL_NAMES[0]
+        staging_case("unrelated file", lambda path: (path / "unrelated.txt").write_bytes(b"x"), "inventory")
+        staging_case("unrelated sidecar", lambda path: (path / (first_name + ".asc")).write_bytes(b"x"), "inventory")
+        staging_case("unknown sidecar", lambda path: (path / "unknown.jar.sha1").write_bytes(b"x"), "inventory")
+        staging_case("missing SHA-256", lambda path: (path / (first_name + ".sha256")).unlink(), "inventory")
+        staging_case("stale SHA-256", lambda path: (path / (first_name + ".sha256")).write_bytes(("0" * 64 + "\n").encode("ascii")), "stale or malformed")
+        staging_case("malformed SHA-256", lambda path: (path / (first_name + ".sha256")).write_bytes(b"not-a-digest\n"), "stale or malformed")
+        staging_case("case collision", lambda path: (path / first_name.upper()).write_bytes(b"x"), "case collision")
+
+        def symlink_original(path: Path) -> None:
+            target = path / first_name
+            target.unlink()
+            target.symlink_to(path / ORIGINAL_NAMES[1])
+
+        staging_case("symlink original", symlink_original, "non-regular")
+        staging_case("nonregular entry", lambda path: (path / "directory").mkdir(), "non-regular")
+
         valid = synthetic_candidate()
-        baseline, _, _ = verify_candidate_bytes(valid)
+        baseline, candidate_entries, _ = verify_candidate_bytes(valid)
         if baseline:
             errors.append("self-test rejected valid candidate fixture: " + "; ".join(baseline))
+        if tuple(candidate_entries) != (MANIFEST_PATH, *ORIGINAL_PATHS):
+            errors.append(f"self-test allowed staging sidecars into candidate inventory: {tuple(candidate_entries)}")
         valid_digest = digest(valid)
         if candidate_digest_errors(valid, valid_digest, "release candidate"):
             errors.append("self-test rejected the exact candidate TAR SHA-256")
@@ -1661,6 +1953,7 @@ def self_test() -> list[str]:
             mutate(model)
             entries[0] = (entries[0][0], canonical_json(model))
 
+        legacy_release = "0.1.0-" + "alpha.1"
         cases = (
             ("path traversal", lambda entries: set_tar_name(entries, 1, "../escape"), "unsafe path"),
             ("absolute path", lambda entries: set_tar_name(entries, 1, "/escape"), "unsafe path"),
@@ -1681,6 +1974,8 @@ def self_test() -> list[str]:
             ("changed original", lambda entries: entries.__setitem__(1, (entries[1][0], entries[1][1] + b"x")), "stale or changed"),
             ("wrong coordinate", lambda entries: change_manifest(entries, lambda model: model.update({"coordinate": "wrong:wrong:1"})), "coordinate"),
             ("wrong version", lambda entries: change_manifest(entries, lambda model: model.update({"version": SNAPSHOT_VERSION})), "version"),
+            ("legacy alpha version", lambda entries: change_manifest(entries, lambda model: model.update({"version": legacy_release})), "version"),
+            ("legacy alpha original filename", lambda entries: set_tar_name(entries, 1, entries[1][0].name.replace(RELEASE_VERSION, legacy_release)), "inventory"),
             ("missing CI provenance", lambda entries: change_manifest(entries, lambda model: model.update({"ci": {}})), "CI provenance"),
         )
         for name, mutate, expected in cases:
@@ -1950,6 +2245,10 @@ def self_test() -> list[str]:
             ("setup public-material same-slot local shadow", checker_text.replace("    texts: dict[str, str] = {}", "    texts, setup_public_material_errors = {}, lambda: []", 1)),
             ("setup public-material parameter shadow", checker_text.replace("def setup_errors() -> list[str]:", "def setup_errors(setup_public_material_errors=lambda: []) -> list[str]:", 1)),
             ("setup public-material pattern-capture shadow", checker_text.replace("    for relative in required:\n        path = ROOT / relative", "    for relative in required:\n        match (lambda: []):\n            case setup_public_material_errors:\n                pass\n        path = ROOT / relative", 1)),
+            ("production staging path bypass", checker_text.replace('ROOT.joinpath("build/local-maven", *GROUP.split("."), ARTIFACT, RELEASE_VERSION)', 'ROOT.joinpath("build/other", ARTIFACT, RELEASE_VERSION)', 1)),
+            ("staging optional inventory widened", checker_text.replace('OPTIONAL_STAGING_SIDECARS = (".md5", ".sha1", ".sha512")', 'OPTIONAL_STAGING_SIDECARS = (".md5", ".sha1", ".sha512", ".asc")', 1)),
+            ("staging helper rebound", checker_text + "\nstaged_originals_from = lambda _path: ({}, [])\n"),
+            ("preparation gate guard bypass", checker_text.replace("    if gate_errors or not continues:\n        return gate_errors, None", "    if False:\n        return gate_errors, None", 1)),
         )
         for name, source in ast_hostile:
             signer_cases = {

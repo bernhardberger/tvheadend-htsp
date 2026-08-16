@@ -16,7 +16,7 @@ from typing import Callable
 
 
 ROOT = Path(__file__).resolve().parents[1]
-COORDINATE = "at.bernhardberger.tvheadend:htsp:0.1.0-alpha.1-SNAPSHOT"
+COORDINATE = "at.bernhardberger.tvheadend:htsp:0.1.0-SNAPSHOT"
 GROUP = "at.bernhardberger.tvheadend"
 PACKAGES = {
     "at.bernhardberger.tvheadend.htsp.connection",
@@ -74,8 +74,8 @@ jobs:
         shell: bash
         run: |
           source_tree=$(git rev-parse 'HEAD^{tree}')
-          RELEASE_SOURCE_TREE="$source_tree" ./tools/check-release-candidate --prepare-if-release --output build/release/htsp-0.1.0-alpha.1-candidate.tar
-          if test -f build/release/htsp-0.1.0-alpha.1-candidate.tar; then
+          RELEASE_SOURCE_TREE="$source_tree" ./tools/check-release-candidate --prepare-if-release --output build/release/htsp-0.1.0-candidate.tar
+          if test -f build/release/htsp-0.1.0-candidate.tar; then
             printf 'release=true\n' >> "$GITHUB_OUTPUT"
           else
             printf 'release=false\n' >> "$GITHUB_OUTPUT"
@@ -84,8 +84,8 @@ jobs:
         if: steps.candidate.outputs.release == 'true' && github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: htsp-0.1.0-alpha.1-candidate-${{ github.sha }}
-          path: build/release/htsp-0.1.0-alpha.1-candidate.tar
+          name: htsp-0.1.0-candidate-${{ github.sha }}
+          path: build/release/htsp-0.1.0-candidate.tar
           if-no-files-found: error
           retention-days: 7
           compression-level: 0
@@ -94,6 +94,7 @@ jobs:
 """.splitlines() if line.strip())
 MAP_HASH = "c5fad8e6bd00bc6f692405cef79c661325df404c91a0a59ac47c1497f3bb7f27"
 MANIFEST_HASH = "d45c5da0048201eae10a6760d92ae4d6f1abf64ca1bb4e6a60d31dd610244270"
+API_POLICY_AST_HASH = "7659a21bfa55f956b065ef75a9046a33cf01f3caa031994f0cc02d499c19b05d"
 ATTRIBUTES_POLICY = (
     "* text=auto eol=lf\n"
     "gradlew text eol=lf\n"
@@ -202,6 +203,13 @@ FIXTURE_FILES = {
 TEMP_CHECKERS = (
     "tools/check-standalone-repository",
     "tools/check-published-jvm-compatibility",
+)
+VERSION_POLICY_FILES = (
+    ".github/workflows/ci.yml", "AGENTS.md", "build.gradle.kts",
+    "consumer-contract/build.gradle.kts", "CHANGELOG.md", "README.md",
+    "docs/releasing.md", "docs/versioning.md",
+    "tools/check-api-compatibility-policy", "tools/check-published-jvm-compatibility",
+    "tools/check-release-candidate", "tools/check-standalone-repository", "tools/verify-htsp",
 )
 
 
@@ -340,8 +348,12 @@ def fenced_block(text: str, marker: str) -> str | None:
 def quick_start_errors(root: Path) -> list[str]:
     errors: list[str] = []
     readme = read(root, "README.md", errors)
+    build = read(root, "build.gradle.kts", errors)
     source = read(root, next(iter(FIXTURE_FILES - {"consumer-contract/build.gradle.kts", "consumer-contract/settings.gradle.kts"})), errors)
-    dependency = f'dependencies {{\n    implementation("{COORDINATE}")\n}}\n'
+    versions = re.findall(r'(?m)^version\s*=\s*"([^"]+)"\s*$', build)
+    version = versions[0] if len(versions) == 1 and versions[0] in {"0.1.0-SNAPSHOT", "0.1.0"} else ""
+    dependency_coordinate = f"{GROUP}:htsp:{version}"
+    dependency = f'dependencies {{\n    implementation("{dependency_coordinate}")\n}}\n'
     if fenced_block(readme, "dependency-static:htsp") != dependency:
         errors.append("README dependency differs from isolated consumer coordinate")
     if fenced_block(readme, "source-static:htsp") != source:
@@ -358,8 +370,8 @@ def build_errors(root: Path) -> list[str]:
         'kotlin("jvm") version "2.3.10"': 1,
         'group = "at.bernhardberger.tvheadend"': 1,
         'val allowedPublicationVersions = setOf(': 1,
-        '    "0.1.0-alpha.1-SNAPSHOT",': 1,
-        '    "0.1.0-alpha.1",': 1,
+        '    "0.1.0-SNAPSHOT",': 1,
+        '    "0.1.0",': 1,
         'check(version.toString() in allowedPublicationVersions)': 1,
         "jvmToolchain(21)": 1, "explicitApi()": 1,
         "JvmTarget.JVM_17": 2, 'freeCompilerArgs.add("-Xjdk-release=17")': 2,
@@ -397,11 +409,11 @@ def build_errors(root: Path) -> list[str]:
         if build.count(value) != count:
             errors.append(f"root build publication policy missing or duplicated: {value}")
     version_assignments = re.findall(r"(?m)^version\s*=\s*(.*?)\s*$", build)
-    allowed_versions = {'"0.1.0-alpha.1-SNAPSHOT"', '"0.1.0-alpha.1"'}
+    allowed_versions = {'"0.1.0-SNAPSHOT"', '"0.1.0"'}
     if len(version_assignments) != 1 or version_assignments[0] not in allowed_versions:
         errors.append(
-            "root build version must be exactly one literal 0.1.0-alpha.1-SNAPSHOT or "
-            f"0.1.0-alpha.1 assignment: {version_assignments}"
+            "root build version must be exactly one literal 0.1.0-SNAPSHOT or "
+            f"0.1.0 assignment: {version_assignments}"
         )
     for contract, label in (
         (REPRODUCIBLE_ARCHIVE_CONTRACT, "global reproducible archive"),
@@ -473,7 +485,7 @@ def consumer_errors(root: Path) -> list[str]:
         "RepositoriesMode.FAIL_ON_PROJECT_REPOS": 1, "gradlePluginPortal()": 1,
         "mavenCentral": 2, "toRealPath()": 1,
         'tasks.register("verifyConsumerDependencyGraph")': 1,
-        '"at.bernhardberger.tvheadend:htsp:0.1.0-alpha.1-SNAPSHOT"': 2,
+        '"at.bernhardberger.tvheadend:htsp:0.1.0-SNAPSHOT"': 2,
         "import org.gradle.api.artifacts.ExternalModuleDependency": 1,
         "import org.gradle.api.artifacts.FileCollectionDependency": 1,
         "import org.gradle.api.artifacts.ProjectDependency": 1,
@@ -716,6 +728,105 @@ def portable_temp_errors(root: Path) -> list[str]:
     return errors
 
 
+def visible_markdown(document: str) -> str:
+    text = re.sub(r"(?s)<!--.*?(?:-->|\Z)", "", document)
+    text = re.sub(
+        r"(?is)<template\b[^<>]*>.*?</template\s*>|"
+        r"<(?P<tag>[A-Za-z][A-Za-z0-9:-]*)\b(?=[^<>]*\bhidden\b)[^<>]*>"
+        r".*?</(?P=tag)\s*>",
+        "",
+        text,
+    )
+    lines: list[str] = []
+    fence: tuple[str, int] | None = None
+    for line in text.splitlines():
+        match = re.match(r"^\s*([`~]{3,})(.*)$", line)
+        if fence is not None:
+            if match and match.group(1)[0] == fence[0] and len(match.group(1)) >= fence[1] and not match.group(2).strip():
+                fence = None
+            continue
+        if match:
+            fence = (match.group(1)[0], len(match.group(1)))
+            continue
+        if line.startswith("    ") or line.startswith("\t"):
+            continue
+        lines.append(line)
+    return "\n".join(lines)
+
+
+def normalized_markdown(document: str) -> str:
+    return re.sub(r"\s+", " ", visible_markdown(document)).strip()
+
+
+def api_policy_static_errors(root: Path) -> list[str]:
+    relative = "tools/check-api-compatibility-policy"
+    errors: list[str] = []
+    source = read(root, relative, errors)
+    try:
+        tree = ast.parse(source, filename=relative)
+    except SyntaxError as error:
+        return errors + [f"{relative}: dual-mode API policy cannot parse ({error})"]
+    normalized_ast_hash = hashlib.sha256(ast.dump(tree, include_attributes=False).encode()).hexdigest()
+    if normalized_ast_hash != API_POLICY_AST_HASH:
+        errors.append(f"{relative}: dual-mode API policy normalized AST mismatch")
+    assignments = {
+        target.id: node.value
+        for node in tree.body
+        if isinstance(node, ast.Assign) and len(node.targets) == 1
+        for target in node.targets
+        if isinstance(target, ast.Name)
+    }
+    expected_values = {"VERSION": "0.1.0-SNAPSHOT", "RELEASE": "0.1.0"}
+    for name, expected in expected_values.items():
+        node = assignments.get(name)
+        if not isinstance(node, ast.Constant) or node.value != expected:
+            errors.append(f"{relative}: dual-mode API policy {name} must be exactly {expected}")
+    expected_modes = ast.parse("(VERSION, RELEASE)", mode="eval").body
+    if "MODES" not in assignments or ast.dump(assignments["MODES"], include_attributes=False) != ast.dump(expected_modes, include_attributes=False):
+        errors.append(f"{relative}: dual-mode API policy must select only snapshot and exact release modes")
+    functions = {
+        name: [node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == name]
+        for name in ("validate", "synthetic_documents", "self_test", "main")
+    }
+    if any(len(nodes) != 1 for nodes in functions.values()):
+        errors.append(f"{relative}: dual-mode API policy function inventory mismatch")
+        return errors
+    synthetic = functions["synthetic_documents"][0]
+    if [argument.arg for argument in synthetic.args.args] != ["mode"]:
+        errors.append(f"{relative}: synthetic API policy fixture must require one explicit mode")
+    self_calls = {
+        ast.dump(node, include_attributes=False)
+        for node in ast.walk(functions["self_test"][0])
+        if isinstance(node, ast.Call)
+    }
+    for expression in ("synthetic_documents(VERSION)", "synthetic_documents(RELEASE)"):
+        expected = ast.dump(ast.parse(expression, mode="eval").body, include_attributes=False)
+        if expected not in self_calls:
+            errors.append(f"{relative}: hostile self-test must execute {expression}")
+    validate_source = ast.dump(functions["validate"][0], include_attributes=False)
+    for required in ("SNAPSHOT_VERSIONING_CLAIMS", "RELEASE_VERSIONING_CLAIMS", "SNAPSHOT_RELEASING_CLAIMS", "RELEASE_RELEASING_CLAIMS", "SNAPSHOT_CHANGELOG_CLAIMS", "RELEASE_CHANGELOG_CLAIMS"):
+        if required not in validate_source:
+            errors.append(f"{relative}: semantic validation does not preserve {required}")
+    imports = {
+        (node.module or "", alias.name)
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom)
+        for alias in node.names
+    } | {
+        ("", alias.name)
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Import)
+        for alias in node.names
+    }
+    expected_imports = {
+        ("__future__", "annotations"), ("", "re"), ("", "sys"),
+        ("dataclasses", "dataclass"), ("dataclasses", "replace"), ("pathlib", "Path"),
+    }
+    if imports != expected_imports:
+        errors.append(f"{relative}: API policy static import allowlist mismatch")
+    return errors
+
+
 def governance_errors(root: Path) -> list[str]:
     errors: list[str] = []
     readme = read(root, "README.md", errors)
@@ -723,18 +834,23 @@ def governance_errors(root: Path) -> list[str]:
     versioning = read(root, "docs/versioning.md", errors)
     releasing = read(root, "docs/releasing.md", errors)
     changelog = read(root, "CHANGELOG.md", errors)
+    build = read(root, "build.gradle.kts", errors)
+    versions = re.findall(r'(?m)^version\s*=\s*"([^"]+)"\s*$', build)
+    mode = versions[0] if len(versions) == 1 and versions[0] in {"0.1.0-SNAPSHOT", "0.1.0"} else None
+    normalized_readme = normalized_markdown(readme)
+    normalized_index = normalized_markdown(index)
+    normalized_versioning = normalized_markdown(versioning)
+    normalized_releasing = normalized_markdown(releasing)
+    normalized_changelog = normalized_markdown(changelog)
     for value in (
         "independently maintained GPLv3", "Preclikos/tvhstream",
         "not official TVHeadend software", "not affiliated",
-        "mutable, local-only snapshot", "not available\nfrom Maven Central",
     ):
-        if value not in readme:
+        if value not in normalized_readme:
             errors.append(f"README governance mismatch: {value}")
     for value in ("[`releasing.md`](releasing.md)", "[`CHANGELOG.md`](../CHANGELOG.md)", "[`../release/openpgp/README.md`](../release/openpgp/README.md)"):
         if index.count(value) != 1:
             errors.append(f"documentation index governance mismatch: {value}")
-    normalized_index = re.sub(r"\s+", " ", index)
-    normalized_releasing = re.sub(r"\s+", " ", releasing)
     tracked_key_claims = (
         (normalized_index, "tracked, reviewed public-only OpenPGP key export and exact primary fingerprint"),
         (normalized_releasing, "repository now tracks the reviewed public-only key export and exact primary fingerprint"),
@@ -752,15 +868,64 @@ def governance_errors(root: Path) -> list[str]:
     ):
         if stale_claim in document:
             errors.append(f"tracked public-key documentation retains stale claim: {stale_claim}")
-    for document, label, values in (
-        (versioning, "versioning", (COORDINATE, "published release bytes must never be replaced", "next minor version, not a patch version", "No source, binary, or behavioral compatibility is promised")),
-        (releasing, "releasing", ("planned first release", "It has not been released", "initial provisional baseline", "do not promise compatibility or support", "separate owner authorization")),
-        (changelog, "changelog", ("## [Unreleased]", "not a release, publication, compatibility baseline, or support promise", "initial provisional baseline")),
-    ):
-        normalized_document = re.sub(r"\s+", " ", document)
-        for value in values:
-            if value not in normalized_document:
-                errors.append(f"{label} governance mismatch: {value}")
+    common_claims = (
+        (normalized_versioning, "While the major version is zero, the public API and behavior are provisional."),
+        (normalized_versioning, "next minor version, not a patch version"),
+        (normalized_versioning, "No source, binary, or behavioral compatibility is promised"),
+        (normalized_releasing, "initial provisional baseline"),
+        (normalized_releasing, "do not promise compatibility or support"),
+        (normalized_releasing, "separate owner authorization"),
+        (normalized_changelog, "initial provisional baseline"),
+    )
+    if mode == "0.1.0-SNAPSHOT":
+        mode_name = "snapshot"
+        mode_claims = (
+            (normalized_readme, f"The checkout currently uses the mutable, local-only snapshot `{COORDINATE}`."),
+            (normalized_readme, "It is not available from Maven Central or another public repository."),
+            (normalized_index, "unreleased, non-normative baseline notes"),
+            (normalized_versioning, f"The current coordinate is `{COORDINATE}`."),
+            (normalized_versioning, "published release bytes must never be replaced"),
+            (normalized_releasing, "planned first provisional major-zero release"),
+            (normalized_releasing, "It has not been released or published."),
+            (normalized_changelog, "## [Unreleased]"),
+            (normalized_changelog, "not a release, publication, compatibility baseline, or support promise"),
+        )
+    elif mode == "0.1.0":
+        mode_name = "release"
+        mode_claims = (
+            (normalized_readme, "The Gradle dependency uses the exact immutable release coordinate `at.bernhardberger.tvheadend:htsp:0.1.0`."),
+            (normalized_readme, "Availability from Maven Central or another public repository must be independently verified; this repository does not claim that publication has occurred."),
+            (normalized_index, "the `0.1.0` initial provisional baseline notes"),
+            (normalized_versioning, "The current immutable release coordinate is `at.bernhardberger.tvheadend:htsp:0.1.0`."),
+            (normalized_versioning, "Release bytes for this coordinate are immutable and must never be replaced."),
+            (normalized_versioning, "Availability from Maven Central or any other public repository is independently verified external state."),
+            (normalized_releasing, "`0.1.0` is the first provisional major-zero release."),
+            (normalized_releasing, "Candidate preparation and local staging do not establish external publication or availability."),
+            (normalized_releasing, "Publication and availability are independently verified external state."),
+            (normalized_changelog, "## [0.1.0]"),
+            (normalized_changelog, "does not promise source, binary, or behavioral compatibility or support"),
+        )
+    else:
+        mode_name = "unsupported"
+        mode_claims = ()
+        errors.append(f"unsupported mode documentation: root versions {versions}")
+        if any(re.fullmatch(r"0\.1\.0-(?:alpha|beta|rc)(?:[.-][0-9A-Za-z]+)*(?:-SNAPSHOT)?", version) for version in versions):
+            errors.append("stale alpha version is forbidden in the root version assignment")
+    for document, claim in (*common_claims, *mode_claims):
+        if claim not in document:
+            errors.append(f"{mode_name} mode documentation mismatch: {claim}")
+    combined_governance = " ".join((normalized_readme, normalized_index, normalized_versioning, normalized_releasing, normalized_changelog))
+    contradictions = (
+        (r"\bThe Maven version must include an alpha suffix\.", "required Maven alpha suffix"),
+        (r"\bThe GitHub pre-release marker changes the Maven coordinate\.", "GitHub marker changes coordinate"),
+        (r"\b(?:release|0\.1\.0) (?:is|has been) (?:published|available)\b", "false release publication or availability"),
+        (r"\brelease bytes (?:may|can) be (?:replaced|overwritten|republished)\b", "mutable release"),
+        (r"\b0\.1\.0-(?:alpha|beta|rc)(?:[.-][0-9A-Za-z]+)*\b", "legacy prerelease version"),
+    )
+    for pattern, description in contradictions:
+        if re.search(pattern, combined_governance, re.IGNORECASE):
+            errors.append(f"contradictory version documentation is forbidden: {description}")
+    errors.extend(api_policy_static_errors(root))
     for relative, expected in (("docs/extraction/source-to-filtered.tsv", MAP_HASH), ("docs/extraction/manifest.json", MANIFEST_HASH)):
         path = root / relative
         if not path.is_file() or path.is_symlink() or sha256(path) != expected:
@@ -800,6 +965,191 @@ def release_python_policy_errors(relative: str, text: str) -> list[str]:
         return [f"{relative}: release Python policy cannot parse source: {error}"]
     parents = {child: parent for parent in ast.walk(tree) for child in ast.iter_child_nodes(parent)}
     if relative == "tools/check-release-candidate":
+        version_gate_helpers = [
+            node for node in tree.body
+            if isinstance(node, ast.FunctionDef) and node.name == "prepare_version_gate"
+        ]
+        expected_version_gate = ast.parse('''def prepare_version_gate(version: str, allow_snapshot_noop: bool) -> tuple[list[str], bool]:
+    if version == SNAPSHOT_VERSION:
+        if allow_snapshot_noop:
+            return [], False
+        return [f"release candidate requires version {RELEASE_VERSION}, found {SNAPSHOT_PLACEHOLDER}"], False
+    if version == RELEASE_VERSION:
+        return [], True
+    return [f"release candidate found unsupported version {version}"], False
+'''.replace("SNAPSHOT_PLACEHOLDER", "SNAPSHOT_VERSION")).body[0]
+        if (
+            len(version_gate_helpers) != 1
+            or ast.dump(version_gate_helpers[0], include_attributes=False)
+            != ast.dump(expected_version_gate, include_attributes=False)
+        ):
+            errors.append(f"{relative}: release Python policy requires the exact pure preparation version gate")
+        prepare_functions = [
+            node for node in tree.body
+            if isinstance(node, ast.FunctionDef) and node.name == "prepare"
+        ]
+        expected_gate_call = ast.parse(
+            "gate_errors, continues = prepare_version_gate(version, allow_snapshot_noop)"
+        ).body[0]
+        if (
+            len(prepare_functions) != 1
+            or len(prepare_functions[0].body) < 4
+            or ast.dump(prepare_functions[0].body[2], include_attributes=False)
+            != ast.dump(expected_gate_call, include_attributes=False)
+        ):
+            errors.append(f"{relative}: release Python policy requires production preparation to use the version gate")
+        expected_gate_guard = ast.parse('''if gate_errors or not continues:
+    return gate_errors, None
+''').body[0]
+        expected_staging_call = ast.parse("originals, staging_errors = staged_originals()").body[0]
+        valid_prepare_order = (
+            len(prepare_functions) == 1
+            and len(prepare_functions[0].body) > 9
+            and ast.dump(prepare_functions[0].body[3], include_attributes=False)
+            == ast.dump(expected_gate_guard, include_attributes=False)
+            and ast.dump(prepare_functions[0].body[9], include_attributes=False)
+            == ast.dump(expected_staging_call, include_attributes=False)
+        )
+        if not valid_prepare_order:
+            errors.append(f"{relative}: release Python policy requires the exact preparation gate before output and staging")
+        staging_wrappers = [
+            node for node in tree.body
+            if isinstance(node, ast.FunctionDef) and node.name == "staged_originals"
+        ]
+        expected_staging_wrapper = ast.parse('''def staged_originals() -> tuple[dict[str, bytes], list[str]]:
+    version_dir = ROOT.joinpath("build/local-maven", *GROUP.split("."), ARTIFACT, RELEASE_VERSION)
+    return staged_originals_from(version_dir)
+''').body[0]
+        if (
+            len(staging_wrappers) != 1
+            or ast.dump(staging_wrappers[0], include_attributes=False)
+            != ast.dump(expected_staging_wrapper, include_attributes=False)
+        ):
+            errors.append(f"{relative}: release Python policy requires the exact production staging path wrapper")
+        staging_helpers = [
+            node for node in tree.body
+            if isinstance(node, ast.FunctionDef) and node.name == "staged_originals_from"
+        ]
+        optional_assignments = [
+            node for node in tree.body
+            if isinstance(node, ast.Assign)
+            and any(isinstance(target, ast.Name) and target.id == "OPTIONAL_STAGING_SIDECARS" for target in node.targets)
+        ]
+        expected_optional = ast.parse('OPTIONAL_STAGING_SIDECARS = (".md5", ".sha1", ".sha512")').body[0]
+        expected_staging_constants = {
+            "ROOT": ast.parse("ROOT = Path(__file__).resolve().parents[1]").body[0],
+            "GROUP": ast.parse('GROUP = "at.bernhardberger.tvheadend"').body[0],
+            "GROUP_PATH": ast.parse('GROUP_PATH = GROUP.replace(".", "/")').body[0],
+            "ARTIFACT": ast.parse('ARTIFACT = "htsp"').body[0],
+            "RELEASE_VERSION": ast.parse('RELEASE_VERSION = "0.1.0"').body[0],
+            "MAVEN_BASE": ast.parse('MAVEN_BASE = f"{GROUP_PATH}/{ARTIFACT}/{RELEASE_VERSION}"').body[0],
+            "ORIGINAL_NAMES": ast.parse('''ORIGINAL_NAMES = (
+    f"{ARTIFACT}-{RELEASE_VERSION}.jar",
+    f"{ARTIFACT}-{RELEASE_VERSION}-sources.jar",
+    f"{ARTIFACT}-{RELEASE_VERSION}-javadoc.jar",
+    f"{ARTIFACT}-{RELEASE_VERSION}.pom",
+    f"{ARTIFACT}-{RELEASE_VERSION}.module",
+)''').body[0],
+            "ORIGINAL_PATHS": ast.parse('ORIGINAL_PATHS = tuple(f"{MAVEN_BASE}/{name}" for name in ORIGINAL_NAMES)').body[0],
+            "OPTIONAL_STAGING_SIDECARS": expected_optional,
+        }
+        approved_constant_targets: set[ast.Name] = set()
+        for name, expected_assignment in expected_staging_constants.items():
+            actual_assignments = [
+                node for node in tree.body
+                if isinstance(node, ast.Assign)
+                and len(node.targets) == 1
+                and isinstance(node.targets[0], ast.Name)
+                and node.targets[0].id == name
+            ]
+            if len(actual_assignments) != 1 or ast.dump(actual_assignments[0], include_attributes=False) != ast.dump(expected_assignment, include_attributes=False):
+                errors.append(f"{relative}: release Python policy staging constant {name} mismatch")
+            else:
+                approved_constant_targets.add(actual_assignments[0].targets[0])
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Name) and isinstance(node.ctx, (ast.Store, ast.Del)) and node.id in expected_staging_constants and node not in approved_constant_targets:
+                errors.append(f"{relative}: release Python policy forbids staging constant rebinding: {node.id}")
+        expected_staging_helper = ast.parse('''def staged_originals_from(version_dir: Path) -> tuple[dict[str, bytes], list[str]]:
+    errors: list[str] = []
+    absolute = version_dir.absolute()
+    current = Path(absolute.anchor)
+    for part in absolute.parts[1:]:
+        current /= part
+        if current.is_symlink():
+            return {}, [f"staging path traverses symlink: {current}"]
+    if not absolute.is_dir():
+        return {}, [f"release staging directory is missing: {absolute}"]
+    required = set(ORIGINAL_NAMES) | {name + ".sha256" for name in ORIGINAL_NAMES}
+    optional = {name + suffix for name in ORIGINAL_NAMES for suffix in OPTIONAL_STAGING_SIDECARS}
+    allowed = required | optional
+    actual: set[str] = set()
+    names: list[str] = []
+    originals: dict[str, bytes] = {}
+    try:
+        entries = list(absolute.iterdir())
+    except OSError as error:
+        return {}, [f"release staging directory is unreadable: {absolute}: {error}"]
+    for entry in entries:
+        names.append(entry.name)
+        try:
+            regular = stat.S_ISREG(entry.lstat().st_mode)
+        except OSError as error:
+            errors.append(f"staging entry metadata is unreadable: {entry.name}: {error}")
+            continue
+        if not regular:
+            errors.append(f"staging contains non-regular entry: {entry.name}")
+            continue
+        actual.add(entry.name)
+    if len({name.casefold() for name in names}) != len(names):
+        errors.append("release staging contains a case collision")
+    missing = required - actual
+    extra = actual - allowed
+    if missing or extra:
+        errors.append(f"release staging inventory mismatch; missing={sorted(missing)}, extra={sorted(extra)}")
+    for name, path in zip(ORIGINAL_NAMES, ORIGINAL_PATHS):
+        artifact = absolute / name
+        sidecar = absolute / (name + ".sha256")
+        try:
+            artifact_regular = stat.S_ISREG(artifact.lstat().st_mode)
+            sidecar_regular = stat.S_ISREG(sidecar.lstat().st_mode)
+        except OSError:
+            continue
+        if not artifact_regular or not sidecar_regular:
+            continue
+        try:
+            artifact_size = artifact.stat().st_size
+            sidecar_size = sidecar.stat().st_size
+        except OSError as error:
+            errors.append(f"staged original metadata is unreadable: {name}: {error}")
+            continue
+        if artifact_size > MAX_MEMBER:
+            errors.append(f"staged original is oversized: {name}")
+            continue
+        if sidecar_size != 65:
+            errors.append(f"staged original has stale or malformed SHA-256 evidence: {name}")
+            continue
+        try:
+            content = artifact.read_bytes()
+            sidecar_content = sidecar.read_bytes()
+        except OSError as error:
+            errors.append(f"staged original is unreadable: {name}: {error}")
+            continue
+        expected = (digest(content) + "\\n").encode("ascii")
+        if sidecar_content != expected:
+            errors.append(f"staged original has stale or malformed SHA-256 evidence: {name}")
+        originals[path] = content
+    return originals, errors
+''').body[0]
+        valid_inventory = (
+            len(staging_helpers) == 1
+            and len(optional_assignments) == 1
+            and ast.dump(optional_assignments[0], include_attributes=False)
+            == ast.dump(expected_optional, include_attributes=False)
+            and ast.dump(staging_helpers[0], include_attributes=False)
+            == ast.dump(expected_staging_helper, include_attributes=False)
+        )
+        if not valid_inventory:
+            errors.append(f"{relative}: release Python policy requires exact mandatory and optional staging inventory")
         public_material_helpers = [
             node for node in tree.body
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
@@ -943,7 +1293,7 @@ def release_python_policy_errors(relative: str, text: str) -> list[str]:
             errors.append(f"{relative}: release Python policy forbids shell API access")
         if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name) and node.value.id == "subprocess" and node.attr not in {"run", "CompletedProcess", "DEVNULL", "PIPE"}:
             errors.append(f"{relative}: release Python policy forbids subprocess attribute {node.attr}")
-    protected = {"os", "subprocess", "git_output", "run"} if relative == "tools/check-release-candidate" else {"os", "subprocess", "git_value", "sign", "load_policy", "signing_environment"}
+    protected = {"os", "subprocess", "git_output", "run", "staged_originals", "staged_originals_from"} if relative == "tools/check-release-candidate" else {"os", "subprocess", "git_value", "sign", "load_policy", "signing_environment"}
     allowed_policy_store: ast.Name | None = None
     if relative == "tools/sign-central-bundle":
         execute_functions = [
@@ -1299,7 +1649,7 @@ def release_channel_errors(root: Path) -> list[str]:
 )'''
     for value in (
         exact_originals,
-        'RELEASE_VERSION = "0.1.0-alpha.1"',
+        'RELEASE_VERSION = "0.1.0"',
         'SNAPSHOT_VERSION = RELEASE_VERSION + "-SNAPSHOT"',
         'APPROVED_FINGERPRINT = "EAB02E488E7B944EAA6D65814BF0412FD2A3B741"',
         'info.mode = 0o644',
@@ -1384,10 +1734,10 @@ def release_channel_errors(root: Path) -> list[str]:
         "There is no Portal token, upload client, or\ncross-host orchestrator.",
         "Snapshot CI skips candidate creation and upload.",
         "Checksum sidecars\nare not signed, and `.asc` files receive no checksum sidecars.",
-        "GitHub pre-release is a later Gate C action",
+        "GitHub Release may independently use its optional pre-release marker",
         "CANDIDATE_TAR_SHA256=<lowercase-sha256>",
         "--candidate-sha256",
-        "--portal-zip build/release/htsp-0.1.0-alpha.1-central.zip",
+        "--portal-zip build/release/htsp-0.1.0-central.zip",
         "The signer writes the evidence TAR first.",
     ):
         if value not in releasing:
@@ -1432,6 +1782,8 @@ def ci_verify_errors(root: Path) -> list[str]:
     active_ci = tuple(active for line in ci.splitlines() if (active := yaml_active_line(line)).strip())
     if active_ci != CI_ACTIVE_POLICY:
         errors.append("CI exact active-YAML policy mismatch")
+    if re.search(r"\bhtsp-0\.1\.0-(?:alpha|beta|rc)(?:[.-][0-9A-Za-z]+)*", "\n".join(active_ci)):
+        errors.append("stale alpha version or filename is forbidden in active CI policy")
     bytecode_policy = "export PYTHONDONTWRITEBYTECODE=1"
     first_invocation = min(
         position for position in (verify.find("./tools/"), verify.find("python3 "), verify.find("./gradlew "))
@@ -1531,8 +1883,255 @@ def insert_release_setup_attack(root: Path, statement: str) -> None:
     replace_once(root, "tools/check-release-candidate", marker, marker + indented + "\n")
 
 
+def fixture_mode(root: Path) -> str | None:
+    build = (root / "build.gradle.kts").read_text(encoding="utf-8")
+    versions = re.findall(r'(?m)^version\s*=\s*"([^"]+)"\s*$', build)
+    if len(versions) == 1 and versions[0] in {"0.1.0-SNAPSHOT", "0.1.0"}:
+        return versions[0]
+    return None
+
+
+def copy_fixture(source: Path, target: Path) -> None:
+    shutil.copytree(source, target, symlinks=True, ignore=shutil.ignore_patterns(".git", "build"))
+    (target / ".git").mkdir()
+
+
+def set_release_document_fixture(root: Path) -> None:
+    release_coordinate = "at.bernhardberger.tvheadend:htsp:0.1.0"
+    replace_once(
+        root,
+        "README.md",
+        "The checkout currently uses the mutable, local-only snapshot\n"
+        "`at.bernhardberger.tvheadend:htsp:0.1.0-SNAPSHOT`. It is not available\n"
+        "from Maven Central or another public repository. CI stages that coordinate only\n"
+        "inside this checkout for the independent consumer contract.",
+        "The Gradle dependency uses the exact immutable release coordinate\n"
+        f"`{release_coordinate}`. Availability from Maven Central or another public\n"
+        "repository must be independently verified; this repository does not claim that\n"
+        "publication has occurred.",
+    )
+    replace_once(
+        root,
+        "README.md",
+        'implementation("at.bernhardberger.tvheadend:htsp:0.1.0-SNAPSHOT")',
+        f'implementation("{release_coordinate}")',
+    )
+    replace_once(root, "README.md", "[unreleased change history](CHANGELOG.md)", "[release change history](CHANGELOG.md)")
+    (root / "docs/versioning.md").write_text(
+        """# Versioning and compatibility
+
+The current immutable release coordinate is `at.bernhardberger.tvheadend:htsp:0.1.0`.
+`0.1.0` is the first provisional major-zero release. Release bytes for this
+coordinate are immutable and must never be replaced.
+
+Availability from Maven Central or any other public repository is independently
+verified external state. This repository does not claim that publication or
+availability has occurred.
+
+## Provisional 0.x policy
+
+While the major version is zero, the public API and behavior are provisional.
+No source, binary, or behavioral compatibility is promised for the provisional
+0.x line. A known breaking change requires the next minor version, not a patch
+version. Patch versions are reserved for backward-compatible fixes.
+
+Read the `0.1.0` release notes before using it as a baseline. Local checks and
+candidate CI do not establish publication, availability, distribution, Java 17
+runtime support, or release readiness.
+""",
+        encoding="utf-8",
+    )
+    replace_once(
+        root,
+        "docs/releasing.md",
+        "`0.1.0` is the planned first provisional major-zero release. It has not been\n"
+        "released or published. Release notes for `0.1.0` define only the initial\n"
+        "provisional baseline. They do not promise compatibility or support. Major zero\n"
+        "communicates that status; the Maven version does not need an alpha suffix.\n\n"
+        "This repository currently stages snapshots only to checkout-local\n"
+        "`build/local-maven` in CI. External publication, signing, tagging, and release\n"
+        "creation require separate owner authorization.",
+        "`0.1.0` is the first provisional major-zero release. Release notes for `0.1.0`\n"
+        "define only the initial provisional baseline. They do not promise compatibility\n"
+        "or support. Major zero communicates that status; the Maven version does not need\n"
+        "an alpha suffix.\n\n"
+        "Candidate preparation and local staging do not establish external publication or\n"
+        "availability. Publication and availability are independently verified external\n"
+        "state. External publication, signing, tagging, and release creation require\n"
+        "separate owner authorization.",
+    )
+    replace_once(root, "docs/releasing.md", "The eventual release uses the `v0.1.0` tag vocabulary.", "The release uses the `v0.1.0` tag vocabulary.")
+    replace_once(
+        root,
+        "docs/README.md",
+        "[`CHANGELOG.md`](../CHANGELOG.md): unreleased, non-normative baseline notes.",
+        "[`CHANGELOG.md`](../CHANGELOG.md): the `0.1.0` initial provisional baseline notes.",
+    )
+    (root / "CHANGELOG.md").write_text(
+        """# Changelog
+
+## [0.1.0]
+
+This release entry records the `0.1.0` initial provisional baseline. It does not
+promise source, binary, or behavioral compatibility or support.
+
+The initial provisional baseline contains the standalone Kotlin/JVM HTSP v44
+protocol library and its typed outcome API. Publication and availability are
+independently verified external state and are not established by this entry.
+""",
+        encoding="utf-8",
+    )
+
+
+def set_snapshot_document_fixture(root: Path) -> None:
+    release_coordinate = "at.bernhardberger.tvheadend:htsp:0.1.0"
+    replace_once(
+        root,
+        "README.md",
+        "The Gradle dependency uses the exact immutable release coordinate\n"
+        f"`{release_coordinate}`. Availability from Maven Central or another public\n"
+        "repository must be independently verified; this repository does not claim that\n"
+        "publication has occurred.",
+        "The checkout currently uses the mutable, local-only snapshot\n"
+        "`at.bernhardberger.tvheadend:htsp:0.1.0-SNAPSHOT`. It is not available\n"
+        "from Maven Central or another public repository. CI stages that coordinate only\n"
+        "inside this checkout for the independent consumer contract.",
+    )
+    replace_once(
+        root,
+        "README.md",
+        f'implementation("{release_coordinate}")',
+        'implementation("at.bernhardberger.tvheadend:htsp:0.1.0-SNAPSHOT")',
+    )
+    replace_once(root, "README.md", "[release change history](CHANGELOG.md)", "[unreleased change history](CHANGELOG.md)")
+    (root / "docs/versioning.md").write_text(
+        """# Versioning and compatibility
+
+The current coordinate is
+`at.bernhardberger.tvheadend:htsp:0.1.0-SNAPSHOT`.
+`0.1.0-SNAPSHOT` is a mutable, checkout-local snapshot. It is not
+available from any public repository.
+
+An immutable release must use a new version; published release bytes must never
+be replaced. Snapshots can change while retaining their coordinate and must not
+be treated as immutable releases.
+
+## Provisional 0.x policy
+
+While the major version is zero, the public API and behavior are provisional.
+No source, binary, or behavioral compatibility is promised for the provisional
+0.x line. A known breaking change requires the next minor version, not a patch
+version. Patch versions are reserved for backward-compatible fixes.
+
+The planned first release is `0.1.0`, an ordinary provisional major-zero
+release. It has not been published. Major zero communicates the
+initial-development compatibility status without a Maven alpha suffix. Read its
+release notes before using it as a baseline. Local checks and CI staging do not
+establish publication, distribution, Java 17 runtime support, or release readiness.
+""",
+        encoding="utf-8",
+    )
+    replace_once(
+        root,
+        "docs/releasing.md",
+        "`0.1.0` is the first provisional major-zero release. Release notes for `0.1.0`\n"
+        "define only the initial provisional baseline. They do not promise compatibility\n"
+        "or support. Major zero communicates that status; the Maven version does not need\n"
+        "an alpha suffix.\n\n"
+        "Candidate preparation and local staging do not establish external publication or\n"
+        "availability. Publication and availability are independently verified external\n"
+        "state. External publication, signing, tagging, and release creation require\n"
+        "separate owner authorization.",
+        "`0.1.0` is the planned first provisional major-zero release. It has not been\n"
+        "released or published. Release notes for `0.1.0` define only the initial\n"
+        "provisional baseline. They do not promise compatibility or support. Major zero\n"
+        "communicates that status; the Maven version does not need an alpha suffix.\n\n"
+        "This repository currently stages snapshots only to checkout-local\n"
+        "`build/local-maven` in CI. External publication, signing, tagging, and release\n"
+        "creation require separate owner authorization.",
+    )
+    replace_once(root, "docs/releasing.md", "The release uses the `v0.1.0` tag vocabulary.", "The eventual release uses the `v0.1.0` tag vocabulary.")
+    replace_once(
+        root,
+        "docs/README.md",
+        "[`CHANGELOG.md`](../CHANGELOG.md): the `0.1.0` initial provisional baseline notes.",
+        "[`CHANGELOG.md`](../CHANGELOG.md): unreleased, non-normative baseline notes.",
+    )
+    (root / "CHANGELOG.md").write_text(
+        """# Changelog
+
+## [Unreleased]
+
+This unreleased entry records the checkout-local `0.1.0-SNAPSHOT` baseline.
+It is not a release, publication, compatibility baseline, or support promise.
+
+The initial provisional baseline contains the standalone Kotlin/JVM HTSP v44
+protocol library and its typed outcome API.
+""",
+        encoding="utf-8",
+    )
+
+
+def set_release_mode_fixture(root: Path) -> None:
+    if fixture_mode(root) != "0.1.0-SNAPSHOT":
+        raise AssertionError("self-test release fixture requires the canonical snapshot mode")
+    replace_once(root, "build.gradle.kts", 'version = "0.1.0-SNAPSHOT"', 'version = "0.1.0"')
+    set_release_document_fixture(root)
+    if fixture_mode(root) != "0.1.0":
+        raise AssertionError("self-test did not establish the exact release mode")
+
+
+def set_snapshot_mode_fixture(root: Path) -> None:
+    if fixture_mode(root) != "0.1.0":
+        raise AssertionError("self-test snapshot fixture requires the exact release mode")
+    replace_once(root, "build.gradle.kts", 'version = "0.1.0"', 'version = "0.1.0-SNAPSHOT"')
+    set_snapshot_document_fixture(root)
+    if fixture_mode(root) != "0.1.0-SNAPSHOT":
+        raise AssertionError("self-test did not establish the canonical snapshot mode")
+
+
+def create_canonical_snapshot_fixture(source: Path, target: Path) -> list[str]:
+    mode = fixture_mode(source)
+    if mode is None:
+        return ["source checkout mode is unsupported"]
+    copy_fixture(source, target)
+    if mode == "0.1.0":
+        original = {relative: (source / relative).read_bytes() for relative in VERSION_POLICY_FILES}
+        try:
+            set_snapshot_mode_fixture(target)
+            snapshot = {relative: (target / relative).read_bytes() for relative in VERSION_POLICY_FILES}
+            set_release_mode_fixture(target)
+            recovered = {relative: (target / relative).read_bytes() for relative in VERSION_POLICY_FILES}
+            if recovered != original:
+                return ["release-to-snapshot fixture conversion is not exactly reversible"]
+            set_snapshot_mode_fixture(target)
+            if any((target / relative).read_bytes() != content for relative, content in snapshot.items()):
+                return ["release-to-snapshot fixture conversion is not deterministic"]
+        except (AssertionError, OSError, UnicodeError) as error:
+            return [f"release-to-snapshot fixture conversion failed closed: {error}"]
+    fixture_errors = repository_errors(target)
+    if fixture_errors:
+        return ["canonical snapshot fixture failed: " + "; ".join(fixture_errors)]
+    return []
+
+
 def self_test() -> list[str]:
     errors: list[str] = []
+    target_release = "0.1.0"
+    target_snapshot = target_release + "-SNAPSHOT"
+    legacy_release = "0.1.0-" + "alpha.1"
+    expected_ci_candidate = f"build/release/htsp-{target_release}-candidate.tar"
+    ci_text = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+    docs_text = "\n".join(
+        (ROOT / relative).read_text(encoding="utf-8")
+        for relative in ("README.md", "docs/versioning.md", "docs/releasing.md", "CHANGELOG.md")
+    )
+    if COORDINATE != f"at.bernhardberger.tvheadend:htsp:{target_snapshot}":
+        errors.append("self-test rejected the legacy alpha-pinned consumer coordinate")
+    if expected_ci_candidate not in ci_text or legacy_release in ci_text:
+        errors.append("self-test rejected the legacy alpha-pinned CI candidate filename")
+    if target_release not in docs_text or legacy_release in docs_text:
+        errors.append("self-test rejected the legacy alpha-pinned documentation vocabulary")
     baseline = repository_errors(ROOT)
     if baseline:
         return ["clean repository fixture failed: " + "; ".join(baseline)]
@@ -1564,9 +2163,10 @@ def self_test() -> list[str]:
         "    with tempfile." + "TemporaryDirectory() as temporary:"
     )
     mutations: list[tuple[str, str, Callable[[Path], None]]] = [
-        ("unsupported root version", "root build version", lambda root: replace_once(root, "build.gradle.kts", 'version = "0.1.0-alpha.1-SNAPSHOT"', 'version = "0.1.0-alpha.2-SNAPSHOT"')),
-        ("multiple root versions", "root build version", lambda root: append(root, "build.gradle.kts", '\nversion = "0.1.0-alpha.1"\n')),
-        ("dynamic root version", "root build version", lambda root: replace_once(root, "build.gradle.kts", 'version = "0.1.0-alpha.1-SNAPSHOT"', 'version = providers.gradleProperty("releaseVersion").get()')),
+        ("unsupported root version", "root build version", lambda root: replace_once(root, "build.gradle.kts", 'version = "0.1.0-SNAPSHOT"', 'version = "0.2.0-SNAPSHOT"')),
+        ("legacy alpha root version", "stale alpha version", lambda root: replace_once(root, "build.gradle.kts", 'version = "0.1.0-SNAPSHOT"', f'version = "{legacy_release}-SNAPSHOT"')),
+        ("multiple root versions", "root build version", lambda root: append(root, "build.gradle.kts", '\nversion = "0.1.0"\n')),
+        ("dynamic root version", "root build version", lambda root: replace_once(root, "build.gradle.kts", 'version = "0.1.0-SNAPSHOT"', 'version = providers.gradleProperty("releaseVersion").get()')),
         ("wrong coordinate", "consumer dependency must be exactly", lambda root: replace_once(root, "consumer-contract/build.gradle.kts", COORDINATE, "example:wrong:1")),
         ("consumer stdlib implementation scope", "consumer production dependency scope", lambda root: replace_once(root, "consumer-contract/build.gradle.kts", '"api:org.jetbrains.kotlin:kotlin-stdlib:2.3.10"', '"implementation:org.jetbrains.kotlin:kotlin-stdlib:2.3.10"')),
         ("extra publication", "exactly one Maven publication", lambda root: append(root, "build.gradle.kts", '\ncreate<MavenPublication>("other") {}\n')),
@@ -1654,14 +2254,26 @@ def self_test() -> list[str]:
         ("fake one-stage comparison", "verifier P3-E2", lambda root: replace_once(root, "tools/verify-htsp", "rm -rf build/local-maven", ": # no recreation")),
         ("missing release checker activation", "verifier P3-E2", lambda root: replace_once(root, "tools/verify-htsp", "./tools/check-release-candidate --check-setup\n", "")),
         ("release setup public-material verification removed", "release candidate exact policy", lambda root: replace_once(root, "tools/check-release-candidate", "    errors.extend(setup_public_material_errors())", "    errors.extend([])")),
+        ("release preparation version gate bypassed", "release Python policy", lambda root: replace_once(root, "tools/check-release-candidate", "prepare_version_gate(version, allow_snapshot_noop)", "prepare_version_gate(RELEASE_VERSION, allow_snapshot_noop)")),
+        ("release preparation gate guard bypassed", "exact preparation gate before output and staging", lambda root: replace_once(root, "tools/check-release-candidate", "    if gate_errors or not continues:\n        return gate_errors, None", "    if False:\n        return gate_errors, None")),
+        ("release production staging path bypassed", "production staging path wrapper", lambda root: replace_once(root, "tools/check-release-candidate", 'ROOT.joinpath("build/local-maven", *GROUP.split("."), ARTIFACT, RELEASE_VERSION)', 'ROOT.joinpath("build/other", ARTIFACT, RELEASE_VERSION)')),
+        ("release staging sidecar inventory widened", "mandatory and optional staging inventory", lambda root: replace_once(root, "tools/check-release-candidate", 'OPTIONAL_STAGING_SIDECARS = (".md5", ".sha1", ".sha512")', 'OPTIONAL_STAGING_SIDECARS = (".md5", ".sha1", ".sha512", ".asc")')),
+        ("release staging required inventory bypassed", "mandatory and optional staging inventory", lambda root: replace_once(root, "tools/check-release-candidate", "allowed = required | optional", "allowed = actual")),
+        ("release staging helper rebound", "forbids rebinding staged_originals_from", lambda root: append(root, "tools/check-release-candidate", "\nstaged_originals_from = lambda _path: ({}, [])\n")),
+        ("API policy release mode removed", "dual-mode API policy", lambda root: replace_once(root, "tools/check-api-compatibility-policy", "MODES = (VERSION, RELEASE)", "MODES = (VERSION,)")),
+        ("API policy release semantic fixture skipped", "hostile self-test must execute", lambda root: replace_once(root, "tools/check-api-compatibility-policy", "release_baseline = synthetic_documents(RELEASE)", "release_baseline = synthetic_documents(VERSION)")),
         ("missing verifier bytecode suppression", "PYTHONDONTWRITEBYTECODE", lambda root: replace_once(root, "tools/verify-htsp", "export PYTHONDONTWRITEBYTECODE=1\n", "")),
         ("weakened verifier bytecode suppression", "PYTHONDONTWRITEBYTECODE", lambda root: replace_once(root, "tools/verify-htsp", "export PYTHONDONTWRITEBYTECODE=1", "export PYTHONDONTWRITEBYTECODE=0")),
         ("candidate upload action tag instead of SHA", "CI exact active-YAML", lambda root: replace_once(root, ".github/workflows/ci.yml", f"actions/upload-artifact@{UPLOAD_SHA}", "actions/upload-artifact@v4.6.2")),
         ("candidate upload compression changed", "CI exact active-YAML", lambda root: replace_once(root, ".github/workflows/ci.yml", "compression-level: 0", "compression-level: 9")),
         ("candidate upload retention changed", "CI exact active-YAML", lambda root: replace_once(root, ".github/workflows/ci.yml", "retention-days: 7", "retention-days: 90")),
-        ("candidate upload path changed", "CI exact active-YAML", lambda root: replace_once(root, ".github/workflows/ci.yml", "path: build/release/htsp-0.1.0-alpha.1-candidate.tar", "path: build/release")),
+        ("candidate upload path changed", "CI exact active-YAML", lambda root: replace_once(root, ".github/workflows/ci.yml", "path: build/release/htsp-0.1.0-candidate.tar", "path: build/release")),
+        ("legacy alpha candidate filename", "stale alpha version", lambda root: replace_once(root, ".github/workflows/ci.yml", "htsp-0.1.0-candidate.tar", f"htsp-{legacy_release}-candidate.tar")),
+        ("snapshot candidate production enabled", "CI exact active-YAML", lambda root: replace_once(root, ".github/workflows/ci.yml", "--prepare-if-release", "--prepare")),
         ("candidate upload snapshot condition weakened", "CI exact active-YAML", lambda root: replace_once(root, ".github/workflows/ci.yml", "if: steps.candidate.outputs.release == 'true' && github.event_name == 'push' && github.ref == 'refs/heads/main'", "if: always()")),
-        ("candidate digest log discarded", "CI exact active-YAML", lambda root: replace_once(root, ".github/workflows/ci.yml", "--output build/release/htsp-0.1.0-alpha.1-candidate.tar", "--output build/release/htsp-0.1.0-alpha.1-candidate.tar > /dev/null")),
+        ("candidate digest log discarded", "CI exact active-YAML", lambda root: replace_once(root, ".github/workflows/ci.yml", "--output build/release/htsp-0.1.0-candidate.tar", "--output build/release/htsp-0.1.0-candidate.tar > /dev/null")),
+        ("required Maven alpha suffix documented", "contradictory version documentation", lambda root: append(root, "docs/versioning.md", "\nThe Maven version must include an alpha suffix.\n")),
+        ("GitHub marker changes coordinate", "contradictory version documentation", lambda root: append(root, "docs/releasing.md", "\nThe GitHub pre-release marker changes the Maven coordinate.\n")),
         ("candidate digest handoff undocumented", "release documentation boundary", lambda root: replace_once(root, "docs/releasing.md", "CANDIDATE_TAR_SHA256=<lowercase-sha256>", "candidate digest omitted")),
         ("documentation index restores future key claim", "retains stale claim", lambda root: append(root, "docs/README.md", "\nThe future tracked public-only OpenPGP key remains pending.\n")),
         ("release guide restores prerequisite key claim", "retains stale claim", lambda root: append(root, "docs/releasing.md", "\nThe files are still an owner prerequisite.\n")),
@@ -1714,34 +2326,49 @@ def self_test() -> list[str]:
     ]
     with tempfile.TemporaryDirectory() as temporary:
         temporary_root = Path(temporary)
+        snapshot_baseline = temporary_root / "canonical-snapshot-baseline"
+        fixture_errors = create_canonical_snapshot_fixture(ROOT, snapshot_baseline)
+        if fixture_errors:
+            return fixture_errors
         release_case = temporary_root / "positive-release-version"
-        shutil.copytree(ROOT, release_case, symlinks=True, ignore=shutil.ignore_patterns(".git", "build"))
-        (release_case / ".git").mkdir()
-        replace_once(release_case, "build.gradle.kts", 'version = "0.1.0-alpha.1-SNAPSHOT"', 'version = "0.1.0-alpha.1"')
+        copy_fixture(snapshot_baseline, release_case)
+        set_release_mode_fixture(release_case)
         release_errors = repository_errors(release_case)
         if release_errors:
             errors.append("self-test rejected exact release-mode repository fixture: " + "; ".join(release_errors))
+
+        crossed_release = temporary_root / "crossed-release-with-snapshot-docs"
+        copy_fixture(snapshot_baseline, crossed_release)
+        replace_once(crossed_release, "build.gradle.kts", 'version = "0.1.0-SNAPSHOT"', 'version = "0.1.0"')
+        crossed_release_errors = repository_errors(crossed_release)
+        if not any("mode documentation" in item for item in crossed_release_errors):
+            errors.append(f"self-test accepted release build with stale snapshot documentation: {crossed_release_errors}")
+
+        crossed_snapshot = temporary_root / "crossed-snapshot-with-release-docs"
+        copy_fixture(snapshot_baseline, crossed_snapshot)
+        set_release_document_fixture(crossed_snapshot)
+        crossed_snapshot_errors = repository_errors(crossed_snapshot)
+        if not any("mode documentation" in item for item in crossed_snapshot_errors):
+            errors.append(f"self-test accepted snapshot build with release documentation: {crossed_snapshot_errors}")
         for index, (name, expected, mutate) in enumerate(mutations):
             case = temporary_root / f"case-{index}"
-            shutil.copytree(ROOT, case, symlinks=True, ignore=shutil.ignore_patterns(".git", "build"))
-            (case / ".git").mkdir()
+            copy_fixture(snapshot_baseline, case)
             mutate(case)
             actual = repository_errors(case)
             if not any(expected in error for error in actual):
                 errors.append(f"self-test accepted {name} without {expected!r}: {actual}")
         for index, relative in enumerate(TEMP_CHECKERS):
             case = temporary_root / f"case-positive-{index}"
-            shutil.copytree(ROOT, case, symlinks=True, ignore=shutil.ignore_patterns(".git", "build"))
-            (case / ".git").mkdir()
+            copy_fixture(snapshot_baseline, case)
             append_temp_noncode(case, relative)
             actual = repository_errors(case)
             if actual:
                 errors.append(f"self-test rejected temporary-policy comment/string fixture in {relative}: {actual}")
         case = temporary_root / "case-positive-release-comments"
-        shutil.copytree(ROOT, case, symlinks=True, ignore=shutil.ignore_patterns(".git", "build"))
-        (case / ".git").mkdir()
+        copy_fixture(snapshot_baseline, case)
         append(case, "tools/check-release-candidate", "\n# Portal token\n")
         append(case, "tools/check-release-candidate", '\nREFLECTIVE_POLICY_EXAMPLE = \'getattr(sys.modules["os"], "system") and __builtins__\'\n')
+        append(case, "tools/check-api-compatibility-policy", "\n# Exact dual-mode behavior remains unchanged.\n")
         append(case, "tools/sign-central-bundle", "\n# --passphrase-file\n")
         append(case, ".github/workflows/ci.yml", "\n# Portal token\n# --passphrase-file\n")
         replace_once(case, ".github/workflows/ci.yml", "compression-level: 0", "compression-level: 0 # Portal token")
@@ -1749,8 +2376,7 @@ def self_test() -> list[str]:
         if actual:
             errors.append(f"self-test rejected harmless release-policy comments: {actual}")
         case = temporary_root / "case-positive-unrelated-collection-removal"
-        shutil.copytree(ROOT, case, symlinks=True, ignore=shutil.ignore_patterns(".git", "build"))
-        (case / ".git").mkdir()
+        copy_fixture(snapshot_baseline, case)
         replace_once(
             case,
             "build.gradle.kts",
@@ -1765,8 +2391,7 @@ def self_test() -> list[str]:
         if actual:
             errors.append(f"self-test rejected unrelated collection removal fixture: {actual}")
         case = temporary_root / "case-symlink"
-        shutil.copytree(ROOT, case, symlinks=True, ignore=shutil.ignore_patterns(".git", "build"))
-        (case / ".git").mkdir()
+        copy_fixture(snapshot_baseline, case)
         target = case / "README.md"
         target.unlink()
         target.symlink_to("/etc/passwd")

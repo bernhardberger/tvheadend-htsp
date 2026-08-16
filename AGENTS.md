@@ -33,8 +33,8 @@ or as wholly original work.
   Gate C0 / P3-E2A release channel adds deterministic no-rebuild candidate and
   signed-bundle policy, but does not authorize signing, transfer, upload,
   publication, tagging, or release.
-- Release-channel tools accept only `0.1.0-alpha.1-SNAPSHOT` and
-  `0.1.0-alpha.1`. Snapshot CI produces no candidate. The future release
+- Release-channel tools accept only `0.1.0-SNAPSHOT` and `0.1.0`. Snapshot CI
+  produces no candidate. The future release
   candidate contains exactly five originals from verified and recreated local
   staging bytes.
 - Candidate creation logs the exact inner TAR SHA-256 after final write/readback.
