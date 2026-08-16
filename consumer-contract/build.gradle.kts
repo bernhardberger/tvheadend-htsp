@@ -1,3 +1,5 @@
+import java.nio.file.Files as NioFiles
+import java.nio.file.LinkOption as NioLinkOption
 import org.gradle.api.artifacts.ExternalModuleDependency
 import org.gradle.api.artifacts.FileCollectionDependency
 import org.gradle.api.artifacts.ProjectDependency
@@ -172,7 +174,7 @@ tasks.register("verifyConsumerDependencyGraph") {
             "The HTSP snapshot directory escaped the canonical staged module path"
         }
         val metadata = versionDirectory.resolve("maven-metadata.xml")
-        check(metadata.isFile && !java.nio.file.Files.isSymbolicLink(metadata.toPath())) {
+        check(metadata.isFile && !NioFiles.isSymbolicLink(metadata.toPath())) {
             "HTSP snapshot metadata is missing from $versionDirectory"
         }
         val snapshotStem = Regex(
@@ -203,9 +205,9 @@ tasks.register("verifyConsumerDependencyGraph") {
             file.name.replace(snapshotStem, "") == ".jar"
         }
         check(
-            java.nio.file.Files.isRegularFile(
+            NioFiles.isRegularFile(
                 stagedMainJar.toPath(),
-                java.nio.file.LinkOption.NOFOLLOW_LINKS,
+                NioLinkOption.NOFOLLOW_LINKS,
             ),
         ) {
             "The staged HTSP main JAR is not a regular non-symlink file: $stagedMainJar"
@@ -241,9 +243,9 @@ tasks.register("verifyConsumerDependencyGraph") {
         }
         val htspArtifact = htspArtifacts.single().file
         check(
-            java.nio.file.Files.isRegularFile(
+            NioFiles.isRegularFile(
                 htspArtifact.toPath(),
-                java.nio.file.LinkOption.NOFOLLOW_LINKS,
+                NioLinkOption.NOFOLLOW_LINKS,
             ),
         ) {
             "The resolved HTSP artifact is not a regular non-symlink file: $htspArtifact"
