@@ -1,9 +1,10 @@
 # Changelog
 
-## [Unreleased]
+## [0.1.0]
 
-This unreleased entry records the checkout-local `0.1.0-SNAPSHOT` baseline.
-It is not a release, publication, compatibility baseline, or support promise.
+This release entry records the `0.1.0` initial provisional baseline. It does not
+promise source, binary, or behavioral compatibility or support.
 
 The initial provisional baseline contains the standalone Kotlin/JVM HTSP v44
-protocol library and its typed outcome API.
+protocol library and its typed outcome API. Publication and availability are
+independently verified external state and are not established by this entry.

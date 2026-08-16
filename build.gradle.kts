@@ -15,7 +15,7 @@ plugins {
 }
 
 group = "at.bernhardberger.tvheadend"
-version = "0.1.0-SNAPSHOT"
+version = "0.1.0"
 
 val allowedPublicationVersions = setOf(
     "0.1.0-SNAPSHOT",

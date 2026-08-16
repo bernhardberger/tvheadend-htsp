@@ -6,12 +6,12 @@ Guides for people using the library, and references for people working on it.
 
 - [`public-api.md`](public-api.md): how calls report success and failure,
   covering typed outcomes, cancellation, and what error values never carry.
-- [`versioning.md`](versioning.md): the current version, its pre-release status,
+- [`versioning.md`](versioning.md): the current version, its provisional compatibility status,
   and what compatibility you can expect.
 - [`releasing.md`](releasing.md): the local staging, deterministic candidate,
   public inner-TAR digest handoff, isolated signing-host, and owner-manual
-  Central boundary for the planned first release.
-- [`CHANGELOG.md`](../CHANGELOG.md): unreleased, non-normative baseline notes.
+  Central boundary for the first release.
+- [`CHANGELOG.md`](../CHANGELOG.md): the `0.1.0` initial provisional baseline notes.
 - [`licensing.md`](licensing.md): GPLv3 obligations, attribution, and project
   lineage.
 

@@ -1,13 +1,14 @@
 # Releasing
 
-`0.1.0` is the planned first provisional major-zero release. It has not been
-released or published. Release notes for `0.1.0` define only the initial
-provisional baseline. They do not promise compatibility or support. Major zero
-communicates that status; the Maven version does not need an alpha suffix.
+`0.1.0` is the first provisional major-zero release. Release notes for `0.1.0`
+define only the initial provisional baseline. They do not promise compatibility
+or support. Major zero communicates that status; the Maven version does not need
+an alpha suffix.
 
-This repository currently stages snapshots only to checkout-local
-`build/local-maven` in CI. External publication, signing, tagging, and release
-creation require separate owner authorization.
+Candidate preparation and local staging do not establish external publication or
+availability. Publication and availability are independently verified external
+state. External publication, signing, tagging, and release creation require
+separate owner authorization.
 
 ## Prepared release-channel boundary
 
@@ -15,14 +16,14 @@ The repository now defines a preparatory, fail-closed release channel. This is
 tooling and policy only. It is not release, signing, publication, distribution,
 or release-readiness evidence.
 
-`tools/check-published-jvm-compatibility` accepts only the current
-`0.1.0-SNAPSHOT` staging topology and the future `0.1.0` release topology. Every
+`tools/check-published-jvm-compatibility` accepts only the
+`0.1.0-SNAPSHOT` staging topology and the `0.1.0` release topology. Every
 other version is rejected. Both forms
 retain the exact five originals and the POM, module metadata, JVM 17 class,
 dependency, GPLv3, predecessor, and no-Android/native checks. Release originals
 use exact unsuffixed filenames and do not depend on snapshot metadata.
 
-On the future release commit, exact-SHA CI first runs the complete verifier and
+In release mode, exact-SHA CI first runs the complete verifier and
 recreates and compares the checkout-local staging bytes. It then packages those
 same five originals without rebuilding. The deterministic candidate TAR records
 the exact Maven paths, sizes, SHA-256 values, source commit and tree, and CI run
@@ -85,7 +86,7 @@ identical to the canonical ZIP preserved in the evidence TAR and its manifest.
 The first release uses owner-manual Central Portal UI upload and the owner makes
 the Publish or Drop decision. There is no Portal token, upload client, or
 cross-host orchestrator. Candidate transfer and signed-bundle transfer are also
-owner operations. The eventual release uses the `v0.1.0` tag vocabulary. A
+owner operations. The release uses the `v0.1.0` tag vocabulary. A
 GitHub Release may independently use its optional pre-release marker as a later
 Gate C action, only after Maven Central resolves the exact immutable coordinate;
 that marker does not change the ordinary Maven version or tag vocabulary. No
@@ -101,5 +102,5 @@ publication, distribution, or release readiness.
 verification contract. The private key and passphrase remain on the isolated
 owner-controlled signing host. Candidate creation, signing, transfer,
 publication, and every other Gate C action still require separate owner
-authorization. Current snapshot setup and non-Gradle policy verification remain
+authorization. Tracked public-key setup and non-Gradle policy verification remain
 valid without pretending that signing or publication occurred.
