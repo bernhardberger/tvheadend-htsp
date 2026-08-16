@@ -379,7 +379,7 @@ def consumer_errors(root: Path) -> list[str]:
     if dependencies != [COORDINATE]:
         errors.append(f"consumer dependency must be exactly {COORDINATE}: {dependencies}")
     expected_production_dependencies = '''        val expectedProductionDependencies = listOf(
-            "implementation:org.jetbrains.kotlin:kotlin-stdlib:2.3.10",
+            "api:org.jetbrains.kotlin:kotlin-stdlib:2.3.10",
             "implementation:$htspGroup:$htspModule:$htspVersion",
         )'''
     if build.count(expected_production_dependencies) != 1:
@@ -801,7 +801,7 @@ def self_test() -> list[str]:
     )
     mutations: list[tuple[str, str, Callable[[Path], None]]] = [
         ("wrong coordinate", "consumer dependency must be exactly", lambda root: replace_once(root, "consumer-contract/build.gradle.kts", COORDINATE, "example:wrong:1")),
-        ("consumer stdlib API scope", "consumer production dependency scope", lambda root: replace_once(root, "consumer-contract/build.gradle.kts", '"implementation:org.jetbrains.kotlin:kotlin-stdlib:2.3.10"', '"api:org.jetbrains.kotlin:kotlin-stdlib:2.3.10"')),
+        ("consumer stdlib implementation scope", "consumer production dependency scope", lambda root: replace_once(root, "consumer-contract/build.gradle.kts", '"api:org.jetbrains.kotlin:kotlin-stdlib:2.3.10"', '"implementation:org.jetbrains.kotlin:kotlin-stdlib:2.3.10"')),
         ("extra publication", "exactly one Maven publication", lambda root: append(root, "build.gradle.kts", '\ncreate<MavenPublication>("other") {}\n')),
         ("remote publication", "unapproved remote URL", lambda root: append(root, "build.gradle.kts", '\nval hostile = "https://repo.example.invalid"\n')),
         ("snapshot Maven Local", "forbidden remote/signing", lambda root: append(root, "build.gradle.kts", "\nmavenLocal()\n")),

@@ -90,7 +90,7 @@ tasks.register("verifyConsumerDependencyGraph") {
                 }
             }
         val expectedProductionDependencies = listOf(
-            "implementation:org.jetbrains.kotlin:kotlin-stdlib:2.3.10",
+            "api:org.jetbrains.kotlin:kotlin-stdlib:2.3.10",
             "implementation:$htspGroup:$htspModule:$htspVersion",
         )
         check(productionDependencyDeclarations == expectedProductionDependencies) {
