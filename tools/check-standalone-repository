@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import ast
 import hashlib
 import os
 import re
@@ -111,6 +112,10 @@ FIXTURE_FILES = {
     "consumer-contract/settings.gradle.kts",
     "consumer-contract/src/main/kotlin/at/bernhardberger/tvheadend/protocolconsumer/ProtocolQuickStart.kt",
 }
+TEMP_CHECKERS = (
+    "tools/check-standalone-repository",
+    "tools/check-published-jvm-compatibility",
+)
 
 
 def sha256(path: Path) -> str:
@@ -410,6 +415,184 @@ def package_errors(root: Path) -> list[str]:
     return errors
 
 
+def portable_temp_errors(root: Path) -> list[str]:
+    errors: list[str] = []
+    for relative in TEMP_CHECKERS:
+        text = read(root, relative, errors)
+        try:
+            tree = ast.parse(text, filename=relative)
+        except SyntaxError as error:
+            errors.append(f"{relative}: cannot inspect temporary-directory policy ({error})")
+            continue
+        parents = {
+            child: parent
+            for parent in ast.walk(tree)
+            for child in ast.iter_child_nodes(parent)
+        }
+        tempfile_imports = [
+            (node, alias)
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Import)
+            for alias in node.names
+            if alias.name == "tempfile" or alias.name.startswith("tempfile.")
+        ]
+        canonical_import = (
+            len(tempfile_imports) == 1
+            and tempfile_imports[0][1].name == "tempfile"
+            and tempfile_imports[0][1].asname is None
+            and len(tempfile_imports[0][0].names) == 1
+        )
+        imported_factories = [
+            node for node in ast.walk(tree)
+            if isinstance(node, ast.ImportFrom)
+            and (node.module == "tempfile" or (node.module or "").startswith("tempfile."))
+        ]
+        alternate_tempfile_import_bindings = [
+            alias
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Import)
+            for alias in node.names
+            if alias.asname == "tempfile"
+        ] + [
+            alias
+            for node in ast.walk(tree)
+            if isinstance(node, ast.ImportFrom)
+            for alias in node.names
+            if (alias.asname or alias.name) == "tempfile"
+        ]
+        tempfile_rebindings = [
+            node for node in ast.walk(tree)
+            if (
+                isinstance(node, ast.Name)
+                and not isinstance(node.ctx, ast.Load)
+                and node.id == "tempfile"
+            ) or (
+                isinstance(node, ast.arg) and node.arg == "tempfile"
+            ) or (
+                isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+                and node.name == "tempfile"
+            ) or (
+                isinstance(node, ast.ExceptHandler) and node.name == "tempfile"
+            )
+        ]
+        loaded_modules = [
+            node for node in ast.walk(tree)
+            if isinstance(node, ast.Name)
+            and isinstance(node.ctx, ast.Load)
+            and node.id == "tempfile"
+        ]
+        attributes = [
+            node for node in ast.walk(tree)
+            if isinstance(node, ast.Attribute)
+            and isinstance(node.ctx, ast.Load)
+            and node.attr == "TemporaryDirectory"
+        ]
+        bare_factories = [
+            node for node in ast.walk(tree)
+            if isinstance(node, ast.Name)
+            and isinstance(node.ctx, ast.Load)
+            and node.id == "TemporaryDirectory"
+        ]
+        forbidden_builtin_calls = [
+            node for node in ast.walk(tree)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id in {"getattr", "setattr", "__import__"}
+        ]
+        importlib_bindings = {
+            alias.asname or "importlib"
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Import)
+            for alias in node.names
+            if alias.name == "importlib"
+        }
+        imported_import_module_bindings = {
+            alias.asname or alias.name
+            for node in ast.walk(tree)
+            if isinstance(node, ast.ImportFrom) and node.module == "importlib"
+            for alias in node.names
+            if alias.name == "import_module"
+        }
+        dynamic_imports = [
+            node for node in ast.walk(tree)
+            if (
+                isinstance(node, ast.Attribute)
+                and isinstance(node.ctx, ast.Load)
+                and node.attr == "import_module"
+                and isinstance(node.value, ast.Name)
+                and node.value.id in importlib_bindings
+            ) or (
+                isinstance(node, ast.Name)
+                and isinstance(node.ctx, ast.Load)
+                and node.id in imported_import_module_bindings
+            )
+        ]
+        sys_bindings = {
+            alias.asname or "sys"
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Import)
+            for alias in node.names
+            if alias.name == "sys"
+        }
+        imported_sys_modules_bindings = {
+            alias.asname or alias.name
+            for node in ast.walk(tree)
+            if isinstance(node, ast.ImportFrom) and node.module == "sys"
+            for alias in node.names
+            if alias.name == "modules"
+        }
+        module_lookups = [
+            node for node in ast.walk(tree)
+            if (
+                isinstance(node, ast.Attribute)
+                and isinstance(node.ctx, ast.Load)
+                and node.attr == "modules"
+                and isinstance(node.value, ast.Name)
+                and node.value.id in sys_bindings
+            ) or (
+                isinstance(node, ast.Name)
+                and isinstance(node.ctx, ast.Load)
+                and node.id in imported_sys_modules_bindings
+            )
+        ]
+        functions = [
+            node for node in ast.walk(tree)
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == "self_test"
+        ]
+        call = parents.get(attributes[0]) if len(attributes) == 1 else None
+        item = parents.get(call) if isinstance(call, ast.Call) else None
+        statement = parents.get(item) if isinstance(item, ast.withitem) else None
+        anchored = (
+            canonical_import
+            and len(loaded_modules) == 1
+            and len(attributes) == 1
+            and attributes[0].value is loaded_modules[0]
+            and isinstance(call, ast.Call)
+            and call.func is attributes[0]
+            and isinstance(item, ast.withitem)
+            and item.context_expr is call
+            and isinstance(statement, ast.With)
+            and len(statement.items) == 1
+            and len(functions) == 1
+            and parents.get(statement) is functions[0]
+            and not bare_factories
+            and not imported_factories
+            and not alternate_tempfile_import_bindings
+            and not tempfile_rebindings
+            and not forbidden_builtin_calls
+            and not dynamic_imports
+            and not module_lookups
+        )
+        if not anchored:
+            errors.append(
+                f"{relative}: temporary-directory policy requires one direct "
+                "with tempfile.TemporaryDirectory() context in self_test and no alternate access"
+            )
+        elif call.args or call.keywords:
+            errors.append(f"{relative}: tempfile.TemporaryDirectory must use the platform default base")
+    return errors
+
+
 def governance_errors(root: Path) -> list[str]:
     errors: list[str] = []
     readme = read(root, "README.md", errors)
@@ -499,6 +682,7 @@ def repository_errors(root: Path) -> list[str]:
     errors.extend(build_errors(root))
     errors.extend(consumer_errors(root))
     errors.extend(package_errors(root))
+    errors.extend(portable_temp_errors(root))
     errors.extend(quick_start_errors(root))
     errors.extend(governance_errors(root))
     errors.extend(ci_verify_errors(root))
@@ -518,6 +702,21 @@ def replace_once(root: Path, relative: str, old: str, new: str) -> None:
     path.write_text(text.replace(old, new, 1), encoding="utf-8")
 
 
+def replace_temp_context(root: Path, relative: str, replacement: str) -> None:
+    target = "with tempfile." + "TemporaryDirectory() as temporary:"
+    replace_once(root, relative, target, replacement)
+
+
+def append_temp_noncode(root: Path, relative: str) -> None:
+    append(
+        root,
+        relative,
+        '\n# from tempfile import TemporaryDirectory; getattr(tempfile, "TemporaryDirectory")\n'
+        'TEMP_POLICY_EXAMPLE = "tempfile.TemporaryDirectory(dir=\'/host-specific\')"\n'
+        'TEMP_POLICY_UNRELATED_SUBSCRIPT = {"safe": 1}["safe"]\n',
+    )
+
+
 def self_test() -> list[str]:
     errors: list[str] = []
     baseline = repository_errors(ROOT)
@@ -526,6 +725,30 @@ def self_test() -> list[str]:
     production = "src/main/kotlin/at/bernhardberger/tvheadend/htsp/connection/HtspConnection.kt"
     test = next(path.relative_to(ROOT).as_posix() for path in sorted((ROOT / "src/test/kotlin").rglob("*.kt")))
     golden = next(path.relative_to(ROOT).as_posix() for path in sorted((ROOT / "src/test/resources").rglob("*.hex")))
+    hostile_temp_call = "tempfile.TemporaryDirectory(dir=" + repr(str(Path("/nonexistent") / "host-specific-temp")) + ")"
+    hostile_alias_context = (
+        "temporary_directory = tempfile.TemporaryDirectory\n"
+        "    with (tempfile.TemporaryDirectory() if False else temporary_directory(dir="
+        + repr(str(Path("/nonexistent") / "host-specific-temp"))
+        + ")) as temporary:"
+    )
+    hostile_getattr_context = (
+        "with (tempfile.TemporaryDirectory() if False else "
+        "getattr(getattr(tempfile, \"TemporaryDirectory\"), \"__call__\")(dir="
+        + repr(str(Path("/nonexistent") / "host-specific-temp"))
+        + ")) as temporary:"
+    )
+    hostile_import_alias_getattr_context = (
+        "import tempfile as temp_alias\n"
+        "    with (tempfile.TemporaryDirectory() if False else "
+        "getattr(temp_alias, \"Temporary\" + \"Directory\")(dir="
+        + repr(str(Path("/nonexistent") / "host-specific-temp"))
+        + ")) as temporary:"
+    )
+    hostile_setattr_context = (
+        "setattr(type(\"Carrier\", (), {})(), \"Temporary\" + \"Directory\", object())\n"
+        "    with tempfile." + "TemporaryDirectory() as temporary:"
+    )
     mutations: list[tuple[str, str, Callable[[Path], None]]] = [
         ("wrong coordinate", "consumer dependency must be exactly", lambda root: replace_once(root, "consumer-contract/build.gradle.kts", COORDINATE, "example:wrong:1")),
         ("consumer stdlib API scope", "consumer production dependency scope", lambda root: replace_once(root, "consumer-contract/build.gradle.kts", '"implementation:org.jetbrains.kotlin:kotlin-stdlib:2.3.10"', '"api:org.jetbrains.kotlin:kotlin-stdlib:2.3.10"')),
@@ -564,12 +787,22 @@ def self_test() -> list[str]:
         ("protocol drift", "immutable protocol evidence drift", lambda root: append(root, "docs/htsp-protocol/htsp_spec.json", "\n")),
         ("generated drift", "immutable generated drift", lambda root: append(root, "src/main/kotlin/at/bernhardberger/tvheadend/htsp/requests/GeneratedHtspRequests.kt", "\n")),
         ("generator drift", "immutable generators drift", lambda root: append(root, "docs/htsp-protocol/generate_typed_requests.py", "\n")),
+        ("standalone checker temporary base override", "must use the platform default base", lambda root: replace_temp_context(root, "tools/check-standalone-repository", "with " + hostile_temp_call + " as temporary:")),
+        ("published checker temporary base override", "must use the platform default base", lambda root: replace_temp_context(root, "tools/check-published-jvm-compatibility", "with " + hostile_temp_call + " as temporary:")),
+        ("standalone checker dead decoy and active alias", "temporary-directory policy", lambda root: replace_temp_context(root, "tools/check-standalone-repository", hostile_alias_context)),
+        ("published checker dead decoy and active alias", "temporary-directory policy", lambda root: replace_temp_context(root, "tools/check-published-jvm-compatibility", hostile_alias_context)),
+        ("standalone checker dead decoy and nested getattr", "temporary-directory policy", lambda root: replace_temp_context(root, "tools/check-standalone-repository", hostile_getattr_context)),
+        ("published checker dead decoy and nested getattr", "temporary-directory policy", lambda root: replace_temp_context(root, "tools/check-published-jvm-compatibility", hostile_getattr_context)),
+        ("standalone checker dead canonical decoy, import alias, and computed getattr", "temporary-directory policy", lambda root: replace_temp_context(root, "tools/check-standalone-repository", hostile_import_alias_getattr_context)),
+        ("published checker dead canonical decoy, import alias, and computed getattr", "temporary-directory policy", lambda root: replace_temp_context(root, "tools/check-published-jvm-compatibility", hostile_import_alias_getattr_context)),
+        ("standalone checker computed setattr", "temporary-directory policy", lambda root: replace_temp_context(root, "tools/check-standalone-repository", hostile_setattr_context)),
+        ("published checker computed setattr", "temporary-directory policy", lambda root: replace_temp_context(root, "tools/check-published-jvm-compatibility", hostile_setattr_context)),
         ("missing API checker activation", "verifier P3-E2", lambda root: replace_once(root, "tools/verify-htsp", "./tools/check-api-compatibility-policy\n", "")),
         ("missing refresh", "verifier P3-E2", lambda root: replace_once(root, "tools/verify-htsp", "--refresh-dependencies ", "")),
         ("missing explicit build", "verifier P3-E2", lambda root: replace_once(root, "tools/verify-htsp", "clean build test check", "clean test check")),
         ("fake one-stage comparison", "verifier P3-E2", lambda root: replace_once(root, "tools/verify-htsp", "rm -rf build/local-maven", ": # no recreation")),
     ]
-    with tempfile.TemporaryDirectory(dir="/tmp/opencode") as temporary:
+    with tempfile.TemporaryDirectory() as temporary:
         temporary_root = Path(temporary)
         for index, (name, expected, mutate) in enumerate(mutations):
             case = temporary_root / f"case-{index}"
@@ -579,6 +812,14 @@ def self_test() -> list[str]:
             actual = repository_errors(case)
             if not any(expected in error for error in actual):
                 errors.append(f"self-test accepted {name} without {expected!r}: {actual}")
+        for index, relative in enumerate(TEMP_CHECKERS):
+            case = temporary_root / f"case-positive-{index}"
+            shutil.copytree(ROOT, case, symlinks=True, ignore=shutil.ignore_patterns(".git", "build", "__pycache__", "*.pyc"))
+            (case / ".git").mkdir()
+            append_temp_noncode(case, relative)
+            actual = repository_errors(case)
+            if actual:
+                errors.append(f"self-test rejected temporary-policy comment/string fixture in {relative}: {actual}")
         case = temporary_root / "case-symlink"
         shutil.copytree(ROOT, case, symlinks=True, ignore=shutil.ignore_patterns(".git", "build", "__pycache__", "*.pyc"))
         (case / ".git").mkdir()

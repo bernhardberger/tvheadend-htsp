@@ -533,7 +533,7 @@ def fixture_verify(repository: Path) -> tuple[list[str], dict[str, str]]:
 
 def self_test() -> list[str]:
     errors: list[str] = []
-    with tempfile.TemporaryDirectory(dir="/tmp/opencode") as temporary:
+    with tempfile.TemporaryDirectory() as temporary:
         root = Path(temporary)
         repository = create_fixture(root)
         baseline_errors, _ = fixture_verify(repository)
