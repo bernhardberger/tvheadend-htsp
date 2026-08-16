@@ -94,7 +94,7 @@ jobs:
 """.splitlines() if line.strip())
 MAP_HASH = "c5fad8e6bd00bc6f692405cef79c661325df404c91a0a59ac47c1497f3bb7f27"
 MANIFEST_HASH = "d45c5da0048201eae10a6760d92ae4d6f1abf64ca1bb4e6a60d31dd610244270"
-API_POLICY_AST_HASH = "7659a21bfa55f956b065ef75a9046a33cf01f3caa031994f0cc02d499c19b05d"
+API_POLICY_AST_HASH = "c42f4a2b7ce6184d4b7368e48073da3a19e7ad331f8e552666fa41baa04fab86"
 ATTRIBUTES_POLICY = (
     "* text=auto eol=lf\n"
     "gradlew text eol=lf\n"
@@ -215,6 +215,13 @@ VERSION_POLICY_FILES = (
 
 def sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def portable_ast_dump(node: ast.AST) -> str:
+    try:
+        return ast.dump(node, include_attributes=False, show_empty=True)
+    except TypeError:
+        return ast.dump(node, include_attributes=False)
 
 
 def read(root: Path, relative: str, errors: list[str]) -> str:
@@ -761,12 +768,13 @@ def normalized_markdown(document: str) -> str:
 def api_policy_static_errors(root: Path) -> list[str]:
     relative = "tools/check-api-compatibility-policy"
     errors: list[str] = []
+    errors.extend(api_policy_fingerprint_contract_errors(root))
     source = read(root, relative, errors)
     try:
         tree = ast.parse(source, filename=relative)
     except SyntaxError as error:
         return errors + [f"{relative}: dual-mode API policy cannot parse ({error})"]
-    normalized_ast_hash = hashlib.sha256(ast.dump(tree, include_attributes=False).encode()).hexdigest()
+    normalized_ast_hash = hashlib.sha256(portable_ast_dump(tree).encode()).hexdigest()
     if normalized_ast_hash != API_POLICY_AST_HASH:
         errors.append(f"{relative}: dual-mode API policy normalized AST mismatch")
     assignments = {
@@ -824,6 +832,68 @@ def api_policy_static_errors(root: Path) -> list[str]:
     }
     if imports != expected_imports:
         errors.append(f"{relative}: API policy static import allowlist mismatch")
+    return errors
+
+
+def api_policy_fingerprint_contract_errors(root: Path) -> list[str]:
+    relative = "tools/check-standalone-repository"
+    errors: list[str] = []
+    source = read(root, relative, errors)
+    try:
+        tree = ast.parse(source, filename=relative)
+    except SyntaxError as error:
+        return errors + [f"{relative}: portable API policy fingerprint contract cannot parse ({error})"]
+    helpers = [
+        node for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name == "portable_ast_dump"
+    ]
+    expected_helper = ast.parse('''def portable_ast_dump(node: ast.AST) -> str:
+    try:
+        return ast.dump(node, include_attributes=False, show_empty=True)
+    except TypeError:
+        return ast.dump(node, include_attributes=False)
+''').body[0]
+    expected_hash = ast.parse(
+        'API_POLICY_AST_HASH = "c42f4a2b7ce6184d4b7368e48073da3a19e7ad331f8e552666fa41baa04fab86"'
+    ).body[0]
+    hash_assignments = [
+        node for node in tree.body
+        if isinstance(node, ast.Assign)
+        and len(node.targets) == 1
+        and isinstance(node.targets[0], ast.Name)
+        and node.targets[0].id == "API_POLICY_AST_HASH"
+    ]
+    policy_functions = [
+        node for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name == "api_policy_static_errors"
+    ]
+    expected_statements = ast.parse('''normalized_ast_hash = hashlib.sha256(portable_ast_dump(tree).encode()).hexdigest()
+if normalized_ast_hash != API_POLICY_AST_HASH:
+    errors.append(f"{relative}: dual-mode API policy normalized AST mismatch")
+''').body
+    actual_statements: list[ast.stmt] = []
+    if len(policy_functions) == 1:
+        for index, node in enumerate(policy_functions[0].body):
+            if (
+                isinstance(node, ast.Assign)
+                and len(node.targets) == 1
+                and isinstance(node.targets[0], ast.Name)
+                and node.targets[0].id == "normalized_ast_hash"
+            ):
+                actual_statements.extend(policy_functions[0].body[index:index + 2])
+    exact = (
+        len(helpers) == 1
+        and ast.dump(helpers[0], include_attributes=False)
+        == ast.dump(expected_helper, include_attributes=False)
+        and len(hash_assignments) == 1
+        and ast.dump(hash_assignments[0], include_attributes=False)
+        == ast.dump(expected_hash, include_attributes=False)
+        and len(actual_statements) == 2
+        and ast.dump(ast.Module(body=actual_statements, type_ignores=[]), include_attributes=False)
+        == ast.dump(ast.Module(body=expected_statements, type_ignores=[]), include_attributes=False)
+    )
+    if not exact:
+        errors.append(f"{relative}: portable API policy AST fingerprint contract mismatch")
     return errors
 
 
@@ -2262,6 +2332,10 @@ def self_test() -> list[str]:
         ("release staging helper rebound", "forbids rebinding staged_originals_from", lambda root: append(root, "tools/check-release-candidate", "\nstaged_originals_from = lambda _path: ({}, [])\n")),
         ("API policy release mode removed", "dual-mode API policy", lambda root: replace_once(root, "tools/check-api-compatibility-policy", "MODES = (VERSION, RELEASE)", "MODES = (VERSION,)")),
         ("API policy release semantic fixture skipped", "hostile self-test must execute", lambda root: replace_once(root, "tools/check-api-compatibility-policy", "release_baseline = synthetic_documents(RELEASE)", "release_baseline = synthetic_documents(VERSION)")),
+        ("API policy fingerprint reverted to runtime-default AST dump", "portable API policy AST fingerprint contract", lambda root: replace_once(root, "tools/check-standalone-repository", "portable_ast_dump(tree).encode()", "ast.dump(tree, include_attributes=False).encode()")),
+        ("API policy fingerprint compatibility fallback removed", "portable API policy AST fingerprint contract", lambda root: replace_once(root, "tools/check-standalone-repository", "    except TypeError:\n        return ast.dump(node, include_attributes=False)", "    except TypeError:\n        raise")),
+        ("API policy fingerprint empty fields disabled", "portable API policy AST fingerprint contract", lambda root: replace_once(root, "tools/check-standalone-repository", "show_empty=True", "show_empty=False")),
+        ("API policy portable fingerprint weakened", "portable API policy AST fingerprint contract", lambda root: replace_once(root, "tools/check-standalone-repository", "c42f4a2b7ce6184d4b7368e48073da3a19e7ad331f8e552666fa41baa04fab86", "7659a21bfa55f956b065ef75a9046a33cf01f3caa031994f0cc02d499c19b05d")),
         ("missing verifier bytecode suppression", "PYTHONDONTWRITEBYTECODE", lambda root: replace_once(root, "tools/verify-htsp", "export PYTHONDONTWRITEBYTECODE=1\n", "")),
         ("weakened verifier bytecode suppression", "PYTHONDONTWRITEBYTECODE", lambda root: replace_once(root, "tools/verify-htsp", "export PYTHONDONTWRITEBYTECODE=1", "export PYTHONDONTWRITEBYTECODE=0")),
         ("candidate upload action tag instead of SHA", "CI exact active-YAML", lambda root: replace_once(root, ".github/workflows/ci.yml", f"actions/upload-artifact@{UPLOAD_SHA}", "actions/upload-artifact@v4.6.2")),
