@@ -1,1513 +1,267 @@
 #!/usr/bin/env python3
-"""Verify visible 0.x semantic-versioning and API-compatibility governance."""
+"""Verify the standalone HTSP prerelease/versioning policy."""
 
 from __future__ import annotations
 
-import posixpath
 import re
 import sys
-import tempfile
 from dataclasses import dataclass, replace
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-AUTHORITY_PATH = "docs/semantic-versioning-and-api-compatibility.md"
-ROOT_README_PATH = "README.md"
-DOCUMENTATION_INDEX_PATH = "docs/README.md"
-CHANGELOG_PATH = "CHANGELOG.md"
-MIGRATION_GUIDE_PATH = "docs/tvhstream-consumer-migration.md"
-BUILD_CONFIG_PATH = "build.gradle.kts"
-EXPECTED_VERSION = "0.1.0-SNAPSHOT"
-EXPECTED_HEADING = "# 0.x semantic versioning and API compatibility"
-EXPECTED_CHANGELOG_HEADING = "# Change history"
-EXPECTED_MIGRATION_HEADING = "# Migrating a tvhstream-derived consumer"
-REQUIRED_REGULAR_INPUTS = (
-    AUTHORITY_PATH,
-    ROOT_README_PATH,
-    DOCUMENTATION_INDEX_PATH,
-    CHANGELOG_PATH,
-    MIGRATION_GUIDE_PATH,
-    BUILD_CONFIG_PATH,
+GROUP = "at.bernhardberger.tvheadend"
+ARTIFACT = "htsp"
+VERSION = "0.1.0-alpha.1-SNAPSHOT"
+COORDINATE = f"{GROUP}:{ARTIFACT}:{VERSION}"
+RELEASE = "0.1.0-alpha.1"
+PATHS = (
+    "docs/versioning.md",
+    "docs/releasing.md",
+    "README.md",
+    "docs/README.md",
+    "CHANGELOG.md",
+    "build.gradle.kts",
 )
 
-CURRENT_VERSION_CLAIM = (
-    "The current SDK version is `0.1.0-SNAPSHOT`."
+VERSIONING_CLAIMS = (
+    f"The current coordinate is `{COORDINATE}`.",
+    f"`{VERSION}` is a mutable, checkout-local snapshot.",
+    "It is not available from any public repository.",
+    "An immutable release must use a new version; published release bytes must never be replaced.",
+    "While the major version is zero, the public API and behavior are provisional.",
+    "A known breaking change requires the next minor version, not a patch version.",
+    "Patch versions are reserved for backward-compatible fixes.",
+    "No source, binary, or behavioral compatibility is promised for the provisional 0.x line.",
+    "Local checks and CI staging do not establish publication, distribution, Java 17 runtime support, or release readiness.",
 )
-NO_COMPATIBILITY_PROMISE = (
-    "While the major version is zero, every public API is provisional: no source, "
-    "binary, API, or behavioral backward-compatibility promise exists between "
-    "snapshots or `0.x` releases."
+RELEASING_CLAIMS = (
+    f"`{RELEASE}` is the planned first release. It has not been released.",
+    f"Release notes for `{RELEASE}` define only the initial provisional baseline.",
+    "They do not promise compatibility or support.",
+    "This repository currently stages snapshots only to checkout-local `build/local-maven` in CI.",
+    "External publication, signing, tagging, and release creation require separate owner authorization.",
 )
-EVIDENCE_BOUNDARY = (
-    "These controls are current-revision evidence, not a backward-compatibility "
-    "promise."
-)
-RELEASE_NOTES_REQUIREMENT = (
-    "Before any future external `0.x` release, its release notes must identify "
-    "public API additions, deprecations, removals, and known source, binary, API, "
-    "or behavioral changes."
-)
-MIGRATION_REQUIREMENT = (
-    "Every known breaking change must include migration steps and available "
-    "transition support, or state explicitly that no migration path or support is "
-    "provided."
-)
-READINESS_BOUNDARY = (
-    "Local checks do not establish external-publication, release, migration, or "
-    "device readiness and do not make an artifact release-ready."
-)
-MAINTENANCE_RULE = (
-    "Every accepted compatibility-impacting or public-consumer slice updates "
-    "`CHANGELOG.md`; when consumer source or dependency edits are required, the "
-    "same slice also updates `docs/tvhstream-consumer-migration.md`."
-)
-MAINTENANCE_RULE_BOUNDARY = (
-    "This maintenance rule creates no compatibility promise or support window."
-)
-CHANGELOG_CURRENT_SNAPSHOT = (
-    "This entry records the current checkout-local `0.1.0-SNAPSHOT`; it is not "
-    "an external release."
-)
-CHANGELOG_EVIDENCE_BOUNDARY = (
-    "It does not establish backward compatibility, publication, distribution, "
-    "or release readiness."
-)
-MIGRATION_CURRENT_SNAPSHOT = (
-    "This guide targets the current checkout-local `0.1.0-SNAPSHOT`."
-)
-MIGRATION_AUTHORITY_BOUNDARY = (
-    "This consumer guidance is subordinate to current focused normative "
-    "documentation and source."
-)
-MIGRATION_SUPPORT_BOUNDARY = (
-    "It does not promise compatibility, migration support, publication, "
-    "distribution, or release readiness."
-)
-MIGRATION_CANCELLATION_BOUNDARY = (
-    "Caller and supersession cancellation remain `CancellationException`; do "
-    "not convert cancellation into a typed ordinary failure."
-)
-MIGRATION_PLAYER_OWNERSHIP = (
-    "The Media3 `Player` is borrowed; the playback runtime or owning session "
-    "retains release ownership, so the consumer never calls `Player.release()`."
-)
-MIGRATION_LOWER_LEVEL_TEARDOWN = (
-    "For lower-level ownership, after detaching UI surfaces and listeners, run "
-    "the entire ordered runtime/client sequence in owner-controlled "
-    "non-cancellable teardown: await `PlaybackRuntime.release()` in `try` and "
-    "await `TvheadendClient.close()` in `finally`, then preserve and re-propagate "
-    "the owner's original cancellation after cleanup."
-)
-MIGRATION_EXTERNAL_GATES = (
-    "`JAVA_17_MATRIX_PENDING`, `PHYSICAL_TV_VALIDATION_PENDING`, and explicit "
-    "release and distribution approval remain external gates."
-)
-ACCEPTED_CONTRACT_CLAIMS = (
-    (
-        "`nowEvent` returns only an event whose start-inclusive, stop-exclusive "
-        "interval contains `nowSec`; it returns `null` before, after, or in gaps, "
-        "while `nextEvent` remains a separate lookup.",
-        "now-event interval contract",
-        "`nowEvent` may return a nearby event outside `nowSec`, and `nextEvent` "
-        "may be used interchangeably.",
-    ),
-    (
-        "`FrontendClientRuntime.channelArtwork` defaults to four MiB and continues "
-        "to accept an explicit valid limit from one byte through the existing 16 "
-        "MiB ceiling.",
-        "channel-artwork default and explicit-limit contract",
-        "`FrontendClientRuntime.channelArtwork` uses an unspecified default and "
-        "may reject valid explicit limits below 16 MiB.",
-    ),
-    (
-        "Channel ordering uses only server channel-number facts, with null numbers "
-        "last, and tag ordering uses only server tag indexes; equal or missing "
-        "facts preserve stable server arrival order, without name or ID "
-        "tie-breakers.",
-        "server-fact channel and tag ordering contract",
-        "Channel and tag ordering may use client-side name or ID tie-breakers when "
-        "server ordering facts are equal or missing.",
-    ),
-    (
-        "`pauseTimeshift`, `resumeTimeshift`, `seekTimeshift`, and `goLive` rethrow "
-        "caller `CancellationException` without disabling or degrading current "
-        "timeshift state; ordinary failures retain the existing `false` or `null` "
-        "result and disable behavior.",
-        "timeshift cancellation and ordinary-failure contract",
-        "Timeshift commands may convert caller cancellation to `false` or `null` "
-        "and disable current timeshift state.",
-    ),
-    (
-        "`PlaybackRuntime.player` is one stable, command-restricted borrowed Media3 "
-        "`Player` view: safe UI, read, play/pause, current-item seek, surface, and "
-        "track operations remain available; runtime-owned media-item, preparation, "
-        "stop, and release mutations throw `UnsupportedOperationException`; "
-        "callbacks never expose the raw delegate; and the runtime or session "
-        "retains release ownership.",
-        "stable command-restricted borrowed-player contract",
-        "`PlaybackRuntime.player` may expose the raw delegate and permits consumers "
-        "to prepare, stop, replace media items, or release it.",
-    ),
-)
-ACCEPTED_CONTRACT_CONTRADICTIONS = (
-    (
-        "now-event interval contract",
-        r"`nowEvent` (?:may|can|is allowed to) return [^.]{0,100}"
-        r"outside `nowSec`|`nextEvent` (?:may|can|is allowed to) be used "
-        r"interchangeably",
-    ),
-    (
-        "channel-artwork default and explicit-limit contract",
-        r"`FrontendClientRuntime\.channelArtwork` (?:uses|has|may use|can use) "
-        r"an? (?:unspecified|implementation-defined|variable) default|"
-        r"`FrontendClientRuntime\.channelArtwork` [^.]{0,100}"
-        r"(?:may|can|is allowed to) reject [^.]{0,80}valid explicit limits? "
-        r"(?:below|under|within) 16 MiB",
-    ),
-    (
-        "server-fact channel and tag ordering contract",
-        r"(?:Channel and tag|Channel|Tag) ordering "
-        r"(?:may|can|is allowed to) use [^.]{0,100}(?:name|ID) tie-breakers? "
-        r"[^.]{0,100}(?:equal|missing)",
-    ),
-    (
-        "timeshift cancellation and ordinary-failure contract",
-        r"Timeshift commands? (?:may|can|are allowed to) "
-        r"(?:convert|swallow|treat) caller cancellation [^.]{0,100}"
-        r"(?:`false`|`null`|disable|degrad)",
-    ),
-    (
-        "stable command-restricted borrowed-player contract",
-        r"`PlaybackRuntime\.player` (?:may|can|is allowed to) expose the raw "
-        r"delegate|`PlaybackRuntime\.player` [^.]{0,100}"
-        r"(?:permits|allows) consumers? to [^.]{0,100}"
-        r"(?:prepare|stop|replace media items?|release)",
-    ),
+CHANGELOG_CLAIMS = (
+    f"This unreleased entry records the checkout-local `{VERSION}` baseline.",
+    "It is not a release, publication, compatibility baseline, or support promise.",
+    "The initial provisional baseline contains the standalone Kotlin/JVM HTSP v44 protocol library and its typed outcome API.",
 )
 
 
 @dataclass(frozen=True)
 class Documents:
-    authority: str
-    root_readme: str
-    documentation_index: str
+    versioning: str
+    releasing: str
+    readme: str
+    index: str
     changelog: str
-    migration_guide: str
-    build_config: str
+    build: str
     regular_files: frozenset[str]
 
 
-def markdown_fence(line: str) -> tuple[str, int, str] | None:
-    candidate = line
-    while True:
-        candidate = candidate.lstrip(" \t")
-        if candidate.startswith(">"):
-            candidate = candidate[1:]
-            continue
-        list_marker = re.match(r"(?:[-+*]|[0-9]+[.)])[ \t]+", candidate)
-        if list_marker is not None:
-            candidate = candidate[list_marker.end():]
-            continue
-        break
-    if not candidate or candidate[0] not in {"`", "~"}:
-        return None
-    marker = candidate[0]
-    run_length = len(candidate) - len(candidate.lstrip(marker))
-    if run_length < 3:
-        return None
-    remainder = candidate[run_length:]
-    if marker == "`" and "`" in remainder:
-        return None
-    return marker, run_length, remainder
-
-
-def is_indented_markdown_code(line: str) -> bool:
-    candidate = line
-    while True:
-        leading_spaces = len(candidate) - len(candidate.lstrip(" "))
-        prefix = candidate[:leading_spaces]
-        remainder = candidate[leading_spaces:]
-        if leading_spaces <= 3 and remainder.startswith(">"):
-            candidate = remainder[1:]
-            if candidate.startswith(" "):
-                candidate = candidate[1:]
-            continue
-        if "\t" in prefix or leading_spaces >= 4:
-            return bool(remainder)
-        return remainder.startswith("\t")
-
-
-def markdown_without_comments_and_block_code(document: str) -> str:
-    without_comments = re.sub(r"(?s)<!--.*?(?:-->|\Z)", "", document)
-    visible_lines: list[str] = []
-    open_fence: tuple[str, int] | None = None
-    for line in without_comments.splitlines():
-        fence = markdown_fence(line)
-        if open_fence is not None:
-            if (
-                fence is not None
-                and fence[0] == open_fence[0]
-                and fence[1] >= open_fence[1]
-                and not fence[2].strip()
-            ):
-                open_fence = None
-            continue
-        if fence is not None:
-            open_fence = fence[0], fence[1]
-            continue
-        if is_indented_markdown_code(line):
-            continue
-        visible_lines.append(line)
-    return "\n".join(visible_lines)
-
-
-HIDDEN_RAW_HTML_BLOCK = re.compile(
-    r"<(?P<template_tag>template)\b[^<>]*>.*?</(?P=template_tag)\s*>"
-    r"|<(?P<hidden_tag>[A-Za-z][A-Za-z0-9:-]*)\b"
-    r"(?=[^<>]*\bhidden\b)[^<>]*>.*?</(?P=hidden_tag)\s*>",
-    re.IGNORECASE | re.DOTALL,
-)
-
-
-def without_hidden_raw_html(markdown: str) -> str:
-    previous = markdown
-    while True:
-        filtered = HIDDEN_RAW_HTML_BLOCK.sub("", previous)
-        if filtered == previous:
-            return filtered
-        previous = filtered
-
-
 def visible_markdown(document: str) -> str:
-    return without_hidden_raw_html(
-        markdown_without_comments_and_block_code(document),
+    """Remove comments, fenced/indented code, and hidden raw HTML."""
+    text = re.sub(r"(?s)<!--.*?(?:-->|\Z)", "", document)
+    text = re.sub(
+        r"(?is)<template\b[^<>]*>.*?</template\s*>|"
+        r"<(?P<tag>[A-Za-z][A-Za-z0-9:-]*)\b(?=[^<>]*\bhidden\b)[^<>]*>"
+        r".*?</(?P=tag)\s*>",
+        "",
+        text,
     )
+    lines: list[str] = []
+    fence: tuple[str, int] | None = None
+    for line in text.splitlines():
+        match = re.match(r"^\s*([`~]{3,})(.*)$", line)
+        if fence is not None:
+            if match and match.group(1)[0] == fence[0] and len(match.group(1)) >= fence[1] and not match.group(2).strip():
+                fence = None
+            continue
+        if match:
+            fence = (match.group(1)[0], len(match.group(1)))
+            continue
+        if line.startswith("    ") or line.startswith("\t"):
+            continue
+        lines.append(line)
+    return "\n".join(lines)
 
 
-def normalized_visible_markdown(document: str) -> str:
+def normalized(document: str) -> str:
     return re.sub(r"\s+", " ", visible_markdown(document)).strip()
 
 
-def without_inline_code_spans(markdown: str) -> str:
-    output: list[str] = []
-    index = 0
-    while index < len(markdown):
-        if markdown[index] != "`":
-            output.append(markdown[index])
-            index += 1
-            continue
-
-        opening_end = index
-        while opening_end < len(markdown) and markdown[opening_end] == "`":
-            opening_end += 1
-        delimiter_length = opening_end - index
-        search_from = opening_end
-        closing_end: int | None = None
-        while search_from < len(markdown):
-            closing_start = markdown.find("`", search_from)
-            if closing_start < 0:
-                break
-            candidate_end = closing_start
-            while candidate_end < len(markdown) and markdown[candidate_end] == "`":
-                candidate_end += 1
-            if candidate_end - closing_start == delimiter_length:
-                closing_end = candidate_end
-                break
-            search_from = candidate_end
-
-        if closing_end is None:
-            output.append(markdown[index:opening_end])
-            index = opening_end
-            continue
-
-        output.extend(
-            "\n" if character == "\n" else " "
-            for character in markdown[index:closing_end]
-        )
-        index = closing_end
-    return "".join(output)
+def link_count(document: str, target: str) -> int:
+    return len(re.findall(rf"(?<!!)\[[^\]\n]+\]\({re.escape(target)}(?:#[^)]+)?\)", visible_markdown(document)))
 
 
-RAW_HTML_ELEMENT = re.compile(
-    r"<\s*/?\s*[A-Za-z][A-Za-z0-9:-]*"
-    r"(?:\s+[^<>]*?)?\s*/?\s*>",
-    re.IGNORECASE | re.DOTALL,
-)
+def require_claims(errors: list[str], document: str, claims: tuple[str, ...], label: str) -> None:
+    text = normalized(document)
+    for claim in claims:
+        if re.sub(r"\s+", " ", claim).strip() not in text:
+            errors.append(f"{label}: missing visible claim: {claim}")
 
 
-def contains_visible_raw_html_element(document: str) -> bool:
-    markdown = markdown_without_comments_and_block_code(document)
-    markdown_without_inline_code = without_inline_code_spans(markdown)
-    return RAW_HTML_ELEMENT.search(markdown_without_inline_code) is not None
-
-
-def resolved_link_target(source_path: str, target: str) -> str:
-    target_without_fragment = target.split("#", 1)[0]
-    if re.match(r"^[A-Za-z][A-Za-z0-9+.-]*://", target_without_fragment):
-        return target_without_fragment.rstrip("/")
-    return posixpath.normpath(
-        posixpath.join(posixpath.dirname(source_path), target_without_fragment),
-    )
-
-
-def visible_link_count(document: str, source_path: str, expected: str) -> int:
-    link_pattern = re.compile(
-        r"(?<!!)\[[^\]\n]+\]\(\s*([^\s)]+)"
-        r"(?:\s+(?:\"[^\"]*\"|'[^']*'))?\s*\)",
-    )
-    link_visible_markdown = without_inline_code_spans(visible_markdown(document))
-    return sum(
-        resolved_link_target(source_path, match.group(1)) == expected
-        for match in link_pattern.finditer(link_visible_markdown)
-    )
-
-
-def require_visible_link(
-    errors: list[str],
-    document: str,
-    source_path: str,
-    target: str,
-    description: str,
-    label: str,
-) -> None:
-    count = visible_link_count(document, source_path, target)
-    if count != 1:
-        errors.append(
-            f"{label}: visible {description} links total {count}, expected 1",
-        )
-
-
-def require_visible_claim(
-    errors: list[str],
-    normalized_document: str,
-    claim: str,
-    description: str,
-    label: str,
-) -> None:
-    if claim not in normalized_document:
-        errors.append(f"{label}: missing visible {description}")
-
-
-def require_visible_heading(
-    errors: list[str],
-    document: str,
-    heading: str,
-    description: str,
-    label: str,
-) -> None:
-    headings = re.findall(r"(?m)^#{1,6} [^\n]+$", visible_markdown(document))
-    count = headings.count(heading)
-    if count != 1:
-        errors.append(
-            f"{label}: expected visible {description} heading {heading!r} exactly "
-            f"once, found {count}",
-        )
-
-
-def reject_accepted_contract_contradictions(
-    errors: list[str],
-    normalized_document: str,
-    record_name: str,
-    label: str,
-) -> None:
-    for description, pattern in ACCEPTED_CONTRACT_CONTRADICTIONS:
-        if re.search(pattern, normalized_document, re.IGNORECASE):
-            errors.append(f"{label}: {record_name} contradictory {description}")
-
-
-def validate_documents(documents: Documents, label: str) -> list[str]:
+def validate(documents: Documents, label: str) -> list[str]:
     errors: list[str] = []
-    normalized_root = normalized_visible_markdown(documents.root_readme)
-    normalized_index = normalized_visible_markdown(documents.documentation_index)
-    normalized_changelog = normalized_visible_markdown(documents.changelog)
-    normalized_migration = normalized_visible_markdown(documents.migration_guide)
-
-    governed_markdown_records = (
-        (AUTHORITY_PATH, documents.authority),
-        (ROOT_README_PATH, documents.root_readme),
-        (DOCUMENTATION_INDEX_PATH, documents.documentation_index),
-        (CHANGELOG_PATH, documents.changelog),
-        (MIGRATION_GUIDE_PATH, documents.migration_guide),
-    )
-    for path, document in governed_markdown_records:
-        if contains_visible_raw_html_element(document):
-            errors.append(f"{label}: {path} contains visible raw HTML element")
-
-    for path in REQUIRED_REGULAR_INPUTS:
+    for path in PATHS:
         if path not in documents.regular_files:
-            errors.append(
-                f"{label}: required governance input is not a regular file: {path}",
-            )
+            errors.append(f"{label}: required input is not a regular file: {path}")
 
-    version_assignments = re.findall(
-        r'(?m)^\s*val sdkPublicationVersion\s*=\s*"([^"]+)"\s*$',
-        documents.build_config,
-    )
-    if version_assignments != [EXPECTED_VERSION]:
-        errors.append(
-            f"{label}: configured SDK versions {version_assignments} do not match "
-            f"[{EXPECTED_VERSION!r}]",
-        )
+    assignments = re.findall(r'(?m)^group\s*=\s*"([^"]+)"\s*$', documents.build)
+    if assignments != [GROUP]:
+        errors.append(f"{label}: configured groups {assignments} do not match {[GROUP]}")
+    assignments = re.findall(r'(?m)^version\s*=\s*"([^"]+)"\s*$', documents.build)
+    if assignments != [VERSION]:
+        errors.append(f"{label}: configured versions {assignments} do not match {[VERSION]}")
 
-    require_visible_link(
-        errors,
-        documents.root_readme,
-        ROOT_README_PATH,
-        AUTHORITY_PATH,
-        "root 0.x policy",
-        label,
+    headings = (
+        (documents.versioning, "# Versioning and compatibility", "versioning"),
+        (documents.releasing, "# Releasing", "releasing"),
+        (documents.changelog, "# Changelog", "changelog"),
     )
-    require_visible_link(
-        errors,
-        documents.documentation_index,
-        DOCUMENTATION_INDEX_PATH,
-        AUTHORITY_PATH,
-        "documentation-index 0.x policy",
-        label,
-    )
-    require_visible_link(
-        errors,
-        documents.root_readme,
-        ROOT_README_PATH,
-        CHANGELOG_PATH,
-        "root change-history",
-        label,
-    )
-    require_visible_link(
-        errors,
-        documents.root_readme,
-        ROOT_README_PATH,
-        MIGRATION_GUIDE_PATH,
-        "root tvhstream-consumer migration-guide",
-        label,
-    )
-    require_visible_link(
-        errors,
-        documents.documentation_index,
-        DOCUMENTATION_INDEX_PATH,
-        CHANGELOG_PATH,
-        "documentation-index change-history",
-        label,
-    )
-    require_visible_link(
-        errors,
-        documents.documentation_index,
-        DOCUMENTATION_INDEX_PATH,
-        MIGRATION_GUIDE_PATH,
-        "documentation-index tvhstream-consumer migration-guide",
-        label,
-    )
-    if re.search(
-        r"\bno externally published\b.*\bstable API or artifact\b",
-        normalized_root,
-        re.IGNORECASE,
-    ) is None:
-        errors.append(f"{label}: root README lacks the provisional API boundary")
+    for document, heading, name in headings:
+        count = re.findall(r"(?m)^#{1,6} [^\n]+$", visible_markdown(document)).count(heading)
+        if count != 1:
+            errors.append(f"{label}: {name} heading {heading!r} occurs {count} times")
+    if re.findall(r"(?m)^## \[Unreleased\]$", visible_markdown(documents.changelog)) != ["## [Unreleased]"]:
+        errors.append(f"{label}: changelog must contain exactly one visible unreleased heading")
 
-    if not documents.authority.strip():
-        errors.append(f"{label}: normative 0.x policy authority is empty")
-        return errors
+    require_claims(errors, documents.versioning, VERSIONING_CLAIMS, f"{label}: versioning")
+    require_claims(errors, documents.releasing, RELEASING_CLAIMS, f"{label}: releasing")
+    require_claims(errors, documents.changelog, CHANGELOG_CLAIMS, f"{label}: changelog")
 
-    visible_authority = visible_markdown(documents.authority)
-    normalized_authority = normalized_visible_markdown(documents.authority)
-    require_visible_heading(
-        errors,
-        documents.authority,
-        EXPECTED_HEADING,
-        "0.x policy",
-        label,
+    links = (
+        (documents.readme, "docs/versioning.md", "README versioning"),
+        (documents.readme, "docs/releasing.md", "README releasing"),
+        (documents.readme, "CHANGELOG.md", "README changelog"),
+        (documents.index, "versioning.md", "index versioning"),
+        (documents.index, "releasing.md", "index releasing"),
+        (documents.index, "../CHANGELOG.md", "index changelog"),
     )
+    for document, target, description in links:
+        count = link_count(document, target)
+        if count < 1:
+            errors.append(f"{label}: visible {description} links total {count}, expected at least 1")
 
-    required_claims = (
-        (CURRENT_VERSION_CLAIM, "current SDK version claim"),
-        (NO_COMPATIBILITY_PROMISE, "0.x no-compatibility-promise boundary"),
-        (EVIDENCE_BOUNDARY, "current-evidence-not-promise boundary"),
-        (RELEASE_NOTES_REQUIREMENT, "future 0.x release-note requirement"),
-        (MIGRATION_REQUIREMENT, "breaking-change migration requirement"),
-        (READINESS_BOUNDARY, "local-check readiness boundary"),
-        (MAINTENANCE_RULE, "accepted-slice documentation maintenance rule"),
-        (
-            MAINTENANCE_RULE_BOUNDARY,
-            "documentation-maintenance no-promise boundary",
-        ),
-    )
-    for claim, description in required_claims:
-        require_visible_claim(
-            errors,
-            normalized_authority,
-            claim,
-            description,
-            label,
-        )
+    readme = normalized(documents.readme)
+    for claim in (
+        f"The checkout currently uses the mutable, local-only snapshot `{COORDINATE}`.",
+        "It is not available from Maven Central or another public repository.",
+    ):
+        if claim not in readme:
+            errors.append(f"{label}: README missing visible snapshot status: {claim}")
 
-    required_patterns = (
-        (
-            r"mutable, checkout-local snapshots.*no SDK artifact or stable API has "
-            r"been externally published",
-            "snapshot publication status",
-        ),
-        (
-            r"`0\.x` minor increment may add, remove, rename, or change "
-            r"declarations and contracts",
-            "minor-version breaking-change policy",
-        ),
-        (
-            r"patch increment is intended for backward-compatible fixes.*known "
-            r"source, binary, API, or behavioral break requires a minor increment",
-            "patch-version intent",
-        ),
-        (
-            r"Snapshots may change without any version increment.*same snapshot "
-            r"coordinate as compatible",
-            "mutable-snapshot boundary",
-        ),
-        (
-            r"Source compatibility concerns recompiling consumer source.*Binary "
-            r"compatibility concerns linking already-compiled consumers.*API "
-            r"contract compatibility also covers documented behavior",
-            "source, binary, and API-contract distinction",
-        ),
-        (
-            r"Experimental opt-in APIs are especially provisional.*entire `0\.x` "
-            r"public surface remains provisional",
-            "experimental opt-in boundary",
-        ),
-        (
-            r"Explicit API mode requires deliberate public declarations.*does not "
-            r"preserve their signatures or behavior",
-            "explicit-API-mode limit",
-        ),
-        (
-            r"Checked ABI dumps.*`sdk/domain/api/domain\.api`.*"
-            r"`sdk/htsp/api/htsp\.api`.*"
-            r"`sdk/client-testing/api/client-testing\.api`.*"
-            r"`sdk/playback-media3/api/playback-media3\.api`.*"
-            r"`sdk/playback-android-session/api/playback-android-session\.api`.*"
-            r"`sdk/playback-android-testing/api/playback-android-testing\.api`.*"
-            r"`checkLegacyAbi` detect signature "
-            r"drift.*migration baselines, not released compatibility commitments.*"
-            r"do not prove source or behavioral compatibility",
-            "checked-ABI-dump limit",
-        ),
-        (
-            r"Consumer-contract tests cover only their representative source and "
-            r"packaging.*current checkout-local published graph",
-            "consumer-contract-test limit",
-        ),
-        (
-            r"Deprecations, adapters, and migration guidance are migration support "
-            r"only when supplied.*do not create a compatibility promise or support "
-            r"window",
-            "migration-support limit",
-        ),
-        (
-            r"first external release must identify itself as the initial "
-            r"provisional baseline",
-            "initial external-release expectation",
-        ),
-        (
-            r"Changing a checked ABI dump is not a substitute for release notes or "
-            r"migration guidance",
-            "ABI-update release-note boundary",
-        ),
-        (
-            r"`JAVA_17_MATRIX_PENDING` and `PHYSICAL_TV_VALIDATION_PENDING` remain "
-            r"unpassed",
-            "deferred validation gates",
-        ),
+    combined = " ".join(normalized(item) for item in (
+        documents.versioning, documents.releasing, documents.readme,
+        documents.index, documents.changelog,
+    ))
+    contradictions = (
+        (r"\b(?:snapshot|coordinate) (?:is|has been) (?:publicly |externally )?(?:published|available)\b", "public snapshot availability"),
+        (r"\b(?:release bytes|released artifacts?) (?:may|can) be (?:replaced|overwritten|republished)\b", "mutable release policy"),
+        (r"\bknown breaking changes? (?:may|can|will) use (?:a )?patch", "patch-level breaking-change policy"),
+        (r"\b(?:the )?(?:API|0\.x line) (?:is|remains) (?:fully )?stable\b", "stable API claim"),
+        (r"\b(?:0\.1\.0-alpha\.1|the planned first release) (?:is|has been) released\b", "false first-release claim"),
+        (r"\b(?:local checks|CI staging) (?:prove|establish|make) [^.]{0,60}(?:release readiness|published|distribution readiness)\b", "overstated local evidence"),
     )
-    for pattern, description in required_patterns:
-        if re.search(pattern, normalized_authority, re.IGNORECASE) is None:
-            errors.append(f"{label}: missing visible {description}")
-
-    version_pattern = re.compile(
-        r"(?<![A-Za-z0-9])\d+\.\d+\.\d+"
-        r"(?:-[0-9A-Za-z](?:[0-9A-Za-z.-]*[0-9A-Za-z])?)?"
-        r"(?![A-Za-z0-9])",
-    )
-    policy_versions = version_pattern.findall(visible_authority)
-    if policy_versions != [EXPECTED_VERSION]:
-        errors.append(
-            f"{label}: visible policy version coordinates {policy_versions} do not "
-            f"match [{EXPECTED_VERSION!r}]",
-        )
-
-    require_visible_link(
-        errors,
-        documents.authority,
-        AUTHORITY_PATH,
-        "docs/public-api-conventions.md",
-        "public API conventions",
-        label,
-    )
-    require_visible_link(
-        errors,
-        documents.authority,
-        AUTHORITY_PATH,
-        "docs/platform-compatibility.md",
-        "platform compatibility",
-        label,
-    )
-
-    root_record_patterns = (
-        (
-            r"change history.*current-snapshot evidence.*not normative behavior",
-            "root change-history evidence classification",
-        ),
-        (
-            r"tvhstream-derived consumer migration guide.*consumer guidance.*"
-            r"subordinate.*normative",
-            "root migration-guide authority classification",
-        ),
-    )
-    for pattern, description in root_record_patterns:
-        if re.search(pattern, normalized_root, re.IGNORECASE) is None:
-            errors.append(f"{label}: missing visible {description}")
-
-    index_record_patterns = (
-        (
-            r"change history.*historical and current-snapshot evidence.*not "
-            r"normative behavior",
-            "documentation-index change-history lifecycle classification",
-        ),
-        (
-            r"tvhstream-derived consumer migration.*consumer guidance.*subordinate "
-            r"to.*focused normative",
-            "documentation-index migration-guide lifecycle classification",
-        ),
-    )
-    for pattern, description in index_record_patterns:
-        if re.search(pattern, normalized_index, re.IGNORECASE) is None:
-            errors.append(f"{label}: missing visible {description}")
-
-    if not documents.changelog.strip():
-        errors.append(f"{label}: change history is empty")
-    else:
-        require_visible_heading(
-            errors,
-            documents.changelog,
-            EXPECTED_CHANGELOG_HEADING,
-            "change-history",
-            label,
-        )
-        require_visible_claim(
-            errors,
-            normalized_changelog,
-            CHANGELOG_CURRENT_SNAPSHOT,
-            "change-history current-snapshot status",
-            label,
-        )
-        require_visible_claim(
-            errors,
-            normalized_changelog,
-            CHANGELOG_EVIDENCE_BOUNDARY,
-            "change-history evidence and readiness boundary",
-            label,
-        )
-        require_visible_link(
-            errors,
-            documents.changelog,
-            CHANGELOG_PATH,
-            MIGRATION_GUIDE_PATH,
-            "change-history exact migration-guide",
-            label,
-        )
-        changelog_patterns = (
-            (
-                r"`794d156`.*`8ee172c`.*`1ad4cef`.*`fbba450`.*`5d81eb9`.*"
-                r"`69a6947`.*`62c13b9`",
-                "accepted current-snapshot slice inventory",
-            ),
-            (
-                r"`ChannelArtwork`.*`ClientStatus`.*`PlaybackAdmissionOutcome`.*"
-                r"`EpgFrontierResult`",
-                "consumer-visible API and behavior inventory",
-            ),
-            (
-                r"`playback-android-session`.*`client-testing`.*"
-                r"`playback-android-testing`",
-                "module addition inventory",
-            ),
-            (
-                r"`playback-media3`.*decoder.*transitive",
-                "playback decoder dependency boundary",
-            ),
-            (
-                r"focused normative documentation and source.*override.*change "
-                r"history",
-                "change-history non-normative evidence boundary",
-            ),
-            (
-                r"`JAVA_17_MATRIX_PENDING`.*`PHYSICAL_TV_VALIDATION_PENDING`.*"
-                r"release.*distribution",
-                "change-history external gates",
-            ),
-        )
-        for pattern, description in changelog_patterns:
-            if re.search(pattern, normalized_changelog, re.IGNORECASE) is None:
-                errors.append(f"{label}: missing visible {description}")
-        for claim, description, _ in ACCEPTED_CONTRACT_CLAIMS:
-            require_visible_claim(
-                errors,
-                normalized_changelog,
-                claim,
-                f"change-history {description}",
-                label,
-            )
-        reject_accepted_contract_contradictions(
-            errors,
-            normalized_changelog,
-            "change-history",
-            label,
-        )
-
-    if not documents.migration_guide.strip():
-        errors.append(f"{label}: tvhstream-consumer migration guide is empty")
-    else:
-        require_visible_heading(
-            errors,
-            documents.migration_guide,
-            EXPECTED_MIGRATION_HEADING,
-            "tvhstream-consumer migration-guide",
-            label,
-        )
-        migration_claims = (
-            (
-                MIGRATION_CURRENT_SNAPSHOT,
-                "migration-guide current-snapshot target",
-            ),
-            (
-                MIGRATION_AUTHORITY_BOUNDARY,
-                "migration-guide subordinate-authority boundary",
-            ),
-            (
-                MIGRATION_SUPPORT_BOUNDARY,
-                "migration-guide support and readiness boundary",
-            ),
-            (
-                MIGRATION_CANCELLATION_BOUNDARY,
-                "migration-guide cancellation boundary",
-            ),
-            (
-                MIGRATION_PLAYER_OWNERSHIP,
-                "migration-guide borrowed-player release ownership",
-            ),
-            (
-                MIGRATION_LOWER_LEVEL_TEARDOWN,
-                "migration-guide lower-level non-cancellable ordered teardown",
-            ),
-            (
-                MIGRATION_EXTERNAL_GATES,
-                "migration-guide external gates",
-            ),
-        )
-        for claim, description in migration_claims:
-            require_visible_claim(
-                errors,
-                normalized_migration,
-                claim,
-                description,
-                label,
-            )
-        migration_patterns = (
-            (
-                r"`client-htsp`.*`playback-media3`.*`playback-android-session`",
-                "production-coordinate selection",
-            ),
-            (
-                r"`ClientStatus`.*`ConnectOutcome`.*`ReconnectOutcome`",
-                "authoritative client-status and typed connection migration",
-            ),
-            (
-                r"`PlaybackAdmissionOutcome`.*admission.*`PlaybackStatus`.*"
-                r"eventual",
-                "playback admission versus eventual-state distinction",
-            ),
-            (
-                r"`EpgFrontierResult`.*`EpgFrontierChannelOutcome`.*"
-                r"`EpgFrontierFailureKind`",
-                "awaitable typed EPG frontier migration",
-            ),
-            (
-                r"`ChannelArtwork`.*`Absent`.*`Unsupported`.*`Stale`.*"
-                r"`Oversized`.*`Failed`.*`Success`",
-                "bounded channel-artwork outcomes",
-            ),
-            (
-                r"`createTvheadendPlayerSession`.*`PlayerSessionStartResult`.*"
-                r"`PlayerSessionStartSettlement`.*`release`",
-                "owned-session construction settlement and release",
-            ),
-            (
-                r"credentials.*endpoints.*application lifecycle.*UI.*service.*"
-                r"consumer",
-                "consumer-owned policy boundary",
-            ),
-            (
-                r"`client-testing`.*`playback-android-testing`.*"
-                r"`testImplementation`",
-                "test-only fake coordinates",
-            ),
-            (
-                r"JVM-only.*Android.*Media3.*native",
-                "JVM isolation boundary",
-            ),
-            (
-                r"Media3 `1\.10\.1`.*`minSdk 28`.*decoder",
-                "Media3 Android and decoder baseline",
-            ),
-            (
-                r"checkout-local.*`build/local-maven`.*not.*remote",
-                "checkout-local publication boundary",
-            ),
-            (
-                r"migration checklist.*`\./tools/check-api-compatibility-policy`.*"
-                r"`ANDROID_HOME=/opt/android-sdk \./tools/verify-sdk`",
-                "migration checklist and verification commands",
-            ),
-            (
-                r"Preclikos/tvhstream.*independent.*not official TVHeadend software",
-                "predecessor attribution and independent identity",
-            ),
-        )
-        for pattern, description in migration_patterns:
-            if re.search(pattern, normalized_migration, re.IGNORECASE) is None:
-                errors.append(f"{label}: missing visible {description}")
-        for claim, description, _ in ACCEPTED_CONTRACT_CLAIMS:
-            require_visible_claim(
-                errors,
-                normalized_migration,
-                claim,
-                f"migration-guide {description}",
-                label,
-            )
-        reject_accepted_contract_contradictions(
-            errors,
-            normalized_migration,
-            "migration-guide",
-            label,
-        )
-
-    combined_visible = " ".join(
-        (
-            normalized_authority,
-            normalized_root,
-            normalized_index,
-            normalized_changelog,
-            normalized_migration,
-        ),
-    )
-    contradictory_patterns = (
-        (
-            r"\b(?:the |this )?(?:SDK|artifact|snapshot) "
-            r"(?:has been|is|was) (?:externally |publicly )?"
-            r"(?:published|released)\b",
-            "external/public release or publication claim",
-        ),
-        (
-            r"\b(?:consumers? (?:are|will be) guaranteed|"
-            r"(?:the )?(?:SDK|project|maintainers?) guarantees?) "
-            r"[^.\n]{0,80}\b(?:migration|support)"
-            r"(?: and (?:migration|support))? window\b"
-            r"|\bmigration support is guaranteed for two years\b",
-            "guaranteed migration/support-window claim",
-        ),
-        (
-            r"\b(?:the )?(?:SDK|artifact) (?:is|has been) "
-            r"(?:approved and ready|ready and approved|approved|ready|authorized) "
-            r"(?:for )?(?:external |public )?distribution\b"
-            r"|\b(?:external |public )?distribution (?:is|has been) "
-            r"(?:approved and ready|ready and approved|approved|ready|authorized)\b",
-            "approved/ready distribution claim",
-        ),
-        (
-            r"\b(?:the )?(?:SDK|public API|API|artifact) "
-            r"(?:guarantees?|is|remains) (?:a |fully )?"
-            r"(?:stable(?: backward compatibility| and backward compatible)?|"
-            r"backward[- ]compatib(?:le|ility))\b",
-            "stable/backward-compatibility claim",
-        ),
-        (
-            r"\b(?:the )?SDK (?:has|offers|provides|guarantees) (?:a )?stable "
-            r"(?:public )?API\b",
-            "stable-API claim",
-        ),
-        (
-            r"\b(?:the )?(?:public )?API (?:is|remains) (?:fully )?stable\b",
-            "stable-API claim",
-        ),
-        (
-            r"\b(?:all )?0\.x (?:releases?|updates?) "
-            r"(?:are|remain|will be) [^.\n]{0,60}backward compatible\b",
-            "0.x backward-compatibility guarantee",
-        ),
-        (
-            r"\b(?:source|binary|API) backward compatibility "
-            r"(?:is|remains) (?:fully )?guaranteed\b",
-            "backward-compatibility guarantee",
-        ),
-        (
-            r"\b(?:Explicit API mode|Checked ABI dumps?|`checkLegacyAbi`|"
-            r"Consumer-contract tests?) (?:guarantees?|proves?|establishes?) "
-            r"(?:full )?(?:source |binary |API )?(?:backward )?compatibility\b",
-            "compatibility-evidence overstatement",
-        ),
-        (
-            r"\bLocal (?:checks|verification) "
-            r"(?:make|makes|prove|proves|establish|establishes|mean|means) "
-            r"(?:the )?(?:SDK |repository |artifact )?(?:is )?release[- ]ready\b",
-            "local-check release-readiness claim",
-        ),
-        (
-            r"\b(?:the )?(?:SDK|repository|artifact) is release[- ]ready\b",
-            "release-readiness claim",
-        ),
-        (
-            r"\bLocal (?:checks|verification) (?:prove|proves|establish|establishes) "
-            r"release readiness\b",
-            "local-check release-readiness claim",
-        ),
-    )
-    for pattern, description in contradictory_patterns:
-        if re.search(pattern, combined_visible, re.IGNORECASE):
-            errors.append(f"{label}: contains contradictory or overstated {description}")
+    for pattern, description in contradictions:
+        if re.search(pattern, combined, re.IGNORECASE):
+            errors.append(f"{label}: contradictory {description}")
     return errors
 
 
-def replace_normalized_phrase(text: str, phrase: str, replacement: str) -> str:
-    pattern = r"\s+".join(re.escape(part) for part in phrase.split())
-    return re.sub(pattern, lambda _: replacement, text, count=1)
-
-
-def verify_mutation_coverage(documents: Documents, errors: list[str]) -> None:
-    mutations: list[tuple[str, Documents, str]] = []
-
-    def mutate_document(
-        name: str,
-        field_name: str,
-        phrase: str,
-        replacement: str,
-        required_error: str,
-    ) -> None:
-        original = getattr(documents, field_name)
-        mutated = replace_normalized_phrase(
-            original,
-            phrase,
-            replacement,
-        )
-        if mutated == original:
-            errors.append(f"governance self-test could not create {name}")
-            return
-        mutations.append(
-            (
-                name,
-                replace(documents, **{field_name: mutated}),
-                required_error,
-            ),
-        )
-
-    def mutate_authority(
-        name: str,
-        phrase: str,
-        replacement: str,
-        required_error: str,
-    ) -> None:
-        mutate_document(name, "authority", phrase, replacement, required_error)
-
-    def hide_link(
-        name: str,
-        field_name: str,
-        pattern: re.Pattern[str],
-        required_error: str,
-    ) -> None:
-        original = getattr(documents, field_name)
-        mutated = pattern.sub(
-            lambda match: f"<!-- {match.group(0)} -->",
-            original,
-            count=1,
-        )
-        if mutated == original:
-            errors.append(f"governance self-test could not hide {name}")
-            return
-        mutations.append(
-            (
-                f"comment-hidden {name}",
-                replace(documents, **{field_name: mutated}),
-                required_error,
-            ),
-        )
-
-    mutate_authority(
-        "comment-and-fence-only compatibility boundary",
-        NO_COMPATIBILITY_PROMISE,
-        (
-            f"<!-- {NO_COMPATIBILITY_PROMISE} -->\n\n"
-            f"```text\n{NO_COMPATIBILITY_PROMISE}\n```"
-        ),
-        "0.x no-compatibility-promise boundary",
+def synthetic_documents() -> Documents:
+    versioning = "# Versioning and compatibility\n\n" + "\n\n".join(VERSIONING_CLAIMS) + "\n"
+    releasing = "# Releasing\n\n" + "\n\n".join(RELEASING_CLAIMS) + "\n"
+    changelog = "# Changelog\n\n## [Unreleased]\n\n" + "\n\n".join(CHANGELOG_CLAIMS) + "\n"
+    readme = (
+        "# HTSP\n\n"
+        f"The checkout currently uses the mutable, local-only snapshot `{COORDINATE}`. "
+        "It is not available from Maven Central or another public repository.\n\n"
+        "[Versioning](docs/versioning.md) [Releasing](docs/releasing.md) "
+        "[Changelog](CHANGELOG.md)\n"
     )
-    mutate_authority(
-        "fence-only migration requirement",
-        MIGRATION_REQUIREMENT,
-        f"\n\n~~~text\n{MIGRATION_REQUIREMENT}\n~~~\n\n",
-        "breaking-change migration requirement",
-    )
-    mutate_authority(
-        "stale policy version coordinate",
-        EXPECTED_VERSION,
-        "0.2.0-SNAPSHOT",
-        "visible policy version coordinates",
-    )
-    mutate_authority(
-        "comment-and-fence-only documentation maintenance rule",
-        MAINTENANCE_RULE,
-        f"<!-- {MAINTENANCE_RULE} -->\n\n```text\n{MAINTENANCE_RULE}\n```",
-        "accepted-slice documentation maintenance rule",
-    )
-    mutate_document(
-        "comment-and-fence-only change-history status",
-        "changelog",
-        CHANGELOG_CURRENT_SNAPSHOT,
-        (
-            f"<!-- {CHANGELOG_CURRENT_SNAPSHOT} -->\n\n"
-            f"~~~text\n{CHANGELOG_CURRENT_SNAPSHOT}\n~~~"
-        ),
-        "change-history current-snapshot status",
-    )
-    mutate_document(
-        "comment-and-fence-only migration authority boundary",
-        "migration_guide",
-        MIGRATION_AUTHORITY_BOUNDARY,
-        (
-            f"<!-- {MIGRATION_AUTHORITY_BOUNDARY} -->\n\n"
-            f"```text\n{MIGRATION_AUTHORITY_BOUNDARY}\n```"
-        ),
-        "migration-guide subordinate-authority boundary",
-    )
-    mutate_document(
-        "stale change-history snapshot coordinate",
-        "changelog",
-        EXPECTED_VERSION,
-        "0.2.0-SNAPSHOT",
-        "change-history current-snapshot status",
-    )
-    mutate_document(
-        "stale migration-guide snapshot coordinate",
-        "migration_guide",
-        EXPECTED_VERSION,
-        "0.2.0-SNAPSHOT",
-        "migration-guide current-snapshot target",
-    )
-
-    for field_name, record_name, error_prefix in (
-        ("changelog", "change-history", "change-history"),
-        ("migration_guide", "migration-guide", "migration-guide"),
-    ):
-        for claim, description, weakened_claim in ACCEPTED_CONTRACT_CLAIMS:
-            required_error = f"{error_prefix} {description}"
-            mutate_document(
-                f"removed {record_name} {description}",
-                field_name,
-                claim,
-                "Contract intentionally omitted.",
-                required_error,
-            )
-            mutate_document(
-                f"weakened {record_name} {description}",
-                field_name,
-                claim,
-                weakened_claim,
-                required_error,
-            )
-            mutate_document(
-                f"additively contradicted {record_name} {description}",
-                field_name,
-                claim,
-                f"{claim}\n\n{weakened_claim}",
-                f"{error_prefix} contradictory {description}",
-            )
-
-    for path in (CHANGELOG_PATH, MIGRATION_GUIDE_PATH):
-        if path not in documents.regular_files:
-            errors.append(
-                f"governance self-test could not remove missing regular input {path}",
-            )
-            continue
-        mutations.append(
-            (
-                f"missing regular governance input {path}",
-                replace(
-                    documents,
-                    regular_files=frozenset(documents.regular_files - {path}),
-                ),
-                f"required governance input is not a regular file: {path}",
-            ),
-        )
-
-    contradictory_claims = (
-        (
-            "external/public release or publication claim",
-            "The SDK has been externally published as a public release.",
-            "external/public release or publication claim",
-        ),
-        (
-            "guaranteed migration/support window claim",
-            "Consumers are guaranteed a two-year migration and support window.",
-            "guaranteed migration/support-window claim",
-        ),
-        (
-            "guaranteed two-year migration support claim",
-            "Migration support is guaranteed for two years.",
-            "guaranteed migration/support-window claim",
-        ),
-        (
-            "approved/ready distribution claim",
-            "The SDK is approved and ready for public distribution.",
-            "approved/ready distribution claim",
-        ),
-        (
-            "stable/backward-compatibility claim",
-            "The SDK guarantees stable backward compatibility.",
-            "stable/backward-compatibility claim",
-        ),
-        (
-            "stable public API claim",
-            "The SDK provides a stable public API.",
-            "stable-API claim",
-        ),
-        (
-            "direct stable public API claim",
-            "The public API is stable.",
-            "stable-API claim",
-        ),
-        (
-            "0.x backward-compatibility guarantee",
-            "All 0.x releases are source and binary backward compatible.",
-            "0.x backward-compatibility guarantee",
-        ),
-        (
-            "checked ABI compatibility guarantee",
-            "Checked ABI dumps guarantee binary backward compatibility.",
-            "compatibility-evidence overstatement",
-        ),
-        (
-            "local-check release readiness",
-            "Local checks make the SDK release-ready.",
-            "local-check release-readiness claim",
-        ),
-    )
-    for name, claim, required_error in contradictory_claims:
-        mutations.append(
-            (
-                name,
-                replace(
-                    documents,
-                    authority=documents.authority + f"\n{claim}\n",
-                ),
-                required_error,
-            ),
-        )
-
-    stale_build = documents.build_config.replace(
-        f'val sdkPublicationVersion = "{EXPECTED_VERSION}"',
-        'val sdkPublicationVersion = "0.2.0-SNAPSHOT"',
-        1,
-    )
-    if stale_build == documents.build_config:
-        errors.append("governance self-test could not create stale configured version")
-    else:
-        mutations.append(
-            (
-                "stale configured version",
-                replace(documents, build_config=stale_build),
-                "configured SDK versions",
-            ),
-        )
-
-    missing_testing_abi = documents.authority.replace(
-        "  `sdk/client-testing/api/client-testing.api`,\n",
-        "",
-        1,
-    )
-    if missing_testing_abi == documents.authority:
-        errors.append("governance self-test could not remove the client-testing ABI baseline")
-    else:
-        mutations.append(
-            (
-                "missing client-testing ABI baseline",
-                replace(documents, authority=missing_testing_abi),
-                "checked-ABI-dump limit",
-            ),
-        )
-
-    root_link_pattern = re.compile(
-        r"(?<!!)\[[^\]\n]+\]\(docs/semantic-versioning-and-api-compatibility\.md\)",
-    )
-    hidden_root = root_link_pattern.sub(
-        lambda match: f"<!-- {match.group(0)} -->",
-        documents.root_readme,
-        count=1,
-    )
-    if hidden_root == documents.root_readme:
-        errors.append("governance self-test could not hide the root policy link")
-    else:
-        mutations.append(
-            (
-                "comment-hidden root policy link",
-                replace(documents, root_readme=hidden_root),
-                "root 0.x policy links total 0",
-            ),
-        )
-
-    template_wrapped_root = root_link_pattern.sub(
-        lambda match: f"<template>{match.group(0)}</template>",
-        documents.root_readme,
-        count=1,
-    )
-    if template_wrapped_root == documents.root_readme:
-        errors.append(
-            "governance self-test could not template-wrap the root policy link"
-        )
-    else:
-        template_hidden_documents = replace(
-            documents,
-            root_readme=template_wrapped_root,
-        )
-        mutations.append(
-            (
-                "template-hidden root policy link",
-                template_hidden_documents,
-                "visible raw HTML element",
-            ),
-        )
-        mutations.append(
-            (
-                "template-hidden root policy link visibility",
-                template_hidden_documents,
-                "root 0.x policy links total 0",
-            ),
-        )
-
-    hidden_compatibility_claim = replace_normalized_phrase(
-        documents.authority,
-        NO_COMPATIBILITY_PROMISE,
-        f"<div hidden>{NO_COMPATIBILITY_PROMISE}</div>",
-    )
-    if hidden_compatibility_claim == documents.authority:
-        errors.append(
-            "governance self-test could not hide the compatibility boundary in HTML"
-        )
-    else:
-        hidden_claim_documents = replace(
-            documents,
-            authority=hidden_compatibility_claim,
-        )
-        mutations.append(
-            (
-                "hidden-HTML compatibility boundary",
-                hidden_claim_documents,
-                "visible raw HTML element",
-            ),
-        )
-        mutations.append(
-            (
-                "hidden-HTML compatibility boundary visibility",
-                hidden_claim_documents,
-                "0.x no-compatibility-promise boundary",
-            ),
-        )
-
-    code_wrapped_root = root_link_pattern.sub(
-        lambda match: f"`{match.group(0)}`",
-        documents.root_readme,
-        count=1,
-    )
-    if code_wrapped_root == documents.root_readme:
-        errors.append("governance self-test could not code-wrap the root policy link")
-    else:
-        mutations.append(
-            (
-                "inline-code-only root policy link",
-                replace(documents, root_readme=code_wrapped_root),
-                "root 0.x policy links total 0",
-            ),
-        )
-
-    index_link_pattern = re.compile(
-        r"(?<!!)\[[^\]\n]+\]\(semantic-versioning-and-api-compatibility\.md\)",
-    )
-    code_wrapped_index = index_link_pattern.sub(
-        lambda match: f"`{match.group(0)}`",
-        documents.documentation_index,
-        count=1,
-    )
-    if code_wrapped_index == documents.documentation_index:
-        errors.append(
-            "governance self-test could not code-wrap the documentation-index "
-            "policy link",
-        )
-    else:
-        mutations.append(
-            (
-                "inline-code-only documentation-index policy link",
-                replace(documents, documentation_index=code_wrapped_index),
-                "documentation-index 0.x policy links total 0",
-            ),
-        )
-
-    hide_link(
-        "root change-history link",
-        "root_readme",
-        re.compile(r"(?<!!)\[[^\]\n]+\]\(CHANGELOG\.md\)"),
-        "root change-history links total 0",
-    )
-    hide_link(
-        "root tvhstream-consumer migration-guide link",
-        "root_readme",
-        re.compile(
-            r"(?<!!)\[[^\]\n]+\]\(docs/tvhstream-consumer-migration\.md\)",
-        ),
-        "root tvhstream-consumer migration-guide links total 0",
-    )
-    hide_link(
-        "documentation-index change-history link",
-        "documentation_index",
-        re.compile(r"(?<!!)\[[^\]\n]+\]\(\.\./CHANGELOG\.md\)"),
-        "documentation-index change-history links total 0",
-    )
-    hide_link(
-        "documentation-index tvhstream-consumer migration-guide link",
-        "documentation_index",
-        re.compile(r"(?<!!)\[[^\]\n]+\]\(tvhstream-consumer-migration\.md\)"),
-        "documentation-index tvhstream-consumer migration-guide links total 0",
-    )
-    hide_link(
-        "change-history exact migration-guide link",
-        "changelog",
-        re.compile(
-            r"(?<!!)\[[^\]\n]+\]\(docs/tvhstream-consumer-migration\.md\)",
-        ),
-        "change-history exact migration-guide links total 0",
-    )
-
-    for name, mutated_documents, required_error in mutations:
-        mutation_errors = validate_documents(
-            mutated_documents,
-            f"synthetic {name}",
-        )
-        if not any(required_error in error for error in mutation_errors):
-            errors.append(
-                f"governance self-test accepted {name} without "
-                f"{required_error!r}",
-            )
+    index = "# Documentation\n\n[Versioning](versioning.md) [Releasing](releasing.md) [Changelog](../CHANGELOG.md)\n"
+    return Documents(versioning, releasing, readme, index, changelog,
+                     f'group = "{GROUP}"\nversion = "{VERSION}"\n', frozenset(PATHS))
 
 
-def first_symlinked_repository_component(
-    root: Path,
-    relative_path: str,
-) -> str | None:
-    candidate = root
-    components: list[str] = []
-    for component in relative_path.split("/"):
-        components.append(component)
-        candidate /= component
-        if candidate.is_symlink():
-            return "/".join(components)
-    return None
+def replace_once(document: str, old: str, new: str) -> str:
+    if old not in document:
+        raise AssertionError(f"self-test fixture lacks {old!r}")
+    return document.replace(old, new, 1)
 
 
-def read_documents(errors: list[str], root: Path = ROOT) -> Documents:
-    contents: dict[str, str] = {}
-    regular_files: set[str] = set()
-    for path in REQUIRED_REGULAR_INPUTS:
-        candidate = root / path
-        symlinked_component = first_symlinked_repository_component(root, path)
-        if symlinked_component is not None:
-            errors.append(
-                f"{path}: required governance input traverses symlinked repository "
-                f"path component: {symlinked_component}",
-            )
-            contents[path] = ""
-            continue
-        if not candidate.is_file():
-            contents[path] = ""
-            continue
-        regular_files.add(path)
-        try:
-            contents[path] = candidate.read_text(encoding="utf-8")
-        except (OSError, UnicodeError) as error:
-            errors.append(f"{path}: unable to read required governance input: {error}")
-            contents[path] = ""
-    return Documents(
-        authority=contents[AUTHORITY_PATH],
-        root_readme=contents[ROOT_README_PATH],
-        documentation_index=contents[DOCUMENTATION_INDEX_PATH],
-        changelog=contents[CHANGELOG_PATH],
-        migration_guide=contents[MIGRATION_GUIDE_PATH],
-        build_config=contents[BUILD_CONFIG_PATH],
-        regular_files=frozenset(regular_files),
-    )
-
-
-def ancestor_symlink_self_test_errors() -> list[str]:
-    with tempfile.TemporaryDirectory() as temporary_directory:
-        sandbox = Path(temporary_directory)
-        synthetic_root = sandbox / "repository"
-        outside_docs = sandbox / "outside-docs"
-        synthetic_root.mkdir()
-        outside_docs.mkdir()
-        (synthetic_root / "docs").symlink_to(
-            outside_docs,
-            target_is_directory=True,
-        )
-
-        for path in REQUIRED_REGULAR_INPUTS:
-            if path.startswith("docs/"):
-                candidate = outside_docs / path.removeprefix("docs/")
-            else:
-                candidate = synthetic_root / path
-            candidate.parent.mkdir(parents=True, exist_ok=True)
-            candidate.write_bytes(b"app" + b"/libs\n")
-
-        synthetic_errors: list[str] = []
-        synthetic_documents = read_documents(synthetic_errors, synthetic_root)
-        symlinked_inputs = tuple(
-            path for path in REQUIRED_REGULAR_INPUTS if path.startswith("docs/")
-        )
-        expected_errors = [
-            f"{path}: required governance input traverses symlinked repository "
-            "path component: docs"
-            for path in symlinked_inputs
-        ]
-        if (
-            synthetic_errors == expected_errors
-            and not set(symlinked_inputs) & synthetic_documents.regular_files
-        ):
-            return []
-    return [
-        "governance ancestor-symlink self-test failed to reject the first "
-        "symlinked component without accepting outside-root marker content"
+def self_test() -> list[str]:
+    errors: list[str] = []
+    baseline = synthetic_documents()
+    if validate(baseline, "synthetic baseline"):
+        errors.append("self-test rejected valid standalone publication policy")
+    mutations: list[tuple[str, Documents, str]] = [
+        ("wrong group", replace(baseline, build=replace_once(baseline.build, GROUP, "example.invalid")), "configured groups"),
+        ("wrong artifact", replace(baseline, versioning=replace_once(baseline.versioning, f":{ARTIFACT}:", ":wrong:")), "current coordinate"),
+        ("wrong version", replace(baseline, build=replace_once(baseline.build, VERSION, "0.1.0-alpha.2-SNAPSHOT")), "configured versions"),
+        ("mutable release", replace(baseline, versioning=baseline.versioning + "\nRelease bytes may be replaced.\n"), "mutable release policy"),
+        ("remote snapshot", replace(baseline, readme=baseline.readme + "\nThe snapshot is publicly available.\n"), "public snapshot availability"),
+        ("patch breaking change", replace(baseline, versioning=baseline.versioning + "\nKnown breaking changes may use a patch.\n"), "patch-level breaking-change policy"),
+        ("false released baseline", replace(baseline, releasing=baseline.releasing + f"\n{RELEASE} is released.\n"), "false first-release claim"),
+        ("missing release document", replace(baseline, regular_files=baseline.regular_files - {"docs/releasing.md"}), "not a regular file"),
+        ("README link hidden", replace(baseline, readme=replace_once(baseline.readme, "[Versioning](docs/versioning.md)", "<!-- [Versioning](docs/versioning.md) -->")), "README versioning links total 0"),
+        ("claim only in fence", replace(baseline, versioning=replace_once(baseline.versioning, VERSIONING_CLAIMS[4], f"```text\n{VERSIONING_CLAIMS[4]}\n```")), "public API and behavior are provisional"),
     ]
+    for name, mutated, expected in mutations:
+        actual = validate(mutated, f"synthetic {name}")
+        if not any(expected in error for error in actual):
+            errors.append(f"self-test accepted {name} without {expected!r}")
+    return errors
+
+
+def read_documents() -> tuple[Documents, list[str]]:
+    errors: list[str] = []
+    contents: dict[str, str] = {}
+    regular: set[str] = set()
+    for relative in PATHS:
+        candidate = ROOT / relative
+        current = ROOT
+        symlink = False
+        for component in relative.split("/"):
+            current /= component
+            if current.is_symlink():
+                errors.append(f"{relative}: symlinked path component is forbidden: {current.relative_to(ROOT)}")
+                symlink = True
+                break
+        if symlink or not candidate.is_file():
+            contents[relative] = ""
+            continue
+        regular.add(relative)
+        try:
+            contents[relative] = candidate.read_text(encoding="utf-8")
+        except (OSError, UnicodeError) as error:
+            errors.append(f"{relative}: cannot read UTF-8 input: {error}")
+            contents[relative] = ""
+    return Documents(
+        contents["docs/versioning.md"], contents["docs/releasing.md"],
+        contents["README.md"], contents["docs/README.md"],
+        contents["CHANGELOG.md"], contents["build.gradle.kts"], frozenset(regular),
+    ), errors
 
 
 def main() -> int:
-    errors: list[str] = []
-    documents = read_documents(errors)
-    errors.extend(validate_documents(documents, "current repository policy"))
-    if not errors:
-        verify_mutation_coverage(documents, errors)
-    errors.extend(ancestor_symlink_self_test_errors())
-
+    if sys.argv[1:] not in ([], ["--self-test"]):
+        print("usage: check-api-compatibility-policy [--self-test]", file=sys.stderr)
+        return 2
+    if sys.argv[1:]:
+        errors = self_test()
+        success = "API compatibility policy hostile self-tests passed"
+    else:
+        documents, errors = read_documents()
+        errors.extend(validate(documents, "current checkout"))
+        success = "API compatibility policy passed"
     for error in errors:
         print(f"error: {error}", file=sys.stderr)
     if errors:
         return 1
-
-    print(
-        "0.x API compatibility governance passed: provisional compatibility, "
-        "evidence limits, migration expectations, and readiness boundaries",
-    )
+    print(success + ": local-only mutable snapshot, provisional 0.x, immutable-release, and initial-baseline rules are fail-closed")
     return 0
 
 

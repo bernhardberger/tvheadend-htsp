@@ -11,6 +11,9 @@ fi
 
 ./tools/check-standalone-repository --self-test
 ./tools/check-standalone-repository
+./tools/check-api-compatibility-policy --self-test
+./tools/check-api-compatibility-policy
+./tools/check-published-jvm-compatibility --self-test
 ./tools/check-htsp-protocol-boundary --self-test
 ./tools/check-htsp-protocol-boundary
 ./tools/check-htsp-generated-drift --self-test
@@ -37,4 +40,10 @@ if [ "${1-}" = "--non-gradle" ]; then
     exit 0
 fi
 
-./gradlew --no-daemon clean test check checkLegacyAbi verifyClassMajor61 verifyProductionDependencyGraph
+./gradlew --no-daemon clean build test check checkLegacyAbi verifyClassMajor61 verifyProductionDependencyGraph stageLocalPublication
+./tools/check-published-jvm-compatibility
+./tools/check-published-jvm-compatibility --write-manifest build/publication-first.json
+rm -rf build/local-maven
+./gradlew --no-daemon stageLocalPublication
+./tools/check-published-jvm-compatibility --compare-manifest build/publication-first.json
+./gradlew --no-daemon --refresh-dependencies -p consumer-contract clean compileKotlin verifyConsumerDependencyGraph

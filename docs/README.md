@@ -8,6 +8,9 @@ Guides for people using the library, and references for people working on it.
   covering typed outcomes, cancellation, and what error values never carry.
 - [`versioning.md`](versioning.md): the current version, its pre-release status,
   and what compatibility you can expect.
+- [`releasing.md`](releasing.md): the local-only staging boundary and the policy
+  for the planned first release.
+- [`CHANGELOG.md`](../CHANGELOG.md): unreleased, non-normative baseline notes.
 - [`licensing.md`](licensing.md): GPLv3 obligations, attribution, and project
   lineage.
 

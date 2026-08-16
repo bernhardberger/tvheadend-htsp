@@ -28,10 +28,12 @@ no Android, Media3, or decoder code.
 
 ## Installation
 
-The library is not yet on Maven Central. Until the first release, build it from
-source with `./gradlew build`.
+The checkout currently uses the mutable, local-only snapshot
+`at.bernhardberger.tvheadend:htsp:0.1.0-alpha.1-SNAPSHOT`. It is not available
+from Maven Central or another public repository. CI stages that coordinate only
+inside this checkout for the independent consumer contract.
 
-The planned Gradle coordinate is:
+The Gradle dependency is:
 
 <!-- dependency-static:htsp -->
 ```kotlin
@@ -41,7 +43,8 @@ dependencies {
 ```
 
 The API is pre-release and may change; see [versioning and
-compatibility](docs/versioning.md).
+compatibility](docs/versioning.md), [release policy](docs/releasing.md), and the
+[unreleased change history](CHANGELOG.md).
 
 ## Quick start
 
@@ -222,6 +225,8 @@ private fun policyFor(failure: HtspFailure): ProtocolFailurePolicy = when (failu
 
 - [API behavior: outcomes, errors, and cancellation](docs/public-api.md)
 - [Versioning and compatibility](docs/versioning.md)
+- [Release policy](docs/releasing.md)
+- [Change history](CHANGELOG.md)
 - [HTSP protocol reference](docs/htsp-protocol/README.md)
 - [Documentation index](docs/README.md)
 
