@@ -37,7 +37,11 @@ PROPERTIES = {
     "tvheadend.htsp.predecessor.url": "https://github.com/Preclikos/tvhstream",
     "tvheadend.htsp.notice.path": "NOTICE.md",
 }
-DEPENDENCIES = {
+POM_DEPENDENCIES = {
+    ("org.jetbrains.kotlin", "kotlin-stdlib", "2.3.10"),
+    ("org.jetbrains.kotlinx", "kotlinx-coroutines-core-jvm", "1.10.2"),
+}
+MODULE_DEPENDENCIES = {
     ("org.jetbrains.kotlin", "kotlin-stdlib", "2.3.10"),
     ("org.jetbrains.kotlinx", "kotlinx-coroutines-core", "1.10.2"),
 }
@@ -297,9 +301,18 @@ def pom_errors(path: Path) -> list[str]:
             errors.append("POM: developer metadata mismatch")
     scm = one_child(root, "scm", "POM", errors)
     if scm is not None:
-        actual = {name: one_text(scm, name, "POM SCM", errors) for name in ("connection", "developerConnection", "url", "tag")}
-        expected = {"connection": SCM, "developerConnection": SCM_DEVELOPER, "url": PROJECT_URL, "tag": "HEAD"}
-        if actual != expected:
+        actual = {name: one_text(scm, name, "POM SCM", errors) for name in ("connection", "developerConnection", "url")}
+        expected = {"connection": SCM, "developerConnection": SCM_DEVELOPER, "url": PROJECT_URL}
+        tags = children(scm, "tag")
+        tag = "HEAD"
+        if len(tags) > 1:
+            errors.append(f"POM SCM: expected at most one <tag>, found {len(tags)}")
+            tag = None
+        elif tags:
+            tag = (tags[0].text or "").strip()
+            if not tag:
+                errors.append("POM SCM: <tag> is empty")
+        if actual != expected or tag != "HEAD":
             errors.append("POM: SCM metadata mismatch")
     issues = one_child(root, "issueManagement", "POM", errors)
     if issues is not None:
@@ -319,8 +332,8 @@ def pom_errors(path: Path) -> list[str]:
             if scope != "compile":
                 errors.append(f"POM: dependency {item} has non-compile scope {scope!r}")
             actual_dependencies.add(item)
-    if actual_dependencies != DEPENDENCIES:
-        errors.append(f"POM: dependencies {sorted(actual_dependencies)} do not match {sorted(DEPENDENCIES)}")
+    if actual_dependencies != POM_DEPENDENCIES:
+        errors.append(f"POM: dependencies {sorted(actual_dependencies)} do not match {sorted(POM_DEPENDENCIES)}")
     serialized = ET.tostring(root, encoding="unicode")
     if FORBIDDEN_TEXT.search(serialized):
         errors.append("POM: Android, Media3, decoder, or native metadata is forbidden")
@@ -393,8 +406,8 @@ def module_errors(path: Path) -> list[str]:
                         continue
                     version = mapping(item.get("version"), f"module variant {name} dependency version", errors)
                     actual_dependencies.add((str(item.get("group")), str(item.get("module")), str(version.get("requires")) if version else ""))
-            if actual_dependencies != DEPENDENCIES:
-                errors.append(f"module variant {name}: dependencies {sorted(actual_dependencies)} do not match {sorted(DEPENDENCIES)}")
+            if actual_dependencies != MODULE_DEPENDENCIES:
+                errors.append(f"module variant {name}: dependencies {sorted(actual_dependencies)} do not match {sorted(MODULE_DEPENDENCIES)}")
         else:
             expected_docs_type = "sources" if name == "sourcesElements" else "javadoc"
             if attributes.get("org.gradle.category") != "documentation" or attributes.get("org.gradle.docstype") != expected_docs_type:
@@ -468,13 +481,13 @@ def verify(repository: Path = REPOSITORY) -> tuple[list[str], dict[str, str]]:
 
 
 def pom_text() -> str:
-    dependencies = "".join(f"<dependency><groupId>{group}</groupId><artifactId>{module}</artifactId><version>{version}</version><scope>compile</scope></dependency>" for group, module, version in sorted(DEPENDENCIES))
+    dependencies = "".join(f"<dependency><groupId>{group}</groupId><artifactId>{module}</artifactId><version>{version}</version><scope>compile</scope></dependency>" for group, module, version in sorted(POM_DEPENDENCIES))
     properties = "".join(f"<{name}>{value}</{name}>" for name, value in PROPERTIES.items())
-    return f"""<project><modelVersion>4.0.0</modelVersion><groupId>{GROUP}</groupId><artifactId>{ARTIFACT}</artifactId><version>{VERSION}</version><name>HTSP for Kotlin/JVM</name><description>A standalone Kotlin/JVM client library for the TVHeadend HTSP protocol.</description><url>{PROJECT_URL}</url><licenses><license><name>{GPL_NAME}</name><url>{GPL_URL}</url><distribution>repo</distribution></license></licenses><developers><developer><id>{DEVELOPER['id']}</id><name>{DEVELOPER['name']}</name><url>{DEVELOPER['url']}</url></developer></developers><scm><connection>{SCM}</connection><developerConnection>{SCM_DEVELOPER}</developerConnection><url>{PROJECT_URL}</url><tag>HEAD</tag></scm><issueManagement><system>GitHub Issues</system><url>{ISSUES_URL}</url></issueManagement><properties>{properties}</properties><dependencies>{dependencies}</dependencies></project>"""
+    return f"""<project><modelVersion>4.0.0</modelVersion><groupId>{GROUP}</groupId><artifactId>{ARTIFACT}</artifactId><version>{VERSION}</version><name>HTSP for Kotlin/JVM</name><description>A standalone Kotlin/JVM client library for the TVHeadend HTSP protocol.</description><url>{PROJECT_URL}</url><licenses><license><name>{GPL_NAME}</name><url>{GPL_URL}</url><distribution>repo</distribution></license></licenses><developers><developer><id>{DEVELOPER['id']}</id><name>{DEVELOPER['name']}</name><url>{DEVELOPER['url']}</url></developer></developers><scm><connection>{SCM}</connection><developerConnection>{SCM_DEVELOPER}</developerConnection><url>{PROJECT_URL}</url></scm><issueManagement><system>GitHub Issues</system><url>{ISSUES_URL}</url></issueManagement><properties>{properties}</properties><dependencies>{dependencies}</dependencies></project>"""
 
 
 def module_model() -> dict[str, Any]:
-    dependencies = [{"group": group, "module": module, "version": {"requires": version}} for group, module, version in sorted(DEPENDENCIES)]
+    dependencies = [{"group": group, "module": module, "version": {"requires": version}} for group, module, version in sorted(MODULE_DEPENDENCIES)]
     variants: list[dict[str, Any]] = []
     for name in ("apiElements", "runtimeElements"):
         variants.append({"name": name, "attributes": {"org.gradle.category": "library", "org.gradle.jvm.version": JVM_VERSION}, "dependencies": copy.deepcopy(dependencies), "files": [{"name": f"{ARTIFACT}-{VERSION}.jar", "url": f"{ARTIFACT}-{VERSION}.jar"}]})
@@ -577,12 +590,17 @@ def self_test() -> list[str]:
             ("wrong version", lambda repo: mutate_pom(repo, f"<version>{VERSION}</version>", "<version>0.1.0-alpha.2-SNAPSHOT</version>"), "POM: version"),
             ("missing GPL", lambda repo: mutate_pom(repo, GPL_NAME, "Other"), "GPLv3 license metadata"),
             ("wrong SCM", lambda repo: mutate_pom(repo, SCM, "scm:git:https://invalid",), "SCM metadata"),
+            ("wrong explicit SCM tag", lambda repo: mutate_pom(repo, "</scm>", "<tag>release</tag></scm>"), "SCM metadata"),
+            ("empty explicit SCM tag", lambda repo: mutate_pom(repo, "</scm>", "<tag></tag></scm>"), "<tag> is empty"),
+            ("duplicate SCM tag", lambda repo: mutate_pom(repo, "</scm>", "<tag>HEAD</tag><tag>HEAD</tag></scm>"), "expected at most one <tag>"),
             ("wrong developer", lambda repo: mutate_pom(repo, f"<id>{DEVELOPER['id']}</id>", "<id>someone</id>"), "developer metadata"),
             ("wrong issues", lambda repo: mutate_pom(repo, ISSUES_URL, "https://invalid/issues"), "issue-management metadata"),
             ("missing predecessor", lambda repo: mutate_pom(repo, PROPERTIES["tvheadend.htsp.predecessor.name"], "Unknown"), "predecessor/notice properties"),
             ("forbidden dependency", lambda repo: mutate_pom(repo, "org.jetbrains.kotlinx", "androidx.media3"), "dependencies"),
+            ("non-JVM POM coroutines dependency", lambda repo: mutate_pom(repo, "kotlinx-coroutines-core-jvm", "kotlinx-coroutines-core"), "dependencies"),
             ("wrong JVM metadata", lambda repo: mutate_module(repo, lambda model: model["variants"][0]["attributes"].update({"org.gradle.jvm.version": 11})), "advertise JVM library version"),
             ("forbidden metadata dependency", lambda repo: mutate_module(repo, lambda model: model["variants"][0]["dependencies"].append({"group": "androidx.media3", "module": "media3", "version": {"requires": "1"}})), "dependencies"),
+            ("JVM-specific module coroutines dependency", lambda repo: mutate_module(repo, lambda model: model["variants"][0]["dependencies"][1].update({"module": "kotlinx-coroutines-core-jvm"})), "dependencies"),
             ("missing sources", lambda repo: artifact(repo, "-sources.jar").unlink(), "sources: required regular artifact is missing"),
             ("missing javadoc", lambda repo: artifact(repo, "-javadoc.jar").unlink(), "javadoc: required regular artifact is missing"),
             ("missing main", lambda repo: next(path for path in version_dir(repo).glob("*.jar") if "-sources.jar" not in path.name and "-javadoc.jar" not in path.name).unlink(), "main: required regular artifact is missing"),
