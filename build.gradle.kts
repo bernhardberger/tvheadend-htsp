@@ -61,7 +61,7 @@ tasks.withType<AbstractArchiveTask>().configureEach {
 tasks.withType<Jar>()
     .matching { task ->
         task.name == "jar" ||
-            task.name == "kotlinSourcesJar" ||
+            task.name == "sourcesJar" ||
             task.name == "javadocJar"
     }
     .configureEach {
@@ -78,25 +78,13 @@ afterEvaluate {
         .getByName("sourcesElements")
         .outgoing
         .artifacts
-    val duplicateJavaSourceArtifacts = sourceArtifacts.filter { artifact ->
+    val sourcesJarArtifacts = sourceArtifacts.filter { artifact ->
         artifact.buildDependencies.getDependencies(null).any { task ->
             task.name == "sourcesJar"
         }
     }
-    check(duplicateJavaSourceArtifacts.size == 1) {
-        "The publication must expose exactly one removable Java sources artifact, found " +
-            duplicateJavaSourceArtifacts
-    }
-    duplicateJavaSourceArtifacts.forEach { artifact ->
-        sourceArtifacts.remove(artifact)
-    }
-    val retainedKotlinSourceArtifacts = sourceArtifacts.filter { artifact ->
-        artifact.buildDependencies.getDependencies(null).any { task ->
-            task.name == "kotlinSourcesJar"
-        }
-    }
-    check(sourceArtifacts.size == 1 && retainedKotlinSourceArtifacts.size == 1) {
-        "The publication must retain exactly one Kotlin sources artifact, found $sourceArtifacts"
+    check(sourceArtifacts.size == 1 && sourcesJarArtifacts.size == 1) {
+        "The publication must expose exactly one shared sourcesJar artifact, found $sourceArtifacts"
     }
 }
 

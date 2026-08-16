@@ -81,6 +81,38 @@ DEPENDENCY_TASK_CONTRACT = '''tasks.register("verifyProductionDependencyGraph") 
         check(resolved == allowed) { "Unexpected production resolution graph: $resolved" }
     }
 }'''
+REPRODUCIBLE_ARCHIVE_CONTRACT = '''tasks.withType<AbstractArchiveTask>().configureEach {
+    isPreserveFileTimestamps = false
+    isReproducibleFileOrder = true
+}'''
+LICENSED_ARCHIVE_CONTRACT = '''tasks.withType<Jar>()
+    .matching { task ->
+        task.name == "jar" ||
+            task.name == "sourcesJar" ||
+            task.name == "javadocJar"
+    }
+    .configureEach {
+        from("LICENSE") {
+            into("META-INF")
+        }
+        from("NOTICE.md") {
+            into("META-INF")
+        }
+    }'''
+SHARED_SOURCES_ARTIFACT_CONTRACT = '''afterEvaluate {
+    val sourceArtifacts = configurations
+        .getByName("sourcesElements")
+        .outgoing
+        .artifacts
+    val sourcesJarArtifacts = sourceArtifacts.filter { artifact ->
+        artifact.buildDependencies.getDependencies(null).any { task ->
+            task.name == "sourcesJar"
+        }
+    }
+    check(sourceArtifacts.size == 1 && sourcesJarArtifacts.size == 1) {
+        "The publication must expose exactly one shared sourcesJar artifact, found $sourceArtifacts"
+    }
+}'''
 
 ROOT_ENTRIES = {
     ".git", ".gitattributes", ".github", ".gitignore", "AGENTS.md",
@@ -270,16 +302,6 @@ def build_errors(root: Path) -> list[str]:
         'layout.buildDirectory.dir("local-maven")': 1,
         "tasks.withType<PublishToMavenLocal>()": 1, "enabled = false": 1,
         'tasks.register("stageLocalPublication")': 1,
-        "isPreserveFileTimestamps = false": 1, "isReproducibleFileOrder = true": 1,
-        "tasks.withType<Jar>()": 1,
-        'task.name == "jar"': 1,
-        'task.name == "javadocJar"': 1,
-        "afterEvaluate {": 1,
-        'task.name == "sourcesJar"': 1,
-        "check(duplicateJavaSourceArtifacts.size == 1)": 1,
-        "sourceArtifacts.remove(artifact)": 1,
-        'task.name == "kotlinSourcesJar"': 2,
-        "check(sourceArtifacts.size == 1 && retainedKotlinSourceArtifacts.size == 1)": 1,
         "MessageDigest.getInstance(\"SHA-256\")": 1,
         'tasks.register("verifyClassMajor61")': 1,
         'tasks.register("verifyProductionDependencyGraph")': 1,
@@ -299,6 +321,22 @@ def build_errors(root: Path) -> list[str]:
     for value, count in required_counts.items():
         if build.count(value) != count:
             errors.append(f"root build publication policy missing or duplicated: {value}")
+    for contract, label in (
+        (REPRODUCIBLE_ARCHIVE_CONTRACT, "global reproducible archive"),
+        (LICENSED_ARCHIVE_CONTRACT, "licensed main/shared-sources/Javadoc archive"),
+        (SHARED_SOURCES_ARTIFACT_CONTRACT, "read-only shared sources artifact"),
+    ):
+        if build.count(contract) != 1:
+            errors.append(f"root build {label} exact contract mismatch")
+    if "kotlinSourcesJar" in build:
+        errors.append("root build must reuse sourcesJar and must not reference kotlinSourcesJar")
+    build_without_shared_sources_contract = build.replace(SHARED_SOURCES_ARTIFACT_CONTRACT, "", 1)
+    forbidden_source_artifact_access = (
+        r"\b(?:sourcesElements|sourceArtifacts|sourcesJarArtifacts)\b",
+        r"\bartifact\s*\(\s*tasks\s*\.\s*(?:named|register(?:ing)?)\b[\s\S]*?[\"']sourcesJar[\"']",
+    )
+    if any(re.search(pattern, build_without_shared_sources_contract) for pattern in forbidden_source_artifact_access):
+        errors.append("root build must not mutate or manually attach outgoing source artifacts")
     production = re.findall(r'^\s*(api|implementation|compileOnly|runtimeOnly)\("([^"]+)"\)\s*$', build, re.M)
     if production != [("api", "org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2")]:
         errors.append(f"root build must retain exactly one declared production dependency: {production}")
@@ -702,6 +740,15 @@ def replace_once(root: Path, relative: str, old: str, new: str) -> None:
     path.write_text(text.replace(old, new, 1), encoding="utf-8")
 
 
+def insert_before_dependency_contract(root: Path, text: str) -> None:
+    replace_once(
+        root,
+        "build.gradle.kts",
+        "\n" + DEPENDENCY_TASK_CONTRACT + "\n",
+        "\n" + text.rstrip() + "\n\n" + DEPENDENCY_TASK_CONTRACT + "\n",
+    )
+
+
 def replace_temp_context(root: Path, relative: str, replacement: str) -> None:
     target = "with tempfile." + "TemporaryDirectory() as temporary:"
     replace_once(root, relative, target, replacement)
@@ -759,10 +806,35 @@ def self_test() -> list[str]:
         ("credential lookup", "forbidden remote/signing", lambda root: append(root, "build.gradle.kts", '\nval secret = System.getenv("TOKEN")\n')),
         ("extra dependency", "exactly one declared production dependency", lambda root: append(root, "build.gradle.kts", '\nimplementation("example:bad:1")\n')),
         ("weakened dependency task", "production dependency task exact final-body", lambda root: replace_once(root, "build.gradle.kts", '            "org.jetbrains.kotlin:kotlin-stdlib:2.3.10",', '            "org.jetbrains.kotlin:kotlin-stdlib:2.3.9",')),
-        ("duplicate source removal missing", "publication policy missing or duplicated", lambda root: replace_once(root, "build.gradle.kts", "sourceArtifacts.remove(artifact)", "Unit")),
-        ("retained source archive configuration missing", "publication policy missing or duplicated", lambda root: replace_once(root, "build.gradle.kts", 'task.name == "kotlinSourcesJar" ||', "false ||")),
-        ("duplicate source guard weakened", "publication policy missing or duplicated", lambda root: replace_once(root, "build.gradle.kts", "check(duplicateJavaSourceArtifacts.size == 1)", "check(duplicateJavaSourceArtifacts.isNotEmpty())")),
-        ("retained source uniqueness weakened", "publication policy missing or duplicated", lambda root: replace_once(root, "build.gradle.kts", "check(sourceArtifacts.size == 1 && retainedKotlinSourceArtifacts.size == 1)", "check(retainedKotlinSourceArtifacts.isNotEmpty())")),
+        ("shared source matcher changed back to kotlinSourcesJar", "licensed main/shared-sources/Javadoc archive", lambda root: replace_once(root, "build.gradle.kts", '            task.name == "sourcesJar" ||', '            task.name == "kotlinSourcesJar" ||')),
+        ("shared source artifact count weakened", "read-only shared sources artifact", lambda root: replace_once(root, "build.gradle.kts", "sourceArtifacts.size == 1", "sourceArtifacts.isNotEmpty()")),
+        ("shared source task predicate weakened", "read-only shared sources artifact", lambda root: replace_once(root, "build.gradle.kts", '            task.name == "sourcesJar"\n        }\n    }\n    check(sourceArtifacts.size', '            true\n        }\n    }\n    check(sourceArtifacts.size')),
+        ("outgoing source artifact mutation reintroduced", "must not mutate or manually attach", lambda root: append(root, "build.gradle.kts", "\nafterEvaluate { sourceArtifacts.remove(sourceArtifacts.first()) }\n")),
+        ("later direct source artifact removeIf", "must not mutate or manually attach", lambda root: append(root, "build.gradle.kts", '\nconfigurations.getByName("sourcesElements").outgoing.artifacts.removeIf { true }\n')),
+        ("aliased source artifact operator mutation", "must not mutate or manually attach", lambda root: append(root, "build.gradle.kts", '\nafterEvaluate {\n    val artifactsAlias = configurations.getByName("sourcesElements").outgoing.artifacts\n    artifactsAlias -= artifactsAlias.first()\n}\n')),
+        ("manual second sources artifact", "must not mutate or manually attach", lambda root: append(root, "build.gradle.kts", '\nartifacts { add("sourcesElements", tasks.named("sourcesJar")) }\n')),
+        ("multiline named sources artifact attachment", "must not mutate or manually attach", lambda root: insert_before_dependency_contract(root, '''publishing {
+    publications.named<MavenPublication>("htsp") {
+        artifact(
+            tasks.named<Jar>(
+                "sourcesJar",
+            ),
+        )
+    }
+}''')),
+        ("multiline registering sources artifact attachment", "must not mutate or manually attach", lambda root: insert_before_dependency_contract(root, '''publishing {
+    publications.named<MavenPublication>("htsp") {
+        artifact(
+            tasks.registering<Jar>(
+                "sourcesJar",
+            ),
+        )
+    }
+}''')),
+        ("shared source LICENSE configuration weakened", "licensed main/shared-sources/Javadoc archive", lambda root: replace_once(root, "build.gradle.kts", '        from("LICENSE") {', '        from("README.md") {')),
+        ("shared source NOTICE configuration weakened", "licensed main/shared-sources/Javadoc archive", lambda root: replace_once(root, "build.gradle.kts", '        from("NOTICE.md") {', '        from("CHANGELOG.md") {')),
+        ("archive timestamp reproducibility weakened", "global reproducible archive", lambda root: replace_once(root, "build.gradle.kts", "isPreserveFileTimestamps = false", "isPreserveFileTimestamps = true")),
+        ("archive order reproducibility weakened", "global reproducible archive", lambda root: replace_once(root, "build.gradle.kts", "isReproducibleFileOrder = true", "isReproducibleFileOrder = false")),
         ("consumer Maven Local", "consumer repository/dependency bypass", lambda root: append(root, "consumer-contract/settings.gradle.kts", "\nmavenLocal()\n")),
         ("consumer included build", "consumer repository/dependency bypass", lambda root: append(root, "consumer-contract/settings.gradle.kts", '\nincludeBuild("..")\n')),
         ("consumer project dependency", "consumer repository/dependency bypass", lambda root: append(root, "consumer-contract/build.gradle.kts", '\nimplementation(project(":"))\n')),
@@ -820,6 +892,22 @@ def self_test() -> list[str]:
             actual = repository_errors(case)
             if actual:
                 errors.append(f"self-test rejected temporary-policy comment/string fixture in {relative}: {actual}")
+        case = temporary_root / "case-positive-unrelated-collection-removal"
+        shutil.copytree(ROOT, case, symlinks=True, ignore=shutil.ignore_patterns(".git", "build", "__pycache__", "*.pyc"))
+        (case / ".git").mkdir()
+        replace_once(
+            case,
+            "build.gradle.kts",
+            "\n" + DEPENDENCY_TASK_CONTRACT + "\n",
+            '\nval unrelatedItems = mutableListOf("stale", "keep")\n'
+            'unrelatedItems.removeIf { item -> item == "stale" }\n'
+            'unrelatedItems.remove("keep")\n\n'
+            + DEPENDENCY_TASK_CONTRACT
+            + "\n",
+        )
+        actual = repository_errors(case)
+        if actual:
+            errors.append(f"self-test rejected unrelated collection removal fixture: {actual}")
         case = temporary_root / "case-symlink"
         shutil.copytree(ROOT, case, symlinks=True, ignore=shutil.ignore_patterns(".git", "build", "__pycache__", "*.pyc"))
         (case / ".git").mkdir()
