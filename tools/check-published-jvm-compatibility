@@ -21,7 +21,19 @@ ROOT = Path(__file__).resolve().parents[1]
 REPOSITORY = ROOT / "build/local-maven"
 GROUP = "at.bernhardberger.tvheadend"
 ARTIFACT = "htsp"
-VERSION = "0.1.0-alpha.1-SNAPSHOT"
+ALLOWED_VERSIONS = {"0.1.0-alpha.1-SNAPSHOT", "0.1.0-alpha.1"}
+
+
+def configured_version() -> str:
+    try:
+        text = (ROOT / "build.gradle.kts").read_text(encoding="utf-8")
+    except (OSError, UnicodeError):
+        return ""
+    matches = re.findall(r'^version = "([^"]+)"$', text, re.M)
+    return matches[0] if len(matches) == 1 else ""
+
+
+VERSION = configured_version()
 RELEASE_BASE = VERSION.removesuffix("-SNAPSHOT")
 JVM_VERSION = 17
 CLASS_MAJOR = 61
@@ -162,6 +174,9 @@ def snapshot_entries(metadata: ET.Element, errors: list[str]) -> tuple[dict[tupl
 
 
 def resolve_publication(repository: Path, errors: list[str]) -> ResolvedPublication | None:
+    if VERSION not in ALLOWED_VERSIONS:
+        errors.append(f"publication version must be exactly one of {sorted(ALLOWED_VERSIONS)}: {VERSION!r}")
+        return None
     expected = REPOSITORY.absolute()
     if repository.absolute() != expected:
         errors.append(f"publication repository must be exactly {expected}")
@@ -209,12 +224,16 @@ def resolve_publication(repository: Path, errors: list[str]) -> ResolvedPublicat
             "publication module topology mismatch: "
             f"directories={sorted(module_directories)}, files={sorted(module_files)}",
         )
-    metadata_path = version_dir / "maven-metadata.xml"
-    metadata = parse_xml(metadata_path, "snapshot metadata", errors)
-    if metadata is None:
-        return None
-    entries, snapshot_value = snapshot_entries(metadata, errors)
     files: dict[str, Path] = {}
+    snapshot_value = VERSION
+    metadata_name: str | None = None
+    entries: dict[tuple[str, str | None], str] = {}
+    if VERSION.endswith("-SNAPSHOT"):
+        metadata_name = "maven-metadata.xml"
+        metadata = parse_xml(version_dir / metadata_name, "snapshot metadata", errors)
+        if metadata is None:
+            return None
+        entries, snapshot_value = snapshot_entries(metadata, errors)
     for kind, key in KINDS.items():
         extension, classifier = key
         value = entries.get(key, snapshot_value)
@@ -225,7 +244,9 @@ def resolve_publication(repository: Path, errors: list[str]) -> ResolvedPublicat
             continue
         files[kind] = path
 
-    allowed_primary = {path.name for path in files.values()} | {"maven-metadata.xml"}
+    allowed_primary = {path.name for path in files.values()}
+    if metadata_name is not None:
+        allowed_primary.add(metadata_name)
     allowed_sidecars = {f"{name}.{algorithm}" for name in allowed_primary for algorithm in ("md5", "sha1", "sha256", "sha512")}
     actual = {path.name for path in version_dir.iterdir() if path.is_file()}
     extras = actual - allowed_primary - allowed_sidecars
@@ -510,12 +531,15 @@ def write_jar(path: Path, kind: str, wrong_major: bool = False) -> None:
             archive.writestr("docs/index.md", "documentation")
 
 
-def create_fixture(root: Path) -> Path:
+def create_fixture(root: Path, version: str = "0.1.0-alpha.1-SNAPSHOT") -> Path:
+    global VERSION, RELEASE_BASE
+    VERSION = version
+    RELEASE_BASE = VERSION.removesuffix("-SNAPSHOT")
     repository = root / "build/local-maven"
     version_dir = repository.joinpath(*GROUP.split("."), ARTIFACT, VERSION)
     version_dir.mkdir(parents=True)
     timestamp = "20260816.120000"
-    snapshot = f"{RELEASE_BASE}-{timestamp}-1"
+    snapshot = f"{RELEASE_BASE}-{timestamp}-1" if VERSION.endswith("-SNAPSHOT") else VERSION
     files = {
         "pom": version_dir / f"{ARTIFACT}-{snapshot}.pom",
         "module": version_dir / f"{ARTIFACT}-{snapshot}.module",
@@ -527,37 +551,52 @@ def create_fixture(root: Path) -> Path:
     files["module"].write_text(json.dumps(module_model()), encoding="utf-8")
     for kind in ("main", "sources", "javadoc"):
         write_jar(files[kind], kind)
-    entries = "".join(f"<snapshotVersion><extension>{extension}</extension>{f'<classifier>{classifier}</classifier>' if classifier else ''}<value>{snapshot}</value></snapshotVersion>" for extension, classifier in KINDS.values())
-    (version_dir / "maven-metadata.xml").write_text(f"<metadata><groupId>{GROUP}</groupId><artifactId>{ARTIFACT}</artifactId><version>{VERSION}</version><versioning><snapshot><timestamp>{timestamp}</timestamp><buildNumber>1</buildNumber></snapshot><snapshotVersions>{entries}</snapshotVersions></versioning></metadata>", encoding="utf-8")
+    if VERSION.endswith("-SNAPSHOT"):
+        entries = "".join(f"<snapshotVersion><extension>{extension}</extension>{f'<classifier>{classifier}</classifier>' if classifier else ''}<value>{snapshot}</value></snapshotVersion>" for extension, classifier in KINDS.values())
+        (version_dir / "maven-metadata.xml").write_text(f"<metadata><groupId>{GROUP}</groupId><artifactId>{ARTIFACT}</artifactId><version>{VERSION}</version><versioning><snapshot><timestamp>{timestamp}</timestamp><buildNumber>1</buildNumber></snapshot><snapshotVersions>{entries}</snapshotVersions></versioning></metadata>", encoding="utf-8")
     for path in files.values():
         path.with_name(path.name + ".sha256").write_text(sha256(path) + "\n", encoding="ascii")
     return repository
 
 
-def fixture_verify(repository: Path) -> tuple[list[str], dict[str, str]]:
-    global REPOSITORY
+def fixture_verify(repository: Path, version: str = "0.1.0-alpha.1-SNAPSHOT") -> tuple[list[str], dict[str, str]]:
+    global REPOSITORY, VERSION, RELEASE_BASE
     original = REPOSITORY
+    original_version = VERSION
+    original_release_base = RELEASE_BASE
     REPOSITORY = repository
+    VERSION = version
+    RELEASE_BASE = VERSION.removesuffix("-SNAPSHOT")
     try:
         return verify(repository)
     finally:
         REPOSITORY = original
+        VERSION = original_version
+        RELEASE_BASE = original_release_base
 
 
 def self_test() -> list[str]:
     errors: list[str] = []
     with tempfile.TemporaryDirectory() as temporary:
         root = Path(temporary)
-        repository = create_fixture(root)
-        baseline_errors, _ = fixture_verify(repository)
-        if baseline_errors:
-            errors.append("self-test rejected valid publication fixture: " + "; ".join(baseline_errors))
+        for version in sorted(ALLOWED_VERSIONS):
+            repository = create_fixture(root / version, version)
+            baseline_errors, _ = fixture_verify(repository, version)
+            if baseline_errors:
+                errors.append(f"self-test rejected valid {version} publication fixture: " + "; ".join(baseline_errors))
+        unsupported = "0.1.0-alpha.2"
+        unsupported_repository = create_fixture(root / unsupported, unsupported)
+        unsupported_errors, _ = fixture_verify(unsupported_repository, unsupported)
+        if not any("publication version must be exactly" in error for error in unsupported_errors):
+            errors.append(f"self-test accepted unsupported publication version: {unsupported_errors}")
+
+        create_fixture(root, "0.1.0-alpha.1-SNAPSHOT")
 
         def mutate_and_check(name: str, mutate: Any, expected: str) -> None:
             case_root = root / name.replace(" ", "-")
-            case_repository = create_fixture(case_root)
+            case_repository = create_fixture(case_root, "0.1.0-alpha.1-SNAPSHOT")
             mutate(case_repository)
-            actual, _ = fixture_verify(case_repository)
+            actual, _ = fixture_verify(case_repository, "0.1.0-alpha.1-SNAPSHOT")
             if not any(expected in error for error in actual):
                 errors.append(f"self-test accepted {name} without {expected!r}: {actual}")
 

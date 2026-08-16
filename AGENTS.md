@@ -29,11 +29,25 @@ or as wholly original work.
 - The `consumer-contract` is static P3-E1 evidence only. Do not resolve, compile,
   execute, stage, or publish its external coordinate without a later explicit
   publication-policy authorization.
-- The two retained publication checkers are P3-E2-pending. Do not activate,
-  modify, or replace them in P3-E1.
+- Checkout-local publication verification is accepted P3-E2 evidence. The
+  Gate C0 / P3-E2A release channel adds deterministic no-rebuild candidate and
+  signed-bundle policy, but does not authorize signing, transfer, upload,
+  publication, tagging, or release.
+- Release-channel tools accept only `0.1.0-alpha.1-SNAPSHOT` and
+  `0.1.0-alpha.1`. Snapshot CI produces no candidate. The future release
+  candidate contains exactly five originals from verified and recreated local
+  staging bytes.
+- Candidate creation logs the exact inner TAR SHA-256 after final write/readback.
+  Signing and candidate or signed-bundle verification require that same public
+  CI digest explicitly before trusting manifest or signature evidence.
+- The Maven/OpenPGP key is separate from the Android APK PKCS#12 key. Private
+  key material and passphrases stay on the isolated owner-controlled signing
+  host. Only reviewed public verification material may be tracked.
 
 Do not add Android, Media3, native artifacts, application code, publication,
 signing, release, remote, credential, or device operations incidentally.
+The owner-manual Central Portal UI flow and any later GitHub pre-release remain
+outside repository automation.
 
 ## Verification
 

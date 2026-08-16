@@ -8,8 +8,9 @@ Guides for people using the library, and references for people working on it.
   covering typed outcomes, cancellation, and what error values never carry.
 - [`versioning.md`](versioning.md): the current version, its pre-release status,
   and what compatibility you can expect.
-- [`releasing.md`](releasing.md): the local-only staging boundary and the policy
-  for the planned first release.
+- [`releasing.md`](releasing.md): the local staging, deterministic candidate,
+  public inner-TAR digest handoff, isolated signing-host, and owner-manual
+  Central boundary for the planned first release.
 - [`CHANGELOG.md`](../CHANGELOG.md): unreleased, non-normative baseline notes.
 - [`licensing.md`](licensing.md): GPLv3 obligations, attribution, and project
   lineage.
@@ -25,6 +26,9 @@ Guides for people using the library, and references for people working on it.
   the source extraction this repository started from.
 - [`wrapper-provenance.md`](wrapper-provenance.md): where the Gradle wrapper
   bytes came from and which distribution they download.
+- [`../release/openpgp/README.md`](../release/openpgp/README.md): the tracked,
+  reviewed public-only OpenPGP key export and exact primary fingerprint used by
+  setup verification.
 
 Current repository code and tests override any generic guidance in these
 documents. Nothing here authorizes publication, signing, release, or other

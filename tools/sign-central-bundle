@@ -1,0 +1,303 @@
+#!/usr/bin/env python3
+"""Sign one verified release candidate on the isolated owner-controlled host."""
+
+from __future__ import annotations
+
+import argparse
+import importlib.machinery
+import importlib.util
+import os
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+from types import ModuleType
+
+
+ROOT = Path(__file__).resolve().parents[1]
+POLICY_PATH = ROOT / "tools/check-release-candidate"
+
+
+def load_policy() -> ModuleType:
+    sys.dont_write_bytecode = True
+    loader = importlib.machinery.SourceFileLoader("release_candidate_policy", str(POLICY_PATH))
+    specification = importlib.util.spec_from_loader(loader.name, loader)
+    if specification is None:
+        raise RuntimeError("release candidate policy cannot be loaded")
+    module = importlib.util.module_from_spec(specification)
+    sys.modules[loader.name] = module
+    loader.exec_module(module)
+    return module
+
+
+def git_value(*arguments: str) -> tuple[str | None, str | None]:
+    try:
+        result = subprocess.run(
+            ("git", *arguments), cwd=ROOT, check=False, stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+            env={"PATH": os.environ.get("PATH", ""), "LC_ALL": "C"},
+        )
+    except OSError as error:
+        return None, str(error)
+    if result.returncode != 0:
+        return None, result.stderr.strip() or f"git exited {result.returncode}"
+    return result.stdout.strip(), None
+
+
+def checkout_errors(candidate_model: dict[str, object]) -> list[str]:
+    status, status_error = git_value("status", "--porcelain=v1", "--untracked-files=all")
+    commit, commit_error = git_value("rev-parse", "HEAD")
+    tree, tree_error = git_value("rev-parse", "HEAD^{tree}")
+    if status_error or commit_error or tree_error:
+        return [f"cannot inspect signing checkout: {status_error or commit_error or tree_error}"]
+    if status:
+        return ["signing requires a clean checkout"]
+    source = candidate_model.get("source")
+    if not isinstance(source, dict) or source.get("commit") != commit or source.get("tree") != tree:
+        return ["signing checkout commit/tree does not match the candidate provenance"]
+    return []
+
+
+def output_paths(argument: str, artifact: str, release_version: str) -> tuple[Path | None, Path | None, list[str]]:
+    expected = (ROOT / f"build/release/{artifact}-{release_version}-signed-bundle.tar").absolute()
+    portal = (ROOT / f"build/release/{artifact}-{release_version}-central.zip").absolute()
+    path = Path(argument)
+    if not path.is_absolute():
+        path = ROOT / path
+    path = path.absolute()
+    if path != expected:
+        return None, None, [f"signed-bundle output must be exactly {expected}"]
+    for candidate in (path, portal):
+        if candidate.exists() or candidate.is_symlink():
+            return None, None, [f"release output already exists: {candidate}"]
+    current = ROOT
+    for part in path.relative_to(ROOT).parts[:-1]:
+        current /= part
+        if current.exists() and current.is_symlink():
+            return None, None, [f"signed-bundle output path traverses symlink: {current}"]
+    return path, portal, []
+
+
+def exclusive_file(path: Path, content: bytes) -> None:
+    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(descriptor, "wb") as stream:
+        stream.write(content)
+        stream.flush()
+        os.fsync(stream.fileno())
+
+
+def signing_environment() -> dict[str, str]:
+    allowed = (
+        "PATH", "HOME", "GNUPGHOME", "GPG_TTY", "DISPLAY", "WAYLAND_DISPLAY",
+        "TERM", "DBUS_SESSION_BUS_ADDRESS", "XAUTHORITY",
+    )
+    environment = {name: os.environ[name] for name in allowed if name in os.environ}
+    environment["LC_ALL"] = "C"
+    return environment
+
+
+def sign(path: Path, signature: Path, fingerprint: str) -> tuple[bytes | None, list[str]]:
+    command = (
+        "gpg", "--armor", "--detach-sign", "--local-user", fingerprint + "!",
+        "--status-fd", "1", "--output", str(signature), str(path),
+    )
+    try:
+        result = subprocess.run(
+            command, check=False, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE, text=True, env=signing_environment(),
+        )
+    except OSError as error:
+        return None, [f"gpg signing could not start: {error}"]
+    statuses = [line.split() for line in result.stdout.splitlines() if line.startswith("[GNUPG:] ")]
+    created = [fields for fields in statuses if len(fields) > 2 and fields[1] == "SIG_CREATED"]
+    if result.returncode != 0 or len(created) != 1 or created[0][-1] != fingerprint:
+        return None, ["gpg did not report one signature from the exact tracked primary fingerprint"]
+    if signature.is_symlink() or not signature.is_file():
+        return None, ["gpg did not create a regular detached signature"]
+    try:
+        return signature.read_bytes(), []
+    except OSError as error:
+        return None, [f"detached signature is unreadable: {error}"]
+
+
+def execute(candidate_argument: str, output_argument: str, candidate_sha256: str) -> list[str]:
+    policy = load_policy()
+    candidate_path, errors = policy.regular_input(candidate_argument, "release candidate")
+    target, portal_target, output_errors = output_paths(
+        output_argument, policy.ARTIFACT, policy.RELEASE_VERSION,
+    )
+    errors.extend(output_errors)
+    if candidate_path is None or target is None or portal_target is None:
+        return errors
+    try:
+        candidate_data = candidate_path.read_bytes()
+    except OSError as error:
+        return errors + [f"release candidate is unreadable: {error}"]
+    errors.extend(policy.candidate_digest_errors(candidate_data, candidate_sha256, "release candidate"))
+    if errors:
+        return sorted(set(errors))
+    candidate_errors, candidate_entries, candidate_model = policy.verify_candidate_bytes(candidate_data)
+    errors.extend(candidate_errors)
+    if candidate_model is not None:
+        errors.extend(checkout_errors(candidate_model))
+    if errors or candidate_model is None:
+        return sorted(set(errors))
+
+    with tempfile.TemporaryDirectory() as temporary:
+        workspace = Path(temporary)
+        workspace.chmod(0o700)
+        public_home, fingerprint, public_errors = policy.public_key_home(workspace)
+        errors.extend(public_errors)
+        if public_home is None or fingerprint is None:
+            return sorted(set(errors))
+        signatures: dict[str, bytes] = {}
+        original_digests = {path: policy.digest(candidate_entries[path]) for path in policy.ORIGINAL_PATHS}
+        for index, path in enumerate(policy.ORIGINAL_PATHS):
+            original_path = workspace / f"to-sign-{index}"
+            signature_path = workspace / f"to-sign-{index}.asc"
+            exclusive_file(original_path, candidate_entries[path])
+            signature, sign_errors = sign(original_path, signature_path, fingerprint)
+            errors.extend(f"{path}: {error}" for error in sign_errors)
+            if signature is None:
+                break
+            if policy.digest(original_path.read_bytes()) != original_digests[path]:
+                errors.append(f"{path}: original changed during signing")
+                break
+            verification = policy.verify_detached_with_home(
+                public_home, fingerprint, signature, original_path.read_bytes(), workspace, index,
+            )
+            errors.extend(f"{path}: {error}" for error in verification)
+            signatures[path] = signature
+        if errors or set(signatures) != set(policy.ORIGINAL_PATHS):
+            return sorted(set(errors or ["not all five originals were signed"]))
+        signed: list[tuple[str, bytes]] = []
+        portal: list[tuple[str, bytes]] = []
+        records: list[dict[str, object]] = []
+        for path in policy.ORIGINAL_PATHS:
+            original = candidate_entries[path]
+            signature = signatures[path]
+            hashes = {algorithm: policy.digest(original, algorithm) for algorithm in ("md5", "sha1", "sha256")}
+            signed.extend(((path, original), (path + ".asc", signature)))
+            portal.extend(((path, original), (path + ".asc", signature)))
+            for algorithm in ("md5", "sha1", "sha256"):
+                sidecar = (hashes[algorithm] + "\n").encode("ascii")
+                signed.append((path + "." + algorithm, sidecar))
+                if algorithm != "sha256":
+                    portal.append((path + "." + algorithm, sidecar))
+            records.append({
+                "path": path,
+                "size": len(original),
+                "sha256_before": policy.digest(original),
+                "sha256_after": policy.digest(original),
+                "sha256_returned": policy.digest(original),
+                "sha256_portal": policy.digest(original),
+                "signature": {"path": path + ".asc", "size": len(signature), "sha256": policy.digest(signature)},
+                "checksums": {
+                    algorithm: {"path": path + "." + algorithm, "value": hashes[algorithm]}
+                    for algorithm in ("md5", "sha1", "sha256")
+                },
+            })
+        portal_data = policy.portal_zip_bytes(portal)
+        evidence = {
+            "schema": 1,
+            "coordinate": policy.COORDINATE,
+            "version": policy.RELEASE_VERSION,
+            "fingerprint": fingerprint,
+            "candidate": {
+                "path": policy.CANDIDATE_COPY_PATH,
+                "size": len(candidate_data),
+                "sha256": policy.digest(candidate_data),
+                "manifest_sha256": policy.digest(candidate_entries[policy.MANIFEST_PATH]),
+            },
+            "source": candidate_model["source"],
+            "ci": candidate_model["ci"],
+            "signer_tool_sha256": policy.digest(Path(__file__).read_bytes()),
+            "portal_zip": {
+                "path": policy.PORTAL_ZIP_PATH,
+                "size": len(portal_data),
+                "sha256": policy.digest(portal_data),
+            },
+            "originals": records,
+        }
+        bundle = policy.tar_bytes([
+            (policy.SIGNED_MANIFEST_PATH, policy.canonical_json(evidence)),
+            (policy.CANDIDATE_COPY_PATH, candidate_data),
+            (policy.PORTAL_ZIP_PATH, portal_data),
+            *signed,
+        ])
+        counter = iter(range(10, 15))
+        verification = policy.verify_signed_bundle_bytes(
+            bundle,
+            portal_data,
+            fingerprint,
+            candidate_sha256,
+            lambda signature, original: policy.verify_detached_with_home(
+                public_home, fingerprint, signature, original, workspace, next(counter),
+            ),
+        )
+        if verification:
+            return ["assembled signed bundle failed internal verification: " + "; ".join(verification)]
+        created: list[Path] = []
+        try:
+            policy.exclusive_write(target, bundle)
+            created.append(target)
+            policy.exclusive_write(portal_target, portal_data)
+            created.append(portal_target)
+        except BaseException as error:
+            for path in created:
+                try:
+                    path.unlink()
+                except OSError:
+                    pass
+            if isinstance(error, OSError):
+                return [f"signed-bundle output failed closed: {error}"]
+            raise
+        try:
+            read_bundle, read_portal, readback_errors = policy.signed_output_readback(
+                target, portal_target, bundle, portal_data,
+            )
+            if not readback_errors and read_bundle is not None and read_portal is not None:
+                final_counter = iter(range(20, 25))
+                readback_errors.extend(policy.verify_signed_bundle_bytes(
+                    read_bundle,
+                    read_portal,
+                    fingerprint,
+                    candidate_sha256,
+                    lambda signature, original: policy.verify_detached_with_home(
+                        public_home, fingerprint, signature, original, workspace, next(final_counter),
+                    ),
+                ))
+        except BaseException:
+            for path in (target, portal_target):
+                try:
+                    path.unlink()
+                except OSError:
+                    pass
+            raise
+        if readback_errors:
+            for path in (target, portal_target):
+                try:
+                    path.unlink()
+                except OSError:
+                    pass
+            return ["signed outputs failed final disk readback verification: " + "; ".join(readback_errors)]
+    return []
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--candidate", required=True)
+    parser.add_argument("--candidate-sha256", required=True)
+    parser.add_argument("--output", required=True)
+    arguments = parser.parse_args()
+    errors = execute(arguments.candidate, arguments.output, arguments.candidate_sha256)
+    for error in errors:
+        print(f"error: {error}", file=sys.stderr)
+    if errors:
+        return 1
+    print("Signed evidence TAR and Central Portal ZIP created and verified without rebuilding candidate bytes")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

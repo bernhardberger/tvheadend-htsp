@@ -25,3 +25,26 @@ jobs:
         run: ./tools/check-standalone-repository --wrapper-only
       - name: Verify standalone HTSP library
         run: ./tools/verify-htsp
+      - name: Prepare release candidate and log exact TAR SHA-256
+        id: candidate
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        shell: bash
+        run: |
+          source_tree=$(git rev-parse 'HEAD^{tree}')
+          RELEASE_SOURCE_TREE="$source_tree" ./tools/check-release-candidate --prepare-if-release --output build/release/htsp-0.1.0-alpha.1-candidate.tar
+          if test -f build/release/htsp-0.1.0-alpha.1-candidate.tar; then
+            printf 'release=true\n' >> "$GITHUB_OUTPUT"
+          else
+            printf 'release=false\n' >> "$GITHUB_OUTPUT"
+          fi
+      - name: Retain exact release candidate
+        if: steps.candidate.outputs.release == 'true' && github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: htsp-0.1.0-alpha.1-candidate-${{ github.sha }}
+          path: build/release/htsp-0.1.0-alpha.1-candidate.tar
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+          overwrite: false
+          include-hidden-files: false

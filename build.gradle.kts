@@ -17,6 +17,14 @@ plugins {
 group = "at.bernhardberger.tvheadend"
 version = "0.1.0-alpha.1-SNAPSHOT"
 
+val allowedPublicationVersions = setOf(
+    "0.1.0-alpha.1-SNAPSHOT",
+    "0.1.0-alpha.1",
+)
+check(version.toString() in allowedPublicationVersions) {
+    "Publication version must be exactly one of $allowedPublicationVersions"
+}
+
 kotlin {
     jvmToolchain(21)
     explicitApi()
@@ -157,20 +165,36 @@ val writePublicationChecksums by tasks.registering {
     description = "Writes SHA-256 sidecars for the five staged HTSP publication artifacts."
     dependsOn("publishHtspPublicationToCheckoutLocalRepository")
     doLast {
+        val publicationVersion = version.toString()
+        check(publicationVersion in allowedPublicationVersions) {
+            "Unsupported publication version: $publicationVersion"
+        }
         val versionDirectory = checkoutLocalMavenRepository.get().dir(
-            "at/bernhardberger/tvheadend/htsp/$version",
+            "at/bernhardberger/tvheadend/htsp/$publicationVersion",
         ).asFile
         check(versionDirectory.isDirectory) {
             "Staged publication directory is missing: $versionDirectory"
         }
-        val artifactPattern = Regex(
-            "^htsp-0\\.1\\.0-alpha\\.1-\\d{8}\\.\\d{6}-\\d+" +
-                "(?:-sources|-javadoc)?\\.(?:jar|pom|module)$",
-        )
-        val artifacts = versionDirectory.listFiles()
-            ?.filter { file -> file.isFile && artifactPattern.matches(file.name) }
-            ?.sortedBy { file -> file.name }
-            .orEmpty()
+        val artifacts = if (publicationVersion.endsWith("-SNAPSHOT")) {
+            val artifactPattern = Regex(
+                "^htsp-0\\.1\\.0-alpha\\.1-\\d{8}\\.\\d{6}-\\d+" +
+                    "(?:-sources|-javadoc)?\\.(?:jar|pom|module)$",
+            )
+            versionDirectory.listFiles()
+                ?.filter { file -> file.isFile && artifactPattern.matches(file.name) }
+                ?.sortedBy { file -> file.name }
+                .orEmpty()
+        } else {
+            listOf(
+                "htsp-$publicationVersion.jar",
+                "htsp-$publicationVersion-sources.jar",
+                "htsp-$publicationVersion-javadoc.jar",
+                "htsp-$publicationVersion.pom",
+                "htsp-$publicationVersion.module",
+            ).map { name -> versionDirectory.resolve(name) }
+                .filter { file -> file.isFile }
+                .sortedBy { file -> file.name }
+        }
         check(artifacts.size == 5) {
             "Expected five staged publication artifacts, found ${artifacts.map { it.name }}"
         }
@@ -185,7 +209,7 @@ val writePublicationChecksums by tasks.registering {
 
 tasks.register("stageLocalPublication") {
     group = "publishing"
-    description = "Stages the one HTSP snapshot publication under build/local-maven."
+    description = "Stages the one allowed HTSP publication under build/local-maven."
     dependsOn(writePublicationChecksums)
 }
 

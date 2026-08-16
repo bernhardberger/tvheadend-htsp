@@ -1,0 +1,2084 @@
+#!/usr/bin/env python3
+"""Fail-closed release candidate and signed-bundle policy."""
+
+from __future__ import annotations
+
+import argparse
+import ast
+import hashlib
+import io
+import json
+import os
+import re
+import stat
+import subprocess
+import sys
+import tarfile
+import tempfile
+import zipfile
+import warnings
+from pathlib import Path
+from typing import Callable
+
+
+ROOT = Path(__file__).resolve().parents[1]
+GROUP = "at.bernhardberger.tvheadend"
+GROUP_PATH = GROUP.replace(".", "/")
+ARTIFACT = "htsp"
+RELEASE_VERSION = "0.1.0-alpha.1"
+SNAPSHOT_VERSION = RELEASE_VERSION + "-SNAPSHOT"
+COORDINATE = f"{GROUP}:{ARTIFACT}:{RELEASE_VERSION}"
+MAVEN_BASE = f"{GROUP_PATH}/{ARTIFACT}/{RELEASE_VERSION}"
+ORIGINAL_NAMES = (
+    f"{ARTIFACT}-{RELEASE_VERSION}.jar",
+    f"{ARTIFACT}-{RELEASE_VERSION}-sources.jar",
+    f"{ARTIFACT}-{RELEASE_VERSION}-javadoc.jar",
+    f"{ARTIFACT}-{RELEASE_VERSION}.pom",
+    f"{ARTIFACT}-{RELEASE_VERSION}.module",
+)
+ORIGINAL_PATHS = tuple(f"{MAVEN_BASE}/{name}" for name in ORIGINAL_NAMES)
+MANIFEST_PATH = "release-candidate.json"
+SIGNED_MANIFEST_PATH = "signed-evidence.json"
+CANDIDATE_COPY_PATH = "evidence/release-candidate.tar"
+PORTAL_ZIP_PATH = f"portal/{ARTIFACT}-{RELEASE_VERSION}-central.zip"
+KEY_PATH = ROOT / "release/openpgp/public-key.asc"
+FINGERPRINT_PATH = ROOT / "release/openpgp/primary-fingerprint.txt"
+APPROVED_FINGERPRINT = "EAB02E488E7B944EAA6D65814BF0412FD2A3B741"
+PUBLIC_UID = "Bernhard Berger <bernhard.berger@gmail.com>"
+MAX_MEMBER = 64 * 1024 * 1024
+MAX_ARCHIVE = 192 * 1024 * 1024
+SHA_PATTERN = re.compile(r"[0-9a-f]{64}")
+OBJECT_PATTERN = re.compile(r"[0-9a-f]{40}")
+FINGERPRINT_PATTERN = re.compile(r"[0-9A-F]{40}")
+
+
+def digest(data: bytes, algorithm: str = "sha256") -> str:
+    return hashlib.new(algorithm, data).hexdigest()
+
+
+def candidate_digest_errors(data: bytes, expected: str | None, label: str) -> list[str]:
+    if expected is None:
+        return [f"{label}: expected candidate TAR SHA-256 is required"]
+    if not SHA_PATTERN.fullmatch(expected):
+        return [f"{label}: expected candidate TAR SHA-256 must be exactly 64 lowercase hex characters"]
+    actual = digest(data)
+    if actual != expected:
+        return [f"{label}: candidate TAR SHA-256 mismatch; expected {expected}, found {actual}"]
+    return []
+
+
+def canonical_json(value: object) -> bytes:
+    return (json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n").encode("utf-8")
+
+
+def safe_path(name: str) -> bool:
+    if not name or name.startswith("/") or "\\" in name:
+        return False
+    parts = name.split("/")
+    return all(part not in {"", ".", ".."} for part in parts)
+
+
+def tar_bytes(entries: list[tuple[str, bytes]]) -> bytes:
+    output = io.BytesIO()
+    with tarfile.open(fileobj=output, mode="w", format=tarfile.USTAR_FORMAT) as archive:
+        for name, content in entries:
+            info = tarfile.TarInfo(name)
+            info.size = len(content)
+            info.mode = 0o644
+            info.uid = 0
+            info.gid = 0
+            info.uname = ""
+            info.gname = ""
+            info.mtime = 0
+            archive.addfile(info, io.BytesIO(content))
+    return output.getvalue()
+
+
+def archive_entries(data: bytes, expected: tuple[str, ...], label: str) -> tuple[list[str], dict[str, bytes]]:
+    errors: list[str] = []
+    values: dict[str, bytes] = {}
+    if len(data) > MAX_ARCHIVE:
+        return [f"{label}: archive exceeds {MAX_ARCHIVE} bytes"], values
+    try:
+        with tarfile.open(fileobj=io.BytesIO(data), mode="r:") as archive:
+            members = archive.getmembers()
+            names = [member.name for member in members]
+            if len(names) != len(set(names)):
+                errors.append(f"{label}: duplicate member")
+            if len({name.casefold() for name in names}) != len(names):
+                errors.append(f"{label}: case collision")
+            for member in members:
+                if not safe_path(member.name):
+                    errors.append(f"{label}: unsafe path {member.name!r}")
+                if member.type != tarfile.REGTYPE or not member.isreg():
+                    errors.append(f"{label}: every member must be a regular file: {member.name!r}")
+                    continue
+                if member.pax_headers or member.sparse:
+                    errors.append(f"{label}: sparse or extended members are forbidden: {member.name!r}")
+                if member.mode != 0o644 or member.mode & 0o111:
+                    errors.append(f"{label}: member mode must be 0644 and non-executable: {member.name!r}")
+                if member.uid != 0 or member.gid != 0 or member.uname or member.gname or member.mtime != 0:
+                    errors.append(f"{label}: member metadata is not canonical: {member.name!r}")
+                if member.size < 0 or member.size > MAX_MEMBER:
+                    errors.append(f"{label}: member size is unsafe: {member.name!r}")
+                    continue
+                stream = archive.extractfile(member)
+                if stream is None:
+                    errors.append(f"{label}: regular member is unreadable: {member.name!r}")
+                    continue
+                content = stream.read(MAX_MEMBER + 1)
+                if len(content) != member.size:
+                    errors.append(f"{label}: member size changed while reading: {member.name!r}")
+                if member.name not in values:
+                    values[member.name] = content
+    except (OSError, EOFError, tarfile.TarError) as error:
+        return [f"{label}: malformed TAR: {error}"], {}
+    if tuple(names) != expected:
+        errors.append(f"{label}: inventory or order mismatch: {names}")
+    if not errors and data != tar_bytes([(name, values[name]) for name in expected]):
+        errors.append(f"{label}: archive encoding is not canonical deterministic TAR")
+    return errors, values
+
+
+def object_model(data: bytes, label: str, errors: list[str]) -> dict[str, object] | None:
+    try:
+        value = json.loads(data.decode("utf-8"))
+    except (UnicodeError, json.JSONDecodeError) as error:
+        errors.append(f"{label}: malformed UTF-8 JSON: {error}")
+        return None
+    if not isinstance(value, dict) or not all(isinstance(key, str) for key in value):
+        errors.append(f"{label}: root must be a JSON object with string keys")
+        return None
+    if canonical_json(value) != data:
+        errors.append(f"{label}: JSON is not canonical")
+    return value
+
+
+def exact_keys(value: dict[str, object], keys: set[str], label: str, errors: list[str]) -> None:
+    if set(value) != keys:
+        errors.append(f"{label}: fields are {sorted(value)}, expected {sorted(keys)}")
+
+
+def candidate_manifest_errors(model: dict[str, object], originals: dict[str, bytes]) -> list[str]:
+    errors: list[str] = []
+    exact_keys(model, {"schema", "coordinate", "version", "source", "ci", "originals"}, "candidate manifest", errors)
+    if model.get("schema") != 1 or model.get("coordinate") != COORDINATE or model.get("version") != RELEASE_VERSION:
+        errors.append("candidate manifest: schema, coordinate, or version mismatch")
+    source = model.get("source")
+    if not isinstance(source, dict):
+        errors.append("candidate manifest: source must be an object")
+    else:
+        exact_keys(source, {"commit", "tree"}, "candidate source", errors)
+        if not all(isinstance(source.get(key), str) and OBJECT_PATTERN.fullmatch(str(source[key])) for key in ("commit", "tree")):
+            errors.append("candidate manifest: source commit and tree must be full lowercase object IDs")
+    ci = model.get("ci")
+    expected_ci_keys = {"repository", "workflow", "run_id", "run_attempt", "job", "event", "ref"}
+    if not isinstance(ci, dict):
+        errors.append("candidate manifest: CI provenance must be an object")
+    else:
+        exact_keys(ci, expected_ci_keys, "candidate CI provenance", errors)
+        if (
+            ci.get("repository") != "bernhardberger/tvheadend-htsp"
+            or ci.get("workflow") != "CI"
+            or ci.get("job") != "verify"
+            or ci.get("event") != "push"
+            or ci.get("ref") != "refs/heads/main"
+        ):
+            errors.append("candidate manifest: CI repository, workflow, job, event, or ref mismatch")
+        for key in ("run_id", "run_attempt"):
+            if not isinstance(ci.get(key), str) or not re.fullmatch(r"[1-9][0-9]*", str(ci.get(key))):
+                errors.append(f"candidate manifest: CI {key} is missing or invalid")
+    inventory = model.get("originals")
+    if not isinstance(inventory, list) or len(inventory) != len(ORIGINAL_PATHS):
+        errors.append("candidate manifest: originals must contain exactly five entries")
+    else:
+        listed: list[str] = []
+        for index, entry in enumerate(inventory):
+            if not isinstance(entry, dict):
+                errors.append(f"candidate manifest: original {index} must be an object")
+                continue
+            exact_keys(entry, {"path", "size", "sha256"}, f"candidate original {index}", errors)
+            path = entry.get("path")
+            if not isinstance(path, str):
+                errors.append(f"candidate manifest: original {index} path must be a string")
+            if not isinstance(entry.get("size"), int) or isinstance(entry.get("size"), bool) or int(entry.get("size", -1)) < 0:
+                errors.append(f"candidate manifest: original {index} size must be a nonnegative integer")
+            if not isinstance(entry.get("sha256"), str) or not SHA_PATTERN.fullmatch(str(entry.get("sha256"))):
+                errors.append(f"candidate manifest: original {index} SHA-256 is malformed")
+            listed.append(str(path))
+            content = originals.get(str(path))
+            if content is None:
+                errors.append(f"candidate manifest: unknown original path {path!r}")
+                continue
+            if entry.get("size") != len(content) or entry.get("sha256") != digest(content):
+                errors.append(f"candidate manifest: stale or changed bytes for {path}")
+        if tuple(listed) != ORIGINAL_PATHS:
+            errors.append(f"candidate manifest: original path inventory mismatch: {listed}")
+    return errors
+
+
+def verify_candidate_bytes(data: bytes) -> tuple[list[str], dict[str, bytes], dict[str, object] | None]:
+    expected = (MANIFEST_PATH, *ORIGINAL_PATHS)
+    errors, entries = archive_entries(data, expected, "release candidate")
+    model: dict[str, object] | None = None
+    if MANIFEST_PATH in entries:
+        model = object_model(entries[MANIFEST_PATH], "candidate manifest", errors)
+    if model is not None:
+        errors.extend(candidate_manifest_errors(model, {path: entries[path] for path in ORIGINAL_PATHS if path in entries}))
+    return sorted(set(errors)), entries, model
+
+
+def project_version() -> tuple[str | None, list[str]]:
+    path = ROOT / "build.gradle.kts"
+    try:
+        text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as error:
+        return None, [f"build version unavailable: {error}"]
+    matches = re.findall(r'^version = "([^"]+)"$', text, re.M)
+    if len(matches) != 1 or matches[0] not in {SNAPSHOT_VERSION, RELEASE_VERSION}:
+        return None, [f"build version must be exactly {SNAPSHOT_VERSION} or {RELEASE_VERSION}: {matches}"]
+    return matches[0], []
+
+
+def git_output(*arguments: str) -> tuple[str | None, str | None]:
+    try:
+        result = subprocess.run(
+            ("git", *arguments), cwd=ROOT, check=False, stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env={"PATH": os.environ.get("PATH", "")},
+        )
+    except OSError as error:
+        return None, str(error)
+    if result.returncode != 0:
+        return None, result.stderr.strip() or f"git exited {result.returncode}"
+    return result.stdout.strip(), None
+
+
+def source_checkout_errors(status: str, head: str, tree: str, expected_head: str, expected_tree: str) -> list[str]:
+    if status:
+        return ["candidate creation requires a clean checkout"]
+    if head != expected_head or tree != expected_tree:
+        return ["candidate source commit/tree differs from the trusted CI provenance"]
+    return []
+
+
+def trusted_ci_provenance() -> tuple[dict[str, object] | None, list[str]]:
+    errors: list[str] = []
+    expected = {
+        "GITHUB_ACTIONS": "true", "CI": "true",
+        "GITHUB_REPOSITORY": "bernhardberger/tvheadend-htsp",
+        "GITHUB_WORKFLOW": "CI", "GITHUB_JOB": "verify",
+        "GITHUB_EVENT_NAME": "push", "GITHUB_REF": "refs/heads/main",
+    }
+    for name, value in expected.items():
+        if os.environ.get(name) != value:
+            errors.append(f"candidate creation requires trusted CI {name}={value}")
+    commit = os.environ.get("GITHUB_SHA", "")
+    tree = os.environ.get("RELEASE_SOURCE_TREE", "")
+    run_id = os.environ.get("GITHUB_RUN_ID", "")
+    attempt = os.environ.get("GITHUB_RUN_ATTEMPT", "")
+    if not OBJECT_PATTERN.fullmatch(commit):
+        errors.append("candidate creation requires full lowercase GITHUB_SHA")
+    if not OBJECT_PATTERN.fullmatch(tree):
+        errors.append("candidate creation requires full lowercase RELEASE_SOURCE_TREE")
+    if not re.fullmatch(r"[1-9][0-9]*", run_id) or not re.fullmatch(r"[1-9][0-9]*", attempt):
+        errors.append("candidate creation requires numeric CI run ID and attempt")
+    status, status_error = git_output("status", "--porcelain=v1", "--untracked-files=all")
+    head, head_error = git_output("rev-parse", "HEAD")
+    actual_tree, tree_error = git_output("rev-parse", "HEAD^{tree}")
+    if status_error or head_error or tree_error:
+        errors.append(f"candidate creation cannot inspect checkout: {status_error or head_error or tree_error}")
+    else:
+        errors.extend(source_checkout_errors(status, head, actual_tree, commit, tree))
+    if errors:
+        return None, errors
+    return {
+        "source": {"commit": commit, "tree": tree},
+        "ci": {
+            "repository": expected["GITHUB_REPOSITORY"], "workflow": expected["GITHUB_WORKFLOW"],
+            "run_id": run_id, "run_attempt": attempt, "job": expected["GITHUB_JOB"],
+            "event": expected["GITHUB_EVENT_NAME"], "ref": expected["GITHUB_REF"],
+        },
+    }, []
+
+
+def staged_originals() -> tuple[dict[str, bytes], list[str]]:
+    errors: list[str] = []
+    version_dir = ROOT.joinpath("build/local-maven", *GROUP.split("."), ARTIFACT, RELEASE_VERSION)
+    current = ROOT
+    for part in version_dir.relative_to(ROOT).parts:
+        current /= part
+        if current.is_symlink():
+            return {}, [f"staging path traverses symlink: {current}"]
+    if not version_dir.is_dir():
+        return {}, [f"release staging directory is missing: {version_dir}"]
+    allowed = set(ORIGINAL_NAMES) | {name + ".sha256" for name in ORIGINAL_NAMES}
+    actual: set[str] = set()
+    originals: dict[str, bytes] = {}
+    for entry in version_dir.iterdir():
+        if entry.is_symlink() or not entry.is_file():
+            errors.append(f"staging contains non-regular entry: {entry.name}")
+            continue
+        actual.add(entry.name)
+    if actual != allowed:
+        errors.append(f"release staging inventory mismatch; missing={sorted(allowed - actual)}, extra={sorted(actual - allowed)}")
+    for name, path in zip(ORIGINAL_NAMES, ORIGINAL_PATHS):
+        artifact = version_dir / name
+        sidecar = version_dir / (name + ".sha256")
+        if not artifact.is_file() or artifact.is_symlink() or not sidecar.is_file() or sidecar.is_symlink():
+            continue
+        try:
+            artifact_size = artifact.stat().st_size
+            sidecar_size = sidecar.stat().st_size
+        except OSError as error:
+            errors.append(f"staged original metadata is unreadable: {name}: {error}")
+            continue
+        if artifact_size > MAX_MEMBER:
+            errors.append(f"staged original is oversized: {name}")
+            continue
+        if sidecar_size != 65:
+            errors.append(f"staged original has stale or malformed SHA-256 evidence: {name}")
+            continue
+        try:
+            content = artifact.read_bytes()
+            sidecar_content = sidecar.read_bytes()
+        except OSError as error:
+            errors.append(f"staged original is unreadable: {name}: {error}")
+            continue
+        expected = (digest(content) + "\n").encode("ascii")
+        if sidecar_content != expected:
+            errors.append(f"staged original has stale or malformed SHA-256 evidence: {name}")
+        originals[path] = content
+    return originals, errors
+
+
+def candidate_bytes(originals: dict[str, bytes], provenance: dict[str, object]) -> bytes:
+    manifest = {
+        "schema": 1, "coordinate": COORDINATE, "version": RELEASE_VERSION,
+        "source": provenance["source"], "ci": provenance["ci"],
+        "originals": [
+            {"path": path, "size": len(originals[path]), "sha256": digest(originals[path])}
+            for path in ORIGINAL_PATHS
+        ],
+    }
+    return tar_bytes([(MANIFEST_PATH, canonical_json(manifest)), *((path, originals[path]) for path in ORIGINAL_PATHS)])
+
+
+def safe_output_path(argument: str) -> tuple[Path | None, list[str]]:
+    expected = (ROOT / f"build/release/{ARTIFACT}-{RELEASE_VERSION}-candidate.tar").absolute()
+    requested = Path(argument)
+    if not requested.is_absolute():
+        requested = ROOT / requested
+    requested = requested.absolute()
+    if requested != expected:
+        return None, [f"candidate output must be exactly {expected}"]
+    if requested.exists() or requested.is_symlink():
+        return None, [f"candidate output already exists: {requested}"]
+    current = ROOT
+    for part in requested.relative_to(ROOT).parts[:-1]:
+        current /= part
+        if current.exists() and current.is_symlink():
+            return None, [f"candidate output path traverses symlink: {current}"]
+    return requested, []
+
+
+def exclusive_write(path: Path, content: bytes) -> None:
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    try:
+        with os.fdopen(descriptor, "wb") as stream:
+            stream.write(content)
+            stream.flush()
+            os.fsync(stream.fileno())
+        path.chmod(0o644)
+    except BaseException:
+        try:
+            path.unlink()
+        except OSError:
+            pass
+        raise
+
+
+def prepare(output: str, allow_snapshot_noop: bool) -> tuple[list[str], str | None]:
+    version, errors = project_version()
+    if errors:
+        return errors, None
+    if version == SNAPSHOT_VERSION:
+        if allow_snapshot_noop:
+            return [], None
+        return [f"release candidate requires version {RELEASE_VERSION}, found {SNAPSHOT_VERSION}"], None
+    errors.extend(public_material_errors())
+    output_path, output_errors = safe_output_path(output)
+    errors.extend(output_errors)
+    provenance, provenance_errors = trusted_ci_provenance()
+    errors.extend(provenance_errors)
+    originals, staging_errors = staged_originals()
+    errors.extend(staging_errors)
+    if errors or output_path is None or provenance is None or set(originals) != set(ORIGINAL_PATHS):
+        return errors or ["release staging did not provide exactly five originals"], None
+    data = candidate_bytes(originals, provenance)
+    verification, _, _ = verify_candidate_bytes(data)
+    if verification:
+        return ["created candidate failed internal verification: " + "; ".join(verification)], None
+    try:
+        exclusive_write(output_path, data)
+        completed = output_path.read_bytes()
+    except OSError as error:
+        try:
+            output_path.unlink()
+        except OSError:
+            pass
+        return [f"candidate output failed closed: {error}"], None
+    if completed != data:
+        try:
+            output_path.unlink()
+        except OSError:
+            pass
+        return ["candidate output failed final write/readback comparison"], None
+    return [], digest(completed)
+
+
+def fingerprint_value(
+    key_path: Path = KEY_PATH,
+    fingerprint_path: Path = FINGERPRINT_PATH,
+) -> tuple[str | None, list[str]]:
+    missing = [path for path in (key_path, fingerprint_path) if not path.is_file() or path.is_symlink()]
+    if missing:
+        return None, [
+            "tracked public OpenPGP key and primary fingerprint are missing; owner must add "
+            "release/openpgp/public-key.asc and release/openpgp/primary-fingerprint.txt"
+        ]
+    try:
+        value = fingerprint_path.read_text(encoding="ascii")
+    except (OSError, UnicodeError) as error:
+        return None, [f"primary fingerprint metadata is unreadable: {error}"]
+    if not FINGERPRINT_PATTERN.fullmatch(value.rstrip("\n")) or value != value.rstrip("\n") + "\n":
+        return None, ["primary fingerprint metadata must be one full uppercase 40-hex fingerprint and newline"]
+    fingerprint = value.rstrip("\n")
+    if fingerprint != APPROVED_FINGERPRINT:
+        return None, ["primary fingerprint metadata does not match the independently approved fingerprint"]
+    return fingerprint, []
+
+
+def decode_colon(value: str) -> str:
+    return re.sub(r"\\x([0-9A-Fa-f]{2})", lambda match: chr(int(match.group(1), 16)), value)
+
+
+def colon_key_errors(text: str, expected_fingerprint: str) -> list[str]:
+    errors: list[str] = []
+    if expected_fingerprint != APPROVED_FINGERPRINT:
+        errors.append("public key identity does not match the independently approved fingerprint")
+    records = [line.split(":") for line in text.splitlines() if line]
+    primary_indexes = [index for index, fields in enumerate(records) if fields[0] == "pub"]
+    if len(primary_indexes) != 1:
+        return [f"public key material must contain exactly one primary key, found {len(primary_indexes)}"]
+    index = primary_indexes[0]
+    primary = records[index]
+    following = records[index + 1:]
+    fingerprints = [fields[9] for fields in following if fields[0] == "fpr" and len(fields) > 9]
+    if fingerprints != [expected_fingerprint]:
+        errors.append("public key primary fingerprint does not match tracked metadata")
+    validity = primary[1] if len(primary) > 1 else ""
+    expiry = primary[6] if len(primary) > 6 else ""
+    capabilities = primary[11] if len(primary) > 11 else ""
+    bits = primary[2] if len(primary) > 2 else ""
+    algorithm = primary[3] if len(primary) > 3 else ""
+    if validity.lower() in {"i", "n", "d", "r", "e"}:
+        errors.append("public key validity is invalid, never-valid, disabled, revoked, or expired")
+    if expiry not in {"", "0"}:
+        errors.append("public key must have no expiry")
+    if "s" not in capabilities.lower():
+        errors.append("primary public key must be signing-capable")
+    if algorithm != "1":
+        errors.append("primary public key algorithm must be RSA (GnuPG algorithm 1)")
+    if bits != "4096":
+        errors.append("primary public key must be exactly 4096 bits")
+    if any(fields[0] == "sub" for fields in records):
+        errors.append("public key must contain no subkeys")
+    uid_records = [fields for fields in following if fields[0] == "uid" and len(fields) > 9]
+    uids = [decode_colon(fields[9]) for fields in uid_records]
+    if uids != [PUBLIC_UID]:
+        errors.append(f"public key must have exactly the approved UID {PUBLIC_UID!r}")
+    if any(len(fields) < 2 or fields[1].lower() in {"i", "n", "d", "r", "e"} for fields in uid_records):
+        errors.append("approved public UID validity must not be invalid, never-valid, disabled, revoked, or expired")
+    return errors
+
+
+def run(command: tuple[str, ...], home: Path | None = None) -> subprocess.CompletedProcess[str]:
+    environment = {"PATH": os.environ.get("PATH", ""), "LC_ALL": "C"}
+    if home is not None:
+        environment["GNUPGHOME"] = str(home)
+    try:
+        return subprocess.run(
+            command, check=False, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE, text=True, env=environment,
+        )
+    except OSError as error:
+        return subprocess.CompletedProcess(command, 127, "", str(error))
+
+
+def armor_errors(armor: bytes) -> list[str]:
+    try:
+        text = armor.decode("ascii")
+    except UnicodeError:
+        return ["tracked OpenPGP material must be ASCII armor"]
+    begin = "-----BEGIN PGP PUBLIC KEY BLOCK-----\n"
+    end = "-----END PGP PUBLIC KEY BLOCK-----\n"
+    markers = re.findall(r"(?m)^-----(?:BEGIN|END) PGP [A-Z0-9 ]+-----$", text)
+    if (
+        not text.startswith(begin)
+        or not text.endswith(end)
+        or text.count("-----BEGIN PGP PUBLIC KEY BLOCK-----") != 1
+        or text.count("-----END PGP PUBLIC KEY BLOCK-----") != 1
+        or markers != [begin.rstrip("\n"), end.rstrip("\n")]
+        or "\r" in text
+        or "-----BEGIN PGP PRIVATE KEY BLOCK-----" in text
+        or "-----BEGIN PGP SECRET KEY BLOCK-----" in text
+        or "PRIVATE KEY" in text
+        or "SECRET KEY" in text
+    ):
+        return ["tracked OpenPGP material must be one public-only armored key block"]
+    return []
+
+
+def packet_errors(text: str, returncode: int) -> list[str]:
+    secret_packet = re.compile(r"(?im)^\s*:secret\s+(?:sub\s+)?key\s+packet:")
+    if returncode != 0 or secret_packet.search(text):
+        return ["tracked OpenPGP material is malformed or contains private-key packets"]
+    return []
+
+
+def signature_armor_errors(signature: bytes) -> list[str]:
+    try:
+        text = signature.decode("ascii")
+    except UnicodeError:
+        return ["detached signature must be ASCII armor"]
+    if (
+        text.count("-----BEGIN PGP SIGNATURE-----") != 1
+        or text.count("-----END PGP SIGNATURE-----") != 1
+        or not text.startswith("-----BEGIN PGP SIGNATURE-----\n")
+        or not text.endswith("-----END PGP SIGNATURE-----\n")
+    ):
+        return ["detached signature must be exactly one ASCII-armored block"]
+    return []
+
+
+def public_key_home(
+    parent: Path,
+    key_path: Path = KEY_PATH,
+    fingerprint_path: Path = FINGERPRINT_PATH,
+    gpg_results: tuple[subprocess.CompletedProcess[str], ...] | None = None,
+) -> tuple[Path | None, str | None, list[str]]:
+    fingerprint, errors = fingerprint_value(key_path, fingerprint_path)
+    if errors or fingerprint is None:
+        return None, None, errors
+    try:
+        if key_path.stat().st_size > 1024 * 1024:
+            return None, None, ["tracked public OpenPGP material is oversized"]
+        armor = key_path.read_bytes()
+    except OSError as error:
+        return None, None, [f"public key material is unreadable: {error}"]
+    errors.extend(armor_errors(armor))
+    if errors:
+        return None, None, errors
+    home = parent / "public-gnupg"
+    home.mkdir(mode=0o700)
+    if gpg_results is not None and len(gpg_results) != 3:
+        return None, None, ["public-material test evidence must contain exactly three GPG results"]
+    packets = gpg_results[0] if gpg_results is not None else run(("gpg", "--batch", "--list-packets", str(key_path)), home)
+    errors.extend(packet_errors(packets.stdout + packets.stderr, packets.returncode))
+    if errors:
+        return None, None, errors
+    imported = gpg_results[1] if gpg_results is not None else run(("gpg", "--batch", "--import", str(key_path)), home)
+    if imported.returncode != 0:
+        return None, None, ["tracked public OpenPGP key cannot be imported into an isolated verifier"]
+    listing = gpg_results[2] if gpg_results is not None else run(("gpg", "--batch", "--with-colons", "--list-keys"), home)
+    if listing.returncode != 0:
+        return None, None, ["tracked public OpenPGP key cannot be listed from the isolated verifier"]
+    errors.extend(colon_key_errors(listing.stdout, fingerprint))
+    return (home if not errors else None), fingerprint, errors
+
+
+def public_material_errors(
+    key_path: Path = KEY_PATH,
+    fingerprint_path: Path = FINGERPRINT_PATH,
+    gpg_results: tuple[subprocess.CompletedProcess[str], ...] | None = None,
+) -> list[str]:
+    with tempfile.TemporaryDirectory() as temporary:
+        workspace = Path(temporary)
+        workspace.chmod(0o700)
+        _, _, errors = public_key_home(workspace, key_path, fingerprint_path, gpg_results)
+        return errors
+
+
+def setup_public_material_errors(
+    key_path: Path = KEY_PATH,
+    fingerprint_path: Path = FINGERPRINT_PATH,
+    gpg_results: tuple[subprocess.CompletedProcess[str], ...] | None = None,
+) -> list[str]:
+    key_exists = key_path.exists() or key_path.is_symlink()
+    fingerprint_exists = fingerprint_path.exists() or fingerprint_path.is_symlink()
+    if key_exists != fingerprint_exists:
+        return ["public key export and primary fingerprint metadata must be added together"]
+    if not key_exists:
+        return []
+    return public_material_errors(key_path, fingerprint_path, gpg_results)
+
+
+def validsig_errors(status: str, expected_fingerprint: str) -> list[str]:
+    lines = [line.split() for line in status.splitlines() if line.startswith("[GNUPG:] ")]
+    forbidden = {"BADSIG", "ERRSIG", "REVKEYSIG", "EXPKEYSIG", "EXPSIG", "NO_PUBKEY"}
+    if any(len(fields) > 1 and fields[1] in forbidden for fields in lines):
+        return ["detached signature status reports an invalid signer or signature"]
+    valid = [fields for fields in lines if len(fields) > 2 and fields[1] == "VALIDSIG"]
+    if len(valid) != 1:
+        return [f"detached signature must report exactly one VALIDSIG, found {len(valid)}"]
+    signer = valid[0][2]
+    primary = valid[0][-1]
+    if signer != expected_fingerprint or primary != expected_fingerprint:
+        return ["VALIDSIG signer and primary fingerprint must both match the tracked primary fingerprint"]
+    return []
+
+
+def portal_zip_bytes(entries: list[tuple[str, bytes]]) -> bytes:
+    output = io.BytesIO()
+    with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_STORED, allowZip64=False) as archive:
+        for name, content in entries:
+            info = zipfile.ZipInfo(name, date_time=(1980, 1, 1, 0, 0, 0))
+            info.compress_type = zipfile.ZIP_STORED
+            info.create_system = 3
+            info.external_attr = 0o100644 << 16
+            info.flag_bits = 0
+            archive.writestr(info, content)
+    return output.getvalue()
+
+
+def portal_entries(data: bytes, expected: tuple[str, ...]) -> tuple[list[str], dict[str, bytes]]:
+    errors: list[str] = []
+    values: dict[str, bytes] = {}
+    if len(data) > MAX_ARCHIVE:
+        return ["Portal ZIP is oversized"], values
+    try:
+        with zipfile.ZipFile(io.BytesIO(data), "r") as archive:
+            infos = archive.infolist()
+            names = [info.filename for info in infos]
+            if len(names) != len(set(names)):
+                errors.append("Portal ZIP contains duplicate members")
+            if len({name.casefold() for name in names}) != len(names):
+                errors.append("Portal ZIP contains case-colliding members")
+            if tuple(names) != expected:
+                errors.append(f"Portal ZIP inventory or order mismatch: {names}")
+            total_size = sum(max(info.file_size, 0) for info in infos)
+            if total_size > MAX_ARCHIVE:
+                errors.append("Portal ZIP expanded inventory is oversized")
+            for info in infos:
+                mode = (info.external_attr >> 16) & 0o177777
+                if not safe_path(info.filename):
+                    errors.append(f"Portal ZIP contains unsafe path {info.filename!r}")
+                if info.is_dir() or mode != 0o100644 or mode & 0o111:
+                    errors.append(f"Portal ZIP member must be a regular non-executable 0644 file: {info.filename!r}")
+                if info.compress_type != zipfile.ZIP_STORED or info.date_time != (1980, 1, 1, 0, 0, 0) or info.flag_bits & 0x1:
+                    errors.append(f"Portal ZIP metadata/compression is not canonical: {info.filename!r}")
+                if info.file_size > MAX_MEMBER:
+                    errors.append(f"Portal ZIP member is oversized: {info.filename!r}")
+            if not errors:
+                for info in infos:
+                    with warnings.catch_warnings():
+                        warnings.simplefilter("ignore", UserWarning)
+                        values[info.filename] = archive.read(info)
+    except (OSError, EOFError, zipfile.BadZipFile, RuntimeError) as error:
+        return [f"malformed Portal ZIP: {error}"], {}
+    if not errors and data != portal_zip_bytes([(name, values[name]) for name in expected]):
+        errors.append("Portal ZIP is not canonical and deterministic")
+    return errors, values
+
+
+def signed_paths() -> tuple[str, ...]:
+    values: list[str] = []
+    for path in ORIGINAL_PATHS:
+        values.extend((path, path + ".asc", path + ".md5", path + ".sha1", path + ".sha256"))
+    return tuple(values)
+
+
+def portal_paths() -> tuple[str, ...]:
+    values: list[str] = []
+    for path in ORIGINAL_PATHS:
+        values.extend((path, path + ".asc", path + ".md5", path + ".sha1"))
+    return tuple(values)
+
+
+def verify_signed_bundle_bytes(
+    data: bytes,
+    direct_portal_data: bytes,
+    expected_fingerprint: str,
+    expected_candidate_sha256: str,
+    signature_verifier: Callable[[bytes, bytes], list[str]],
+) -> list[str]:
+    expected = (SIGNED_MANIFEST_PATH, CANDIDATE_COPY_PATH, PORTAL_ZIP_PATH, *signed_paths())
+    errors, entries = archive_entries(data, expected, "signed bundle")
+    candidate_data = entries.get(CANDIDATE_COPY_PATH, b"")
+    errors.extend(candidate_digest_errors(candidate_data, expected_candidate_sha256, "embedded release candidate"))
+    candidate_errors, candidate_entries, candidate_model = verify_candidate_bytes(candidate_data)
+    errors.extend(f"preserved candidate: {error}" for error in candidate_errors)
+    zip_data = entries.get(PORTAL_ZIP_PATH, b"")
+    zip_errors, zip_entries = portal_entries(zip_data, portal_paths())
+    errors.extend(zip_errors)
+    direct_zip_errors, _ = portal_entries(direct_portal_data, portal_paths())
+    errors.extend(f"direct Portal ZIP: {error}" for error in direct_zip_errors)
+    if direct_portal_data != zip_data:
+        errors.append("direct Portal ZIP differs from the ZIP embedded in signed evidence")
+    model = object_model(entries.get(SIGNED_MANIFEST_PATH, b""), "signed evidence", errors)
+    if model is None or candidate_model is None:
+        return sorted(set(errors))
+    exact_keys(
+        model,
+        {"schema", "coordinate", "version", "fingerprint", "candidate", "source", "ci", "signer_tool_sha256", "portal_zip", "originals"},
+        "signed evidence", errors,
+    )
+    if model.get("schema") != 1 or model.get("coordinate") != COORDINATE or model.get("version") != RELEASE_VERSION:
+        errors.append("signed evidence: schema, coordinate, or version mismatch")
+    if model.get("fingerprint") != expected_fingerprint:
+        errors.append("signed evidence: primary fingerprint mismatch")
+    if model.get("source") != candidate_model.get("source") or model.get("ci") != candidate_model.get("ci"):
+        errors.append("signed evidence: source or CI provenance differs from the candidate")
+    candidate_record = model.get("candidate")
+    if candidate_record != {"path": CANDIDATE_COPY_PATH, "size": len(candidate_data), "sha256": digest(candidate_data), "manifest_sha256": digest(candidate_entries.get(MANIFEST_PATH, b""))}:
+        errors.append("signed evidence: candidate archive/manifest evidence mismatch")
+    portal_record = model.get("portal_zip")
+    if portal_record != {"path": PORTAL_ZIP_PATH, "size": len(zip_data), "sha256": digest(zip_data)}:
+        errors.append("signed evidence: Portal ZIP evidence mismatch")
+    signer_path = ROOT / "tools/sign-central-bundle"
+    expected_signer = digest(signer_path.read_bytes()) if signer_path.is_file() and not signer_path.is_symlink() else ""
+    if model.get("signer_tool_sha256") != expected_signer:
+        errors.append("signed evidence: signer-tool SHA-256 does not match this exact checkout")
+    inventory = model.get("originals")
+    if not isinstance(inventory, list) or len(inventory) != 5:
+        errors.append("signed evidence: originals must contain exactly five entries")
+        return sorted(set(errors))
+    for index, path in enumerate(ORIGINAL_PATHS):
+        original = entries.get(path, b"")
+        candidate_original = candidate_entries.get(path, b"")
+        portal_original = zip_entries.get(path, b"")
+        signature = entries.get(path + ".asc", b"")
+        portal_signature = zip_entries.get(path + ".asc", b"")
+        errors.extend(f"signed bundle: {path}: {error}" for error in signature_armor_errors(signature))
+        hashes = {algorithm: digest(original, algorithm) for algorithm in ("md5", "sha1", "sha256")}
+        if original != candidate_original or original != portal_original:
+            errors.append(f"signed bundle: original bytes changed or were not returned: {path}")
+        if signature != portal_signature:
+            errors.append(f"signed bundle: Portal signature differs: {path}")
+        for algorithm, value in hashes.items():
+            sidecar = entries.get(path + "." + algorithm, b"")
+            if sidecar != (value + "\n").encode("ascii"):
+                errors.append(f"signed bundle: {algorithm} checksum mismatch for {path}")
+            if algorithm != "sha256" and zip_entries.get(path + "." + algorithm, b"") != sidecar:
+                errors.append(f"signed bundle: Portal {algorithm} checksum differs for {path}")
+        errors.extend(f"signed bundle: {path}: {error}" for error in signature_verifier(signature, original))
+        record = inventory[index]
+        expected_record = {
+            "path": path,
+            "size": len(original),
+            "sha256_before": digest(candidate_original),
+            "sha256_after": digest(original),
+            "sha256_returned": digest(portal_original),
+            "sha256_portal": digest(portal_original),
+            "signature": {"path": path + ".asc", "size": len(signature), "sha256": digest(signature)},
+            "checksums": {
+                algorithm: {"path": path + "." + algorithm, "value": hashes[algorithm]}
+                for algorithm in ("md5", "sha1", "sha256")
+            },
+        }
+        if record != expected_record:
+            errors.append(f"signed evidence: original record mismatch for {path}")
+    return sorted(set(errors))
+
+
+def verify_detached_with_home(home: Path, fingerprint: str, signature: bytes, original: bytes, workspace: Path, index: int) -> list[str]:
+    original_path = workspace / f"original-{index}"
+    signature_path = workspace / f"signature-{index}"
+    for path, content in ((original_path, original), (signature_path, signature)):
+        descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(descriptor, "wb") as stream:
+            stream.write(content)
+    result = run(("gpg", "--batch", "--status-fd", "1", "--verify", str(signature_path), str(original_path)), home)
+    errors = validsig_errors(result.stdout, fingerprint)
+    if result.returncode != 0 and not errors:
+        errors.append(f"gpg signature verification exited {result.returncode}")
+    return errors
+
+
+def bounded_regular_bytes(path: Path, label: str) -> tuple[bytes | None, list[str]]:
+    try:
+        before = path.lstat()
+    except OSError as error:
+        return None, [f"{label} is unavailable: {error}"]
+    if not stat.S_ISREG(before.st_mode):
+        return None, [f"{label} must be a regular non-symlink file: {path}"]
+    if before.st_size < 0 or before.st_size > MAX_ARCHIVE:
+        return None, [f"{label} exceeds {MAX_ARCHIVE} bytes: {path}"]
+    flags = os.O_RDONLY | os.O_NOFOLLOW
+    try:
+        descriptor = os.open(path, flags)
+        with os.fdopen(descriptor, "rb") as stream:
+            opened = os.fstat(stream.fileno())
+            if not stat.S_ISREG(opened.st_mode) or (opened.st_dev, opened.st_ino) != (before.st_dev, before.st_ino):
+                return None, [f"{label} changed identity during safe open: {path}"]
+            data = stream.read(MAX_ARCHIVE + 1)
+    except OSError as error:
+        return None, [f"{label} is unreadable without following links: {error}"]
+    if len(data) != opened.st_size or len(data) > MAX_ARCHIVE:
+        return None, [f"{label} changed size during bounded read: {path}"]
+    return data, []
+
+
+def signed_output_readback(
+    evidence_path: Path,
+    portal_path: Path,
+    expected_evidence: bytes | None = None,
+    expected_portal: bytes | None = None,
+) -> tuple[bytes | None, bytes | None, list[str]]:
+    evidence, errors = bounded_regular_bytes(evidence_path, "signed evidence TAR")
+    portal, portal_errors = bounded_regular_bytes(portal_path, "direct Portal ZIP")
+    errors.extend(portal_errors)
+    if evidence is not None and expected_evidence is not None and evidence != expected_evidence:
+        errors.append("final signed evidence TAR differs from verified in-memory bytes")
+    if portal is not None and expected_portal is not None and portal != expected_portal:
+        errors.append("final direct Portal ZIP differs from verified in-memory bytes")
+    return evidence, portal, sorted(set(errors))
+
+
+def verify_signed_file(path: Path, portal_path: Path, expected_candidate_sha256: str) -> list[str]:
+    data, direct_portal_data, errors = signed_output_readback(path, portal_path)
+    if errors or data is None or direct_portal_data is None:
+        return errors
+    expected = (SIGNED_MANIFEST_PATH, CANDIDATE_COPY_PATH, PORTAL_ZIP_PATH, *signed_paths())
+    preflight, entries = archive_entries(data, expected, "signed bundle")
+    preflight.extend(candidate_digest_errors(entries.get(CANDIDATE_COPY_PATH, b""), expected_candidate_sha256, "embedded release candidate"))
+    embedded_portal = entries.get(PORTAL_ZIP_PATH, b"")
+    preflight.extend(f"direct Portal ZIP: {error}" for error in portal_entries(direct_portal_data, portal_paths())[0])
+    if direct_portal_data != embedded_portal:
+        preflight.append("direct Portal ZIP differs from the ZIP embedded in signed evidence")
+    if preflight:
+        return sorted(set(preflight))
+    with tempfile.TemporaryDirectory() as temporary:
+        workspace = Path(temporary)
+        workspace.chmod(0o700)
+        home, fingerprint, errors = public_key_home(workspace)
+        if errors or home is None or fingerprint is None:
+            return errors
+        counter = iter(range(5))
+        return verify_signed_bundle_bytes(
+            data, direct_portal_data, fingerprint, expected_candidate_sha256,
+            lambda signature, original: verify_detached_with_home(home, fingerprint, signature, original, workspace, next(counter)),
+        )
+
+
+EXPECTED_CI_ACTIVE = tuple(line for line in r"""name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out exact source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Set up Temurin 21
+        uses: actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Verify wrapper and provenance pins
+        run: ./tools/check-standalone-repository --wrapper-only
+      - name: Verify standalone HTSP library
+        run: ./tools/verify-htsp
+      - name: Prepare release candidate and log exact TAR SHA-256
+        id: candidate
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        shell: bash
+        run: |
+          source_tree=$(git rev-parse 'HEAD^{tree}')
+          RELEASE_SOURCE_TREE="$source_tree" ./tools/check-release-candidate --prepare-if-release --output build/release/htsp-0.1.0-alpha.1-candidate.tar
+          if test -f build/release/htsp-0.1.0-alpha.1-candidate.tar; then
+            printf 'release=true\n' >> "$GITHUB_OUTPUT"
+          else
+            printf 'release=false\n' >> "$GITHUB_OUTPUT"
+          fi
+      - name: Retain exact release candidate
+        if: steps.candidate.outputs.release == 'true' && github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: htsp-0.1.0-alpha.1-candidate-${{ github.sha }}
+          path: build/release/htsp-0.1.0-alpha.1-candidate.tar
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+          overwrite: false
+          include-hidden-files: false
+""".splitlines() if line.strip())
+
+
+def yaml_active_line(line: str) -> str:
+    single = False
+    double = False
+    escaped = False
+    for index, character in enumerate(line):
+        if escaped:
+            escaped = False
+            continue
+        if character == "\\" and double:
+            escaped = True
+        elif character == "'" and not double:
+            single = not single
+        elif character == '"' and not single:
+            double = not double
+        elif character == "#" and not single and not double and (index == 0 or line[index - 1].isspace()):
+            return line[:index].rstrip()
+    return line.rstrip()
+
+
+def active_yaml_lines(text: str) -> tuple[str, ...]:
+    active = (yaml_active_line(line) for line in text.splitlines())
+    return tuple(line for line in active if line.strip())
+
+
+def owner_function(node: ast.AST, parents: dict[ast.AST, ast.AST]) -> str | None:
+    current: ast.AST | None = node
+    while current is not None:
+        if isinstance(current, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            return current.name
+        current = parents.get(current)
+    return None
+
+
+def parsed_call(expression: str) -> str:
+    node = ast.parse(expression, mode="eval").body
+    return ast.dump(node, include_attributes=False)
+
+
+def literal_ast_string(node: ast.AST) -> str | None:
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+        left = literal_ast_string(node.left)
+        right = literal_ast_string(node.right)
+        if left is not None and right is not None:
+            return left + right
+    return None
+
+
+def release_python_ast_errors(relative: str, text: str) -> list[str]:
+    errors: list[str] = []
+    try:
+        tree = ast.parse(text, filename=relative)
+    except SyntaxError as error:
+        return [f"{relative}: release Python policy cannot parse source: {error}"]
+    parents = {child: parent for parent in ast.walk(tree) for child in ast.iter_child_nodes(parent)}
+    if relative == "tools/check-release-candidate":
+        public_material_helpers = [
+            node for node in tree.body
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and node.name == "setup_public_material_errors"
+        ]
+        expected_public_material_helper = ast.parse('''def setup_public_material_errors(
+    key_path: Path = KEY_PATH,
+    fingerprint_path: Path = FINGERPRINT_PATH,
+    gpg_results: tuple[subprocess.CompletedProcess[str], ...] | None = None,
+) -> list[str]:
+    key_exists = key_path.exists() or key_path.is_symlink()
+    fingerprint_exists = fingerprint_path.exists() or fingerprint_path.is_symlink()
+    if key_exists != fingerprint_exists:
+        return ["public key export and primary fingerprint metadata must be added together"]
+    if not key_exists:
+        return []
+    return public_material_errors(key_path, fingerprint_path, gpg_results)
+''').body[0]
+        approved_public_material_helper = public_material_helpers[0] if len(public_material_helpers) == 1 else None
+        if (
+            approved_public_material_helper is None
+            or ast.dump(approved_public_material_helper, include_attributes=False)
+            != ast.dump(expected_public_material_helper, include_attributes=False)
+        ):
+            errors.append(f"{relative}: release Python policy requires the exact top-level setup public-material helper")
+        helper_loads = 0
+        for node in ast.walk(tree):
+            forbidden_helper_binding = (
+                isinstance(node, ast.Name)
+                and node.id == "setup_public_material_errors"
+                and isinstance(node.ctx, (ast.Store, ast.Del))
+            ) or (
+                isinstance(node, ast.arg) and node.arg == "setup_public_material_errors"
+            ) or (
+                isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+                and node.name == "setup_public_material_errors"
+                and node is not approved_public_material_helper
+            ) or (
+                isinstance(node, ast.alias)
+                and (node.asname or node.name) == "setup_public_material_errors"
+            ) or (
+                isinstance(node, ast.ExceptHandler) and node.name == "setup_public_material_errors"
+            ) or (
+                isinstance(node, (ast.Global, ast.Nonlocal))
+                and "setup_public_material_errors" in node.names
+            ) or (
+                isinstance(node, ast.MatchAs)
+                and node.name == "setup_public_material_errors"
+            ) or (
+                isinstance(node, ast.MatchStar)
+                and node.name == "setup_public_material_errors"
+            ) or (
+                isinstance(node, ast.MatchMapping)
+                and node.rest == "setup_public_material_errors"
+            )
+            if forbidden_helper_binding:
+                errors.append(f"{relative}: release Python policy forbids setup public-material helper shadowing")
+            if (
+                isinstance(node, ast.Name)
+                and node.id == "setup_public_material_errors"
+                and isinstance(node.ctx, ast.Load)
+            ):
+                helper_loads += 1
+                parent = parents.get(node)
+                if not isinstance(parent, ast.Call) or parent.func is not node:
+                    errors.append(f"{relative}: release Python policy forbids setup public-material helper aliasing")
+        if helper_loads != 8:
+            errors.append(f"{relative}: release Python policy setup public-material helper call inventory mismatch")
+        setup_functions = [
+            node for node in tree.body
+            if isinstance(node, ast.FunctionDef) and node.name == "setup_errors"
+        ]
+        expected_setup_statement = ast.parse("errors.extend(setup_public_material_errors())").body[0]
+        valid_setup_integration = len(setup_functions) == 1 and len(setup_functions[0].body) > 4
+        if valid_setup_integration:
+            setup_statement = setup_functions[0].body[4]
+            valid_setup_integration = (
+                ast.dump(setup_statement, include_attributes=False)
+                == ast.dump(expected_setup_statement, include_attributes=False)
+                and not any(
+                    isinstance(node, ast.Return) and node.lineno < setup_statement.lineno
+                    for node in ast.walk(setup_functions[0])
+                )
+            )
+        if not valid_setup_integration:
+            errors.append(f"{relative}: release Python policy requires direct unconditional setup public-material verification before any return")
+    actual_imports: list[tuple[str, str, str | None]] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            actual_imports.extend(("import", alias.name, alias.asname) for alias in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            actual_imports.extend((node.module or "", alias.name, alias.asname) for alias in node.names)
+    candidate_imports = {
+        ("__future__", "annotations", None),
+        *(("import", name, None) for name in ("argparse", "ast", "hashlib", "io", "json", "os", "re", "stat", "subprocess", "sys", "tarfile", "tempfile", "warnings", "zipfile")),
+        ("pathlib", "Path", None), ("typing", "Callable", None),
+    }
+    signer_imports = {
+        ("__future__", "annotations", None),
+        *(("import", name, None) for name in ("argparse", "importlib.machinery", "importlib.util", "os", "subprocess", "sys", "tempfile")),
+        ("pathlib", "Path", None), ("types", "ModuleType", None),
+    }
+    expected_imports = candidate_imports if relative == "tools/check-release-candidate" else signer_imports
+    if set(actual_imports) != expected_imports or len(actual_imports) != len(expected_imports):
+        errors.append(f"{relative}: release Python policy import allowlist mismatch")
+    forbidden_names = {"eval", "exec", "compile", "__import__"}
+    reflective_names = {"getattr", "setattr", "delattr", "globals", "locals", "vars", "__builtins__"}
+    dangerous_dunders = {
+        "__annotations__", "__bases__", "__base__", "__builtins__", "__class__",
+        "__closure__", "__code__", "__defaults__", "__dict__", "__getattribute__",
+        "__globals__", "__kwdefaults__", "__mro__", "__reduce__", "__reduce_ex__",
+        "__subclasses__", "__weakref__",
+    }
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in forbidden_names:
+            errors.append(f"{relative}: release Python policy forbids dynamic builtin {node.func.id}")
+        if isinstance(node, ast.Name) and node.id in reflective_names:
+            errors.append(f"{relative}: release Python policy forbids reflective name {node.id}")
+        if isinstance(node, ast.Attribute) and node.attr in dangerous_dunders:
+            errors.append(f"{relative}: release Python policy forbids reflective dunder {node.attr}")
+        if isinstance(node, ast.Call) and isinstance(node.func, (ast.Call, ast.Subscript)):
+            errors.append(f"{relative}: release Python policy forbids indirect call target {type(node.func).__name__}")
+        if isinstance(node, ast.Subscript) and literal_ast_string(node.slice) == "__builtins__":
+            errors.append(f"{relative}: release Python policy forbids indirect __builtins__ lookup")
+        if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name) and node.value.id == "sys" and node.attr == "modules":
+            parent = parents.get(node)
+            allowed_loader_store = (
+                relative == "tools/sign-central-bundle"
+                and owner_function(node, parents) == "load_policy"
+                and isinstance(parent, ast.Subscript)
+                and parent.value is node
+                and isinstance(parent.ctx, ast.Store)
+            )
+            if not allowed_loader_store:
+                errors.append(f"{relative}: release Python policy forbids loading sys.modules")
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+            if isinstance(node.func.value, ast.Name) and node.func.value.id == "os" and (node.func.attr in {"system", "popen", "startfile"} or node.func.attr.startswith(("exec", "spawn"))):
+                errors.append(f"{relative}: release Python policy forbids shell execution")
+            if isinstance(node.func.value, ast.Name) and node.func.value.id == "subprocess" and node.func.attr != "run" and node.func.attr != "CompletedProcess":
+                errors.append(f"{relative}: release Python policy forbids subprocess API {node.func.attr}")
+        if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name) and node.value.id == "os" and (node.attr in {"system", "popen", "startfile"} or node.attr.startswith(("exec", "spawn"))):
+            errors.append(f"{relative}: release Python policy forbids shell API access")
+        if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name) and node.value.id == "subprocess" and node.attr not in {"run", "CompletedProcess", "DEVNULL", "PIPE"}:
+            errors.append(f"{relative}: release Python policy forbids subprocess attribute {node.attr}")
+    protected = {"os", "subprocess", "git_output", "run"} if relative == "tools/check-release-candidate" else {"os", "subprocess", "git_value", "sign", "load_policy", "signing_environment"}
+    allowed_policy_store: ast.Name | None = None
+    if relative == "tools/sign-central-bundle":
+        execute_functions = [
+            node for node in tree.body
+            if isinstance(node, ast.FunctionDef) and node.name == "execute"
+        ]
+        policy_assignments = [
+            node for node in ast.walk(tree)
+            if (
+                isinstance(node, ast.Assign)
+                and len(node.targets) == 1
+                and isinstance(node.targets[0], ast.Name)
+                and node.targets[0].id == "policy"
+                and isinstance(node.value, ast.Call)
+                and isinstance(node.value.func, ast.Name)
+                and node.value.func.id == "load_policy"
+                and not node.value.args
+                and not node.value.keywords
+            )
+        ]
+        valid_policy_assignment = (
+            len(execute_functions) == 1
+            and len(policy_assignments) == 1
+            and execute_functions[0].body
+            and execute_functions[0].body[0] is policy_assignments[0]
+        )
+        if valid_policy_assignment:
+            allowed_policy_store = policy_assignments[0].targets[0]
+        else:
+            errors.append(f"{relative}: release Python policy requires one direct leading policy = load_policy() assignment in execute")
+        expected_digest_statement = ast.parse(
+            'errors.extend(policy.candidate_digest_errors(candidate_data, candidate_sha256, "release candidate"))'
+        ).body[0]
+        valid_digest_statement = len(execute_functions) == 1 and len(execute_functions[0].body) > 6
+        if valid_digest_statement:
+            digest_statement = execute_functions[0].body[6]
+            candidate_verifications = [
+                node for node in ast.walk(execute_functions[0])
+                if (
+                    isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Attribute)
+                    and isinstance(node.func.value, ast.Name)
+                    and node.func.value.id == "policy"
+                    and node.func.attr == "verify_candidate_bytes"
+                )
+            ]
+            valid_digest_statement = (
+                ast.dump(digest_statement, include_attributes=False)
+                == ast.dump(expected_digest_statement, include_attributes=False)
+                and len(candidate_verifications) == 1
+                and digest_statement.lineno < candidate_verifications[0].lineno
+            )
+        if not valid_digest_statement:
+            errors.append(f"{relative}: release Python policy requires direct unconditional candidate digest verification before parsing")
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Name) and isinstance(node.ctx, (ast.Store, ast.Del)) and node.id in protected:
+            errors.append(f"{relative}: release Python policy forbids rebinding {node.id}")
+        if relative == "tools/sign-central-bundle" and isinstance(node, ast.Name) and node.id == "policy":
+            if isinstance(node.ctx, (ast.Store, ast.Del)) and node is not allowed_policy_store:
+                errors.append(f"{relative}: release Python policy forbids loaded-policy rebinding")
+            elif isinstance(node.ctx, ast.Load):
+                parent = parents.get(node)
+                if not (
+                    isinstance(parent, ast.Attribute)
+                    and parent.value is node
+                    and isinstance(parent.ctx, ast.Load)
+                ):
+                    errors.append(f"{relative}: release Python policy forbids loaded-policy aliasing")
+        if isinstance(node, ast.Name) and isinstance(node.ctx, (ast.Store, ast.Del)):
+            owner = owner_function(node, parents)
+            if (node.id == "arguments" and owner in {"git_output", "git_value"}) or (node.id == "command" and owner == "run"):
+                errors.append(f"{relative}: release Python policy forbids command-parameter mutation")
+        if isinstance(node, ast.Attribute) and isinstance(node.ctx, (ast.Store, ast.Del)) and isinstance(node.value, ast.Name) and node.value.id in {"os", "subprocess"}:
+            errors.append(f"{relative}: release Python policy forbids executable API mutation")
+        if (
+            relative == "tools/sign-central-bundle"
+            and isinstance(node, ast.Attribute)
+            and isinstance(node.ctx, (ast.Store, ast.Del))
+            and isinstance(node.value, ast.Name)
+            and node.value.id == "policy"
+        ):
+            errors.append(f"{relative}: release Python policy forbids loaded-policy attribute rebinding")
+    expected_definitions = {"git_output", "run"} if relative == "tools/check-release-candidate" else {"git_value", "sign", "load_policy"}
+    for name in expected_definitions:
+        definitions = [node for node in tree.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == name]
+        if len(definitions) != 1:
+            errors.append(f"{relative}: release Python policy requires one {name} function")
+    run_attributes = [
+        node for node in ast.walk(tree)
+        if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name)
+        and node.value.id == "subprocess" and node.attr == "run"
+    ]
+    subprocess_calls: list[ast.Call] = []
+    for attribute in run_attributes:
+        parent = parents.get(attribute)
+        if not isinstance(parent, ast.Call) or parent.func is not attribute:
+            errors.append(f"{relative}: release Python policy forbids subprocess.run aliasing")
+        else:
+            subprocess_calls.append(parent)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load) and node.id == "subprocess":
+            if not isinstance(parents.get(node), ast.Attribute):
+                errors.append(f"{relative}: release Python policy forbids dynamic subprocess module access")
+        if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load) and node.id == "os":
+            if not isinstance(parents.get(node), ast.Attribute):
+                errors.append(f"{relative}: release Python policy forbids dynamic os module access")
+    helper_names = {"git_output", "run"} if relative == "tools/check-release-candidate" else {"git_value", "sign", "load_policy", "signing_environment"}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load) and node.id in helper_names:
+            parent = parents.get(node)
+            if not isinstance(parent, ast.Call) or parent.func is not node:
+                errors.append(f"{relative}: release Python policy forbids helper aliasing for {node.id}")
+    expected_subprocess = {"git_output": "git", "run": "command"} if relative == "tools/check-release-candidate" else {"git_value": "git", "sign": "command"}
+    actual_owners = [owner_function(call, parents) for call in subprocess_calls]
+    if sorted(str(owner) for owner in actual_owners) != sorted(expected_subprocess):
+        errors.append(f"{relative}: release Python policy subprocess call inventory mismatch")
+    for call, owner in zip(subprocess_calls, actual_owners):
+        if any(keyword.arg == "shell" for keyword in call.keywords):
+            errors.append(f"{relative}: release Python policy forbids subprocess shell mode")
+        if not call.args:
+            errors.append(f"{relative}: release Python policy subprocess command is missing")
+            continue
+        if owner in {"git_output", "git_value"}:
+            command = call.args[0]
+            valid_git = (
+                isinstance(command, ast.Tuple) and len(command.elts) == 2
+                and isinstance(command.elts[0], ast.Constant) and command.elts[0].value == "git"
+                and isinstance(command.elts[1], ast.Starred) and isinstance(command.elts[1].value, ast.Name)
+                and command.elts[1].value.id == "arguments"
+            )
+            if not valid_git:
+                errors.append(f"{relative}: release Python policy git command assembly mismatch")
+        elif owner in {"run", "sign"}:
+            command = call.args[0]
+            if not (isinstance(command, ast.Name) and command.id == "command"):
+                errors.append(f"{relative}: release Python policy GPG command must use its locked local command")
+            else:
+                for name in ast.walk(next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == owner)):
+                    if not isinstance(name, ast.Name) or name.id != "command" or not isinstance(name.ctx, ast.Load):
+                        continue
+                    parent = parents.get(name)
+                    completed = (
+                        isinstance(parent, ast.Call)
+                        and parent.args
+                        and parent.args[0] is name
+                        and isinstance(parent.func, ast.Attribute)
+                        and isinstance(parent.func.value, ast.Name)
+                        and parent.func.value.id == "subprocess"
+                        and parent.func.attr == "CompletedProcess"
+                    )
+                    if not ((isinstance(parent, ast.Call) and parent is call and parent.args and parent.args[0] is name) or completed):
+                        errors.append(f"{relative}: release Python policy forbids GPG command mutation or aliasing")
+    if relative == "tools/check-release-candidate":
+        expected_git = {
+            parsed_call('git_output("status", "--porcelain=v1", "--untracked-files=all")'),
+            parsed_call('git_output("rev-parse", "HEAD")'),
+            parsed_call('git_output("rev-parse", "HEAD^{tree}")'),
+        }
+        expected_gpg = {
+            parsed_call('run(("gpg", "--batch", "--list-packets", str(key_path)), home)'),
+            parsed_call('run(("gpg", "--batch", "--import", str(key_path)), home)'),
+            parsed_call('run(("gpg", "--batch", "--with-colons", "--list-keys"), home)'),
+            parsed_call('run(("gpg", "--batch", "--status-fd", "1", "--verify", str(signature_path), str(original_path)), home)'),
+        }
+        actual_git = {ast.dump(node, include_attributes=False) for node in ast.walk(tree) if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "git_output"}
+        actual_gpg = {ast.dump(node, include_attributes=False) for node in ast.walk(tree) if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "run"}
+        if actual_git != expected_git:
+            errors.append(f"{relative}: release Python policy read-only git call allowlist mismatch")
+        if actual_gpg != expected_gpg:
+            errors.append(f"{relative}: release Python policy GPG call allowlist mismatch")
+    else:
+        expected_policy_calls = (
+            ("regular_input", 'policy.regular_input(candidate_argument, "release candidate")', 1),
+            ("candidate_digest_errors", 'policy.candidate_digest_errors(candidate_data, candidate_sha256, "release candidate")', 1),
+            ("verify_candidate_bytes", "policy.verify_candidate_bytes(candidate_data)", 1),
+            ("public_key_home", "policy.public_key_home(workspace)", 1),
+            ("digest", "policy.digest(candidate_entries[path])", 1),
+            ("digest", "policy.digest(original_path.read_bytes())", 1),
+            ("digest", "policy.digest(original, algorithm)", 1),
+            ("digest", "policy.digest(original)", 4),
+            ("digest", "policy.digest(signature)", 1),
+            ("digest", "policy.digest(candidate_data)", 1),
+            ("digest", "policy.digest(candidate_entries[policy.MANIFEST_PATH])", 1),
+            ("digest", "policy.digest(Path(__file__).read_bytes())", 1),
+            ("digest", "policy.digest(portal_data)", 1),
+            ("verify_detached_with_home", "policy.verify_detached_with_home(public_home, fingerprint, signature, original_path.read_bytes(), workspace, index)", 1),
+            ("verify_detached_with_home", "policy.verify_detached_with_home(public_home, fingerprint, signature, original, workspace, next(counter))", 1),
+            ("verify_detached_with_home", "policy.verify_detached_with_home(public_home, fingerprint, signature, original, workspace, next(final_counter))", 1),
+            ("portal_zip_bytes", "policy.portal_zip_bytes(portal)", 1),
+            ("canonical_json", "policy.canonical_json(evidence)", 1),
+            ("tar_bytes", "policy.tar_bytes([(policy.SIGNED_MANIFEST_PATH, policy.canonical_json(evidence)), (policy.CANDIDATE_COPY_PATH, candidate_data), (policy.PORTAL_ZIP_PATH, portal_data), *signed])", 1),
+            ("verify_signed_bundle_bytes", "policy.verify_signed_bundle_bytes(bundle, portal_data, fingerprint, candidate_sha256, lambda signature, original: policy.verify_detached_with_home(public_home, fingerprint, signature, original, workspace, next(counter)))", 1),
+            ("verify_signed_bundle_bytes", "policy.verify_signed_bundle_bytes(read_bundle, read_portal, fingerprint, candidate_sha256, lambda signature, original: policy.verify_detached_with_home(public_home, fingerprint, signature, original, workspace, next(final_counter)))", 1),
+            ("exclusive_write", "policy.exclusive_write(target, bundle)", 1),
+            ("exclusive_write", "policy.exclusive_write(portal_target, portal_data)", 1),
+            ("signed_output_readback", "policy.signed_output_readback(target, portal_target, bundle, portal_data)", 1),
+        )
+        expected_policy_uses = {
+            ("execute", attribute, "Call.func:" + parsed_call(expression)): count
+            for attribute, expression, count in expected_policy_calls
+        }
+        expected_policy_uses.update({
+            ("execute", "ARTIFACT", "Call(output_paths).args[1]"): 1,
+            ("execute", "RELEASE_VERSION", "Call(output_paths).args[2]"): 1,
+            ("execute", "ORIGINAL_PATHS", "comprehension.iter"): 1,
+            ("execute", "ORIGINAL_PATHS", "Call(enumerate).args[0]"): 1,
+            ("execute", "ORIGINAL_PATHS", "Call(set).args[0]"): 1,
+            ("execute", "ORIGINAL_PATHS", "For.iter"): 1,
+            ("execute", "COORDINATE", "Dict.values[1]"): 1,
+            ("execute", "RELEASE_VERSION", "Dict.values[2]"): 1,
+            ("execute", "CANDIDATE_COPY_PATH", "Dict.values[0]"): 1,
+            ("execute", "MANIFEST_PATH", "Subscript.slice"): 1,
+            ("execute", "PORTAL_ZIP_PATH", "Dict.values[0]"): 1,
+            ("execute", "SIGNED_MANIFEST_PATH", "Tuple.elts[0]"): 1,
+            ("execute", "CANDIDATE_COPY_PATH", "Tuple.elts[0]"): 1,
+            ("execute", "PORTAL_ZIP_PATH", "Tuple.elts[0]"): 1,
+        })
+        actual_policy_uses: dict[tuple[str | None, str, str], int] = {}
+        for node in ast.walk(tree):
+            if not (
+                isinstance(node, ast.Attribute)
+                and isinstance(node.value, ast.Name)
+                and node.value.id == "policy"
+            ):
+                continue
+            parent = parents.get(node)
+            context = f"{type(parent).__name__}.unknown"
+            if isinstance(parent, ast.Call) and parent.func is node:
+                context = "Call.func:" + ast.dump(parent, include_attributes=False)
+            elif isinstance(parent, ast.Call) and node in parent.args:
+                function_name = parent.func.id if isinstance(parent.func, ast.Name) else type(parent.func).__name__
+                context = f"Call({function_name}).args[{parent.args.index(node)}]"
+            elif parent is not None:
+                for field, value in ast.iter_fields(parent):
+                    if value is node:
+                        context = f"{type(parent).__name__}.{field}"
+                        break
+                    if isinstance(value, list) and node in value:
+                        context = f"{type(parent).__name__}.{field}[{value.index(node)}]"
+                        break
+            use = (owner_function(node, parents), node.attr, context)
+            actual_policy_uses[use] = actual_policy_uses.get(use, 0) + 1
+        if actual_policy_uses != expected_policy_uses:
+            errors.append(f"{relative}: release Python policy loaded-module normalized AST-use inventory mismatch")
+        policy_calls = [
+            node for node in ast.walk(tree)
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "load_policy"
+        ]
+        if len(policy_calls) != 1 or not policy_assignments or policy_calls[0] is not policy_assignments[0].value:
+            errors.append(f"{relative}: release Python policy loader call inventory mismatch")
+        expected_public_home = parsed_call("policy.public_key_home(workspace)")
+        actual_public_home = [
+            ast.dump(node, include_attributes=False) for node in ast.walk(tree)
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and isinstance(node.func.value, ast.Name)
+                and node.func.value.id == "policy"
+                and node.func.attr == "public_key_home"
+            )
+        ]
+        if actual_public_home != [expected_public_home]:
+            errors.append(f"{relative}: release Python policy public-key verifier call mismatch")
+        expected_git = {
+            parsed_call('git_value("status", "--porcelain=v1", "--untracked-files=all")'),
+            parsed_call('git_value("rev-parse", "HEAD")'),
+            parsed_call('git_value("rev-parse", "HEAD^{tree}")'),
+        }
+        actual_git = {ast.dump(node, include_attributes=False) for node in ast.walk(tree) if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "git_value"}
+        if actual_git != expected_git:
+            errors.append(f"{relative}: release Python policy read-only git call allowlist mismatch")
+        command_assignments = [
+            node for node in ast.walk(tree)
+            if isinstance(node, ast.Assign) and any(isinstance(target, ast.Name) and target.id == "command" for target in node.targets)
+        ]
+        expected_command = ast.parse('("gpg", "--armor", "--detach-sign", "--local-user", fingerprint + "!", "--status-fd", "1", "--output", str(signature), str(path))', mode="eval").body
+        valid_command_assignment = (
+            len(command_assignments) == 1
+            and len(command_assignments[0].targets) == 1
+            and isinstance(command_assignments[0].targets[0], ast.Name)
+            and command_assignments[0].targets[0].id == "command"
+            and owner_function(command_assignments[0], parents) == "sign"
+            and ast.dump(command_assignments[0].value, include_attributes=False) == ast.dump(expected_command, include_attributes=False)
+        )
+        if not valid_command_assignment:
+            errors.append(f"{relative}: release Python policy signing command allowlist mismatch")
+        else:
+            allowed_store = command_assignments[0].targets[0]
+            for node in ast.walk(tree):
+                if (
+                    isinstance(node, ast.Name)
+                    and node.id == "command"
+                    and isinstance(node.ctx, (ast.Store, ast.Del))
+                    and node is not allowed_store
+                ):
+                    errors.append(f"{relative}: release Python policy forbids signing command mutation or aliasing")
+        environment_functions = [node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "signing_environment"]
+        expected_environment = ast.parse('''def signing_environment() -> dict[str, str]:
+    allowed = (
+        "PATH", "HOME", "GNUPGHOME", "GPG_TTY", "DISPLAY", "WAYLAND_DISPLAY",
+        "TERM", "DBUS_SESSION_BUS_ADDRESS", "XAUTHORITY",
+    )
+    environment = {name: os.environ[name] for name in allowed if name in os.environ}
+    environment["LC_ALL"] = "C"
+    return environment
+''').body[0]
+        if (
+            len(environment_functions) != 1
+            or ast.dump(environment_functions[0], include_attributes=False) != ast.dump(expected_environment, include_attributes=False)
+        ):
+            errors.append(f"{relative}: release Python policy signing environment allowlist mismatch")
+        sign_calls = [call for call, owner in zip(subprocess_calls, actual_owners) if owner == "sign"]
+        expected_sign_call = ast.parse('''subprocess.run(
+    command, check=False, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+    stderr=subprocess.PIPE, text=True, env=signing_environment(),
+)''', mode="eval").body
+        if (
+            len(sign_calls) != 1
+            or ast.dump(sign_calls[0], include_attributes=False)
+            != ast.dump(expected_sign_call, include_attributes=False)
+        ):
+            errors.append(f"{relative}: release Python policy signing subprocess wrapper mismatch")
+        policy_paths = [
+            node.value for node in tree.body
+            if isinstance(node, ast.Assign) and any(isinstance(target, ast.Name) and target.id == "POLICY_PATH" for target in node.targets)
+        ]
+        expected_policy_path = ast.parse('ROOT / "tools/check-release-candidate"', mode="eval").body
+        if len(policy_paths) != 1 or ast.dump(policy_paths[0], include_attributes=False) != ast.dump(expected_policy_path, include_attributes=False):
+            errors.append(f"{relative}: release Python policy static loader path mismatch")
+        loader_functions = [node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "load_policy"]
+        expected_loader = ast.parse('''def load_policy() -> ModuleType:
+    sys.dont_write_bytecode = True
+    loader = importlib.machinery.SourceFileLoader("release_candidate_policy", str(POLICY_PATH))
+    specification = importlib.util.spec_from_loader(loader.name, loader)
+    if specification is None:
+        raise RuntimeError("release candidate policy cannot be loaded")
+    module = importlib.util.module_from_spec(specification)
+    sys.modules[loader.name] = module
+    loader.exec_module(module)
+    return module
+''').body[0]
+        if (
+            len(loader_functions) != 1
+            or ast.dump(loader_functions[0], include_attributes=False) != ast.dump(expected_loader, include_attributes=False)
+        ):
+            errors.append(f"{relative}: release Python policy requires one static policy loader")
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name) and node.value.id == "importlib":
+                if owner_function(node, parents) != "load_policy":
+                    errors.append(f"{relative}: release Python policy forbids dynamic loading outside load_policy")
+    return sorted(set(errors))
+
+
+def setup_errors() -> list[str]:
+    errors: list[str] = []
+    required = (
+        "tools/check-release-candidate", "tools/sign-central-bundle", "release/openpgp/README.md",
+        "tools/verify-htsp", ".github/workflows/ci.yml", "docs/releasing.md", "AGENTS.md", "build.gradle.kts",
+    )
+    texts: dict[str, str] = {}
+    for relative in required:
+        path = ROOT / relative
+        if path.is_symlink() or not path.is_file():
+            errors.append(f"release setup requires regular file {relative}")
+            continue
+        try:
+            texts[relative] = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeError) as error:
+            errors.append(f"release setup cannot read {relative}: {error}")
+    errors.extend(setup_public_material_errors())
+    ci = texts.get(".github/workflows/ci.yml", "")
+    if active_yaml_lines(ci) != EXPECTED_CI_ACTIVE:
+        errors.append("release CI active YAML must match the exact approved steps, actions, commands, conditions, and inputs")
+    build = texts.get("build.gradle.kts", "")
+    for token in ("signing {", "com.vanniktech", "nmcp", "sonatype", "credentials {"):
+        if token in build:
+            errors.append(f"Gradle release policy forbids remote/signing configuration: {token}")
+    checker = texts.get("tools/check-release-candidate", "")
+    signer = texts.get("tools/sign-central-bundle", "")
+    errors.extend(release_python_ast_errors("tools/check-release-candidate", checker))
+    errors.extend(release_python_ast_errors("tools/sign-central-bundle", signer))
+    verifier = texts.get("tools/verify-htsp", "")
+    bytecode_policy = "export PYTHONDONTWRITEBYTECODE=1"
+    invocation_positions = [position for position in (verifier.find("./tools/"), verifier.find("python3 "), verifier.find("./gradlew ")) if position >= 0]
+    if (
+        verifier.count(bytecode_policy) != 1
+        or not invocation_positions
+        or verifier.find(bytecode_policy) > min(invocation_positions)
+    ):
+        errors.append("release verifier must export exact PYTHONDONTWRITEBYTECODE=1 before every checker, generator, or build invocation")
+    if 'parser.add_argument("--candidate-sha256", required=True)' not in signer:
+        errors.append("signer must require the public candidate TAR SHA-256")
+    evidence_write = signer.find("policy.exclusive_write(target, bundle)")
+    portal_write = signer.find("policy.exclusive_write(portal_target, portal_data)")
+    if evidence_write < 0 or portal_write < 0 or evidence_write > portal_write:
+        errors.append("signer must write evidence before the directly uploadable Portal ZIP")
+    output_contract = 'print(f"CANDIDATE_TAR_' + 'SHA256={candidate_sha256}")'
+    if output_contract not in texts.get("tools/check-release-candidate", ""):
+        errors.append("candidate preparation must log its final readback TAR SHA-256")
+    return sorted(set(errors))
+
+
+def synthetic_provenance() -> dict[str, object]:
+    return {
+        "source": {"commit": "1" * 40, "tree": "2" * 40},
+        "ci": {
+            "repository": "bernhardberger/tvheadend-htsp", "workflow": "CI", "run_id": "123",
+            "run_attempt": "1", "job": "verify", "event": "push", "ref": "refs/heads/main",
+        },
+    }
+
+
+def synthetic_candidate() -> bytes:
+    originals = {path: ("fixture:" + path).encode("ascii") for path in ORIGINAL_PATHS}
+    return candidate_bytes(originals, synthetic_provenance())
+
+
+def mutate_tar(data: bytes, mutation: Callable[[list[tuple[tarfile.TarInfo, bytes]]], None]) -> bytes:
+    entries: list[tuple[tarfile.TarInfo, bytes]] = []
+    with tarfile.open(fileobj=io.BytesIO(data), mode="r:") as archive:
+        for member in archive.getmembers():
+            stream = archive.extractfile(member)
+            entries.append((member, stream.read() if stream else b""))
+    mutation(entries)
+    output = io.BytesIO()
+    with tarfile.open(fileobj=output, mode="w", format=tarfile.USTAR_FORMAT) as archive:
+        for member, content in entries:
+            if member.isreg():
+                member.size = len(content)
+            archive.addfile(member, io.BytesIO(content) if member.isreg() else None)
+    return output.getvalue()
+
+
+def mutate_zip(data: bytes, mutation: Callable[[list[tuple[zipfile.ZipInfo, bytes]]], None]) -> bytes:
+    entries: list[tuple[zipfile.ZipInfo, bytes]] = []
+    with zipfile.ZipFile(io.BytesIO(data), "r") as archive:
+        for info in archive.infolist():
+            entries.append((info, archive.read(info)))
+    mutation(entries)
+    output = io.BytesIO()
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)
+        with zipfile.ZipFile(output, "w", allowZip64=False) as archive:
+            for info, content in entries:
+                archive.writestr(info, content)
+    return output.getvalue()
+
+
+def set_tar_name(entries: list[tuple[tarfile.TarInfo, bytes]], index: int, value: str) -> None:
+    entries[index][0].name = value
+
+
+def set_tar_type(entries: list[tuple[tarfile.TarInfo, bytes]], index: int, value: bytes) -> None:
+    entries[index][0].type = value
+
+
+def set_tar_mode(entries: list[tuple[tarfile.TarInfo, bytes]], index: int, value: int) -> None:
+    entries[index][0].mode = value
+
+
+def set_tar_uid(entries: list[tuple[tarfile.TarInfo, bytes]], index: int, value: int) -> None:
+    entries[index][0].uid = value
+
+
+def set_zip_name(entries: list[tuple[zipfile.ZipInfo, bytes]], index: int, value: str) -> None:
+    entries[index][0].filename = value
+
+
+def set_zip_attributes(entries: list[tuple[zipfile.ZipInfo, bytes]], index: int, value: int) -> None:
+    entries[index][0].external_attr = value
+
+
+def synthetic_signed_bundle(candidate: bytes, fingerprint: str) -> bytes:
+    candidate_errors, candidate_entries, candidate_model = verify_candidate_bytes(candidate)
+    assert not candidate_errors and candidate_model is not None
+    signed: list[tuple[str, bytes]] = []
+    portal: list[tuple[str, bytes]] = []
+    records: list[dict[str, object]] = []
+    for path in ORIGINAL_PATHS:
+        original = candidate_entries[path]
+        signature = (
+            "-----BEGIN PGP SIGNATURE-----\n"
+            + "synthetic:" + path + "\n"
+            + "-----END PGP SIGNATURE-----\n"
+        ).encode("ascii")
+        hashes = {algorithm: digest(original, algorithm) for algorithm in ("md5", "sha1", "sha256")}
+        signed.extend(((path, original), (path + ".asc", signature)))
+        portal.extend(((path, original), (path + ".asc", signature)))
+        for algorithm in ("md5", "sha1", "sha256"):
+            sidecar = (hashes[algorithm] + "\n").encode("ascii")
+            signed.append((path + "." + algorithm, sidecar))
+            if algorithm != "sha256":
+                portal.append((path + "." + algorithm, sidecar))
+        records.append({
+            "path": path, "size": len(original),
+            "sha256_before": digest(original), "sha256_after": digest(original),
+            "sha256_returned": digest(original), "sha256_portal": digest(original),
+            "signature": {"path": path + ".asc", "size": len(signature), "sha256": digest(signature)},
+            "checksums": {algorithm: {"path": path + "." + algorithm, "value": hashes[algorithm]} for algorithm in ("md5", "sha1", "sha256")},
+        })
+    portal_data = portal_zip_bytes(portal)
+    evidence = {
+        "schema": 1, "coordinate": COORDINATE, "version": RELEASE_VERSION,
+        "fingerprint": fingerprint, "source": candidate_model["source"], "ci": candidate_model["ci"],
+        "candidate": {"path": CANDIDATE_COPY_PATH, "size": len(candidate), "sha256": digest(candidate), "manifest_sha256": digest(candidate_entries[MANIFEST_PATH])},
+        "signer_tool_sha256": digest((ROOT / "tools/sign-central-bundle").read_bytes()),
+        "portal_zip": {"path": PORTAL_ZIP_PATH, "size": len(portal_data), "sha256": digest(portal_data)},
+        "originals": records,
+    }
+    return tar_bytes([(SIGNED_MANIFEST_PATH, canonical_json(evidence)), (CANDIDATE_COPY_PATH, candidate), (PORTAL_ZIP_PATH, portal_data), *signed])
+
+
+def self_test() -> list[str]:
+    errors: list[str] = []
+    with tempfile.TemporaryDirectory() as temporary:
+        Path(temporary).chmod(0o700)
+        valid = synthetic_candidate()
+        baseline, _, _ = verify_candidate_bytes(valid)
+        if baseline:
+            errors.append("self-test rejected valid candidate fixture: " + "; ".join(baseline))
+        valid_digest = digest(valid)
+        if candidate_digest_errors(valid, valid_digest, "release candidate"):
+            errors.append("self-test rejected the exact candidate TAR SHA-256")
+        for name, expected in (
+            ("missing candidate digest", None),
+            ("short candidate digest", "a" * 63),
+            ("uppercase candidate digest", "A" * 64),
+            ("mismatched candidate digest", "0" * 64),
+        ):
+            if not candidate_digest_errors(valid, expected, "release candidate"):
+                errors.append(f"self-test accepted {name}")
+
+        def change_manifest(entries: list[tuple[tarfile.TarInfo, bytes]], mutate: Callable[[dict[str, object]], None]) -> None:
+            model = json.loads(entries[0][1].decode("utf-8"))
+            mutate(model)
+            entries[0] = (entries[0][0], canonical_json(model))
+
+        cases = (
+            ("path traversal", lambda entries: set_tar_name(entries, 1, "../escape"), "unsafe path"),
+            ("absolute path", lambda entries: set_tar_name(entries, 1, "/escape"), "unsafe path"),
+            ("dot path", lambda entries: set_tar_name(entries, 1, "./escape"), "unsafe path"),
+            ("empty path component", lambda entries: set_tar_name(entries, 1, "bad//escape"), "unsafe path"),
+            ("backslash", lambda entries: set_tar_name(entries, 1, "bad\\path"), "unsafe path"),
+            ("symlink", lambda entries: set_tar_type(entries, 1, tarfile.SYMTYPE), "regular file"),
+            ("hardlink", lambda entries: set_tar_type(entries, 1, tarfile.LNKTYPE), "regular file"),
+            ("device", lambda entries: set_tar_type(entries, 1, tarfile.CHRTYPE), "regular file"),
+            ("FIFO", lambda entries: set_tar_type(entries, 1, tarfile.FIFOTYPE), "regular file"),
+            ("socket-like special", lambda entries: set_tar_type(entries, 1, b"s"), "regular file"),
+            ("sparse", lambda entries: set_tar_type(entries, 1, tarfile.GNUTYPE_SPARSE), "regular file"),
+            ("executable", lambda entries: set_tar_mode(entries, 1, 0o755), "mode"),
+            ("unsafe owner", lambda entries: set_tar_uid(entries, 1, 1000), "metadata"),
+            ("extra", lambda entries: entries.append((tarfile.TarInfo("extra"), b"")), "inventory"),
+            ("duplicate", lambda entries: entries.append(entries[1]), "duplicate"),
+            ("case collision", lambda entries: set_tar_name(entries, 2, entries[1][0].name.upper()), "case collision"),
+            ("changed original", lambda entries: entries.__setitem__(1, (entries[1][0], entries[1][1] + b"x")), "stale or changed"),
+            ("wrong coordinate", lambda entries: change_manifest(entries, lambda model: model.update({"coordinate": "wrong:wrong:1"})), "coordinate"),
+            ("wrong version", lambda entries: change_manifest(entries, lambda model: model.update({"version": SNAPSHOT_VERSION})), "version"),
+            ("missing CI provenance", lambda entries: change_manifest(entries, lambda model: model.update({"ci": {}})), "CI provenance"),
+        )
+        for name, mutate, expected in cases:
+            actual, _, _ = verify_candidate_bytes(mutate_tar(valid, mutate))
+            if not any(expected in item for item in actual):
+                errors.append(f"self-test accepted {name} without {expected!r}: {actual}")
+        if not source_checkout_errors(" M src/example", "1" * 40, "2" * 40, "1" * 40, "2" * 40):
+            errors.append("self-test accepted dirty candidate-creation checkout")
+        if not source_checkout_errors("", "3" * 40, "2" * 40, "1" * 40, "2" * 40):
+            errors.append("self-test accepted wrong candidate source commit")
+        global MAX_ARCHIVE, MAX_MEMBER
+        saved_archive, saved_member = MAX_ARCHIVE, MAX_MEMBER
+        try:
+            MAX_ARCHIVE = 1
+            if not any("exceeds" in item for item in verify_candidate_bytes(valid)[0]):
+                errors.append("self-test accepted oversized candidate archive")
+            MAX_ARCHIVE = saved_archive
+            MAX_MEMBER = 1
+            if not any("size is unsafe" in item for item in verify_candidate_bytes(valid)[0]):
+                errors.append("self-test accepted oversized candidate member")
+        finally:
+            MAX_ARCHIVE, MAX_MEMBER = saved_archive, saved_member
+        existing = Path(temporary) / "preexisting-output"
+        existing.write_bytes(b"owner-data")
+        try:
+            exclusive_write(existing, b"replacement")
+            errors.append("self-test overwrote a preexisting output")
+        except FileExistsError:
+            pass
+        if existing.read_bytes() != b"owner-data":
+            errors.append("self-test changed a preexisting output")
+        fingerprint = "A" * 40
+        valid_status = f"[GNUPG:] VALIDSIG {fingerprint} 2026-08-16 0 4 0 1 10 00 {fingerprint}\n"
+        if validsig_errors(valid_status, fingerprint):
+            errors.append("self-test rejected exact primary VALIDSIG fixture")
+        for name, status in (
+            ("subkey signer", valid_status.replace(f"VALIDSIG {fingerprint}", "VALIDSIG " + "B" * 40, 1)),
+            ("bad signature", "[GNUPG:] BADSIG DEADBEEF signer\n"),
+            ("ambiguous signature", valid_status + valid_status),
+        ):
+            if not validsig_errors(status, fingerprint):
+                errors.append(f"self-test accepted {name} status fixture")
+        approved_fingerprint = "EAB02E488E7B944EAA6D65814BF0412FD2A3B741"
+        colon = f"pub:u:4096:1:BF0412FD2A3B741:1723766400:0:::::sc:\nfpr:::::::::{approved_fingerprint}:\nuid:u::::::::{PUBLIC_UID}:\n"
+        if colon_key_errors(colon, approved_fingerprint):
+            errors.append("self-test rejected valid public-key metadata fixture")
+        for validity in ("-", "q"):
+            untrusted = colon.replace("pub:u:", f"pub:{validity}:").replace("uid:u:", f"uid:{validity}:")
+            if colon_key_errors(untrusted, approved_fingerprint):
+                errors.append(f"self-test rejected ordinary untrusted validity fixture {validity!r}")
+        for name, changed in (
+            ("expired key", colon.replace("pub:u:", "pub:e:")),
+            ("invalid key", colon.replace("pub:u:", "pub:i:")),
+            ("never-valid key", colon.replace("pub:u:", "pub:n:")),
+            ("expiring key", colon.replace(":1723766400:0:::::sc:", ":1723766400:123:::::sc:")),
+            ("encryption-only key", colon.replace(":::::sc:", ":::::ec:")),
+            ("wrong UID", colon.replace(PUBLIC_UID, "Other <other@example.invalid>")),
+            ("revoked UID", colon.replace("uid:u:", "uid:r:")),
+            ("invalid UID", colon.replace("uid:u:", "uid:i:")),
+            ("wrong primary algorithm", colon.replace("pub:u:4096:1:", "pub:u:4096:22:")),
+            ("wrong primary size", colon.replace("pub:u:4096:1:", "pub:u:3072:1:")),
+            ("signing subkey", colon + "sub:u:4096:1:0123456789ABCDEF:1723766400:0:::::s:\nfpr:::::::::0123456789ABCDEF0123456789ABCDEF01234567:\n"),
+            ("ambiguous key", colon + colon),
+        ):
+            if not colon_key_errors(changed, approved_fingerprint):
+                errors.append(f"self-test accepted {name} metadata fixture")
+        wrong_pinned = colon.replace(approved_fingerprint, "A" * 40)
+        if not colon_key_errors(wrong_pinned, "A" * 40):
+            errors.append("self-test accepted a self-consistent but independently unapproved fingerprint")
+        public_armor = b"-----BEGIN PGP PUBLIC KEY BLOCK-----\nfixture\n-----END PGP PUBLIC KEY BLOCK-----\n"
+        if armor_errors(public_armor):
+            errors.append("self-test rejected synthetic public-only armor fixture")
+        for name, armor in (
+            ("private-material marker", public_armor + b"PRIVATE KEY"),
+            ("mixed secret material", public_armor + b"SECRET KEY"),
+            ("multiple public blocks", public_armor + public_armor),
+            ("prefixed public block", b"prefix\n" + public_armor),
+            ("trailing public block data", public_armor + b"trailing\n"),
+            ("malformed public block", public_armor.replace(b"-----END PGP PUBLIC KEY BLOCK-----", b"-----END PGP PUBLIC KEY BLOCK----")),
+            ("additional armor block", public_armor.replace(b"fixture\n", b"-----BEGIN PGP SIGNATURE-----\nfixture\n-----END PGP SIGNATURE-----\n")),
+        ):
+            if not armor_errors(armor):
+                errors.append(f"self-test accepted {name}")
+        for name, packets in (
+            ("secret primary packet", ":secret key packet: version 4\n"),
+            ("secret subkey packet", "    :secret sub key packet: version 4\n"),
+        ):
+            if not packet_errors(packets, 0):
+                errors.append(f"self-test accepted {name}")
+        setup_fixture = Path(temporary) / "public-material-setup"
+        setup_fixture.mkdir()
+        fixture_key = setup_fixture / "public-key.asc"
+        fixture_fingerprint = setup_fixture / "primary-fingerprint.txt"
+        fixture_key.write_bytes(public_armor)
+        fixture_fingerprint.write_text(approved_fingerprint + "\n", encoding="ascii")
+
+        def fixture_gpg_results(
+            listing: str = colon,
+            packets: str = ":public key packet: version 4\n",
+        ) -> tuple[subprocess.CompletedProcess[str], ...]:
+            return (
+                subprocess.CompletedProcess(("gpg",), 0, packets, ""),
+                subprocess.CompletedProcess(("gpg",), 0, "", ""),
+                subprocess.CompletedProcess(("gpg",), 0, listing, ""),
+            )
+
+        if setup_public_material_errors(fixture_key, fixture_fingerprint, fixture_gpg_results()):
+            errors.append("self-test rejected complete valid setup public-material verification")
+        fixture_key.write_bytes(b"not OpenPGP armor\n")
+        if not setup_public_material_errors(fixture_key, fixture_fingerprint, fixture_gpg_results()):
+            errors.append("self-test setup accepted malformed tracked public material")
+        fixture_key.write_bytes(public_armor)
+        if not setup_public_material_errors(
+            fixture_key,
+            fixture_fingerprint,
+            fixture_gpg_results(packets=":secret key packet: version 4\n"),
+        ):
+            errors.append("self-test setup accepted private packets in tracked public material")
+        mismatched_colon = colon.replace(approved_fingerprint, "B" * 40)
+        if not setup_public_material_errors(
+            fixture_key,
+            fixture_fingerprint,
+            fixture_gpg_results(listing=mismatched_colon),
+        ):
+            errors.append("self-test setup accepted tracked key/fingerprint mismatch")
+        fixture_fingerprint.write_text("A" * 40 + "\n", encoding="ascii")
+        if not setup_public_material_errors(fixture_key, fixture_fingerprint, fixture_gpg_results()):
+            errors.append("self-test setup accepted wrong independently pinned fingerprint metadata")
+        fixture_fingerprint.unlink()
+        fixture_key.unlink()
+        if setup_public_material_errors(fixture_key, fixture_fingerprint, fixture_gpg_results()):
+            errors.append("self-test rejected intentional pre-owner setup with both public-material files absent")
+        fixture_key.write_bytes(public_armor)
+        if not setup_public_material_errors(fixture_key, fixture_fingerprint, fixture_gpg_results()):
+            errors.append("self-test setup accepted only one public-material file")
+        signed = synthetic_signed_bundle(valid, fingerprint)
+        _, signed_entries = archive_entries(signed, (SIGNED_MANIFEST_PATH, CANDIDATE_COPY_PATH, PORTAL_ZIP_PATH, *signed_paths()), "signed bundle")
+        portal = signed_entries[PORTAL_ZIP_PATH]
+        signed_errors = verify_signed_bundle_bytes(signed, portal, fingerprint, valid_digest, lambda _signature, _original: [])
+        if signed_errors:
+            errors.append("self-test rejected valid signed-bundle fixture: " + "; ".join(signed_errors))
+        portal_cases = (
+            ("Portal path traversal", lambda entries: set_zip_name(entries, 0, "../escape"), "unsafe path"),
+            ("Portal executable", lambda entries: set_zip_attributes(entries, 0, 0o100755 << 16), "non-executable"),
+            ("Portal symlink", lambda entries: set_zip_attributes(entries, 0, 0o120777 << 16), "regular"),
+            ("Portal extra entry", lambda entries: entries.append((zipfile.ZipInfo("extra"), b"x")), "inventory"),
+            ("Portal duplicate", lambda entries: entries.append(entries[0]), "duplicate"),
+            ("Portal case collision", lambda entries: set_zip_name(entries, 1, entries[0][0].filename.upper()), "case-colliding"),
+        )
+        for name, mutate, expected in portal_cases:
+            actual, _ = portal_entries(mutate_zip(portal, mutate), portal_paths())
+            if not any(expected in item for item in actual):
+                errors.append(f"self-test accepted {name}: {actual}")
+        changed_signed = mutate_tar(signed, lambda entries: entries.__setitem__(3, (entries[3][0], entries[3][1] + b"x")))
+        actual = verify_signed_bundle_bytes(changed_signed, portal, fingerprint, valid_digest, lambda _signature, _original: [])
+        if not any("changed or were not returned" in item or "record mismatch" in item for item in actual):
+            errors.append(f"self-test accepted changed signed original: {actual}")
+        for name, mutate, expected in (
+            ("missing detached signature", lambda entries: entries.pop(4), "inventory"),
+            ("changed checksum", lambda entries: entries.__setitem__(5, (entries[5][0], b"0\n")), "checksum mismatch"),
+        ):
+            actual = verify_signed_bundle_bytes(mutate_tar(signed, mutate), portal, fingerprint, valid_digest, lambda _signature, _original: [])
+            if not any(expected in item for item in actual):
+                errors.append(f"self-test accepted {name}: {actual}")
+        if not verify_signed_bundle_bytes(signed, portal, fingerprint, "0" * 64, lambda _signature, _original: []):
+            errors.append("self-test accepted a mismatched caller-provided candidate digest")
+        if not verify_signed_bundle_bytes(signed, portal + b"changed", fingerprint, valid_digest, lambda _signature, _original: []):
+            errors.append("self-test accepted direct Portal ZIP bytes differing from embedded evidence")
+        rejected_signature = verify_signed_bundle_bytes(signed, portal, fingerprint, valid_digest, lambda _signature, _original: ["synthetic bad signature"])
+        if not any("synthetic bad signature" in item for item in rejected_signature):
+            errors.append("self-test accepted failed detached-signature verification")
+        output_root = Path(temporary) / "signed-output-readback"
+        output_root.mkdir()
+        evidence_path = output_root / "evidence.tar"
+        portal_path = output_root / "portal.zip"
+        evidence_path.write_bytes(signed)
+        portal_path.write_bytes(portal)
+        _, _, readback_errors = signed_output_readback(evidence_path, portal_path, signed, portal)
+        if readback_errors:
+            errors.append("self-test rejected exact signed-output readback fixture: " + "; ".join(readback_errors))
+        portal_path.write_bytes(portal + b"changed")
+        if not signed_output_readback(evidence_path, portal_path, signed, portal)[2]:
+            errors.append("self-test accepted changed final Portal ZIP readback")
+        portal_path.unlink()
+        if not signed_output_readback(evidence_path, portal_path, signed, portal)[2]:
+            errors.append("self-test accepted missing final Portal ZIP")
+        portal_path.symlink_to(evidence_path)
+        if not signed_output_readback(evidence_path, portal_path, signed, portal)[2]:
+            errors.append("self-test accepted symlinked final Portal ZIP")
+        portal_path.unlink()
+        portal_path.write_bytes(portal)
+        evidence_path.write_bytes(signed + b"changed")
+        if not signed_output_readback(evidence_path, portal_path, signed, portal)[2]:
+            errors.append("self-test accepted changed final evidence TAR readback")
+        evidence_path.unlink()
+        if not signed_output_readback(evidence_path, portal_path, signed, portal)[2]:
+            errors.append("self-test accepted missing final evidence TAR")
+        evidence_path.symlink_to(portal_path)
+        if not signed_output_readback(evidence_path, portal_path, signed, portal)[2]:
+            errors.append("self-test accepted symlinked final evidence TAR")
+        checker_text = (ROOT / "tools/check-release-candidate").read_text(encoding="utf-8")
+        signer_text = (ROOT / "tools/sign-central-bundle").read_text(encoding="utf-8")
+        checker_tree = ast.parse(checker_text, filename="tools/check-release-candidate")
+        setup_functions = [
+            node for node in checker_tree.body
+            if isinstance(node, ast.FunctionDef) and node.name == "setup_errors"
+        ]
+        expected_setup_statement = ast.dump(
+            ast.parse("errors.extend(setup_public_material_errors())").body[0],
+            include_attributes=False,
+        )
+        setup_statements = (
+            [ast.dump(node, include_attributes=False) for node in ast.walk(setup_functions[0])]
+            if len(setup_functions) == 1 else []
+        )
+        if setup_statements.count(expected_setup_statement) != 1:
+            errors.append("self-test requires production setup to run complete public-material verification exactly once")
+        setup_marker = "def setup_errors() -> list[str]:\n"
+
+        def executed_setup(statement: str) -> str:
+            indented = "\n".join("    " + line for line in statement.splitlines())
+            return checker_text.replace(setup_marker, setup_marker + indented + "\n", 1)
+
+        for relative, source in (
+            ("tools/check-release-candidate", checker_text),
+            ("tools/sign-central-bundle", signer_text),
+        ):
+            actual = release_python_ast_errors(relative, source)
+            if actual:
+                errors.append(f"self-test rejected current {relative} AST policy: {actual}")
+            if release_python_ast_errors(relative, source + "\n# Portal token\n# --passphrase-file\n"):
+                errors.append(f"self-test rejected harmless comments in {relative}")
+        ast_hostile = (
+            ("dynamic subprocess", checker_text + '\nsubprocess.run(["cu" + "rl", "example.invalid"])\n'),
+            ("os.system", checker_text + '\nos.system("curl example.invalid")\n'),
+            ("dynamic import", checker_text + '\n__import__("sub" + "process")\n'),
+            ("network import", signer_text + "\nimport urllib.request\n"),
+            ("passphrase environment", signer_text.replace('        "TERM", "DBUS_SESSION_BUS_ADDRESS", "XAUTHORITY",', '        "TERM", "DBUS_SESSION_BUS_ADDRESS", "XAUTHORITY", "PINENTRY_USER_DATA",')),
+            ("extra signing environment", signer_text.replace('        "TERM", "DBUS_SESSION_BUS_ADDRESS", "XAUTHORITY",', '        "TERM", "DBUS_SESSION_BUS_ADDRESS", "XAUTHORITY", "SSH_AUTH_SOCK",')),
+            ("copied signing environment", signer_text.replace('environment = {name: os.environ[name] for name in allowed if name in os.environ}', 'environment = dict(os.environ)')),
+            ("missing signer bytecode suppression", signer_text.replace("    sys.dont_write_bytecode = True\n", "", 1)),
+            ("late signer bytecode suppression", signer_text.replace("    sys.dont_write_bytecode = True\n    loader = importlib.machinery.SourceFileLoader", "    loader = importlib.machinery.SourceFileLoader").replace("    specification = importlib.util.spec_from_loader", "    sys.dont_write_bytecode = True\n    specification = importlib.util.spec_from_loader", 1)),
+            ("reviewer sys.modules getattr bypass", executed_setup('getattr(sys.modules["o" + "s"], "sys" + "tem")("curl https://example.invalid")')),
+            ("globals builtins bypass", executed_setup('globals()["__builtins__"]["ev" + "al"]("1 + 1")')),
+            ("direct builtins subscript bypass", executed_setup('__builtins__["ev" + "al"]("1 + 1")')),
+            ("call target from call", executed_setup('getattr(os, "sys" + "tem")("curl https://example.invalid")')),
+            ("call target from subscript", executed_setup('{"run": print}["run"]("unsafe")')),
+            ("reflective alias", executed_setup('reflect = getattr\nreflect(os, "sys" + "tem")("curl https://example.invalid")')),
+            ("reflective rebinding", executed_setup('getattr = print')),
+            ("locals vars reflection", executed_setup('vars(locals())')),
+            ("dangerous dunder", executed_setup('object.__subclasses__()')),
+            ("signing command clear", signer_text.replace("    try:\n        result = subprocess.run(\n            command,", "    command.clear()\n    try:\n        result = subprocess.run(\n            command,", 1)),
+            ("signing command extend", signer_text.replace("    try:\n        result = subprocess.run(\n            command,", '    command.extend(("--output", "/tmp/other"))\n    try:\n        result = subprocess.run(\n            command,', 1)),
+            ("signing command append", signer_text.replace("    try:\n        result = subprocess.run(\n            command,", '    command.append("--version")\n    try:\n        result = subprocess.run(\n            command,', 1)),
+            ("signing command slice replacement", signer_text.replace("    try:\n        result = subprocess.run(\n            command,", '    command[:] = ["gpg", "--version"]\n    try:\n        result = subprocess.run(\n            command,', 1)),
+            ("signing command item replacement", signer_text.replace("    try:\n        result = subprocess.run(\n            command,", '    command[0] = "curl"\n    try:\n        result = subprocess.run(\n            command,', 1)),
+            ("signing command alias mutation", signer_text.replace("    try:\n        result = subprocess.run(\n            command,", '    command_alias = command\n    command_alias[:] = ["gpg", "--version"]\n    try:\n        result = subprocess.run(\n            command,', 1)),
+            ("loaded policy function rebinding", signer_text.replace("    candidate_path, errors = policy.regular_input", "    policy.verify_candidate_bytes = lambda _data: ([], {}, {})\n    candidate_path, errors = policy.regular_input", 1)),
+            ("loaded policy alias function rebinding", signer_text.replace("    candidate_path, errors = policy.regular_input", "    policy_alias = policy\n    policy_alias.verify_candidate_bytes = lambda _data: ([], {}, {})\n    candidate_path, errors = policy.regular_input", 1)),
+            ("loaded policy nested code mutation", signer_text.replace("    candidate_path, errors = policy.regular_input", "    policy.candidate_digest_errors.__code__ = (lambda *_: []).__code__\n    candidate_path, errors = policy.regular_input", 1)),
+            ("signer candidate digest validation in dead code", signer_text.replace('    errors.extend(policy.candidate_digest_errors(candidate_data, candidate_sha256, "release candidate"))', '    if False:\n        errors.extend(policy.candidate_digest_errors(\n            candidate_data, candidate_sha256, "release candidate"\n        ))', 1)),
+            ("signing subprocess inherited environment", signer_text.replace("text=True, env=signing_environment(),", "text=True, env=os.environ,", 1)),
+            ("signing environment rebinding", signer_text.replace("    try:\n        result = subprocess.run(\n            command,", "    signing_environment = lambda: dict(os.environ)\n    try:\n        result = subprocess.run(\n            command,", 1)),
+            ("signing environment aliasing", signer_text.replace("    try:\n        result = subprocess.run(\n            command,", "    environment_factory = signing_environment\n    try:\n        result = subprocess.run(\n            command,", 1).replace("text=True, env=signing_environment(),", "text=True, env=environment_factory(),", 1)),
+            ("setup public-material validation in dead code", checker_text.replace("    errors.extend(setup_public_material_errors())", "    if False:\n        errors.extend(setup_public_material_errors())", 1)),
+            ("setup early return before public-material validation", checker_text.replace("    errors.extend(setup_public_material_errors())", "    return errors\n    errors.extend(setup_public_material_errors())", 1)),
+            ("setup public-material same-slot local shadow", checker_text.replace("    texts: dict[str, str] = {}", "    texts, setup_public_material_errors = {}, lambda: []", 1)),
+            ("setup public-material parameter shadow", checker_text.replace("def setup_errors() -> list[str]:", "def setup_errors(setup_public_material_errors=lambda: []) -> list[str]:", 1)),
+            ("setup public-material pattern-capture shadow", checker_text.replace("    for relative in required:\n        path = ROOT / relative", "    for relative in required:\n        match (lambda: []):\n            case setup_public_material_errors:\n                pass\n        path = ROOT / relative", 1)),
+        )
+        for name, source in ast_hostile:
+            signer_cases = {
+                "network import", "passphrase environment", "extra signing environment",
+                "copied signing environment", "missing signer bytecode suppression",
+                "late signer bytecode suppression", "signing command clear",
+                "signing command extend", "signing command append",
+                "signing command slice replacement",
+                "signing command item replacement", "signing command alias mutation",
+                "loaded policy function rebinding", "loaded policy alias function rebinding",
+                "loaded policy nested code mutation", "signer candidate digest validation in dead code",
+                "signing subprocess inherited environment", "signing environment rebinding",
+                "signing environment aliasing",
+            }
+            relative = "tools/sign-central-bundle" if name in signer_cases else "tools/check-release-candidate"
+            if not release_python_ast_errors(relative, source):
+                errors.append(f"self-test accepted release Python AST bypass: {name}")
+        signing_comment = signer_text.replace(
+            "def signing_environment() -> dict[str, str]:\n",
+            "def signing_environment() -> dict[str, str]:\n    # Portal token and --passphrase-file are forbidden examples only.\n",
+        )
+        if release_python_ast_errors("tools/sign-central-bundle", signing_comment):
+            errors.append("self-test rejected harmless signing-environment comment")
+        harmless_reflective_string = checker_text + '\nREFLECTIVE_POLICY_EXAMPLE = \'getattr(sys.modules["os"], "system") and __builtins__\'\n'
+        if release_python_ast_errors("tools/check-release-candidate", harmless_reflective_string):
+            errors.append("self-test rejected harmless reflective-policy string")
+        ci_text = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+        if active_yaml_lines(ci_text) != EXPECTED_CI_ACTIVE:
+            errors.append("self-test rejected current exact active CI fixture")
+        if active_yaml_lines(ci_text + "\n# Portal token\n# --passphrase-file\n") != EXPECTED_CI_ACTIVE:
+            errors.append("self-test rejected harmless CI comments")
+        if active_yaml_lines(ci_text.replace("compression-level: 0", "compression-level: 0 # Portal token")) != EXPECTED_CI_ACTIVE:
+            errors.append("self-test rejected harmless inline CI comment")
+        if active_yaml_lines(ci_text + "\n      - name: hostile\n        run: curl example.invalid\n") == EXPECTED_CI_ACTIVE:
+            errors.append("self-test accepted extra active CI run command")
+    return errors
+
+
+def regular_input(argument: str, label: str) -> tuple[Path | None, list[str]]:
+    path = Path(argument)
+    if not path.is_absolute():
+        path = ROOT / path
+    path = path.absolute()
+    if path.is_symlink() or not path.is_file():
+        return None, [f"{label} must be a regular non-symlink file: {path}"]
+    try:
+        if path.stat().st_size > MAX_ARCHIVE:
+            return None, [f"{label} exceeds {MAX_ARCHIVE} bytes: {path}"]
+    except OSError as error:
+        return None, [f"{label} metadata is unreadable: {error}"]
+    return path, []
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    modes = parser.add_mutually_exclusive_group(required=True)
+    modes.add_argument("--self-test", action="store_true")
+    modes.add_argument("--check-setup", action="store_true")
+    modes.add_argument("--prepare", action="store_true")
+    modes.add_argument("--prepare-if-release", action="store_true")
+    modes.add_argument("--verify-candidate", metavar="PATH")
+    modes.add_argument("--verify-signed-bundle", metavar="PATH")
+    parser.add_argument("--output")
+    parser.add_argument("--candidate-sha256")
+    parser.add_argument("--portal-zip")
+    arguments = parser.parse_args()
+    success = "Release-channel policy passed"
+    if arguments.self_test:
+        if arguments.output or arguments.candidate_sha256 is not None or arguments.portal_zip:
+            parser.error("--output, --candidate-sha256, and --portal-zip are invalid with --self-test")
+        errors = self_test()
+        success = "Release candidate and signed-bundle hostile self-tests passed"
+    elif arguments.check_setup:
+        if arguments.output or arguments.candidate_sha256 is not None or arguments.portal_zip:
+            parser.error("--output, --candidate-sha256, and --portal-zip are invalid with --check-setup")
+        errors = setup_errors()
+        success = "Release-channel static/setup policy passed"
+    elif arguments.prepare or arguments.prepare_if_release:
+        if not arguments.output:
+            parser.error("candidate preparation requires --output")
+        if arguments.candidate_sha256 is not None:
+            parser.error("candidate preparation rejects --candidate-sha256")
+        if arguments.portal_zip:
+            parser.error("candidate preparation rejects --portal-zip")
+        errors, candidate_sha256 = prepare(arguments.output, arguments.prepare_if_release)
+        version, _ = project_version()
+        success = "Snapshot candidate preparation skipped by policy" if arguments.prepare_if_release and version == SNAPSHOT_VERSION else "Release candidate prepared and internally verified"
+        if not errors and candidate_sha256 is not None:
+            print(f"CANDIDATE_TAR_SHA256={candidate_sha256}")
+    elif arguments.verify_candidate:
+        if arguments.output:
+            parser.error("--output is valid only with candidate preparation")
+        if arguments.portal_zip:
+            parser.error("--portal-zip is valid only with --verify-signed-bundle")
+        if arguments.candidate_sha256 is None:
+            parser.error("--verify-candidate requires --candidate-sha256")
+        path, errors = regular_input(arguments.verify_candidate, "release candidate")
+        if path is not None:
+            try:
+                candidate_data = path.read_bytes()
+                errors.extend(candidate_digest_errors(candidate_data, arguments.candidate_sha256, "release candidate"))
+                if not errors:
+                    errors.extend(public_material_errors())
+                if not errors:
+                    verification, _, _ = verify_candidate_bytes(candidate_data)
+                    errors.extend(verification)
+            except OSError as error:
+                errors.append(f"release candidate is unreadable: {error}")
+        success = "Release candidate verified"
+    else:
+        if arguments.output:
+            parser.error("--output is valid only with candidate preparation")
+        if arguments.candidate_sha256 is None:
+            parser.error("--verify-signed-bundle requires --candidate-sha256")
+        if not arguments.portal_zip:
+            parser.error("--verify-signed-bundle requires --portal-zip")
+        path, errors = regular_input(arguments.verify_signed_bundle, "signed bundle")
+        portal_path, portal_errors = regular_input(arguments.portal_zip, "direct Portal ZIP")
+        errors.extend(portal_errors)
+        if path is not None and portal_path is not None and not errors:
+            errors.extend(verify_signed_file(path, portal_path, arguments.candidate_sha256))
+        success = "Signed Central bundle verified with tracked public material"
+    for error in sorted(set(errors)):
+        print(f"error: {error}", file=sys.stderr)
+    if errors:
+        return 1
+    print(success)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
