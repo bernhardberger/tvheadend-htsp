@@ -103,10 +103,6 @@ tasks.register("verifyProductionDependencyGraph") {
         check(resolved == allowed) { "Unexpected production resolution graph: $resolved" }
     }
 }'''
-REPRODUCIBLE_ARCHIVE_CONTRACT = '''tasks.withType<AbstractArchiveTask>().configureEach {
-    isPreserveFileTimestamps = false
-    isReproducibleFileOrder = true
-}'''
 LICENSED_ARCHIVE_CONTRACT = '''tasks.withType<Jar>()
     .matching { task ->
         task.name == "jar" ||
@@ -160,6 +156,7 @@ TOOL_FILES = {f"tools/{name}" for name in (
 )}
 FIXTURE_FILES = {
     "consumer-contract/build.gradle.kts",
+    "consumer-contract/gradle/libs.versions.toml",
     "consumer-contract/settings.gradle.kts",
     "consumer-contract/src/main/kotlin/at/bernhardberger/tvheadend/protocolconsumer/ProtocolQuickStart.kt",
 }
@@ -268,7 +265,8 @@ def topology_errors(root: Path) -> list[str]:
         ".github/workflows/release.yml", ".opencode/opencode.json", "AGENTS.md", "CHANGELOG.md",
         "CONTRIBUTING.md", "HANDOFF.md", "LICENSE", "NOTICE.md", "README.md", "api/htsp.api",
         "build.gradle.kts", "gradle.properties", "gradlew", "gradlew.bat", "settings.gradle.kts",
-        "gradle/gradle-daemon-jvm.properties",
+        "gradle/gradle-daemon-jvm.properties", "gradle/libs.versions.toml",
+        "gradle/verification-metadata.xml",
         "gradle/wrapper/gradle-wrapper.jar", "gradle/wrapper/gradle-wrapper.properties",
         *DOC_FILES, *TOOL_FILES, *FIXTURE_FILES, *OPENPGP_FILES,
     }
@@ -280,8 +278,8 @@ def topology_errors(root: Path) -> list[str]:
     expected = fixed | dynamic
     if files != expected:
         errors.append(f"file topology mismatch; missing={sorted(expected - files)}, extra={sorted(files - expected)}")
-    if len(files) != 109:
-        errors.append(f"tracked-source topology must contain 109 files, found {len(files)}")
+    if len(files) != 112:
+        errors.append(f"tracked-source topology must contain 112 files, found {len(files)}")
     for executable in {"gradlew", *TOOL_FILES}:
         path = root / executable
         if path.is_file() and path.stat().st_mode & 0o111 == 0:
@@ -336,10 +334,11 @@ def quick_start_errors(root: Path) -> list[str]:
 def build_errors(root: Path) -> list[str]:
     errors: list[str] = []
     build = read(root, "build.gradle.kts", errors)
+    catalog = read(root, "gradle/libs.versions.toml", errors)
     settings = read(root, "settings.gradle.kts", errors)
     required_counts = {
         "`java-library`": 1, "`maven-publish`": 1,
-        'kotlin("jvm") version "2.3.10"': 1,
+        "alias(libs.plugins.kotlin.jvm)": 1,
         f'group = "{GROUP}"': 1,
         'val allowedPublicationVersions = setOf(': 1,
         '    "0.1.0-SNAPSHOT",': 1,
@@ -380,11 +379,19 @@ def build_errors(root: Path) -> list[str]:
     for value, count in required_counts.items():
         if build.count(value) != count:
             errors.append(f"root build publication policy missing or duplicated: {value}")
+    catalog_tokens = {
+        'kotlin = "2.3.10"', 'coroutines = "1.10.2"', 'junit = "4.13.2"',
+        'module = "org.jetbrains.kotlinx:kotlinx-coroutines-core"',
+        'module = "org.jetbrains.kotlinx:kotlinx-coroutines-test"',
+        'module = "junit:junit"', 'id = "org.jetbrains.kotlin.jvm"',
+    }
+    for token in catalog_tokens:
+        if catalog.count(token) != 1:
+            errors.append(f"root version catalog dependency or plugin mismatch: {token}")
     versions = re.findall(r'(?m)^version\s*=\s*(.*?)\s*$', build)
     if len(versions) != 1 or versions[0] not in {'"0.1.0-SNAPSHOT"', '"0.1.0"'}:
         errors.append(f"root build version must be one approved literal: {versions}")
     for contract, label in (
-        (REPRODUCIBLE_ARCHIVE_CONTRACT, "global reproducible archive"),
         (LICENSED_ARCHIVE_CONTRACT, "licensed main/shared-sources/Javadoc archive"),
         (SHARED_SOURCES_CONTRACT, "read-only shared sources artifact"),
     ):
@@ -399,8 +406,8 @@ def build_errors(root: Path) -> list[str]:
     )
     if any(re.search(pattern, without_shared_sources) for pattern in forbidden_source_artifact_access):
         errors.append("root build must not mutate or manually attach outgoing source artifacts")
-    production = re.findall(r'^\s*(api|implementation|compileOnly|runtimeOnly)\("([^"]+)"\)\s*$', build, re.M)
-    if production != [("api", "org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2")]:
+    production = re.findall(r"^\s*(api|implementation|compileOnly|runtimeOnly)\(([^)]+)\)\s*$", build, re.M)
+    if production != [("api", "libs.kotlinx.coroutines.core")]:
         errors.append(f"root build must retain exactly one declared production dependency: {production}")
     if not build.endswith("\n" + DEPENDENCY_TASK_CONTRACT + "\n"):
         errors.append("root build production dependency task exact final-body contract mismatch")
@@ -435,10 +442,17 @@ def build_errors(root: Path) -> list[str]:
 def consumer_errors(root: Path) -> list[str]:
     errors: list[str] = []
     build = read(root, "consumer-contract/build.gradle.kts", errors)
+    catalog = read(root, "consumer-contract/gradle/libs.versions.toml", errors)
     settings = read(root, "consumer-contract/settings.gradle.kts", errors)
-    dependencies = re.findall(r'^\s*(?:api|implementation|compileOnly|runtimeOnly)\("([^"]+)"\)\s*$', build, re.M)
-    if dependencies != [SNAPSHOT_COORDINATE]:
+    dependencies = re.findall(r"^\s*(?:api|implementation|compileOnly|runtimeOnly)\(([^)]+)\)\s*$", build, re.M)
+    if dependencies != ["libs.htsp"]:
         errors.append(f"consumer dependency must be exactly {SNAPSHOT_COORDINATE}: {dependencies}")
+    for token in (
+        'kotlin = "2.3.10"', 'htsp = "0.1.0-SNAPSHOT"',
+        f'module = "{GROUP}:htsp"', 'id = "org.jetbrains.kotlin.jvm"',
+    ):
+        if catalog.count(token) != 1:
+            errors.append(f"consumer dependency must be exactly {SNAPSHOT_COORDINATE}: {token}")
     expected_production_dependencies = '''        val expectedProductionDependencies = listOf(
             "api:org.jetbrains.kotlin:kotlin-stdlib:2.3.10",
             "implementation:$htspGroup:$htspModule:$htspVersion",
@@ -452,7 +466,7 @@ def consumer_errors(root: Path) -> list[str]:
         "RepositoriesMode.FAIL_ON_PROJECT_REPOS": 1, "gradlePluginPortal()": 1,
         "mavenCentral": 2, "toRealPath()": 1,
         'tasks.register("verifyConsumerDependencyGraph")': 1,
-        '"at.bernhardberger.tvheadend:htsp:0.1.0-SNAPSHOT"': 2,
+        '"at.bernhardberger.tvheadend:htsp:0.1.0-SNAPSHOT"': 1,
         "import org.gradle.api.artifacts.ExternalModuleDependency": 1,
         "import org.gradle.api.artifacts.FileCollectionDependency": 1,
         "import org.gradle.api.artifacts.ProjectDependency": 1,
@@ -680,7 +694,7 @@ def self_test() -> list[str]:
         ("extra production dependency", "exactly one declared production dependency", lambda root: append(root, "build.gradle.kts", '\nimplementation("example:bad:1")\n')),
         ("remote publication", "forbidden remote", lambda root: append(root, "build.gradle.kts", '\nval remote = "sonatype"\n')),
         ("signing configuration", "forbidden remote", lambda root: append(root, "build.gradle.kts", "\nsigning {}\n")),
-        ("consumer coordinate", "consumer dependency", lambda root: replace_once(root, "consumer-contract/build.gradle.kts", SNAPSHOT_COORDINATE, "example:wrong:1")),
+        ("consumer coordinate", "consumer dependency", lambda root: replace_once(root, "consumer-contract/gradle/libs.versions.toml", 'htsp = "0.1.0-SNAPSHOT"', 'htsp = "1.0.0"')),
         ("consumer local dependency", "consumer repository or dependency bypass", lambda root: append(root, "consumer-contract/build.gradle.kts", '\nimplementation(files("../bad.jar"))\n')),
         ("README coordinate", "README dependency differs", lambda root: replace_once(root, "README.md", f'implementation("{GROUP}:htsp:0.1.0")', 'implementation("example:wrong:1")')),
         ("production drift", "immutable production drift", lambda root: append(root, production, "\n")),

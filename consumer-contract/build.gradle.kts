@@ -9,7 +9,7 @@ import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.jetbrains.kotlin.gradle.tasks.KotlinJvmCompile
 
 plugins {
-    kotlin("jvm") version "2.3.10"
+    alias(libs.plugins.kotlin.jvm)
 }
 
 kotlin {
@@ -26,7 +26,7 @@ java {
 }
 
 dependencies {
-    implementation("at.bernhardberger.tvheadend:htsp:0.1.0-SNAPSHOT")
+    implementation(libs.htsp)
 }
 
 tasks.withType<JavaCompile>().configureEach {

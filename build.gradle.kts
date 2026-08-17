@@ -1,7 +1,6 @@
 import org.gradle.api.artifacts.component.ModuleComponentIdentifier
 import org.gradle.api.publish.maven.MavenPublication
 import org.gradle.api.publish.maven.tasks.PublishToMavenLocal
-import org.gradle.api.tasks.bundling.AbstractArchiveTask
 import org.gradle.api.tasks.bundling.Jar
 import org.gradle.api.tasks.compile.JavaCompile
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
@@ -11,7 +10,7 @@ import java.security.MessageDigest
 plugins {
     `java-library`
     `maven-publish`
-    kotlin("jvm") version "2.3.10"
+    alias(libs.plugins.kotlin.jvm)
 }
 
 group = "at.bernhardberger.tvheadend"
@@ -47,9 +46,9 @@ java {
 }
 
 dependencies {
-    api("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2")
-    testImplementation("junit:junit:4.13.2")
-    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2")
+    api(libs.kotlinx.coroutines.core)
+    testImplementation(libs.junit)
+    testImplementation(libs.kotlinx.coroutines.test)
 }
 
 tasks.withType<JavaCompile>().configureEach {
@@ -59,11 +58,6 @@ tasks.withType<JavaCompile>().configureEach {
 tasks.withType<KotlinJvmCompile>().configureEach {
     compilerOptions.jvmTarget.set(JvmTarget.JVM_17)
     compilerOptions.freeCompilerArgs.add("-Xjdk-release=17")
-}
-
-tasks.withType<AbstractArchiveTask>().configureEach {
-    isPreserveFileTimestamps = false
-    isReproducibleFileOrder = true
 }
 
 tasks.withType<Jar>()

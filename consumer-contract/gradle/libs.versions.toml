@@ -1,0 +1,9 @@
+[versions]
+kotlin = "2.3.10"
+htsp = "0.1.0-SNAPSHOT"
+
+[libraries]
+htsp = { module = "at.bernhardberger.tvheadend:htsp", version.ref = "htsp" }
+
+[plugins]
+kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
