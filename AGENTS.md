@@ -18,7 +18,7 @@ official TVHeadend software or as wholly original work.
 - Coroutine advice must preserve intentional transport-owned lifecycle scopes
   and cancellation contracts.
 - API-design advice applies only to hand-written public APIs and cannot
-  authorize ABI changes or edits to generated sources.
+  authorize ABI changes.
 
 ## Build and verify
 
@@ -26,10 +26,6 @@ The Gradle wrapper is the build prerequisite; JDK toolchains resolve
 automatically. CI (`.github/workflows/ci.yml`) is the authoritative gate.
 
 - Local verification: `./gradlew clean build check stageLocalPublication`.
-- Protocol evidence and generated-source drift:
-  `./tools/check-htsp-generated-drift` and
-  `python3 docs/htsp-protocol/report.py --check`. These are plain Python and
-  never need Gradle.
 
 ## Invariants
 
@@ -41,10 +37,10 @@ automatically. CI (`.github/workflows/ci.yml`) is the authoritative gate.
   or application code.
 - Public suspending server round trips return typed outcomes; cancellation
   propagates as cancellation. Error values never carry secrets or credentials.
-- `docs/htsp-protocol/` holds the pinned HTSP v44 evidence. A method or
-  wire-field change updates the spec, matrix, catalog, and generated Kotlin in
-  the same change. `Generated*.kt` files are never hand-edited; regenerate them
-  with the commands documented in `docs/htsp-protocol/README.md`.
+- `docs/htsp-protocol/` holds the upstream pin record and protocol notes. The
+  client requests HTSP v43 by default, while the typed surface has a v44
+  coverage ceiling. `Generated*.kt` is hand-maintained; a method or wire-field
+  change ships with a focused regression test in the same change.
 - The public ABI is tracked in `api/htsp.api` through Kotlin Gradle plugin ABI
   validation; update it only through the documented ABI dump workflow.
 

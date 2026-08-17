@@ -22,9 +22,9 @@ no Android, Media3, or decoder code.
 ## Requirements
 
 - A Java 17 or newer runtime. The artifact is compiled for JVM 17.
-- A TVHeadend server. The request catalog is derived from TVHeadend's HTSP v44
-  sources, and the client negotiates the protocol version with the server
-  during the handshake.
+- A TVHeadend server. The typed catalog covers HTSP methods through protocol
+  v44; the client requests protocol v43 by default and the server negotiates
+  downward during the handshake.
 
 ## Installation
 

@@ -1,5 +1,14 @@
 # Changelog
 
+## [Unreleased]
+
+Clarify that the client requests HTSP v43 by default while the typed surface
+has a v44 coverage ceiling. Remove the protocol evidence and generation tooling
+(`derive.py`, `report.py`, `htsp_spec.json`, `HTSP_METHOD_MATRIX.md`,
+`htsp_surface.py`, the four typed Kotlin generators, and the generated-source
+drift checker); the existing `Generated*.kt` sources are now maintained by
+hand. This changes no API, ABI, or runtime behavior.
+
 ## [0.1.1]
 
 This release records the initial provisional baseline under `0.1.1` after the

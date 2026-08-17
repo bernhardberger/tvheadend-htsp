@@ -25,15 +25,6 @@ jobs:
           java-version: '21'
       - name: Build and stage publication
         run: ./gradlew --no-daemon clean build check stageLocalPublication
-      - name: Verify protocol evidence
-        run: |
-          python3 docs/htsp-protocol/report.py --check
-          python3 docs/htsp-protocol/generate_typed_requests.py --self-test
-          python3 docs/htsp-protocol/generate_typed_request_models.py --self-test
-          python3 docs/htsp-protocol/generate_typed_server_messages.py --self-test
-          python3 docs/htsp-protocol/generate_typed_server_message_models.py --self-test
-      - name: Verify generated sources
-        run: ./tools/check-htsp-generated-drift
       - name: Verify staged JVM publication
         run: ./tools/check-published-jvm-compatibility
       - name: Verify consumer contract

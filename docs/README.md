@@ -16,9 +16,9 @@ Guides for people using the library, and references for people working on it.
 
 ## Repository internals
 
-- [`htsp-protocol/README.md`](htsp-protocol/README.md): the pinned HTSP v44
-  protocol evidence, wire-level reference, and code generators behind the
-  typed catalog.
+- [`htsp-protocol/README.md`](htsp-protocol/README.md): the upstream pin,
+  wire-level reference, and maintenance notes for the hand-maintained typed
+  catalog.
 - [`adr/0001-standalone-protocol-decisions.md`](adr/0001-standalone-protocol-decisions.md):
   the settled design decisions and the ideas deliberately left out.
 - [`extraction/manifest.json`](extraction/manifest.json): the frozen record of

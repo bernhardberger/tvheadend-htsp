@@ -17,7 +17,8 @@ Status: accepted before standalone extraction.
 - **D6 — probe ownership.** Client probe policy is not protocol-library API;
   only mechanically necessary protocol behavior remains here.
 - **D7 — governance.** Fail closed on the exact five-package set and preserve
-  protocol boundary, KDoc, generated drift, outcomes, and attribution checks.
+  protocol boundary, KDoc, focused protocol regression, outcomes, and
+  attribution checks.
 
 The following are recorded but deliberately not implemented here: a session
 façade, a public wire-value AST, a capability profile, a mux-stream API, and a

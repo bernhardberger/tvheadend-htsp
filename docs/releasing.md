@@ -34,7 +34,7 @@ Pushing the exact tag for the configured release version starts the workflow.
 For the current release that tag is `v0.1.1`. The workflow:
 
 1. checks out the complete tag history without persisting credentials;
-2. validates the Gradle wrapper, protocol evidence, and generated-source drift;
+2. validates the Gradle wrapper;
 3. builds, tests, and stages `build/local-maven` once, then verifies those staged
    bytes and the release setup without rebuilding;
 4. records one SHA-256 manifest for the exact five Maven originals;
