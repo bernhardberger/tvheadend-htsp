@@ -20,12 +20,16 @@ plugins {
 group = "at.bernhardberger.tvheadend"
 version = "0.1.1"
 
+val releaseVersion = version.toString().removeSuffix("-SNAPSHOT")
 val allowedPublicationVersions = setOf(
-    "0.1.1-SNAPSHOT",
-    "0.1.1",
+    "$releaseVersion-SNAPSHOT",
+    releaseVersion,
 )
-check(version.toString() in allowedPublicationVersions) {
-    "Publication version must be exactly one of $allowedPublicationVersions"
+check(
+    Regex("0\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)").matches(releaseVersion) &&
+        version.toString() in allowedPublicationVersions,
+) {
+    "Publication version must be a strict major-zero release or snapshot: $version"
 }
 
 kotlin {
@@ -196,8 +200,9 @@ val writePublicationChecksums = tasks.register("writePublicationChecksums") {
             "Staged publication directory is missing: $versionDirectory"
         }
         val artifacts = if (publicationVersion.endsWith("-SNAPSHOT")) {
+            val releaseVersion = Regex.escape(publicationVersion.removeSuffix("-SNAPSHOT"))
             val artifactPattern = Regex(
-                "^htsp-0\\.1\\.1-\\d{8}\\.\\d{6}-\\d+" +
+                "^htsp-$releaseVersion-\\d{8}\\.\\d{6}-\\d+" +
                     "(?:-sources|-javadoc)?\\.(?:jar|pom|module)$",
             )
             versionDirectory.listFiles()

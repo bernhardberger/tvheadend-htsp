@@ -21,7 +21,7 @@ ROOT = Path(__file__).resolve().parents[1]
 REPOSITORY = ROOT / "build/local-maven"
 GROUP = "at.bernhardberger.tvheadend"
 ARTIFACT = "htsp"
-ALLOWED_VERSIONS = {"0.1.1-SNAPSHOT", "0.1.1"}
+STRICT_RELEASE_VERSION = re.compile(r"0\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)")
 
 
 def configured_version() -> str:
@@ -35,6 +35,12 @@ def configured_version() -> str:
 
 VERSION = configured_version()
 RELEASE_BASE = VERSION.removesuffix("-SNAPSHOT")
+ALLOWED_VERSIONS = (
+    {RELEASE_BASE, f"{RELEASE_BASE}-SNAPSHOT"}
+    if STRICT_RELEASE_VERSION.fullmatch(RELEASE_BASE)
+    else set()
+)
+FIXTURE_SNAPSHOT_VERSION = f"{RELEASE_BASE}-SNAPSHOT"
 JVM_VERSION = 17
 CLASS_MAJOR = 61
 PROJECT_URL = "https://github.com/bernhardberger/tvheadend-htsp"
@@ -534,7 +540,7 @@ def write_jar(path: Path, kind: str, wrong_major: bool = False) -> None:
             archive.writestr("index.html", "documentation")
 
 
-def create_fixture(root: Path, version: str = "0.1.1-SNAPSHOT") -> Path:
+def create_fixture(root: Path, version: str = FIXTURE_SNAPSHOT_VERSION) -> Path:
     global VERSION, RELEASE_BASE
     VERSION = version
     RELEASE_BASE = VERSION.removesuffix("-SNAPSHOT")
@@ -562,7 +568,7 @@ def create_fixture(root: Path, version: str = "0.1.1-SNAPSHOT") -> Path:
     return repository
 
 
-def fixture_verify(repository: Path, version: str = "0.1.1-SNAPSHOT") -> tuple[list[str], dict[str, str]]:
+def fixture_verify(repository: Path, version: str = FIXTURE_SNAPSHOT_VERSION) -> tuple[list[str], dict[str, str]]:
     global REPOSITORY, VERSION, RELEASE_BASE
     original = REPOSITORY
     original_version = VERSION
@@ -580,7 +586,7 @@ def fixture_verify(repository: Path, version: str = "0.1.1-SNAPSHOT") -> tuple[l
 
 def self_test() -> list[str]:
     errors: list[str] = []
-    expected_versions = {"0.1.1-SNAPSHOT", "0.1.1"}
+    expected_versions = {RELEASE_BASE, FIXTURE_SNAPSHOT_VERSION}
     if ALLOWED_VERSIONS != expected_versions:
         errors.append("self-test publication version allowlist mismatch")
     with tempfile.TemporaryDirectory() as temporary:
@@ -603,13 +609,13 @@ def self_test() -> list[str]:
             if not any("publication version must be exactly" in error for error in legacy_errors):
                 errors.append(f"self-test accepted legacy alpha publication version or filenames: {legacy_errors}")
 
-        create_fixture(root, "0.1.1-SNAPSHOT")
+        create_fixture(root, FIXTURE_SNAPSHOT_VERSION)
 
         def mutate_and_check(name: str, mutate: Any, expected: str) -> None:
             case_root = root / name.replace(" ", "-")
-            case_repository = create_fixture(case_root, "0.1.1-SNAPSHOT")
+            case_repository = create_fixture(case_root, FIXTURE_SNAPSHOT_VERSION)
             mutate(case_repository)
-            actual, _ = fixture_verify(case_repository, "0.1.1-SNAPSHOT")
+            actual, _ = fixture_verify(case_repository, FIXTURE_SNAPSHOT_VERSION)
             if not any(expected in error for error in actual):
                 errors.append(f"self-test accepted {name} without {expected!r}: {actual}")
 
