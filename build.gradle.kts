@@ -81,11 +81,8 @@ tasks.withType<Jar>()
         }
     }
 
-afterEvaluate {
-    val sourceArtifacts = configurations
-        .getByName("sourcesElements")
-        .outgoing
-        .artifacts
+configurations.named("sourcesElements") {
+    val sourceArtifacts = outgoing.artifacts
     val sourcesJarArtifacts = sourceArtifacts.filter { artifact ->
         artifact.buildDependencies.getDependencies(null).any { task ->
             task.name == "sourcesJar"
@@ -160,18 +157,29 @@ tasks.withType<PublishToMavenLocal>().configureEach {
     enabled = false
 }
 
-val writePublicationChecksums by tasks.registering {
+val publicationVersion = version.toString()
+val publicationVersionDirectory = checkoutLocalMavenRepository.map { repository ->
+    repository.dir("at/bernhardberger/tvheadend/htsp/$publicationVersion")
+}
+
+val writePublicationChecksums = tasks.register("writePublicationChecksums") {
     group = "publishing"
     description = "Writes SHA-256 sidecars for the five staged HTSP publication artifacts."
     dependsOn("publishHtspPublicationToCheckoutLocalRepository")
+    inputs.property("publicationVersion", publicationVersion)
+    inputs.property("allowedPublicationVersions", allowedPublicationVersions.toList())
+    inputs.property(
+        "publicationVersionDirectory",
+        publicationVersionDirectory.map { directory -> directory.asFile.absolutePath },
+    )
     doLast {
-        val publicationVersion = version.toString()
+        val publicationVersion = inputs.properties.getValue("publicationVersion") as String
+        val allowedPublicationVersions =
+            (inputs.properties.getValue("allowedPublicationVersions") as List<*>).filterIsInstance<String>()
         check(publicationVersion in allowedPublicationVersions) {
             "Unsupported publication version: $publicationVersion"
         }
-        val versionDirectory = checkoutLocalMavenRepository.get().dir(
-            "at/bernhardberger/tvheadend/htsp/$publicationVersion",
-        ).asFile
+        val versionDirectory = File(inputs.properties.getValue("publicationVersionDirectory") as String)
         check(versionDirectory.isDirectory) {
             "Staged publication directory is missing: $versionDirectory"
         }
@@ -213,12 +221,15 @@ tasks.register("stageLocalPublication") {
     dependsOn(writePublicationChecksums)
 }
 
+val productionClasses = layout.buildDirectory.dir("classes")
+
 tasks.register("verifyClassMajor61") {
     group = "verification"
     description = "Checks every production class uses Java 17 class-file major version 61."
     dependsOn("classes")
+    inputs.dir(productionClasses)
     doLast {
-        val classes = fileTree(layout.buildDirectory.dir("classes")) {
+        val classes = inputs.files.asFileTree.matching {
             include("**/main/**/*.class")
         }.files.sortedBy { file -> file.invariantSeparatorsPath }
         check(classes.isNotEmpty()) { "No production class files were found" }
@@ -233,12 +244,26 @@ tasks.register("verifyClassMajor61") {
     }
 }
 
+val directProductionDependencies = configurations.named("api").map { configuration ->
+    configuration.dependencies
+        .map { dependency -> "${dependency.group}:${dependency.name}:${dependency.version}" }
+        .sorted()
+}
+val resolvedProductionDependencies = configurations.named("runtimeClasspath").map { configuration ->
+    configuration.incoming.resolutionResult.allComponents
+        .mapNotNull { component -> component.id as? ModuleComponentIdentifier }
+        .map { identifier -> "${identifier.group}:${identifier.module}:${identifier.version}" }
+        .sorted()
+}
+
 tasks.register("verifyProductionDependencyGraph") {
     group = "verification"
     description = "Checks the JVM-only production dependency graph."
+    inputs.property("directDependencies", directProductionDependencies)
+    inputs.property("resolvedDependencies", resolvedProductionDependencies)
     doLast {
-        val direct = configurations.getByName("api").dependencies
-            .map { dependency -> "${dependency.group}:${dependency.name}:${dependency.version}" }
+        val direct = (inputs.properties.getValue("directDependencies") as List<*>)
+            .filterIsInstance<String>()
             .toSortedSet()
         val expectedDirect = sortedSetOf(
             "org.jetbrains.kotlin:kotlin-stdlib:2.3.10",
@@ -247,10 +272,8 @@ tasks.register("verifyProductionDependencyGraph") {
         check(direct == expectedDirect) {
             "Unexpected direct production dependencies: $direct"
         }
-        val resolved = configurations.getByName("runtimeClasspath")
-            .incoming.resolutionResult.allComponents
-            .mapNotNull { component -> component.id as? ModuleComponentIdentifier }
-            .map { identifier -> "${identifier.group}:${identifier.module}:${identifier.version}" }
+        val resolved = (inputs.properties.getValue("resolvedDependencies") as List<*>)
+            .filterIsInstance<String>()
             .toSet()
         val allowed = setOf(
             "org.jetbrains:annotations:23.0.0",
