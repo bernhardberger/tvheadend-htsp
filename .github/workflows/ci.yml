@@ -36,3 +36,5 @@ jobs:
         run: ./tools/check-htsp-generated-drift
       - name: Verify staged JVM publication
         run: ./tools/check-published-jvm-compatibility
+      - name: Verify consumer contract
+        run: ./gradlew --no-daemon -p consumer-contract clean compileKotlin verifyConsumerDependencyGraph
