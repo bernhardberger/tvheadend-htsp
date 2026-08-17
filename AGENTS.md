@@ -1,60 +1,59 @@
 # HTSP library engineering guide
 
 This GPLv3 library is an independently maintained descendant of
-`Preclikos/tvhstream`. Preserve its attribution, notices, license, and recorded
-protocol extraction boundary. Do not describe it as official TVHeadend software
-or as wholly original work.
+`Preclikos/tvhstream`. Preserve its attribution, notices, license, and the
+recorded extraction provenance in `docs/extraction/`. Do not describe it as
+official TVHeadend software or as wholly original work.
 
-## Before editing
+## Working style
 
-1. Inspect `git status -sb` and recent history. Preserve every existing change.
-2. Select only task-matching authority through `docs/README.md`.
-3. State scope, assumptions, invariants, owned paths, exclusions, and exact
-   verification before editing one bounded slice.
-4. Write a failing focused regression test first for runtime, lifecycle,
-   protocol, API-policy, or governance behavior.
+- Keep changes minimal and scoped. Inspect `git status -sb` before editing and
+  never overwrite existing uncommitted changes.
+- Prefer standard, maintained ecosystem tooling (Gradle, Kotlin plugins,
+  detekt, Konsist, Dokka, GitHub Actions) over bespoke scripts. Do not add new
+  repository tooling, checkers, generators, or languages without explicit
+  maintainer approval.
+- Behavior changes ship with a focused regression test.
 
-## Boundaries
+## Build and verify
 
-- Production declarations use only the five shallow packages `connection`,
-  `jsonapi`, `messages`, `requests`, and `wire` below
+The Gradle wrapper is the build prerequisite; JDK toolchains resolve
+automatically. CI (`.github/workflows/ci.yml`) is the authoritative gate.
+
+- Local verification: `./gradlew clean build check stageLocalPublication`.
+- Protocol evidence and generated-source drift:
+  `./tools/check-htsp-generated-drift` and
+  `python3 docs/htsp-protocol/report.py --check`. These are plain Python and
+  never need Gradle.
+
+## Invariants
+
+- Production declarations live only in the five shallow packages `connection`,
+  `jsonapi`, `messages`, `requests`, and `wire` under
   `at.bernhardberger.tvheadend.htsp`.
-- Protocol code depends only on sibling declarations, Kotlin/JDK facilities,
-  and `kotlinx.coroutines`. Preserve `tools/check-htsp-protocol-boundary`.
-- Public suspending server round trips return typed outcomes. Cancellation
-  propagates as cancellation. Preserve `tools/check-public-api-outcomes`.
-- Pinned HTSP v44 evidence and generated outputs live in `docs/htsp-protocol`.
-  A method or wire-field change must update its catalog/spec/matrix/generated
-  evidence in the same explicitly owned slice.
-- The `consumer-contract` is static P3-E1 evidence only. Do not resolve, compile,
-  execute, stage, or publish its external coordinate without a later explicit
-  publication-policy authorization.
-- Checkout-local publication verification is accepted P3-E2 evidence. The
-  tagged release workflow is the only recurring publication path. It runs the
-  complete verifier, stages once, and publishes those exact bytes without a
-  later build or source-generation step.
-- Reviewed exact-tag GitHub Actions and repository `main` are the accepted
-  release trust boundary. One-time setup places `MAVEN_GPG_PRIVATE_KEY`,
-  `MAVEN_GPG_PASSPHRASE`, and `CENTRAL_PORTAL_TOKEN` in the `central` GitHub
-  Environment. Only the release publish step receives them.
+- Production code depends only on sibling declarations, the Kotlin/JDK standard
+  libraries, and `kotlinx-coroutines-core`. Never add Android, Media3, native,
+  or application code.
+- Public suspending server round trips return typed outcomes; cancellation
+  propagates as cancellation. Error values never carry secrets or credentials.
+- `docs/htsp-protocol/` holds the pinned HTSP v44 evidence. A method or
+  wire-field change updates the spec, matrix, catalog, and generated Kotlin in
+  the same change. `Generated*.kt` files are never hand-edited; regenerate them
+  with the commands documented in `docs/htsp-protocol/README.md`.
+- The public ABI is tracked in `api/htsp.api` through Kotlin Gradle plugin ABI
+  validation; update it only through the documented ABI dump workflow.
+
+## Release trust boundary
+
+- The tagged release workflow (GitHub Actions on repository `main`, exact tag
+  `v*`) is the only publication path. Preparing or checking release files never
+  authorizes a tag, credential operation, publication, or release.
+- One-time setup places `MAVEN_GPG_PRIVATE_KEY`, `MAVEN_GPG_PASSPHRASE`, and
+  `CENTRAL_PORTAL_TOKEN` in the `central` GitHub Environment. Only the release
+  publish step receives them.
 - Never print release secrets or place them in source, process arguments,
   artifacts, logs, reports, or generated output. The dedicated Maven/OpenPGP
-  key remains separate from the Android APK PKCS#12 key. The tracked public key
-  and full primary fingerprint remain the signature-verification authority.
-- Pushing the exact reviewed version tag starts signing, automatic Central
-  publication, Central byte comparison, and GitHub prerelease creation. The
-  accepted residual risk is that a malicious approved release workflow, GitHub
-  compromise, or repository-administration compromise could use or exfiltrate
-  the dedicated key and Central token.
-
-Do not add Android, Media3, native artifacts, application code, publication,
-signing, release, remote, credential, or device operations incidentally.
-Preparing or checking the workflow does not authorize a tag, credential
-operation, publication, or release.
-
-## Verification
-
-Run focused checks and `./tools/verify-htsp --non-gradle` locally when Gradle 9
-is unavailable. Exact-SHA CI owns default Gradle 9 execution. A local static
-pass is not publication, distribution, Java 17 runtime, physical-device, or
-release-readiness evidence.
+  key remains separate from any Android APK signing key. The tracked public key
+  and its full primary fingerprint are the signature-verification authority.
+- Never run `git tag`, `git push`, signing, or publication steps without an
+  explicit maintainer instruction for that specific operation.
