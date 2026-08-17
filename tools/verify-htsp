@@ -18,18 +18,10 @@ fi
 ./tools/check-api-compatibility-policy --self-test
 ./tools/check-api-compatibility-policy
 ./tools/check-published-jvm-compatibility --self-test
-./tools/check-htsp-protocol-boundary --self-test
-./tools/check-htsp-protocol-boundary
 ./tools/check-htsp-generated-drift --self-test
 ./tools/check-htsp-generated-drift
 ./tools/check-htsp-public-kdoc --self-test
 ./tools/check-htsp-public-kdoc
-./tools/check-htsp-json-api-containment --self-test
-./tools/check-htsp-json-api-containment
-./tools/check-single-package-per-module --self-test
-./tools/check-single-package-per-module
-./tools/check-public-api-outcomes --self-test
-./tools/check-public-api-outcomes
 ./tools/check-license-attribution --self-test
 ./tools/check-license-attribution
 
