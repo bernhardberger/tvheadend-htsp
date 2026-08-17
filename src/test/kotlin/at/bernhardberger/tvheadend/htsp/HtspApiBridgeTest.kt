@@ -8,13 +8,13 @@ import at.bernhardberger.tvheadend.htsp.wire.*
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import kotlinx.coroutines.test.runTest
-import org.junit.Assert.assertArrayEquals
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotSame
-import org.junit.Assert.assertSame
-import org.junit.Assert.assertThrows
-import org.junit.Assert.assertTrue
-import org.junit.Test
+import org.junit.jupiter.api.Assertions.assertArrayEquals
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNotSame
+import org.junit.jupiter.api.Assertions.assertSame
+import org.junit.jupiter.api.Assertions.assertThrows
+import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Test
 
 @OptIn(HtspJsonApi::class)
 class HtspApiBridgeTest {
@@ -216,7 +216,7 @@ class HtspApiBridgeTest {
         val caller = HtspTypedRequestCaller(transport)
         malformedResponses.forEach { fields ->
             transport.reply = HtspWireReply(fields)
-            assertSame(fields.toString(), HtspResult.ServerError, caller.call(request))
+            assertSame(HtspResult.ServerError, caller.call(request), fields.toString())
         }
     }
 

@@ -4,12 +4,12 @@ import at.bernhardberger.tvheadend.htsp.messages.*
 import at.bernhardberger.tvheadend.htsp.requests.*
 import at.bernhardberger.tvheadend.htsp.wire.*
 
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNotEquals
-import org.junit.Assert.assertThrows
-import org.junit.Assert.assertTrue
-import org.junit.Test
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertNotEquals
+import org.junit.jupiter.api.Assertions.assertThrows
+import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Test
 
 class HtspServerMessageTest {
     @Test
@@ -402,11 +402,11 @@ class HtspServerMessageTest {
             "at.bernhardberger.tvheadend.htsp.messages.GeneratedHtspServerMessageDispatchKt",
         )
         assertTrue(
-            "S2 requires the production-named public decoder",
             dispatchClass.declaredMethods.any { method ->
                 method.name == "decodeHtspServerMessage" &&
                     method.parameterTypes.contentEquals(arrayOf(Map::class.java))
             },
+            "S2 requires the production-named public decoder",
         )
         Class.forName("at.bernhardberger.tvheadend.htsp.messages.HtspServerMessageDecodeResult")
         Class.forName("at.bernhardberger.tvheadend.htsp.messages.HtspServerMessageDecoded")
@@ -438,9 +438,9 @@ class HtspServerMessageTest {
         )
         validPartialShapes.forEach { fields ->
             assertEquals(
-                "${fields["method"]} must accept its evidenced partial/lower-version shape",
                 true,
                 decodeHtspServerMessage(fields) is HtspServerMessageDecoded,
+                "${fields["method"]} must accept its evidenced partial/lower-version shape",
             )
         }
     }
@@ -726,7 +726,7 @@ class HtspServerMessageTest {
     fun everyFiniteDispatchBranchDecodesASourceValidMinimalFixture() {
         typedHtspServerMessageCatalogForTest().forEach { (method, messageType) ->
             val result = decodeHtspServerMessage(minimalFixture(method))
-            assertTrue("$method must decode", result is HtspServerMessageDecoded)
+            assertTrue(result is HtspServerMessageDecoded, "$method must decode")
             assertEquals(
                 messageType,
                 (result as HtspServerMessageDecoded).message::class.simpleName,
@@ -932,8 +932,8 @@ class HtspServerMessageTest {
 
     private fun assertMalformed(fields: Map<String, Any?>) {
         assertTrue(
-            "expected malformed for $fields",
             decodeHtspServerMessage(fields) is HtspServerMessageMalformedKnownMessage,
+            "expected malformed for $fields",
         )
     }
 

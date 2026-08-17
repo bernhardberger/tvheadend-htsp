@@ -15,11 +15,11 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotNull
-import org.junit.Assert.assertNull
-import org.junit.Assert.assertTrue
-import org.junit.Test
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNotNull
+import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Test
 import java.net.SocketTimeoutException
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
@@ -205,7 +205,8 @@ internal class HtspServiceRequestTimeoutTest : HtspServiceLifecycleFixture() {
                     host = "127.0.0.1",
                     port = server.port,
                     connectTimeoutMs = 1_000,
-                    responseTimeoutMs = 100,
+                    // Wider response bounds tolerate slow CI scheduling while 25 ms socket timeouts still exercise idle cycles.
+                    responseTimeoutMs = 500,
                     soTimeoutMs = 25,
                 )
 
@@ -218,13 +219,13 @@ internal class HtspServiceRequestTimeoutTest : HtspServiceLifecycleFixture() {
                 val request = async(Dispatchers.IO) {
                     service.request(
                         method = "afterIdleProbe",
-                        timeoutMs = 1_000L,
+                        timeoutMs = 2_000L,
                         disconnectOnTimeout = false,
                     )
                 }
-                assertTrue(server.postHandshakeRequestReceived.await(1, TimeUnit.SECONDS))
+                assertTrue(server.postHandshakeRequestReceived.await(2, TimeUnit.SECONDS))
                 server.replyToCapturedPostHandshakeRequest()
-                assertEquals("afterIdleProbe", withTimeout(1_000L) { request.await() }.method)
+                assertEquals("afterIdleProbe", withTimeout(2_000L) { request.await() }.method)
                 service.disconnect()
             }
         }

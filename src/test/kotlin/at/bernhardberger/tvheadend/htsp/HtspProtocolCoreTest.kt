@@ -9,12 +9,12 @@ import at.bernhardberger.tvheadend.htsp.wire.*
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.test.runTest
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotEquals
-import org.junit.Assert.assertNotSame
-import org.junit.Assert.assertSame
-import org.junit.Assert.assertTrue
-import org.junit.Test
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNotEquals
+import org.junit.jupiter.api.Assertions.assertNotSame
+import org.junit.jupiter.api.Assertions.assertSame
+import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Test
 import java.io.IOException
 import java.lang.reflect.Modifier
 
@@ -910,8 +910,8 @@ class HtspProtocolCoreTest {
         )
         failures.forEach { failure ->
             assertTrue(
-                "Failure must not retain payload fields: ${failure.javaClass.declaredFields.toList()}",
                 failure.javaClass.declaredFields.all { field -> Modifier.isStatic(field.modifiers) },
+                "Failure must not retain payload fields: ${failure.javaClass.declaredFields.toList()}",
             )
         }
         assertTrue(HtspResult::class.java.declaredClasses.none { nested -> nested.simpleName == "Conflict" })
@@ -1574,16 +1574,16 @@ class HtspProtocolCoreTest {
             Modifier.isStatic(field.modifiers)
         }
         assertTrue(
-            "ServerError must not retain instance payload fields: $instanceFields",
             instanceFields.isEmpty(),
+            "ServerError must not retain instance payload fields: $instanceFields",
         )
 
         val payloadAccessors = first.javaClass.declaredMethods.filter { method ->
             method.name in setOf("getMessage", "component1", "copy", "copy\$default")
         }
         assertTrue(
-            "ServerError must not expose payload accessors: $payloadAccessors",
             payloadAccessors.isEmpty(),
+            "ServerError must not expose payload accessors: $payloadAccessors",
         )
 
         transport.reply = HtspWireReply(linkedMapOf("error" to "second server detail"))

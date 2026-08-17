@@ -5,11 +5,11 @@ import at.bernhardberger.tvheadend.htsp.wire.*
 import java.io.EOFException
 import java.io.InputStream
 import java.util.Random
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertThrows
-import org.junit.Assert.assertTrue
-import org.junit.Assert.fail
-import org.junit.Test
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertThrows
+import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Assertions.fail
+import org.junit.jupiter.api.Test
 
 class HtspCodecDeterministicFuzzTest {
 
@@ -111,8 +111,8 @@ class HtspCodecDeterministicFuzzTest {
         } catch (unexpected: Throwable) {
             fail("Unexpected ${unexpected::class.java.name}; $diagnostic")
         }
-        assertTrue("Read beyond declared root; $diagnostic", input.consumed <= boundary)
-        expectedUnread?.let { assertEquals("Extension was consumed; $diagnostic", it, input.available()) }
+        assertTrue(input.consumed <= boundary, "Read beyond declared root; $diagnostic")
+        expectedUnread?.let { assertEquals(it, input.available(), "Extension was consumed; $diagnostic") }
     }
 
     private fun declaredBoundary(bytes: ByteArray): Long {

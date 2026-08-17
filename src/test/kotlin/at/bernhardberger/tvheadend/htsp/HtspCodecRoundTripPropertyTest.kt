@@ -5,9 +5,9 @@ import at.bernhardberger.tvheadend.htsp.wire.*
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.util.Random
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
-import org.junit.Test
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Test
 
 class HtspCodecRoundTripPropertyTest {
 
@@ -100,20 +100,20 @@ class HtspCodecRoundTripPropertyTest {
     private fun assertWireValueEquals(expected: Any?, actual: Any?, context: String = "") {
         when {
             expected is ByteArray && actual is ByteArray ->
-                assertTrue(context, expected.contentEquals(actual))
+                assertTrue(expected.contentEquals(actual), context)
             expected is HtspWireUuid && actual is HtspWireUuid ->
-                assertTrue(context, expected.bytes().contentEquals(actual.bytes()))
+                assertTrue(expected.bytes().contentEquals(actual.bytes()), context)
             expected is Map<*, *> && actual is Map<*, *> -> {
-                assertEquals(context, expected.keys, actual.keys)
+                assertEquals(expected.keys, actual.keys, context)
                 expected.keys.forEach { key -> assertWireValueEquals(expected[key], actual[key], "$context/$key") }
             }
             expected is List<*> && actual is List<*> -> {
-                assertEquals(context, expected.size, actual.size)
+                assertEquals(expected.size, actual.size, context)
                 expected.indices.forEach { index ->
                     assertWireValueEquals(expected[index], actual[index], "$context/$index")
                 }
             }
-            else -> assertEquals(context, expected, actual)
+            else -> assertEquals(expected, actual, context)
         }
     }
 
