@@ -3,7 +3,7 @@ package at.bernhardberger.tvheadend.htsp.connection
 /**
  * The client identity used by the connection. [clientName] is sent in `hello`;
  * [clientVersion] is retained for identity and diagnostics and is not transmitted by the
- * current [HelloRequest].
+ * current [at.bernhardberger.tvheadend.htsp.requests.HelloRequest].
  */
 public data class HtspClientIdentity(
     val clientName: String,

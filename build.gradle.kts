@@ -4,7 +4,7 @@ import org.gradle.api.publish.maven.tasks.PublishToMavenLocal
 import org.gradle.api.tasks.bundling.Jar
 import org.gradle.api.tasks.compile.JavaCompile
 import org.gradle.api.tasks.testing.Test
-import io.gitlab.arturbosch.detekt.Detekt
+import dev.detekt.gradle.Detekt
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.jetbrains.kotlin.gradle.tasks.KotlinJvmCompile
 import java.security.MessageDigest
@@ -36,9 +36,7 @@ kotlin {
         freeCompilerArgs.add("-Xjdk-release=17")
     }
     @OptIn(org.jetbrains.kotlin.gradle.dsl.abi.ExperimentalAbiValidation::class)
-    abiValidation {
-        enabled.set(true)
-    }
+    abiValidation()
 }
 
 java {
@@ -280,7 +278,7 @@ tasks.register("verifyProductionDependencyGraph") {
             .filterIsInstance<String>()
             .toSortedSet()
         val expectedDirect = sortedSetOf(
-            "org.jetbrains.kotlin:kotlin-stdlib:2.3.10",
+            "org.jetbrains.kotlin:kotlin-stdlib:2.4.10",
             "org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2",
         )
         check(direct == expectedDirect) {
@@ -291,7 +289,7 @@ tasks.register("verifyProductionDependencyGraph") {
             .toSet()
         val allowed = setOf(
             "org.jetbrains:annotations:23.0.0",
-            "org.jetbrains.kotlin:kotlin-stdlib:2.3.10",
+            "org.jetbrains.kotlin:kotlin-stdlib:2.4.10",
             "org.jetbrains.kotlinx:kotlinx-coroutines-bom:1.10.2",
             "org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2",
             "org.jetbrains.kotlinx:kotlinx-coroutines-core-jvm:1.10.2",
@@ -301,5 +299,5 @@ tasks.register("verifyProductionDependencyGraph") {
 }
 
 tasks.named("check") {
-    dependsOn("checkLegacyAbi", "verifyClassMajor61", "verifyProductionDependencyGraph")
+    dependsOn("checkKotlinAbi", "verifyClassMajor61", "verifyProductionDependencyGraph")
 }

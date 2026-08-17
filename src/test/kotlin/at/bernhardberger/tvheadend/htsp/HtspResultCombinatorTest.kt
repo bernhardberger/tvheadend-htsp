@@ -191,14 +191,14 @@ class HtspResultCombinatorTest {
         assertExactThrowable(foldOkFailure) {
             HtspResult.Ok("value").fold(
                 onOk = { throw foldOkFailure },
-                onFailure = { "failure" },
+                onFailure = { error("Failure branch must not run") },
             )
         }
 
         val foldFailure = AssertionError("fold failure")
         assertExactThrowable(foldFailure) {
             HtspResult.NotSupported.fold(
-                onOk = { "ok" },
+                onOk = { error("Success branch must not run") },
                 onFailure = { throw foldFailure },
             )
         }

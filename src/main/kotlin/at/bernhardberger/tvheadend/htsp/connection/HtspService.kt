@@ -816,7 +816,7 @@ internal open class `HtspService-internal`(
         var typedEvent: HtspTransportEvent.ConnectionFailure? = null
         val published = connectMutex.withLock {
             if (!isCurrentConnectionAttempt(attemptId)) return@withLock false
-            val publication = withCurrentConnectionAttempt(attemptId) {
+            withCurrentConnectionAttempt(attemptId) {
                 _state.value = ConnectionState.Error(t)
                 typedEvent = HtspTransportEvent.ConnectionFailure(
                     failure = typedTransportFailure(t),
@@ -828,7 +828,6 @@ internal open class `HtspService-internal`(
                 attemptId = attemptId,
                 publishState = true,
             )
-            publication
             true
         }
         if (!published) return

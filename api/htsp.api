@@ -429,7 +429,6 @@ public abstract interface class at/bernhardberger/tvheadend/htsp/jsonapi/HtspApi
 }
 
 public final class at/bernhardberger/tvheadend/htsp/jsonapi/HtspApiList : at/bernhardberger/tvheadend/htsp/jsonapi/HtspApiContainer {
-	public synthetic fun <init> ([Lat/bernhardberger/tvheadend/htsp/jsonapi/HtspApiValue;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public fun equals (Ljava/lang/Object;)Z
 	public final fun get (I)Lat/bernhardberger/tvheadend/htsp/jsonapi/HtspApiValue;
 	public final fun getSize ()I
@@ -452,7 +451,6 @@ public final class at/bernhardberger/tvheadend/htsp/jsonapi/HtspApiLong : at/ber
 }
 
 public final class at/bernhardberger/tvheadend/htsp/jsonapi/HtspApiObject : at/bernhardberger/tvheadend/htsp/jsonapi/HtspApiContainer {
-	public synthetic fun <init> ([Lkotlin/Pair;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public fun equals (Ljava/lang/Object;)Z
 	public final fun get (Ljava/lang/String;)Lat/bernhardberger/tvheadend/htsp/jsonapi/HtspApiValue;
 	public final fun getKeys ()Ljava/util/Set;

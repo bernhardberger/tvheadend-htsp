@@ -41,7 +41,7 @@ class TerminalLifecycleGateTest {
             assertEquals(2L, terminal.get(1, TimeUnit.SECONDS) ?: fail("Close must win"))
             assertTrue(closeCompleted.await(1, TimeUnit.SECONDS))
             assertThrows(IllegalStateException::class.java) {
-                gate.admit { 3L }
+                gate.admit { fail("Admission block must not run") }
             }
         } finally {
             releaseAdmission.countDown()

@@ -50,11 +50,11 @@ PROPERTIES = {
     "tvheadend.htsp.notice.path": "NOTICE.md",
 }
 POM_DEPENDENCIES = {
-    ("org.jetbrains.kotlin", "kotlin-stdlib", "2.3.10"),
+    ("org.jetbrains.kotlin", "kotlin-stdlib", "2.4.10"),
     ("org.jetbrains.kotlinx", "kotlinx-coroutines-core-jvm", "1.10.2"),
 }
 MODULE_DEPENDENCIES = {
-    ("org.jetbrains.kotlin", "kotlin-stdlib", "2.3.10"),
+    ("org.jetbrains.kotlin", "kotlin-stdlib", "2.4.10"),
     ("org.jetbrains.kotlinx", "kotlinx-coroutines-core", "1.10.2"),
 }
 FORBIDDEN_TEXT = re.compile(r"android|media3|decoder|\.aar\b|\.so\b|com\.android", re.IGNORECASE)
