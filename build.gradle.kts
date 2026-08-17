@@ -299,3 +299,7 @@ tasks.register("verifyProductionDependencyGraph") {
         check(resolved == allowed) { "Unexpected production resolution graph: $resolved" }
     }
 }
+
+tasks.named("check") {
+    dependsOn("checkLegacyAbi", "verifyClassMajor61", "verifyProductionDependencyGraph")
+}

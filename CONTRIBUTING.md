@@ -13,4 +13,5 @@ Start with `AGENTS.md` and the [documentation index](docs/README.md).
 - Keep `htsp_surface.py`, the generators, generated Kotlin, `htsp_spec.json`,
   and `HTSP_METHOD_MATRIX.md` synchronized. A method or wire-field change must
   update its catalog and generated evidence together.
-- Run focused tests and `tools/verify-htsp` before submitting a change.
+- Run focused tests and the commands in `.github/workflows/ci.yml` before
+  submitting a change.
