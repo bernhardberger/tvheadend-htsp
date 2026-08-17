@@ -474,8 +474,11 @@ def archive_errors(kind: str, path: Path) -> list[str]:
             kotlin_sources = [name for name in names if name.endswith(".kt")]
             if kind == "sources" and len(kotlin_sources) != 24:
                 errors.append(f"sources: expected 24 Kotlin sources, found {len(kotlin_sources)}")
-            if kind == "javadoc" and kotlin_sources:
-                errors.append("javadoc: documentation archive contains Kotlin source")
+            if kind == "javadoc":
+                if kotlin_sources:
+                    errors.append("javadoc: documentation archive contains Kotlin source")
+                if names.count("index.html") != 1:
+                    errors.append("javadoc: Dokka index.html is missing")
     except (OSError, zipfile.BadZipFile) as error:
         errors.append(f"{kind}: malformed ZIP/JAR: {error}")
     return errors
@@ -528,7 +531,7 @@ def write_jar(path: Path, kind: str, wrong_major: bool = False) -> None:
             for index in range(24):
                 archive.writestr(f"at/bernhardberger/tvheadend/htsp/wire/S{index}.kt", "package synthetic")
         else:
-            archive.writestr("docs/index.md", "documentation")
+            archive.writestr("index.html", "documentation")
 
 
 def create_fixture(root: Path, version: str = "0.1.0-SNAPSHOT") -> Path:

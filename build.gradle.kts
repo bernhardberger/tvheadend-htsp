@@ -11,6 +11,8 @@ plugins {
     `java-library`
     `maven-publish`
     alias(libs.plugins.kotlin.jvm)
+    alias(libs.plugins.detekt)
+    alias(libs.plugins.dokka)
 }
 
 group = "at.bernhardberger.tvheadend"
@@ -49,6 +51,13 @@ dependencies {
     api(libs.kotlinx.coroutines.core)
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(libs.konsist)
+}
+
+detekt {
+    buildUponDefaultConfig = true
+    config.setFrom("detekt.yml")
+    disableDefaultRuleSets = true
 }
 
 tasks.withType<JavaCompile>().configureEach {
@@ -88,6 +97,7 @@ configurations.named("sourcesElements") {
 }
 
 tasks.named<Jar>("javadocJar") {
+    from(tasks.dokkaGeneratePublicationHtml.flatMap { it.outputDirectory })
     from("README.md") {
         into("docs")
         rename { "ROOT_README.md" }
