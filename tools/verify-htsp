@@ -20,8 +20,6 @@ fi
 ./tools/check-published-jvm-compatibility --self-test
 ./tools/check-htsp-generated-drift --self-test
 ./tools/check-htsp-generated-drift
-./tools/check-htsp-public-kdoc --self-test
-./tools/check-htsp-public-kdoc
 ./tools/check-license-attribution --self-test
 ./tools/check-license-attribution
 

@@ -4,6 +4,7 @@ import org.gradle.api.publish.maven.tasks.PublishToMavenLocal
 import org.gradle.api.tasks.bundling.Jar
 import org.gradle.api.tasks.compile.JavaCompile
 import org.gradle.api.tasks.testing.Test
+import io.gitlab.arturbosch.detekt.Detekt
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.jetbrains.kotlin.gradle.tasks.KotlinJvmCompile
 import java.security.MessageDigest
@@ -57,9 +58,12 @@ dependencies {
 }
 
 detekt {
-    buildUponDefaultConfig = true
     config.setFrom("detekt.yml")
-    disableDefaultRuleSets = true
+    source.setFrom("src/main/kotlin")
+}
+
+tasks.withType<Detekt>().configureEach {
+    exclude("**/Generated*.kt")
 }
 
 tasks.withType<JavaCompile>().configureEach {
