@@ -235,16 +235,16 @@ tasks.register("stageLocalPublication") {
     dependsOn(writePublicationChecksums)
 }
 
-val productionClasses = layout.buildDirectory.dir("classes")
+val productionClasses = sourceSets["main"].output.classesDirs
 
 tasks.register("verifyClassMajor61") {
     group = "verification"
     description = "Checks every production class uses Java 17 class-file major version 61."
     dependsOn("classes")
-    inputs.dir(productionClasses)
+    inputs.files(productionClasses)
     doLast {
         val classes = inputs.files.asFileTree.matching {
-            include("**/main/**/*.class")
+            include("**/*.class")
         }.files.sortedBy { file -> file.invariantSeparatorsPath }
         check(classes.isNotEmpty()) { "No production class files were found" }
         classes.forEach { file ->

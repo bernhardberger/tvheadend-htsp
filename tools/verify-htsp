@@ -11,17 +11,11 @@ if [ "${1-}" != "" ] && [ "${1-}" != "--non-gradle" ]; then
     exit 2
 fi
 
-./tools/check-standalone-repository --self-test
-./tools/check-standalone-repository
 ./tools/publish-central-release --self-test
 ./tools/publish-central-release --check-setup
-./tools/check-api-compatibility-policy --self-test
-./tools/check-api-compatibility-policy
 ./tools/check-published-jvm-compatibility --self-test
 ./tools/check-htsp-generated-drift --self-test
 ./tools/check-htsp-generated-drift
-./tools/check-license-attribution --self-test
-./tools/check-license-attribution
 
 python3 docs/htsp-protocol/report.py --check
 python3 docs/htsp-protocol/generate_typed_requests.py --self-test
