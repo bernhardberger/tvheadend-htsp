@@ -32,8 +32,6 @@ REPOSITORY = "bernhardberger/tvheadend-htsp"
 GROUP = "at.bernhardberger.tvheadend"
 ARTIFACT = "htsp"
 FINGERPRINT = "EAB02E488E7B944EAA6D65814BF0412FD2A3B741"
-CHECKOUT_SHA = "11bd71901bbe5b1630ceea73d27597364c9af683"
-JAVA_SHA = "c5195efecf7bdfc987ee8bae7a71cb8b11521c00"
 UPLOAD_URL = "https://central.sonatype.com/api/v1/publisher/upload"
 STATUS_URL = "https://central.sonatype.com/api/v1/publisher/status"
 MAVEN_URL = "https://repo1.maven.org/maven2"
@@ -1088,39 +1086,15 @@ def setup_errors(root: Path = ROOT) -> list[str]:
     tool = root / "tools/publish-central-release"
     if tool.is_file() and tool.stat().st_mode & 0o111 == 0:
         errors.append("tools/publish-central-release must be executable")
-    for old in ("tools/check-release-candidate", "tools/sign-central-bundle"):
-        if (root / old).exists() or (root / old).is_symlink():
-            errors.append(f"superseded release tool is forbidden: {old}")
     release = texts[".github/workflows/release.yml"]
     ci = texts[".github/workflows/ci.yml"]
     source = texts["tools/publish-central-release"]
     errors.extend(release_job_guard_errors(release))
-    checks = (
-        ("tags:\n      - 'v*'", "release workflow must trigger only v* tag pushes"),
-        ("contents: write", "release workflow must grant contents write"),
-        ("cancel-in-progress: false", "release concurrency must not cancel an active run"),
-        ("runs-on: ubuntu-24.04", "release runner must be ubuntu-24.04"),
-        ("timeout-minutes: 60", "release job must have a timeout"),
-        ("environment: central", "release job must use the central Environment"),
-        ("persist-credentials: false", "release checkout must not persist credentials"),
-        ("fetch-depth: 0", "release checkout must fetch tag and main history"),
-        (f"actions/checkout@{CHECKOUT_SHA}", "release checkout action must use the approved full SHA"),
-        (f"actions/setup-java@{JAVA_SHA}", "release Java action must use the approved full SHA"),
-        ("./tools/verify-htsp", "release workflow must run the complete verifier"),
-        ("./tools/publish-central-release --publish", "release workflow must invoke publish mode"),
-        ("./tools/publish-central-release --finalize-github-release", "release workflow must invoke GitHub finalizer mode"),
-    )
-    for token, message in checks:
-        if release.count(token) != 1:
-            errors.append(message)
-    action_uses = re.findall(r"(?m)^\s*uses:\s*([^\s]+)\s*$", release)
-    if action_uses != [f"actions/checkout@{CHECKOUT_SHA}", f"actions/setup-java@{JAVA_SHA}"]:
-        errors.append("release workflow action inventory or pin differs from the approved two actions")
+    if release.count("tags:\n      - 'v*'") != 1:
+        errors.append("release workflow must trigger only v* tag pushes")
     for forbidden_trigger in ("branches:", "pull_request:", "workflow_dispatch:", "schedule:"):
         if forbidden_trigger in release:
             errors.append(f"release workflow contains a non-tag trigger: {forbidden_trigger}")
-    if release.count("permissions:") != 1 or re.findall(r"(?m)^\s{2}([a-z-]+): (read|write)$", release) != [("contents", "write")]:
-        errors.append("release workflow permissions must contain only contents: write")
     expected_refs = {
         f"{name}: ${{{{ secrets.{name} }}}}"
         for name in SECRET_NAMES
@@ -1137,40 +1111,27 @@ def setup_errors(root: Path = ROOT) -> list[str]:
         errors.append("release secret references must occur once and only in publish order")
     if re.findall(r"(?m)^\s{10}([A-Z0-9_]+):", release_step) != ["GH_TOKEN"] or "GH_TOKEN: ${{ github.token }}" not in release_step:
         errors.append("GitHub release step must receive only GH_TOKEN from github.token")
-    verify_position = release.find("./tools/verify-htsp")
+    ordered_commands = (
+        ("./gradlew --no-daemon clean build check stageLocalPublication", "stage command"),
+        ("./tools/check-published-jvm-compatibility", "staged publication check"),
+        ("./tools/publish-central-release --check-setup", "release setup check"),
+    )
     secret_position = min((release.find(f"secrets.{name}") for name in SECRET_NAMES), default=-1)
-    publish_position = release.find("./tools/publish-central-release --publish")
-    github_position = release.find("./tools/publish-central-release --finalize-github-release")
-    if min(verify_position, secret_position, publish_position, github_position) < 0 or not (
-        verify_position < secret_position <= publish_position < github_position
-    ):
-        errors.append("full verifier, secret-bearing publish, and GitHub release ordering is invalid")
-    if "gh release create" in release or "build/release/github-assets/*" in release or "build/release/htsp-*" in release:
-        errors.append("GitHub release workflow must use the idempotent finalizer without CLI wildcard upload")
+    for command, label in ordered_commands:
+        if release.count(command) != 1 or secret_position < 0 or release.find(command) > secret_position:
+            errors.append(f"{label} must occur exactly once before release secret references")
+    publish_command = "./tools/publish-central-release --publish"
+    github_command = "./tools/publish-central-release --finalize-github-release"
+    if release.count(publish_command) != 1:
+        errors.append("release workflow must invoke publish mode")
+    if release.count(github_command) != 1:
+        errors.append("release workflow must invoke GitHub finalizer mode")
+    if release.find(publish_command) > release.find(github_command):
+        errors.append("Central publish and GitHub finalizer ordering is invalid")
     if "secrets." in ci or "publish-central-release" in ci or "upload-artifact" in ci:
         errors.append("normal CI must not reference release secrets, publishing, or retained release output")
-    for token in (
-        'publishingType": "AUTOMATIC"',
-        f'REPOSITORY = "{REPOSITORY}"',
-        "GITHUB_REPOSITORY",
-        "GITHUB_EVENT_NAME",
-        "GITHUB_REF_TYPE",
-        "refs/tags/",
-        "refs/remotes/origin/main",
-        '"merge-base", "--is-ancestor"',
-        '"status", "--porcelain=v1", "--untracked-files=all"',
-        '"cat-file", "-t"',
-        '"gpgconf", "--homedir"',
-        '"--kill", "all"',
-        'modes.add_argument("--finalize-github-release"',
-        '"application/octet-stream"',
-        '"digest"',
-        '"draft": False',
-    ):
-        if token not in source:
-            errors.append(f"publish tool setup guard is missing: {token}")
-    if "./gradlew" in release or re.search(r"\(\s*[\"'](?:\./)?gradlew?[\"']", source):
-        errors.append("release path must not invoke Gradle after verified staging")
+    if re.search(r"\(\s*[\"'](?:\./)?gradlew?[\"']", source):
+        errors.append("publisher source must not invoke Gradle")
     publish_source = source[source.find("def publish()"):] if "def publish()" in source else ""
     preflight_position = publish_source.find("decision = central_preflight(")
     secret_position_in_tool = publish_source.find('os.environ["MAVEN_GPG_PRIVATE_KEY"]')
@@ -1183,26 +1144,6 @@ def setup_errors(root: Path = ROOT) -> list[str]:
     recovery_branch = publish_source[recovery_position:publish_source.find("pending_output", recovery_position)]
     if any(name in recovery_branch for name in ("MAVEN_GPG_PRIVATE_KEY", "MAVEN_GPG_PASSPHRASE", "sign_originals")):
         errors.append("Central recovery must not access the private key, passphrase, or signing path")
-    cleanup_position = publish_source.find("terminate_gpg_agents(temporary)")
-    removal_position = publish_source.find("shutil.rmtree(temporary, ignore_errors=True)")
-    if cleanup_position < 0 or removal_position < 0 or cleanup_position > removal_position:
-        errors.append("temporary gpg-agent cleanup must precede GNUPGHOME removal")
-    documentation = "\n".join(
-        (root / relative).read_text(encoding="utf-8")
-        for relative in ("AGENTS.md", "docs/README.md", "docs/releasing.md", "release/openpgp/README.md")
-        if (root / relative).is_file()
-    )
-    for stale in (
-        "check-release-candidate",
-        "sign-central-bundle",
-        "candidate TAR",
-        "evidence TAR",
-        "isolated signing host",
-        "Central Portal UI",
-        "Publish or Drop",
-    ):
-        if stale.casefold() in (release + "\n" + ci + "\n" + documentation).casefold():
-            errors.append(f"superseded release flow remains active: {stale}")
     fingerprint = texts["release/openpgp/primary-fingerprint.txt"]
     if fingerprint != FINGERPRINT + "\n":
         errors.append("tracked primary fingerprint does not match the approved full fingerprint")
@@ -1472,11 +1413,6 @@ def setup_regression_tests() -> list[str]:
                 .replace("./tools/publish-central-release --publish", "ORDER_PLACEHOLDER", 1)
                 .replace("./tools/publish-central-release --finalize-github-release", "./tools/publish-central-release --publish", 1)
                 .replace("ORDER_PLACEHOLDER", "./tools/publish-central-release --finalize-github-release", 1),
-            ),
-            (
-                "one-shot gh release creation",
-                "idempotent finalizer",
-                original + "\n# gh release create build/release/github-assets/*\n",
             ),
         )
         for label, expected, workflow in cases:

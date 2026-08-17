@@ -228,10 +228,11 @@ python3 docs/htsp-protocol/derive.py \
   --write
 ```
 
-The generators and evidence tools include focused self-tests;
-`tools/verify-htsp` runs them. Any change that implements an HTSP method or maps
-a wire field must update `htsp_spec.json`, `HTSP_METHOD_MATRIX.md`, the catalog,
-and generated Kotlin in the same change.
+The generators and evidence tools include focused self-tests. CI enforces
+`./tools/check-htsp-generated-drift` and
+`python3 docs/htsp-protocol/report.py --check`. Any change that implements an
+HTSP method or maps a wire field must update `htsp_spec.json`,
+`HTSP_METHOD_MATRIX.md`, the catalog, and generated Kotlin in the same change.
 
 ## License and attribution
 
