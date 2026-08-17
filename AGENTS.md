@@ -14,6 +14,11 @@ official TVHeadend software or as wholly original work.
   repository tooling, checkers, generators, or languages without explicit
   maintainer approval.
 - Behavior changes ship with a focused regression test.
+- Repository rules and tests override skill guidance.
+- Coroutine advice must preserve intentional transport-owned lifecycle scopes
+  and cancellation contracts.
+- API-design advice applies only to hand-written public APIs and cannot
+  authorize ABI changes or edits to generated sources.
 
 ## Build and verify
 
