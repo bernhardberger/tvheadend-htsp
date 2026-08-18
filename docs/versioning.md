@@ -5,9 +5,11 @@ The current immutable release coordinate is `at.bernhardberger.tvheadend:htsp:0.
 changes from `0.1.1`. The signed `v0.1.0` tag stopped before publication and is
 not reused. Published release bytes are immutable and must never be replaced.
 
-Availability from Maven Central or any other public repository is independently
-verified external state. This repository does not claim that publication or
-availability has occurred.
+The `0.2.0` coordinate is available from
+[Maven Central](https://central.sonatype.com/artifact/at.bernhardberger.tvheadend/htsp/0.2.0),
+with its [repository files](https://repo1.maven.org/maven2/at/bernhardberger/tvheadend/htsp/0.2.0/)
+available directly. Publication and availability remain independently verified
+external state for every release.
 
 ## Provisional 0.x policy
 

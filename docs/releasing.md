@@ -8,7 +8,7 @@ suffix.
 
 Local staging does not establish external publication or availability.
 Publication and availability are independently verified external state. This
-repository does not claim that publication has occurred.
+repository links a release only after that verification succeeds.
 
 ## One-time GitHub setup
 
@@ -32,7 +32,8 @@ That residual risk is accepted for this release path.
 ## Automatic tag sequence
 
 Pushing the exact tag for the configured release version starts the workflow.
-For the current release that tag is `v0.2.0`. The workflow:
+The published `v0.2.0` release used the previous 22-asset GitHub layout and
+remains immutable. Releases after `v0.2.0` use this sequence:
 
 1. checks out the complete tag history without persisting credentials;
 2. validates the Gradle wrapper;
@@ -42,12 +43,13 @@ For the current release that tag is `v0.2.0`. The workflow:
 5. signs those originals with primary fingerprint
    `EAB02E488E7B944EAA6D65814BF0412FD2A3B741` and verifies every signature with
    the tracked public key;
-6. creates the mandatory MD5 and SHA-1 sidecars and an exact 20-member
-   Maven-layout Central ZIP;
+6. creates the mandatory MD5 and SHA-1 sidecars and a byte-deterministic exact
+   20-member Maven-layout Central ZIP;
 7. submits the ZIP once with `publishingType=AUTOMATIC`, waits for `PUBLISHED`,
    and resolves and compares all 20 published Central members;
-8. validates the exact 22 GitHub assets (the same 20 Maven files, Central ZIP,
-   and manifest) and matching CHANGELOG notes before any GitHub mutation;
+8. validates the two GitHub assets (Central ZIP and manifest) and the matching
+   CHANGELOG notes with deterministic Maven Central links before any GitHub
+   mutation;
 9. creates or resumes a draft GitHub prerelease, uploads only missing or
    mismatched expected draft assets, verifies all names, sizes, and SHA-256
    digests, and only then publishes the prerelease.
@@ -72,11 +74,14 @@ failure after some draft assets were stored leaves the release as a draft; a
 rerun retains exact assets and completes the missing uploads before publishing.
 Wrong expected draft assets are replaced, but unexpected or duplicate names
 fail closed. A rerun after a lost final publish response accepts the published
-prerelease only when its tag, title, notes, prerelease type, and all 22 asset
+prerelease only when its tag, title, notes, prerelease type, and both asset
 names, sizes, and SHA-256 digests already match. Published release bytes are
 immutable and must never be replaced. Setup checks and local or CI staging are
 not publication, distribution, Java 17 runtime, support, or release-readiness
 evidence.
+
+The 20 signed and checksummed Maven members remain in the Central ZIP and are
+verified against Central. They are not duplicated as individual GitHub assets.
 
 [`../release/openpgp/README.md`](../release/openpgp/README.md) defines the key and
 signature-verification contract.

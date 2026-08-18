@@ -28,10 +28,11 @@ no Android, Media3, or decoder code.
 
 ## Installation
 
-The Gradle dependency uses the exact immutable release coordinate
-`at.bernhardberger.tvheadend:htsp:0.2.0`. Availability from Maven Central or
-another public repository must be independently verified; this repository does
-not claim that publication has occurred.
+The exact immutable release coordinate is
+`at.bernhardberger.tvheadend:htsp:0.2.0`. It is available from
+[Maven Central](https://central.sonatype.com/artifact/at.bernhardberger.tvheadend/htsp/0.2.0),
+with the [repository files](https://repo1.maven.org/maven2/at/bernhardberger/tvheadend/htsp/0.2.0/)
+available directly.
 
 The Gradle dependency is:
 
