@@ -9,6 +9,18 @@ has a v44 coverage ceiling. Remove the protocol evidence and generation tooling
 drift checker); the existing `Generated*.kt` sources are now maintained by
 hand. This changes no API, ABI, or runtime behavior.
 
+**BREAKING (source + binary):** The hand-maintained protocol surface is now
+grouped into domain source files. The former JVM facades
+`jsonapi.GeneratedHtspExtensionsKt`,
+`messages.GeneratedHtspServerMessageDispatchKt`, and
+`requests.GeneratedHtspExtensionsKt` have been replaced by facades derived from
+the new filenames. Two `getTicket`, two `subscriptionSeek`, and two
+`subscriptionSkip` subtype overloads were removed; pass their base selector
+types instead. `fileCloseWithProgress` was merged into `fileClose`, which now
+accepts optional `playPositionSeconds` and `playCount` arguments. Existing
+positional calls of the form `fileClose(id, timeoutMs)` now bind the second
+argument to `playPositionSeconds`; use the named argument `timeoutMs = ...`.
+
 ## [0.1.1]
 
 This release records the initial provisional baseline under `0.1.1` after the

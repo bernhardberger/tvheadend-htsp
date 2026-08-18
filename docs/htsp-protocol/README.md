@@ -37,11 +37,6 @@ pages are secondary. `lib/py/tvh/htsp.py` is only a protocol-33 cross-check for
 hello, authentication, and asynchronous metadata. Current repository code and
 tests define accepted local behavior.
 
-The six `Generated*.kt` filenames are retained because their JVM facade names
-are public ABI, but the files are maintained by hand. Their request models,
-wire mappings, validation, redaction, dispatch, and server-message models are
-the local typed surface.
-
 ## Coverage
 
 | Surface | Count | Meaning |
@@ -177,12 +172,10 @@ they do not add schedule publication, lifecycle, retry, or DVR policy.
   builders omit otherwise required fields.
 - The 39 canonical request extensions mirror constructors, add timeout and
   generation controls, construct one request, and delegate once to `execute`.
-  `fileCloseWithProgress(id, playPositionSeconds, playCount, timeoutMs, expectedGeneration)`
-  preserves the older `(id, timeoutMs, expectedGeneration)` positional meaning. DVR event/explicit-time and
-  subscription ID/name choices have wrapper-free conveniences. Seek and skip
-  use `SubscriptionSeekPosition.Time` and `.Size` because both values are
-  `Long`. The 50 declarations include typed `api`, `hello`, and fieldless
-  `authenticate`.
+  `fileClose` accepts optional recording position and play-count values. DVR
+  event/explicit-time and subscription ID/name choices have wrapper-free
+  conveniences. Seek and skip use `SubscriptionSeekPosition.Time` and `.Size`
+  because both values are `Long`.
 - `decodeHtspServerMessage(Map<String, Any?>)` is the versionless finite decoder. It treats every `seq` reply envelope, unknown or
   missing/non-string method, as unknown; malformed recognized messages are
   malformed-known. It is not a version gate. `descrambleInfo` is emitted from
@@ -201,11 +194,15 @@ they do not add schedule publication, lifecycle, retry, or DVR policy.
 
 ## Maintenance
 
-A method or wire-field change is a direct edit to the relevant `Generated*.kt`
-file and ships with a focused regression test. Keep public KDoc accurate. An
-intentional public API or ABI change also follows the documented API dump
-workflow. Do not rename the `Generated*.kt` files: top-level declarations use
-JVM facade classes derived from those filenames.
+Request models and connection extensions are grouped by domain in
+`requests/Htsp*Requests.kt`; server-message models are grouped in
+`messages/Htsp*Messages.kt`, with request codec and server decoder/dispatch
+files beside them. The JSON API call is in `jsonapi/HtspJsonApiCall.kt`, and
+shared field reading is in `wire/HtspFieldReader.kt`.
+
+A method or wire-field change ships with a focused regression test. Keep public
+KDoc accurate. An intentional public API or ABI change also follows the
+documented API dump workflow.
 
 ## License and attribution
 

@@ -9,7 +9,7 @@ Status: accepted before standalone extraction.
   `messages`, `connection`, and `jsonapi`; no flat-root or deeper compatibility
   packages.
 - **D3 — canonical execution.** `HtspConnection.execute` accepts only a finite
-  catalog `HtspRequest`; generated extensions are convenience delegates.
+  catalog `HtspRequest`; connection extensions are convenience delegates.
 - **D4 — mapping.** Exceptions thrown by a consumer transform propagate and are
   never converted to `ServerError`.
 - **D5 — errors.** Keep the compressed public failure categories; no new public

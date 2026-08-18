@@ -39,8 +39,8 @@ automatically. CI (`.github/workflows/ci.yml`) is the authoritative gate.
   propagates as cancellation. Error values never carry secrets or credentials.
 - `docs/htsp-protocol/` holds the upstream pin record and protocol notes. The
   client requests HTSP v43 by default, while the typed surface has a v44
-  coverage ceiling. `Generated*.kt` is hand-maintained; a method or wire-field
-  change ships with a focused regression test in the same change.
+  coverage ceiling. The protocol surface is hand-maintained; a method or
+  wire-field change ships with a focused regression test in the same change.
 - The public ABI is tracked in `api/htsp.api` through Kotlin Gradle plugin ABI
   validation; update it only through the documented ABI dump workflow.
 
