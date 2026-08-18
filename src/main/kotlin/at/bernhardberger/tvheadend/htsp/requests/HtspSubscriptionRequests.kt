@@ -54,7 +54,7 @@ public data class SubscribeRequest(
 /** Selects one subscription by complete unsigned [subscriptionId] for termination. */
 public data class UnsubscribeRequest(
     public val subscriptionId: Long,
-) : HtspRequest<EmptyResponse>(
+) : HtspRequest<HtspEmptyResponse>(
     method = "unsubscribe",
     access = HtspAccess.ACCESS_HTSP_STREAMING,
     minimumProtocolVersion = null,
@@ -68,7 +68,7 @@ public data class UnsubscribeRequest(
 public data class SubscriptionChangeWeightRequest(
     public val subscriptionId: Long,
     public val weight: Long? = null,
-) : HtspRequest<EmptyResponse>(
+) : HtspRequest<HtspEmptyResponse>(
     method = "subscriptionChangeWeight",
     access = HtspAccess.ACCESS_HTSP_STREAMING,
     minimumProtocolVersion = 5,
@@ -92,7 +92,7 @@ public data class SubscriptionSeekRequest(
     public val subscriptionId: Long,
     public val position: SubscriptionSeekPosition,
     public val absolute: Long? = null,
-) : HtspRequest<EmptyResponse>(
+) : HtspRequest<HtspEmptyResponse>(
     method = "subscriptionSeek",
     access = HtspAccess.ACCESS_HTSP_STREAMING,
     minimumProtocolVersion = 9,
@@ -108,7 +108,7 @@ public data class SubscriptionSkipRequest(
     public val subscriptionId: Long,
     public val position: SubscriptionSeekPosition,
     public val absolute: Long? = null,
-) : HtspRequest<EmptyResponse>(
+) : HtspRequest<HtspEmptyResponse>(
     method = "subscriptionSkip",
     access = HtspAccess.ACCESS_HTSP_STREAMING,
     minimumProtocolVersion = 9,
@@ -123,7 +123,7 @@ public data class SubscriptionSkipRequest(
 public data class SubscriptionSpeedRequest(
     public val subscriptionId: Long,
     public val speed: Int,
-) : HtspRequest<EmptyResponse>(
+) : HtspRequest<HtspEmptyResponse>(
     method = "subscriptionSpeed",
     access = HtspAccess.ACCESS_HTSP_STREAMING,
     minimumProtocolVersion = 9,
@@ -136,7 +136,7 @@ public data class SubscriptionSpeedRequest(
 /** Selects one subscription by complete unsigned [subscriptionId] and requests live mode. */
 public data class SubscriptionLiveRequest(
     public val subscriptionId: Long,
-) : HtspRequest<EmptyResponse>(
+) : HtspRequest<HtspEmptyResponse>(
     method = "subscriptionLive",
     access = HtspAccess.ACCESS_HTSP_STREAMING,
     minimumProtocolVersion = 9,
@@ -151,7 +151,7 @@ public class SubscriptionFilterStreamRequest(
     public val subscriptionId: Long,
     enable: List<Long>? = null,
     disable: List<Long>? = null,
-) : HtspRequest<EmptyResponse>(
+) : HtspRequest<HtspEmptyResponse>(
     method = "subscriptionFilterStream",
     access = HtspAccess.ACCESS_HTSP_STREAMING,
     minimumProtocolVersion = 12,
@@ -249,7 +249,7 @@ public suspend fun HtspConnection.unsubscribe(
     subscriptionId: Long,
     timeoutMs: Long = 5_000L,
     expectedGeneration: HtspConnectionGeneration? = null,
-): HtspResult<EmptyResponse> =
+): HtspResult<HtspEmptyResponse> =
     execute(
         request = UnsubscribeRequest(
             subscriptionId = subscriptionId,
@@ -264,7 +264,7 @@ public suspend fun HtspConnection.subscriptionChangeWeight(
     weight: Long? = null,
     timeoutMs: Long = 5_000L,
     expectedGeneration: HtspConnectionGeneration? = null,
-): HtspResult<EmptyResponse> =
+): HtspResult<HtspEmptyResponse> =
     execute(
         request = SubscriptionChangeWeightRequest(
             subscriptionId = subscriptionId,
@@ -281,7 +281,7 @@ public suspend fun HtspConnection.subscriptionSeek(
     absolute: Long? = null,
     timeoutMs: Long = 5_000L,
     expectedGeneration: HtspConnectionGeneration? = null,
-): HtspResult<EmptyResponse> =
+): HtspResult<HtspEmptyResponse> =
     execute(
         request = SubscriptionSeekRequest(
             subscriptionId = subscriptionId,
@@ -299,7 +299,7 @@ public suspend fun HtspConnection.subscriptionSkip(
     absolute: Long? = null,
     timeoutMs: Long = 5_000L,
     expectedGeneration: HtspConnectionGeneration? = null,
-): HtspResult<EmptyResponse> =
+): HtspResult<HtspEmptyResponse> =
     execute(
         request = SubscriptionSkipRequest(
             subscriptionId = subscriptionId,
@@ -316,7 +316,7 @@ public suspend fun HtspConnection.subscriptionSpeed(
     speed: Int,
     timeoutMs: Long = 5_000L,
     expectedGeneration: HtspConnectionGeneration? = null,
-): HtspResult<EmptyResponse> =
+): HtspResult<HtspEmptyResponse> =
     execute(
         request = SubscriptionSpeedRequest(
             subscriptionId = subscriptionId,
@@ -331,7 +331,7 @@ public suspend fun HtspConnection.subscriptionLive(
     subscriptionId: Long,
     timeoutMs: Long = 5_000L,
     expectedGeneration: HtspConnectionGeneration? = null,
-): HtspResult<EmptyResponse> =
+): HtspResult<HtspEmptyResponse> =
     execute(
         request = SubscriptionLiveRequest(
             subscriptionId = subscriptionId,
@@ -347,7 +347,7 @@ public suspend fun HtspConnection.subscriptionFilterStream(
     disable: List<Long>? = null,
     timeoutMs: Long = 5_000L,
     expectedGeneration: HtspConnectionGeneration? = null,
-): HtspResult<EmptyResponse> =
+): HtspResult<HtspEmptyResponse> =
     execute(
         request = SubscriptionFilterStreamRequest(
             subscriptionId = subscriptionId,

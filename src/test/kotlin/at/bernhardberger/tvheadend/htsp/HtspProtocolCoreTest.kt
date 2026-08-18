@@ -427,13 +427,13 @@ class HtspProtocolCoreTest {
 
         transport.version = 9
         transport.reply = HtspWireReply(linkedMapOf("seq" to 7L))
-        assertEquals(HtspResult.Ok(EmptyResponse), connection.call(request))
+        assertEquals(HtspResult.Ok(HtspEmptyResponse), connection.call(request))
         assertEquals("subscriptionSkip", transport.lastMethod)
         assertEquals(linkedMapOf("subscriptionId" to 0L, "time" to 0L), transport.lastFields)
 
         transport.reply = HtspWireReply(linkedMapOf())
         assertEquals(
-            HtspResult.Ok(EmptyResponse),
+            HtspResult.Ok(HtspEmptyResponse),
             connection.call(
                 SubscriptionSkipRequest(2L, SubscriptionSeekPosition.Size(Long.MIN_VALUE)),
             ),
@@ -1234,7 +1234,7 @@ class HtspProtocolCoreTest {
             reply = HtspWireReply(linkedMapOf())
         }
         val caller = HtspTypedRequestCaller(transport)
-        assertEquals(HtspResult.Ok(EmptyResponse), caller.call(EnableAsyncMetadataRequest()))
+        assertEquals(HtspResult.Ok(HtspEmptyResponse), caller.call(EnableAsyncMetadataRequest()))
         assertSame(HtspResult.NotSupported, caller.call(EnableAsyncMetadataRequest(language = "")))
         assertEquals(1, transport.dispatches)
     }

@@ -1623,13 +1623,6 @@ public final class at/bernhardberger/tvheadend/htsp/requests/DeleteTimerecEntryR
 	public fun toString ()Ljava/lang/String;
 }
 
-public final class at/bernhardberger/tvheadend/htsp/requests/EmptyResponse {
-	public static final field INSTANCE Lat/bernhardberger/tvheadend/htsp/requests/EmptyResponse;
-	public fun equals (Ljava/lang/Object;)Z
-	public fun hashCode ()I
-	public fun toString ()Ljava/lang/String;
-}
-
 public final class at/bernhardberger/tvheadend/htsp/requests/EnableAsyncMetadataRequest : at/bernhardberger/tvheadend/htsp/requests/HtspRequest {
 	public fun <init> ()V
 	public fun <init> (Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/String;)V
@@ -2239,6 +2232,13 @@ public final class at/bernhardberger/tvheadend/htsp/requests/HtspDvrRequestsKt {
 	public static synthetic fun stopDvrEntry$default (Lat/bernhardberger/tvheadend/htsp/connection/HtspConnection;JJLat/bernhardberger/tvheadend/htsp/connection/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
 	public static final fun updateDvrEntry (Lat/bernhardberger/tvheadend/htsp/connection/HtspConnection;JLjava/lang/Long;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;JLat/bernhardberger/tvheadend/htsp/connection/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public static synthetic fun updateDvrEntry$default (Lat/bernhardberger/tvheadend/htsp/connection/HtspConnection;JLjava/lang/Long;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;JLat/bernhardberger/tvheadend/htsp/connection/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+}
+
+public final class at/bernhardberger/tvheadend/htsp/requests/HtspEmptyResponse {
+	public static final field INSTANCE Lat/bernhardberger/tvheadend/htsp/requests/HtspEmptyResponse;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
 }
 
 public final class at/bernhardberger/tvheadend/htsp/requests/HtspEpgBroadcastObject {

@@ -22,11 +22,11 @@ positional calls of the form `fileClose(id, timeoutMs)` now bind the second
 argument to `playPositionSeconds`; use the named argument `timeoutMs = ...`.
 
 **BREAKING (source + binary):** Public type names now follow one documented rule
-(see `docs/public-api.md`): request and response types are bare, while domain
-models, connection-lifecycle types, and server messages carry the `Htsp` prefix.
-`ConnectionState` is renamed to `HtspConnectionState` and `HtspEmptyResponse` to
-`EmptyResponse`. The unused `StreamProfile` is removed; it duplicated
-`HtspProfile` and had no references.
+(see `docs/public-api.md`): concrete per-method request and response types are
+bare, while domain models, connection-lifecycle types, server messages, and
+shared protocol abstractions carry the `Htsp` prefix. `ConnectionState` is
+renamed to `HtspConnectionState`. The unused `StreamProfile` is removed; it
+duplicated `HtspProfile` and had no references.
 
 ## [0.1.1]
 

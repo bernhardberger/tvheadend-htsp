@@ -6,14 +6,14 @@ writing against it.
 ## Type naming
 
 Whether a public type carries the `Htsp` prefix is decided by what it is, so you
-can predict a name without looking it up. Every one of the 155 public types
-follows this.
+can predict a name without looking it up. Every one of the 155 top-level public
+types follows this.
 
 Bare, because the name is already tied to one wire method:
 
 - One concrete request or response per method: `GetChannelRequest`,
-  `HelloResponse`, `FileOpenRequest`, `EmptyResponse`. The suffix already says
-  what the type is, so a prefix would only add noise.
+  `HelloResponse`, `FileOpenRequest`. The suffix already says what the type is,
+  so a prefix would only add noise.
 - The argument types those requests take, named after the request that owns
   them: `AddDvrEntrySelector`, `GetTicketSelector`, `SubscribeChannel`,
   `SubscriptionSeekPosition`, `FileSeekWhence`.
@@ -28,10 +28,10 @@ Prefixed, because the name stands on its own and would otherwise collide:
   `HtspEndpoint`, `HtspConnectionState`.
 - Server messages, which also take a `Message` suffix:
   `HtspChannelAddMessage`, `HtspSubscriptionStartMessage`.
-- Abstractions over a whole request family rather than a single method — the
-  `HtspRequest` base class and the `HtspDvrMutationRequest` /
-  `HtspDvrMutationResponse` markers. These name a category, not a wire method,
-  so they read as domain types.
+- Shared protocol abstractions and abstractions over a whole request family:
+  `HtspEmptyResponse`, the `HtspRequest` base class, and the
+  `HtspDvrMutationRequest` / `HtspDvrMutationResponse` markers. These name a
+  category or serve multiple wire methods, so they read as domain types.
 
 ## Public call outcomes
 

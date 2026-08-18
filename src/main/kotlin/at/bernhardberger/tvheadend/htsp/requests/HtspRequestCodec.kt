@@ -338,7 +338,7 @@ internal object `HtspRequestCodecs-internal` {
             gmtOffsetMinutes = fields.optionalS32("gmtoffset"),
         )
 
-        is EnableAsyncMetadataRequest -> EmptyResponse
+        is EnableAsyncMetadataRequest -> HtspEmptyResponse
 
         is GetChannelRequest -> decodeChannel(fields, protocolVersion)
 
@@ -403,22 +403,22 @@ internal object `HtspRequestCodecs-internal` {
             timeshiftPeriodSeconds = fields.optionalU32("timeshiftPeriod"),
         )
 
-        is UnsubscribeRequest -> EmptyResponse
+        is UnsubscribeRequest -> HtspEmptyResponse
 
-        is SubscriptionChangeWeightRequest -> EmptyResponse
+        is SubscriptionChangeWeightRequest -> HtspEmptyResponse
 
-        is SubscriptionSeekRequest -> EmptyResponse
+        is SubscriptionSeekRequest -> HtspEmptyResponse
 
         is SubscriptionSkipRequest -> {
             if (fields.keys.any { it != "seq" }) malformedReply()
-            EmptyResponse
+            HtspEmptyResponse
         }
 
-        is SubscriptionSpeedRequest -> EmptyResponse
+        is SubscriptionSpeedRequest -> HtspEmptyResponse
 
-        is SubscriptionLiveRequest -> EmptyResponse
+        is SubscriptionLiveRequest -> HtspEmptyResponse
 
-        is SubscriptionFilterStreamRequest -> EmptyResponse
+        is SubscriptionFilterStreamRequest -> HtspEmptyResponse
 
         is FileOpenRequest -> decodeFileOpen(fields)
 
