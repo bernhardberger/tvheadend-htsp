@@ -478,8 +478,8 @@ def archive_errors(kind: str, path: Path) -> list[str]:
             elif classes:
                 errors.append(f"{kind}: documentation/source archive contains class files")
             kotlin_sources = [name for name in names if name.endswith(".kt")]
-            if kind == "sources" and len(kotlin_sources) != 34:
-                errors.append(f"sources: expected 34 Kotlin sources, found {len(kotlin_sources)}")
+            if kind == "sources" and len(kotlin_sources) != 33:
+                errors.append(f"sources: expected 33 Kotlin sources, found {len(kotlin_sources)}")
             if kind == "javadoc":
                 if kotlin_sources:
                     errors.append("javadoc: documentation archive contains Kotlin source")
@@ -534,7 +534,7 @@ def write_jar(path: Path, kind: str, wrong_major: bool = False) -> None:
             major = 60 if wrong_major else CLASS_MAJOR
             archive.writestr("at/bernhardberger/tvheadend/htsp/wire/Synthetic.class", b"\xca\xfe\xba\xbe\x00\x00" + struct.pack(">H", major))
         elif kind == "sources":
-            for index in range(34):
+            for index in range(33):
                 archive.writestr(f"at/bernhardberger/tvheadend/htsp/wire/S{index}.kt", "package synthetic")
         else:
             archive.writestr("index.html", "documentation")

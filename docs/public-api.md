@@ -3,6 +3,25 @@
 How the public API reports success and failure, and what you can rely on when
 writing against it.
 
+## Type naming
+
+Public type names follow one rule, so you can predict a name without looking it
+up.
+
+- Request and response types are bare: `GetChannelRequest`, `HelloResponse`,
+  `FileOpenRequest`, `EmptyResponse`. The suffix already says what the type is,
+  so a prefix would only add noise.
+- Domain models carry the `Htsp` prefix: `HtspChannel`, `HtspEvent`,
+  `HtspProfile`, `HtspDvrCutpoint`. Their bare names are common words that
+  collide with types consumers already have. `Channel` is the sharpest case: it
+  collides with `kotlinx.coroutines.channels.Channel`, which this library
+  exposes as an `api` dependency.
+- Server messages carry the prefix and a `Message` suffix:
+  `HtspChannelAddMessage`, `HtspSubscriptionStartMessage`.
+
+Connection-lifecycle types are prefixed as domain models, because `Connection`,
+`Endpoint`, and `ConnectionState` are all names a consumer is likely to define.
+
 ## Public call outcomes
 
 Server round trips return values, not exceptions.

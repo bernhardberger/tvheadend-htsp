@@ -103,11 +103,11 @@ internal class `HtspRequestTimeoutException-internal`(
 internal typealias HtspRequestTimeoutException = `HtspRequestTimeoutException-internal`
 
 /** Internal-service connection state exposed as finite typed snapshots. */
-public sealed class ConnectionState {
+public sealed class HtspConnectionState {
     /** No transport is currently connected or connecting. */
-    public data object Disconnected : ConnectionState()
+    public data object Disconnected : HtspConnectionState()
     /** A connection attempt is in progress for the recorded host and port. */
-    public data class Connecting(val host: String, val port: Int) : ConnectionState()
+    public data class Connecting(val host: String, val port: Int) : HtspConnectionState()
     /**
      * @param dvrAccess HTSP `ACCESS_HTSP_RECORDER` from authenticate (version ≥ 26).
      * null when unauthenticated or the field was not returned.
@@ -117,9 +117,9 @@ public sealed class ConnectionState {
         val port: Int,
         val htspVersion: Int?,
         val dvrAccess: Boolean? = null,
-    ) : ConnectionState()
+    ) : HtspConnectionState()
     /** The current service state carries an implementation failure for internal consumers. */
-    public data class Error(val throwable: Throwable) : ConnectionState()
+    public data class Error(val throwable: Throwable) : HtspConnectionState()
 }
 
 internal open class `HtspService-internal`(
@@ -133,8 +133,8 @@ internal open class `HtspService-internal`(
     private val beforeTypedRecapture: suspend (HtspRequest<*>) -> Unit = {},
     private val beforeTypedEventPublication: (HtspTransportEvent.ServerMessage) -> Unit = {},
 ) : HtspRequestTransport, HtspConnection, HtspTypedRequestCapability {
-    private val _state = MutableStateFlow<ConnectionState>(ConnectionState.Disconnected)
-    val state: StateFlow<ConnectionState> = _state
+    private val _state = MutableStateFlow<HtspConnectionState>(HtspConnectionState.Disconnected)
+    val state: StateFlow<HtspConnectionState> = _state
 
     private val _liveConnection = MutableStateFlow<HtspLiveConnection?>(null)
     override val liveConnection: StateFlow<HtspLiveConnection?> = _liveConnection
@@ -142,7 +142,7 @@ internal open class `HtspService-internal`(
     private val _events = MutableSharedFlow<HtspTransportEvent>()
     override val events: SharedFlow<HtspTransportEvent> = _events
 
-    open fun currentConnectionState(): ConnectionState = state.value
+    open fun currentConnectionState(): HtspConnectionState = state.value
 
     private val serviceJob = SupervisorJob()
     private val scope = CoroutineScope(serviceJob + ioDispatcher)
@@ -236,7 +236,7 @@ internal open class `HtspService-internal`(
                 ensureCurrentConnectionAttempt(attemptId)
                 publishConnectionState(
                     attemptId,
-                    ConnectionState.Connecting(host, port),
+                    HtspConnectionState.Connecting(host, port),
                 )
 
                 val s = lifecycle.admit {
@@ -348,7 +348,7 @@ internal open class `HtspService-internal`(
                     if (
                         !publishConnectedState(
                             attemptId = attemptId,
-                            state = ConnectionState.Connected(
+                            state = HtspConnectionState.Connected(
                                 host = host,
                                 port = port,
                                 htspVersion = negotiatedHtspVersion,
@@ -379,7 +379,7 @@ internal open class `HtspService-internal`(
                         )
                         throw superseded
                     }
-                    publishConnectionState(attemptId, ConnectionState.Error(t))
+                    publishConnectionState(attemptId, HtspConnectionState.Error(t))
                     disconnectInternal(
                         t = t,
                         attemptId = attemptId,
@@ -390,7 +390,7 @@ internal open class `HtspService-internal`(
             }
         } catch (cancelled: CancellationException) {
             retireAdmissionTransport(attemptId)
-            publishConnectionState(attemptId, ConnectionState.Disconnected)
+            publishConnectionState(attemptId, HtspConnectionState.Disconnected)
             throw cancelled
         }
     }
@@ -806,7 +806,7 @@ internal open class `HtspService-internal`(
             closeTransportSnapshot(retirement.transport)
             job?.takeIf { it !== callerJob }?.join()
             if (publishState && isCurrentConnectionAttempt(attemptId)) {
-                publishConnectionState(attemptId, ConnectionState.Disconnected)
+                publishConnectionState(attemptId, HtspConnectionState.Disconnected)
             }
         }
     }
@@ -817,7 +817,7 @@ internal open class `HtspService-internal`(
         val published = connectMutex.withLock {
             if (!isCurrentConnectionAttempt(attemptId)) return@withLock false
             withCurrentConnectionAttempt(attemptId) {
-                _state.value = ConnectionState.Error(t)
+                _state.value = HtspConnectionState.Error(t)
                 typedEvent = HtspTransportEvent.ConnectionFailure(
                     failure = typedTransportFailure(t),
                     generation = protocolGeneration?.token,
@@ -936,7 +936,7 @@ internal open class `HtspService-internal`(
         if (
             liveTransportAttempt != generation.attemptId ||
             connectionAttempt != generation.attemptId ||
-            _state.value !is ConnectionState.Connected
+            _state.value !is HtspConnectionState.Connected
         ) {
             return@synchronized null
         }
@@ -986,7 +986,7 @@ internal open class `HtspService-internal`(
                 generation.token === serviceGeneration.token &&
                 liveTransportAttempt == serviceGeneration.attemptId &&
                 connectionAttempt == serviceGeneration.attemptId &&
-                _state.value is ConnectionState.Connected
+                _state.value is HtspConnectionState.Connected
         }
 
     override fun retire(generation: HtspCapturedGeneration) {
@@ -1008,7 +1008,7 @@ internal open class `HtspService-internal`(
             challenge = null
             negotiatedHtspVersion = null
             _liveConnection.value = null
-            _state.value = ConnectionState.Disconnected
+            _state.value = HtspConnectionState.Disconnected
             target
         }
         closeSocket(target)
@@ -1024,7 +1024,7 @@ internal open class `HtspService-internal`(
         synchronized(connectionAttemptLock) {
             val serviceGeneration = generation.transportKey as? ServiceProtocolGeneration
                 ?: throw CancellationException("Stale HTSP connection generation")
-            val connectedState = _state.value as? ConnectionState.Connected
+            val connectedState = _state.value as? HtspConnectionState.Connected
                 ?: throw CancellationException("Stale HTSP connection generation")
             val live = _liveConnection.value
                 ?: throw CancellationException("Stale HTSP connection generation")
@@ -1102,14 +1102,14 @@ internal open class `HtspService-internal`(
 
     private fun publishConnectionState(
         attemptId: Long,
-        state: ConnectionState,
+        state: HtspConnectionState,
     ): Boolean = withCurrentConnectionAttempt(attemptId) {
         _state.value = state
     } != null
 
     private fun publishConnectedState(
         attemptId: Long,
-        state: ConnectionState.Connected,
+        state: HtspConnectionState.Connected,
         serverFacts: HtspServerFacts,
         connectionIdentity: HtspConnectionIdentity,
     ): Boolean = synchronized(connectionAttemptLock) {
@@ -1220,7 +1220,7 @@ internal open class `HtspService-internal`(
         return liveConnectionIdentity?.matches(requestedIdentity) == true &&
             liveTransportAttempt == generation.attemptId &&
             connectionAttempt == generation.attemptId &&
-            _state.value is ConnectionState.Connected &&
+            _state.value is HtspConnectionState.Connected &&
             isConnectedUnsafe()
     }
 
@@ -1280,7 +1280,7 @@ internal open class `HtspService-internal`(
         challenge = null
         negotiatedHtspVersion = null
         _liveConnection.value = null
-        _state.value = ConnectionState.Disconnected
+        _state.value = HtspConnectionState.Disconnected
         return snapshot
     }
 

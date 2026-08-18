@@ -11,7 +11,7 @@ public data class HtspProfile(
 )
 
 /** Explicit successful acknowledgement for an RPC with no method-specific reply fields. */
-public data object HtspEmptyResponse
+public data object EmptyResponse
 
 /** Handshake observations: negotiated version, optional server labels, copied challenge, web root, language, capabilities, and API version. */
 public class HelloResponse(
@@ -136,7 +136,7 @@ public data class EnableAsyncMetadataRequest(
     public val lastUpdate: Long? = null,
     public val epgMaxTime: Long? = null,
     public val language: String? = null,
-) : HtspRequest<HtspEmptyResponse>(
+) : HtspRequest<EmptyResponse>(
     method = "enableAsyncMetadata",
     access = HtspAccess.ACCESS_HTSP_STREAMING,
     minimumProtocolVersion = 6.takeIf {
@@ -189,7 +189,7 @@ public suspend fun HtspConnection.enableAsyncMetadata(
     language: String? = null,
     timeoutMs: Long = 5_000L,
     expectedGeneration: HtspConnectionGeneration? = null,
-): HtspResult<HtspEmptyResponse> =
+): HtspResult<EmptyResponse> =
     execute(
         request = EnableAsyncMetadataRequest(
             epg = epg,

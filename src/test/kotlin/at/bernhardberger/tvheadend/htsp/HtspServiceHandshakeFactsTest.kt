@@ -152,7 +152,7 @@ internal class HtspServiceHandshakeFactsTest : HtspServiceLifecycleFixture() {
                     soTimeoutMs = 50,
                 )
 
-                val state = service.state.value as ConnectionState.Connected
+                val state = service.state.value as HtspConnectionState.Connected
                 assertEquals(true, state.dvrAccess)
                 assertEquals(listOf("hello", "authenticate"), server.handshakeMethods)
                 // No credentials configured: authenticate must stay bare so the server
@@ -165,7 +165,7 @@ internal class HtspServiceHandshakeFactsTest : HtspServiceLifecycleFixture() {
 
     @Test
     fun transportStateOmitsServerFacts() {
-        val connectedClass = ConnectionState.Connected::class.java
+        val connectedClass = HtspConnectionState.Connected::class.java
 
         assertTrue(connectedClass.declaredMethods.none { method -> method.name == "getServerFacts" })
         assertTrue(connectedClass.declaredFields.none { field -> field.name == "serverFacts" })
@@ -242,7 +242,7 @@ internal class HtspServiceHandshakeFactsTest : HtspServiceLifecycleFixture() {
                     soTimeoutMs = 50,
                 )
 
-                val state = service.state.value as ConnectionState.Connected
+                val state = service.state.value as HtspConnectionState.Connected
                 val attemptId = service.currentConnectionAttemptId()
                 val facts = requireNotNull(service.serverFactsForLiveConnectionAttempt(attemptId))
                 assertEquals("tvh-fixture", facts.serverName)
@@ -297,7 +297,7 @@ internal class HtspServiceHandshakeFactsTest : HtspServiceLifecycleFixture() {
                 assertTrue(!serialized.contains("digest"))
 
                 service.disconnect()
-                assertTrue(service.state.value !is ConnectionState.Connected)
+                assertTrue(service.state.value !is HtspConnectionState.Connected)
                 assertNull(service.serverFactsForLiveConnectionAttempt(attemptId))
             }
         }

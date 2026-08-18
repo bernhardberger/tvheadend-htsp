@@ -21,6 +21,13 @@ accepts optional `playPositionSeconds` and `playCount` arguments. Existing
 positional calls of the form `fileClose(id, timeoutMs)` now bind the second
 argument to `playPositionSeconds`; use the named argument `timeoutMs = ...`.
 
+**BREAKING (source + binary):** Public type names now follow one documented rule
+(see `docs/public-api.md`): request and response types are bare, while domain
+models, connection-lifecycle types, and server messages carry the `Htsp` prefix.
+`ConnectionState` is renamed to `HtspConnectionState` and `HtspEmptyResponse` to
+`EmptyResponse`. The unused `StreamProfile` is removed; it duplicated
+`HtspProfile` and had no references.
+
 ## [0.1.1]
 
 This release records the initial provisional baseline under `0.1.1` after the

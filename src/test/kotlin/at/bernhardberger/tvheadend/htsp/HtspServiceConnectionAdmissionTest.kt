@@ -280,7 +280,7 @@ internal class HtspServiceConnectionAdmissionTest : HtspServiceLifecycleFixture(
             FakeHtspServer(respondToHello = true).use { replacementServer ->
                 val service = service()
                 runBlocking {
-                    val observed = CopyOnWriteArrayList<ConnectionState>()
+                    val observed = CopyOnWriteArrayList<HtspConnectionState>()
                     val collector = launch {
                         service.state.collect { observed += it }
                     }
@@ -295,7 +295,7 @@ internal class HtspServiceConnectionAdmissionTest : HtspServiceLifecycleFixture(
                     }
                     withTimeout(1_000L) {
                         service.state.first {
-                            it is ConnectionState.Connecting && it.port == firstServer.port
+                            it is HtspConnectionState.Connecting && it.port == firstServer.port
                         }
                     }
 
@@ -315,13 +315,13 @@ internal class HtspServiceConnectionAdmissionTest : HtspServiceLifecycleFixture(
                     delay(50L)
 
                     val replacementStart = observed.indexOfFirst {
-                        it is ConnectionState.Connecting && it.port == replacementServer.port
+                        it is HtspConnectionState.Connecting && it.port == replacementServer.port
                     }
                     assertTrue(replacementStart >= 0)
-                    assertTrue(observed.drop(replacementStart).none { it is ConnectionState.Error })
+                    assertTrue(observed.drop(replacementStart).none { it is HtspConnectionState.Error })
                     assertEquals(
                         replacementServer.port,
-                        (service.state.value as ConnectionState.Connected).port,
+                        (service.state.value as HtspConnectionState.Connected).port,
                     )
                     service.disconnect()
                     collector.cancelAndJoin()
@@ -346,7 +346,7 @@ internal class HtspServiceConnectionAdmissionTest : HtspServiceLifecycleFixture(
                         )
                     }
                     withTimeout(1_000L) {
-                        service.state.first { it is ConnectionState.Connecting }
+                        service.state.first { it is HtspConnectionState.Connecting }
                     }
                     val firstAttempt = service.currentConnectionAttemptId()
 
@@ -367,7 +367,7 @@ internal class HtspServiceConnectionAdmissionTest : HtspServiceLifecycleFixture(
                     replacement.cancelAndJoin()
                     withTimeout(1_000L) { first.join() }
 
-                    assertTrue(service.state.value is ConnectionState.Disconnected)
+                    assertTrue(service.state.value is HtspConnectionState.Disconnected)
                 }
             }
         }

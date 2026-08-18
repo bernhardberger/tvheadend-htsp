@@ -46,7 +46,7 @@ internal class HtspServiceGenerationLifecycleTest : HtspServiceLifecycleFixture(
                     val failure = runCatching { service.disconnect(stale) }.exceptionOrNull()
                     assertTrue(failure is CancellationException)
                     assertSame(current, service.liveConnection.value?.generation)
-                    assertEquals(replacementServer.port, (service.state.value as ConnectionState.Connected).port)
+                    assertEquals(replacementServer.port, (service.state.value as HtspConnectionState.Connected).port)
 
                     service.disconnect(current)
                     assertNull(service.liveConnection.value)
@@ -104,7 +104,7 @@ internal class HtspServiceGenerationLifecycleTest : HtspServiceLifecycleFixture(
                     assertSame(replacement, service.liveConnection.value?.generation)
                     assertEquals(
                         replacementServer.port,
-                        (service.state.value as ConnectionState.Connected).port,
+                        (service.state.value as HtspConnectionState.Connected).port,
                     )
                     replacementServer.replyToCapturedPostHandshakeRequest()
                     assertEquals(
@@ -127,7 +127,7 @@ internal class HtspServiceGenerationLifecycleTest : HtspServiceLifecycleFixture(
 
                     service.disconnect()
                     assertNull(service.liveConnection.value)
-                    assertTrue(service.state.value is ConnectionState.Disconnected)
+                    assertTrue(service.state.value is HtspConnectionState.Disconnected)
                 }
             }
         }
@@ -397,7 +397,7 @@ internal class HtspServiceGenerationLifecycleTest : HtspServiceLifecycleFixture(
         FakeHtspServer(respondToHello = false).use { server ->
             val service = service()
             runBlocking {
-                val observed = CopyOnWriteArrayList<ConnectionState>()
+                val observed = CopyOnWriteArrayList<HtspConnectionState>()
                 val collector = launch {
                     service.state.collect { observed += it }
                 }
@@ -411,14 +411,14 @@ internal class HtspServiceGenerationLifecycleTest : HtspServiceLifecycleFixture(
                     )
                 }
                 withTimeout(1_000L) {
-                    service.state.first { it is ConnectionState.Connecting }
+                    service.state.first { it is HtspConnectionState.Connecting }
                 }
 
                 connection.cancelAndJoin()
                 delay(50L)
 
-                assertTrue(observed.none { it is ConnectionState.Error })
-                assertTrue(service.state.value is ConnectionState.Disconnected)
+                assertTrue(observed.none { it is HtspConnectionState.Error })
+                assertTrue(service.state.value is HtspConnectionState.Disconnected)
                 collector.cancelAndJoin()
             }
         }
