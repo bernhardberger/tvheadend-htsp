@@ -64,10 +64,6 @@ detekt {
     source.setFrom("src/main/kotlin")
 }
 
-tasks.withType<Detekt>().configureEach {
-    exclude("**/Generated*.kt")
-}
-
 tasks.withType<JavaCompile>().configureEach {
     options.release.set(17)
 }

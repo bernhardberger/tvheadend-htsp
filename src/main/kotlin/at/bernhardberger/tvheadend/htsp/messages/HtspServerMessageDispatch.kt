@@ -1,46 +1,4 @@
-// Originally generated from a reviewed catalog of TVHeadend master @ 27295c5a.
-// HTSP v44 coverage ceiling; wire default is v43. Now maintained by hand:
-// edit directly and cover protocol changes with focused tests.
 package at.bernhardberger.tvheadend.htsp.messages
-
-private data class TypedHtspServerMessageCatalogEntry(
-    val method: String,
-    val messageType: String,
-    val minimumProtocolVersion: Int?,
-)
-
-private val typedHtspServerMessageCatalog: List<TypedHtspServerMessageCatalogEntry> = listOf(
-    TypedHtspServerMessageCatalogEntry("channelAdd", "HtspChannelAddMessage", null),
-    TypedHtspServerMessageCatalogEntry("channelUpdate", "HtspChannelUpdateMessage", null),
-    TypedHtspServerMessageCatalogEntry("channelDelete", "HtspChannelDeleteMessage", null),
-    TypedHtspServerMessageCatalogEntry("tagAdd", "HtspTagAddMessage", null),
-    TypedHtspServerMessageCatalogEntry("tagUpdate", "HtspTagUpdateMessage", null),
-    TypedHtspServerMessageCatalogEntry("tagDelete", "HtspTagDeleteMessage", null),
-    TypedHtspServerMessageCatalogEntry("dvrEntryAdd", "HtspDvrEntryAddMessage", 4),
-    TypedHtspServerMessageCatalogEntry("dvrEntryUpdate", "HtspDvrEntryUpdateMessage", 4),
-    TypedHtspServerMessageCatalogEntry("dvrEntryDelete", "HtspDvrEntryDeleteMessage", 4),
-    TypedHtspServerMessageCatalogEntry("autorecEntryAdd", "HtspAutorecEntryAddMessage", 13),
-    TypedHtspServerMessageCatalogEntry("autorecEntryUpdate", "HtspAutorecEntryUpdateMessage", 13),
-    TypedHtspServerMessageCatalogEntry("autorecEntryDelete", "HtspAutorecEntryDeleteMessage", 13),
-    TypedHtspServerMessageCatalogEntry("timerecEntryAdd", "HtspTimerecEntryAddMessage", 18),
-    TypedHtspServerMessageCatalogEntry("timerecEntryUpdate", "HtspTimerecEntryUpdateMessage", 18),
-    TypedHtspServerMessageCatalogEntry("timerecEntryDelete", "HtspTimerecEntryDeleteMessage", 18),
-    TypedHtspServerMessageCatalogEntry("eventAdd", "HtspEventAddMessage", 6),
-    TypedHtspServerMessageCatalogEntry("eventUpdate", "HtspEventUpdateMessage", 6),
-    TypedHtspServerMessageCatalogEntry("eventDelete", "HtspEventDeleteMessage", 6),
-    TypedHtspServerMessageCatalogEntry("initialSyncCompleted", "HtspInitialSyncCompletedMessage", 2),
-    TypedHtspServerMessageCatalogEntry("muxpkt", "HtspMuxPacketMessage", null),
-    TypedHtspServerMessageCatalogEntry("queueStatus", "HtspQueueStatusMessage", null),
-    TypedHtspServerMessageCatalogEntry("subscriptionStart", "HtspSubscriptionStartMessage", null),
-    TypedHtspServerMessageCatalogEntry("subscriptionStop", "HtspSubscriptionStopMessage", null),
-    TypedHtspServerMessageCatalogEntry("subscriptionGrace", "HtspSubscriptionGraceMessage", 13),
-    TypedHtspServerMessageCatalogEntry("subscriptionStatus", "HtspSubscriptionStatusMessage", null),
-    TypedHtspServerMessageCatalogEntry("signalStatus", "HtspSignalStatusMessage", null),
-    TypedHtspServerMessageCatalogEntry("descrambleInfo", "HtspDescrambleInfoMessage", 24),
-    TypedHtspServerMessageCatalogEntry("subscriptionSpeed", "HtspSubscriptionSpeedMessage", 9),
-    TypedHtspServerMessageCatalogEntry("timeshiftStatus", "HtspTimeshiftStatusMessage", 9),
-    TypedHtspServerMessageCatalogEntry("subscriptionSkip", "HtspSubscriptionSkipMessage", 9),
-)
 
 /** Closed result family for decoding one candidate asynchronous HTSP message. */
 public sealed interface HtspServerMessageDecodeResult
@@ -99,7 +57,3 @@ private fun decodeKnownServerMessage(block: () -> HtspServerMessage): HtspServer
     } catch (_: IllegalArgumentException) {
         HtspServerMessageMalformedKnownMessage
     }
-
-@JvmSynthetic
-internal fun typedHtspServerMessageCatalogForTest(): List<Pair<String, String>> =
-    typedHtspServerMessageCatalog.map { it.method to it.messageType }

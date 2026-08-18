@@ -5,7 +5,7 @@ import com.lemonappdev.konsist.api.verify.assertFalse
 import org.junit.jupiter.api.Test
 
 class HtspJsonApiContainmentTest {
-    // JSON API bridge declarations and uses stay in jsonapi, except the generated request-model bridge.
+    // JSON API declarations and uses stay in jsonapi, except for request codec mapping.
     @Test
     fun `JSON API bridge stays with its owners`() {
         Konsist
@@ -13,7 +13,7 @@ class HtspJsonApiContainmentTest {
             .files
             .filterNot { file ->
                 file.packagee?.name == "at.bernhardberger.tvheadend.htsp.jsonapi" ||
-                    file.name == "GeneratedHtspRequests"
+                    file.name == "HtspRequestCodec"
             }
             .assertFalse { file ->
                 file.imports.any { declaration ->

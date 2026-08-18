@@ -85,7 +85,7 @@ public suspend fun <R> HtspConnection.execute(
     expectedGeneration: HtspConnectionGeneration? = null,
 ): HtspResult<R> = call(request, timeoutMs, expectedGeneration)
 
-/** Internal bridge shared by public typed execution and generated convenience extensions. */
+/** Internal bridge shared by public typed execution and connection convenience extensions. */
 @JvmSynthetic
 internal suspend fun <R> HtspConnection.call(
     request: HtspRequest<R>,

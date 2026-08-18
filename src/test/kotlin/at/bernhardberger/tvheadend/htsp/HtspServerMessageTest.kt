@@ -47,9 +47,9 @@ class HtspServerMessageTest {
                 "timeshiftStatus",
                 "subscriptionSkip",
             ),
-            typedHtspServerMessageCatalogForTest().map { it.first },
+            typedHtspServerMessageInventory.map { it.method },
         )
-        assertEquals(30, typedHtspServerMessageCatalogForTest().map { it.second }.toSet().size)
+        assertEquals(30, typedHtspServerMessageInventory.map { it.messageType }.toSet().size)
     }
 
     @Test
@@ -399,7 +399,7 @@ class HtspServerMessageTest {
     @Test
     fun productionDecoderEntryPointAndTypedOutcomeExist() {
         val dispatchClass = Class.forName(
-            "at.bernhardberger.tvheadend.htsp.messages.GeneratedHtspServerMessageDispatchKt",
+            "at.bernhardberger.tvheadend.htsp.messages.HtspServerMessageDispatchKt",
         )
         assertTrue(
             dispatchClass.declaredMethods.any { method ->
@@ -724,7 +724,7 @@ class HtspServerMessageTest {
 
     @Test
     fun everyFiniteDispatchBranchDecodesASourceValidMinimalFixture() {
-        typedHtspServerMessageCatalogForTest().forEach { (method, messageType) ->
+        typedHtspServerMessageInventory.forEach { (method, messageType) ->
             val result = decodeHtspServerMessage(minimalFixture(method))
             assertTrue(result is HtspServerMessageDecoded, "$method must decode")
             assertEquals(

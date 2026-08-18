@@ -78,12 +78,12 @@ class HtspProtocolCoreTest {
             assertSame(HtspResult.TransportUnavailable, disconnected.fileRead(id = 0L, size = 0L))
             assertSame(HtspResult.TransportUnavailable, disconnected.fileClose(id = 0L))
             assertTrue(
-                runCatching { disconnected.fileClose(0L, 0L) }.exceptionOrNull() is
+                runCatching { disconnected.fileClose(0L, timeoutMs = 0L) }.exceptionOrNull() is
                     IllegalArgumentException,
             )
             assertSame(
                 HtspResult.TransportUnavailable,
-                disconnected.fileCloseWithProgress(
+                disconnected.fileClose(
                     id = 0L,
                     playPositionSeconds = 0L,
                     playCount = null,
@@ -111,7 +111,7 @@ class HtspProtocolCoreTest {
         try {
             assertSame(
                 HtspResult.NotSupported,
-                extensionConnection.fileCloseWithProgress(
+                extensionConnection.fileClose(
                     id = 17L,
                     playPositionSeconds = 23L,
                     playCount = 29L,
@@ -122,7 +122,7 @@ class HtspProtocolCoreTest {
             extensionTransport.version = 27
             assertEquals(
                 HtspResult.Ok(FileCloseResponse),
-                extensionConnection.fileCloseWithProgress(
+                extensionConnection.fileClose(
                     id = 17L,
                     playPositionSeconds = 23L,
                     playCount = 29L,
@@ -844,7 +844,7 @@ class HtspProtocolCoreTest {
     }
 
     @Test
-    fun generatedExtensionsUseOnlyTheFactoryInternalRequestCapability() = runTest {
+    fun connectionExtensionsUseOnlyTheFactoryInternalRequestCapability() = runTest {
         val factoryConnection = createHtspConnection(Dispatchers.Unconfined)
         assertTrue(factoryConnection is HtspTypedRequestCapability)
 
