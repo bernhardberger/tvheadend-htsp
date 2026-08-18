@@ -10,7 +10,7 @@ Guides for people using the library, and references for people working on it.
   and what compatibility you can expect.
 - [`releasing.md`](releasing.md): one-time GitHub Environment setup and the
   exact-tag automatic Central and GitHub prerelease path.
-- [`CHANGELOG.md`](../CHANGELOG.md): the `0.1.1` initial provisional baseline notes.
+- [`CHANGELOG.md`](../CHANGELOG.md): the `0.2.0` provisional release notes.
 - [`licensing.md`](licensing.md): GPLv3 obligations, attribution, and project
   lineage.
 

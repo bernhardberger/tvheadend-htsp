@@ -29,7 +29,7 @@ no Android, Media3, or decoder code.
 ## Installation
 
 The Gradle dependency uses the exact immutable release coordinate
-`at.bernhardberger.tvheadend:htsp:0.1.1`. Availability from Maven Central or
+`at.bernhardberger.tvheadend:htsp:0.2.0`. Availability from Maven Central or
 another public repository must be independently verified; this repository does
 not claim that publication has occurred.
 
@@ -38,7 +38,7 @@ The Gradle dependency is:
 <!-- dependency-static:htsp -->
 ```kotlin
 dependencies {
-    implementation("at.bernhardberger.tvheadend:htsp:0.1.1")
+    implementation("at.bernhardberger.tvheadend:htsp:0.2.0")
 }
 ```
 

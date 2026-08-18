@@ -1,9 +1,10 @@
 # Releasing
 
-`0.1.1` carries the initial provisional major-zero baseline after the signed
-`v0.1.0` tag stopped before publication. The old tag is not reused. Release
-notes for `0.1.1` do not promise compatibility or support. Major zero
-communicates that status; the Maven version does not need an alpha suffix.
+`0.2.0` is a provisional major-zero release with intentional source and binary
+changes from `0.1.1`. The signed `v0.1.0` tag stopped before publication and is
+not reused. Release notes for `0.2.0` do not promise compatibility or support.
+Major zero communicates that status; the Maven version does not need an alpha
+suffix.
 
 Local staging does not establish external publication or availability.
 Publication and availability are independently verified external state. This
@@ -31,7 +32,7 @@ That residual risk is accepted for this release path.
 ## Automatic tag sequence
 
 Pushing the exact tag for the configured release version starts the workflow.
-For the current release that tag is `v0.1.1`. The workflow:
+For the current release that tag is `v0.2.0`. The workflow:
 
 1. checks out the complete tag history without persisting credentials;
 2. validates the Gradle wrapper;

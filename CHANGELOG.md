@@ -2,12 +2,14 @@
 
 ## [Unreleased]
 
+## [0.2.0]
+
 Clarify that the client requests HTSP v43 by default while the typed surface
 has a v44 coverage ceiling. Remove the protocol evidence and generation tooling
 (`derive.py`, `report.py`, `htsp_spec.json`, `HTSP_METHOD_MATRIX.md`,
 `htsp_surface.py`, the four typed Kotlin generators, and the generated-source
-drift checker); the existing `Generated*.kt` sources are now maintained by
-hand. This changes no API, ABI, or runtime behavior.
+drift checker). The protocol surface is now maintained by hand. This tooling
+removal alone changes no API, ABI, or runtime behavior.
 
 **BREAKING (source + binary):** The hand-maintained protocol surface is now
 grouped into domain source files. The former JVM facades
@@ -25,8 +27,9 @@ argument to `playPositionSeconds`; use the named argument `timeoutMs = ...`.
 (see `docs/public-api.md`): concrete per-method request and response types are
 bare, while domain models, connection-lifecycle types, server messages, and
 shared protocol abstractions carry the `Htsp` prefix. `ConnectionState` is
-renamed to `HtspConnectionState`. The unused `StreamProfile` is removed; it
-duplicated `HtspProfile` and had no references.
+renamed to `HtspConnectionState`. The unused `StreamProfile` is removed;
+profile responses already use `HtspProfile`, and `StreamProfile` had no
+repository references.
 
 ## [0.1.1]
 
