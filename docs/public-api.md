@@ -5,22 +5,33 @@ writing against it.
 
 ## Type naming
 
-Public type names follow one rule, so you can predict a name without looking it
-up.
+Whether a public type carries the `Htsp` prefix is decided by what it is, so you
+can predict a name without looking it up. Every one of the 155 public types
+follows this.
 
-- Request and response types are bare: `GetChannelRequest`, `HelloResponse`,
-  `FileOpenRequest`, `EmptyResponse`. The suffix already says what the type is,
-  so a prefix would only add noise.
-- Domain models carry the `Htsp` prefix: `HtspChannel`, `HtspEvent`,
-  `HtspProfile`, `HtspDvrCutpoint`. Their bare names are common words that
-  collide with types consumers already have. `Channel` is the sharpest case: it
-  collides with `kotlinx.coroutines.channels.Channel`, which this library
-  exposes as an `api` dependency.
-- Server messages carry the prefix and a `Message` suffix:
+Bare, because the name is already tied to one wire method:
+
+- One concrete request or response per method: `GetChannelRequest`,
+  `HelloResponse`, `FileOpenRequest`, `EmptyResponse`. The suffix already says
+  what the type is, so a prefix would only add noise.
+- The argument types those requests take, named after the request that owns
+  them: `AddDvrEntrySelector`, `GetTicketSelector`, `SubscribeChannel`,
+  `SubscriptionSeekPosition`, `FileSeekWhence`.
+
+Prefixed, because the name stands on its own and would otherwise collide:
+
+- Domain models: `HtspChannel`, `HtspEvent`, `HtspProfile`, `HtspDvrCutpoint`.
+  Their bare names are common words consumers already use. `Channel` is the
+  sharpest case — it collides with `kotlinx.coroutines.channels.Channel`, which
+  this library exposes as an `api` dependency.
+- Connection-lifecycle types, for the same reason: `HtspConnection`,
+  `HtspEndpoint`, `HtspConnectionState`.
+- Server messages, which also take a `Message` suffix:
   `HtspChannelAddMessage`, `HtspSubscriptionStartMessage`.
-
-Connection-lifecycle types are prefixed as domain models, because `Connection`,
-`Endpoint`, and `ConnectionState` are all names a consumer is likely to define.
+- Abstractions over a whole request family rather than a single method — the
+  `HtspRequest` base class and the `HtspDvrMutationRequest` /
+  `HtspDvrMutationResponse` markers. These name a category, not a wire method,
+  so they read as domain types.
 
 ## Public call outcomes
 
