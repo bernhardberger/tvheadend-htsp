@@ -22,6 +22,8 @@ internal abstract class HtspServiceLifecycleFixture {
         afterTeardownAdmission: suspend () -> Unit = {},
         beforeTypedRecapture: suspend (HtspRequest<*>) -> Unit = {},
         beforeTypedEventPublication: (HtspTransportEvent.ServerMessage) -> Unit = {},
+        metadataEventBufferCapacity: Int = METADATA_EVENT_BUFFER_CAPACITY,
+        subscriptionEventBufferCapacity: Int = SUBSCRIPTION_EVENT_BUFFER_CAPACITY,
     ) = HtspService(
         ioDispatcher = Dispatchers.IO,
         afterConnectionAdmission = afterConnectionAdmission,
@@ -29,10 +31,15 @@ internal abstract class HtspServiceLifecycleFixture {
         afterTeardownAdmission = afterTeardownAdmission,
         beforeTypedRecapture = beforeTypedRecapture,
         beforeTypedEventPublication = beforeTypedEventPublication,
+        metadataEventBufferCapacity = metadataEventBufferCapacity,
+        subscriptionEventBufferCapacity = subscriptionEventBufferCapacity,
     )
 
-    protected fun muxPacketFields(payloadByte: Byte): Map<String, Any?> = mapOf(
-        "subscriptionId" to 1L,
+    protected fun muxPacketFields(
+        payloadByte: Byte,
+        subscriptionId: Long = 1L,
+    ): Map<String, Any?> = mapOf(
+        "subscriptionId" to subscriptionId,
         "frametype" to 1L,
         "stream" to 0L,
         "duration" to 40L,

@@ -15,6 +15,14 @@ request functions dispatch through that member.
 `HtspConnectionGeneration` now has a public constructor so fakes can create
 identity-based generation tokens without an internal factory.
 
+**BREAKING (source + binary):** `HtspConnection` now exposes cold, single-use
+ordered `subscriptionEvents(id)` flows. Subscription packets and controls no
+longer publish through global `events`; that flow is now reserved for metadata
+and connection failures with a bounded 1024-event burst budget. Per-subscription
+streams retain controls under pressure, report packet eviction with ordered
+`Dropped` markers, and drain to explicit stop, unsubscribe, generation-loss, or
+transport-loss completion.
+
 ## [0.2.0]
 
 Clarify that the client requests HTSP v43 by default while the typed surface

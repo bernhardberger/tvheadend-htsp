@@ -6,7 +6,7 @@ writing against it.
 ## Type naming
 
 Whether a public type carries the `Htsp` prefix is decided by what it is, so you
-can predict a name without looking it up. Every one of the 155 top-level public
+can predict a name without looking it up. Every one of the 157 top-level public
 types follows this.
 
 Bare, because the name is already tied to one wire method:
@@ -50,6 +50,22 @@ Cancelling the calling coroutine cancels the in-flight call, which propagates
 CancellationException like any other suspending Kotlin code. Cancellation never
 shows up disguised as a failure outcome. The same applies when a call is
 abandoned because the connection generation it was fenced to went stale.
+
+## Metadata and subscription event streams
+
+`HtspConnection.events` has replay zero and carries metadata server messages and
+connection failures only. It has an exact 1024-event burst budget shared by
+independent collectors. An indefinitely stalled collector eventually
+backpressures this bounded, never-drop stream.
+
+High-rate subscription traffic is isolated by id through
+`HtspConnection.subscriptionEvents`. The returned flow is cold: collection
+registers the unsigned-u32 id and must start before the matching `subscribe`
+request. An id may be collected once in a connection generation, even after the
+flow has completed. The stream preserves committed packet/control order, reports
+packet pressure with ordered `Dropped` events, drains on stop or unsubscribe,
+and reports generation or transport loss with a final `Terminated` event.
+Collector cancellation remains `CancellationException`.
 
 ## Argument validation and lifecycle calls
 

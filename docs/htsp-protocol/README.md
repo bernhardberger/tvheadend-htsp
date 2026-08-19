@@ -55,17 +55,19 @@ Keep three distinctions clear:
   and `subscriptionSkip`, for example, are separate wire names for one handler.
 - Typed request coverage means a reviewed `HtspRequest` and typed connection
   extension. It does not say which servers or configurations support the call.
-- Typed server-message coverage means payload models and a finite decoder, not
-  runtime consumption. Channel, tag, EPG, DVR, and subscription-status paths use
-  selected typed messages; low-level wire parsing and the opt-in playback SPI
-  retain bounded raw integration. Decoding is strict except that malformed
-  optional timerec add/update fields become omitted or null while valid siblings
-  survive; required add fields and update identity remain strict.
+- Typed server-message coverage means payload models and a finite decoder.
+  Channel, tag, EPG, DVR, autorec, timerec, and event messages publish through
+  the global metadata flow. All eleven subscription message types publish only
+  through the registered ordered per-subscription flow. Decoding is strict
+  except that malformed optional timerec add/update fields become omitted or
+  null while valid siblings survive; required add fields and update identity
+  remain strict.
 
 Autorec and timerec Add/Update/Delete messages are finite read-only metadata.
-`descrambleInfo` completes the typed catalog without changing playback use or
-runtime publication. The six autorec/timerec RPCs also have finite mappings;
-they do not add schedule publication, lifecycle, retry, or DVR policy.
+`descrambleInfo` completes the typed subscription catalog and publishes through
+the matching registered subscription stream. The six autorec/timerec RPCs also
+have finite mappings; they do not add schedule publication, lifecycle, retry, or
+DVR policy.
 
 ## Protocol quirks and version notes
 

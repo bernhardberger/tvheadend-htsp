@@ -55,13 +55,13 @@ suspend fun runProtocolQuickStart(
     epgMaximumEvents: Long,
     epgLanguage: String?,
     options: HtspConnectOptions = HtspConnectOptions(),
-    onServerMessage: suspend (HtspServerMessage) -> Unit,
+    onMetadataMessage: suspend (HtspServerMessage) -> Unit,
 ): ProtocolQuickStartOutcome = coroutineScope {
     val connection = createHtspConnection(ioDispatcher = ioDispatcher)
     val eventCollector = launch(start = CoroutineStart.UNDISPATCHED) {
         connection.events
             .filterIsInstance<HtspTransportEvent.ServerMessage>()
-            .collect { event -> onServerMessage(event.message) }
+            .collect { event -> onMetadataMessage(event.message) }
     }
 
     try {

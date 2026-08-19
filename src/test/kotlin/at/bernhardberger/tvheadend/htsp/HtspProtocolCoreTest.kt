@@ -1941,12 +1941,12 @@ class HtspProtocolCoreTest {
 
         override suspend fun dispatch(
             generation: HtspCapturedGeneration,
-            method: String,
+            request: HtspRequest<*>,
             fields: LinkedHashMap<String, Any?>,
             timeoutMs: Long,
         ): HtspWireReply {
             dispatches += 1
-            lastMethod = method
+            lastMethod = request.method
             lastFields = LinkedHashMap(fields)
             lastTimeoutMs = timeoutMs
             failure?.let {

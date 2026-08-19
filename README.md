@@ -85,7 +85,7 @@ details.
 
 ## A complete example
 
-This example covers server messages, connection generations, request failures,
+This example covers metadata messages, connection generations, request failures,
 and cleanup; it is also available as a [standalone consumer
 fixture](consumer-contract/src/main/kotlin/at/bernhardberger/tvheadend/protocolconsumer/ProtocolQuickStart.kt).
 
@@ -148,13 +148,13 @@ suspend fun runProtocolQuickStart(
     epgMaximumEvents: Long,
     epgLanguage: String?,
     options: HtspConnectOptions = HtspConnectOptions(),
-    onServerMessage: suspend (HtspServerMessage) -> Unit,
+    onMetadataMessage: suspend (HtspServerMessage) -> Unit,
 ): ProtocolQuickStartOutcome = coroutineScope {
     val connection = createHtspConnection(ioDispatcher = ioDispatcher)
     val eventCollector = launch(start = CoroutineStart.UNDISPATCHED) {
         connection.events
             .filterIsInstance<HtspTransportEvent.ServerMessage>()
-            .collect { event -> onServerMessage(event.message) }
+            .collect { event -> onMetadataMessage(event.message) }
     }
 
     try {
@@ -220,6 +220,13 @@ private fun policyFor(failure: HtspFailure): ProtocolFailurePolicy = when (failu
     HtspResult.ServerError -> ProtocolFailurePolicy.REJECTED
 }
 ```
+
+The global `events` flow contains metadata and connection failures only. For a
+live subscription, start collecting `connection.subscriptionEvents(id)` before
+sending `subscribe` with that id. Each id can be collected once per connection
+generation. The ordered stream reports packet eviction as `Dropped`, drains on
+`Stopped` or a successful unsubscribe acknowledgement, and ends generation or
+transport loss with `Terminated`.
 
 ## Documentation
 

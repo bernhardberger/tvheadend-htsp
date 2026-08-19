@@ -29,14 +29,14 @@ import java.util.concurrent.atomic.AtomicInteger
 internal class HtspServiceTypedEventTest : HtspServiceLifecycleFixture() {
 
     @Test
-    fun typedPlaybackMessagesPublishExactlyOnceInSharedReaderOrder() {
+    fun typedPlaybackMessagesPublishExactlyOnceInSubscriptionOrder() {
         FakeHtspServer(respondToHello = true).use { server ->
             val service = service()
             runBlocking {
                 service.connect(HtspEndpoint("127.0.0.1", server.port))
-                val typedEvents = CopyOnWriteArrayList<HtspTransportEvent>()
+                val typedEvents = CopyOnWriteArrayList<HtspSubscriptionEvent>()
                 val collector = launch(start = CoroutineStart.UNDISPATCHED) {
-                    service.events.collect { typedEvents += it }
+                    service.subscriptionEvents(1L).collect { typedEvents += it }
                 }
 
                 server.sendServerMessage("subscriptionStatus", mapOf("subscriptionId" to 1L))
@@ -63,23 +63,16 @@ internal class HtspServiceTypedEventTest : HtspServiceLifecycleFixture() {
                 )
 
                 withTimeout(1_000L) {
-                    while (typedEvents.filterIsInstance<HtspTransportEvent.ServerMessage>().size < 3) {
-                        delay(1L)
-                    }
+                    while (typedEvents.size < 3) delay(1L)
                 }
-                val messages = typedEvents.filterIsInstance<HtspTransportEvent.ServerMessage>()
                 assertEquals(
                     listOf(
-                        HtspSubscriptionStatusMessage::class,
-                        HtspDescrambleInfoMessage::class,
-                        HtspMuxPacketMessage::class,
+                        HtspSubscriptionEvent.Status::class,
+                        HtspSubscriptionEvent.Descramble::class,
+                        HtspSubscriptionEvent.Packet::class,
                     ),
-                    messages.map { event -> event.message::class },
+                    typedEvents.map { event -> event::class },
                 )
-                assertEquals(3, messages.map { event -> event.messageSequence }.distinct().size)
-                assertTrue(messages.zipWithNext().all { (first, second) ->
-                    first.messageSequence < second.messageSequence
-                })
                 collector.cancelAndJoin()
                 service.disconnect()
             }
@@ -98,10 +91,8 @@ internal class HtspServiceTypedEventTest : HtspServiceLifecycleFixture() {
                 val firstTypedMuxReceived = CompletableDeferred<Unit>()
                 val releaseTypedCollector = CompletableDeferred<Unit>()
                 val typedCollector = launch(start = CoroutineStart.UNDISPATCHED) {
-                    service.events.collect { event ->
-                        if (event is HtspTransportEvent.ServerMessage &&
-                            event.message is HtspMuxPacketMessage
-                        ) {
+                    service.subscriptionEvents(1L).collect { event ->
+                        if (event is HtspSubscriptionEvent.Packet) {
                             firstTypedMuxReceived.complete(Unit)
                             releaseTypedCollector.await()
                         }
@@ -155,14 +146,11 @@ internal class HtspServiceTypedEventTest : HtspServiceLifecycleFixture() {
                     },
                 )
                 runBlocking {
-                    val events = CopyOnWriteArrayList<HtspTransportEvent.ServerMessage>()
-                    val collector = launch(start = CoroutineStart.UNDISPATCHED) {
-                        service.events.collect { event ->
-                            if (event is HtspTransportEvent.ServerMessage) events += event
-                        }
+                    service.connect(HtspEndpoint("127.0.0.1", firstServer.port))
+                    val oldEvents = CopyOnWriteArrayList<HtspSubscriptionEvent>()
+                    val oldCollector = launch(start = CoroutineStart.UNDISPATCHED) {
+                        service.subscriptionEvents(61L).collect { event -> oldEvents += event }
                     }
-                    val old = service.connect(HtspEndpoint("127.0.0.1", firstServer.port))
-                        as HtspConnectOutcome.Connected
                     firstServer.sendServerMessage(
                         "subscriptionStatus",
                         mapOf("subscriptionId" to 61L),
@@ -176,22 +164,29 @@ internal class HtspServiceTypedEventTest : HtspServiceLifecycleFixture() {
                     releaseOldPublication.countDown()
                     val current = withTimeout(1_000L) { replacement.await() }
                         as HtspConnectOutcome.Connected
+                    withTimeout(1_000L) { oldCollector.join() }
+                    val currentEvents = CopyOnWriteArrayList<HtspSubscriptionEvent>()
+                    val currentCollector = launch(start = CoroutineStart.UNDISPATCHED) {
+                        service.subscriptionEvents(62L).collect { event -> currentEvents += event }
+                    }
                     replacementServer.sendServerMessage(
                         "subscriptionStatus",
                         mapOf("subscriptionId" to 62L),
                     )
                     withTimeout(1_000L) {
-                        while (events.none { event ->
-                                (event.message as? HtspSubscriptionStatusMessage)
-                                    ?.subscriptionId == 62L
-                            }) {
-                            delay(1L)
-                        }
+                        while (currentEvents.none { it is HtspSubscriptionEvent.Status }) delay(1L)
                     }
 
-                    assertTrue(events.none { event -> event.generation === old.connection.generation })
-                    assertTrue(events.any { event -> event.generation === current.connection.generation })
-                    collector.cancelAndJoin()
+                    assertEquals(
+                        listOf(
+                            HtspSubscriptionEvent.Terminated(
+                                HtspSubscriptionTermination.GENERATION_LOST,
+                            ),
+                        ),
+                        oldEvents,
+                    )
+                    assertEquals(1, currentEvents.filterIsInstance<HtspSubscriptionEvent.Status>().size)
+                    currentCollector.cancelAndJoin()
                     service.disconnect(current.connection.generation)
                 }
             }
@@ -229,8 +224,8 @@ internal class HtspServiceTypedEventTest : HtspServiceLifecycleFixture() {
                     val first = service.connect(HtspEndpoint("127.0.0.1", firstServer.port))
                         as HtspConnectOutcome.Connected
                     firstServer.sendServerMessage(
-                        "subscriptionStatus",
-                        mapOf("subscriptionId" to 51L),
+                        "channelAdd",
+                        mapOf("channelId" to 51L),
                     )
                     withTimeout(1_000L) { while (events.size < 1) delay(1L) }
 
@@ -239,13 +234,13 @@ internal class HtspServiceTypedEventTest : HtspServiceLifecycleFixture() {
                     ) as HtspConnectOutcome.Connected
                     runCatching {
                         firstServer.sendServerMessage(
-                            "subscriptionStatus",
-                            mapOf("subscriptionId" to 52L),
+                            "channelAdd",
+                            mapOf("channelId" to 52L),
                         )
                     }
                     replacementServer.sendServerMessage(
-                        "subscriptionStatus",
-                        mapOf("subscriptionId" to 53L),
+                        "channelAdd",
+                        mapOf("channelId" to 53L),
                     )
                     withTimeout(1_000L) { while (events.size < 2) delay(1L) }
                     delay(50L)
@@ -255,7 +250,7 @@ internal class HtspServiceTypedEventTest : HtspServiceLifecycleFixture() {
                     assertEquals(events[0].messageSequence, events[1].messageSequence)
                     assertTrue(events[0].messageSequence > 0L)
                     assertTrue(events.none { event ->
-                        (event.message as? HtspSubscriptionStatusMessage)?.subscriptionId == 52L
+                        (event.message as? HtspChannelAddMessage)?.channelId == 52L
                     })
                     collector.cancelAndJoin()
                     service.disconnect(replacement.connection.generation)

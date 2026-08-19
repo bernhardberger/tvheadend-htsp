@@ -20,7 +20,23 @@ public class HtspConnectionGeneration {
  */
 public interface HtspConnection {
     public val liveConnection: StateFlow<HtspLiveConnection?>
+
+    /**
+     * Metadata and connection failures with replay zero and a 1024-event burst budget.
+     * Every normal collector receives the same ordered events independently within that
+     * budget. An indefinitely stalled collector eventually backpressures the bounded,
+     * never-drop metadata stream.
+     */
     public val events: Flow<HtspTransportEvent>
+
+    /**
+     * Returns a cold ordered stream for one client-selected unsigned-u32 subscription id.
+     * Collection registers the id and must start before `subscribe` is executed. Exactly one
+     * collection is allowed for the id in the current connection generation, including after
+     * terminal completion. The stream buffers 8192 server-produced events; only packets can
+     * be evicted, with each eviction reported by an ordered [HtspSubscriptionEvent.Dropped].
+     */
+    public fun subscriptionEvents(subscriptionId: Long): Flow<HtspSubscriptionEvent>
 
     /** Executes one request from the finite typed HTSP catalog. */
     public suspend fun <R> execute(
@@ -113,7 +129,7 @@ internal class `HtspTypedRequestCaller-internal`(
             dispatchStarted = true
             val reply = transport.dispatch(
                 generation = generation,
-                method = request.method,
+                request = request,
                 fields = HtspRequestCodecs.encode(request),
                 timeoutMs = timeoutMs,
             )
@@ -231,7 +247,7 @@ internal interface `HtspRequestTransport-internal` {
 
     suspend fun dispatch(
         generation: HtspCapturedGeneration,
-        method: String,
+        request: HtspRequest<*>,
         fields: LinkedHashMap<String, Any?>,
         timeoutMs: Long,
     ): HtspWireReply
