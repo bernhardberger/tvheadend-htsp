@@ -32,10 +32,8 @@ class HtspProtocolCoreTest {
         }
         val owner = createHtspConnection(Dispatchers.Unconfined)
         val caller = HtspTypedRequestCaller(transport)
-        val connection = object :
-            HtspConnection by owner,
-            HtspTypedRequestCapability {
-            override suspend fun <R> callTypedRequest(
+        val connection = object : HtspConnection by owner {
+            override suspend fun <R> execute(
                 request: HtspRequest<R>,
                 timeoutMs: Long,
                 expectedGeneration: HtspConnectionGeneration?,
@@ -62,9 +60,6 @@ class HtspProtocolCoreTest {
             }.exceptionOrNull()
             assertTrue(staleFailure is CancellationException)
             assertEquals(1, transport.dispatches)
-
-            val unsupported = object : HtspConnection by owner {}
-            assertSame(HtspResult.TransportUnavailable, unsupported.execute(GetEventRequest(7L)))
         } finally {
             owner.close()
         }
@@ -99,10 +94,8 @@ class HtspProtocolCoreTest {
         }
         val extensionOwner = createHtspConnection(Dispatchers.Unconfined)
         val extensionCaller = HtspTypedRequestCaller(extensionTransport)
-        val extensionConnection = object :
-            HtspConnection by extensionOwner,
-            HtspTypedRequestCapability {
-            override suspend fun <R> callTypedRequest(
+        val extensionConnection = object : HtspConnection by extensionOwner {
+            override suspend fun <R> execute(
                 request: HtspRequest<R>,
                 timeoutMs: Long,
                 expectedGeneration: HtspConnectionGeneration?,
@@ -844,14 +837,29 @@ class HtspProtocolCoreTest {
     }
 
     @Test
-    fun connectionExtensionsUseOnlyTheFactoryInternalRequestCapability() = runTest {
+    fun getSysTimeUsesHandwrittenConnectionExecute() = runTest {
         val factoryConnection = createHtspConnection(Dispatchers.Unconfined)
-        assertTrue(factoryConnection is HtspTypedRequestCapability)
+        val expected = GetSysTimeResponse(
+            unixTimeSeconds = 1_723_456_789L,
+            legacyTimezoneHoursWestOfGmt = -2,
+            gmtOffsetMinutes = 120,
+        )
+        val connection = object : HtspConnection by factoryConnection {
+            @Suppress("UNCHECKED_CAST")
+            override suspend fun <R> execute(
+                request: HtspRequest<R>,
+                timeoutMs: Long,
+                expectedGeneration: HtspConnectionGeneration?,
+            ): HtspResult<R> {
+                assertTrue(request is GetSysTimeRequest)
+                assertEquals(5_000L, timeoutMs)
+                assertSame(null, expectedGeneration)
+                return HtspResult.Ok(expected) as HtspResult<R>
+            }
+        }
 
-        val unsupportedCustomConnection = object : HtspConnection by factoryConnection {}
-        assertSame(HtspResult.TransportUnavailable, unsupportedCustomConnection.getProfiles())
-
-        unsupportedCustomConnection.close()
+        assertEquals(HtspResult.Ok(expected), connection.getSysTime())
+        connection.close()
     }
 
     @Test

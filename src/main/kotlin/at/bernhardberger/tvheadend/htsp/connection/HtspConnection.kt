@@ -27,6 +27,13 @@ public interface HtspConnection {
     public val liveConnection: StateFlow<HtspLiveConnection?>
     public val events: Flow<HtspTransportEvent>
 
+    /** Executes one request from the finite typed HTSP catalog. */
+    public suspend fun <R> execute(
+        request: HtspRequest<R>,
+        timeoutMs: Long = 5_000L,
+        expectedGeneration: HtspConnectionGeneration? = null,
+    ): HtspResult<R>
+
     /** Starts or reuses a connection according to [endpoint] identity and [options]. */
     public suspend fun connect(
         endpoint: HtspEndpoint,
@@ -61,43 +68,6 @@ public interface HtspConnection {
      * propagates [CancellationException] without closing the owner.
      */
     public suspend fun close(expectedGeneration: HtspConnectionGeneration? = null)
-}
-
-/** ABI-hidden capability implemented only by the factory-owned protocol connection. */
-internal interface `HtspTypedRequestCapability-internal` {
-    suspend fun <R> callTypedRequest(
-        request: HtspRequest<R>,
-        timeoutMs: Long,
-        expectedGeneration: HtspConnectionGeneration?,
-    ): HtspResult<R>
-}
-
-internal typealias HtspTypedRequestCapability = `HtspTypedRequestCapability-internal`
-
-/**
- * Executes one already-constructed request from the finite typed HTSP catalog.
- * Cancellation, generation fencing, version preflight, and typed failure classification are
- * preserved by the connection's internal request capability.
- */
-public suspend fun <R> HtspConnection.execute(
-    request: HtspRequest<R>,
-    timeoutMs: Long = 5_000L,
-    expectedGeneration: HtspConnectionGeneration? = null,
-): HtspResult<R> = call(request, timeoutMs, expectedGeneration)
-
-/** Internal bridge shared by public typed execution and connection convenience extensions. */
-@JvmSynthetic
-internal suspend fun <R> HtspConnection.call(
-    request: HtspRequest<R>,
-    timeoutMs: Long = 5_000L,
-    expectedGeneration: HtspConnectionGeneration? = null,
-): HtspResult<R> {
-    currentCoroutineContext().ensureActive()
-    return (this as? HtspTypedRequestCapability)?.callTypedRequest(
-        request = request,
-        timeoutMs = timeoutMs,
-        expectedGeneration = expectedGeneration,
-    ) ?: HtspResult.TransportUnavailable
 }
 
 /** ABI-hidden owner of the preserved typed request primitive. */

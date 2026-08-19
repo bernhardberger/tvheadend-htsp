@@ -132,7 +132,7 @@ internal open class `HtspService-internal`(
     private val afterTeardownAdmission: suspend () -> Unit = {},
     private val beforeTypedRecapture: suspend (HtspRequest<*>) -> Unit = {},
     private val beforeTypedEventPublication: (HtspTransportEvent.ServerMessage) -> Unit = {},
-) : HtspRequestTransport, HtspConnection, HtspTypedRequestCapability {
+) : HtspRequestTransport, HtspConnection {
     private val _state = MutableStateFlow<HtspConnectionState>(HtspConnectionState.Disconnected)
     val state: StateFlow<HtspConnectionState> = _state
 
@@ -459,7 +459,7 @@ internal open class `HtspService-internal`(
         }
     }
 
-    override suspend fun <R> callTypedRequest(
+    override suspend fun <R> execute(
         request: HtspRequest<R>,
         timeoutMs: Long,
         expectedGeneration: HtspConnectionGeneration?,

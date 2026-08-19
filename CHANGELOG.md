@@ -7,6 +7,11 @@ prereleases to the verified Central ZIP and release manifest. Individual Maven
 members remain available from Central instead of being duplicated as GitHub
 assets.
 
+**BREAKING (source + binary):** Typed `execute` is now a member of
+`HtspConnection` instead of an extension backed by an internal capability.
+Custom connection implementations can intercept requests, and convenience
+request functions dispatch through that member.
+
 ## [0.2.0]
 
 Clarify that the client requests HTSP v43 by default while the typed surface

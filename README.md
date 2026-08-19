@@ -100,7 +100,6 @@ import at.bernhardberger.tvheadend.htsp.connection.HtspFailure
 import at.bernhardberger.tvheadend.htsp.connection.HtspResult
 import at.bernhardberger.tvheadend.htsp.connection.HtspTransportEvent
 import at.bernhardberger.tvheadend.htsp.connection.createHtspConnection
-import at.bernhardberger.tvheadend.htsp.connection.execute
 import at.bernhardberger.tvheadend.htsp.connection.fold
 import at.bernhardberger.tvheadend.htsp.connection.getOrElse
 import at.bernhardberger.tvheadend.htsp.connection.getOrNull
