@@ -95,6 +95,7 @@ class HtspGoldenCorpusTest {
         assertEquals(7, decoded.seq)
         assertTrue(HtspCodec.isMuxPkt(decoded))
         assertArrayEquals(byteArrayOf(0x47, 1, 2), decoded.rawPayload)
+        assertTrue(decoded.rawPayload === decoded.fields["payload"])
         assertTrue(decoded.rawPayload === HtspCodec.tsPayload(decoded))
         assertArrayEquals(frame, encode(decoded.method!!, decoded.fields - "method"))
 

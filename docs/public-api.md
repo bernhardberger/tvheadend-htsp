@@ -68,10 +68,14 @@ High-rate subscription traffic is isolated by id through
 `HtspConnection.subscriptionEvents`. The returned flow is cold: collection
 registers the unsigned-u32 id and must start before the matching `subscribe`
 request. An id may be collected once in a connection generation, even after the
-flow has completed. The stream preserves committed packet/control order, reports
-packet pressure with ordered `Dropped` events, drains on stop or unsubscribe,
-and reports generation or transport loss with a final `Terminated` event.
-Collector cancellation remains `CancellationException`.
+flow has completed. A subscribe call without an active registration is rejected
+before its wire write. The stream preserves committed packet/control order,
+reports pressure and malformed packets whose subscription id remains trustworthy
+with ordered `Dropped` events, drains on stop or unsubscribe, and reports
+generation or transport loss with a final `Terminated` event. A malformed
+subscription control or untrustworthy packet envelope fails the transport as
+incompatible rather than disappearing. Collector cancellation remains
+`CancellationException`.
 
 Use `enableAsyncMetadataAwaitingInitialSync` to enable metadata and wait for the
 unsequenced `initialSyncCompleted` marker. It installs its generation-scoped
@@ -88,14 +92,17 @@ packet clock: absent or zero is native microseconds and any nonzero value is 90
 kHz. `HtspMuxPacketMessage` always exposes `decodingTimeUs`,
 `presentationTimeUs`, and non-null `durationUs` in microseconds. Missing PTS or
 DTS remains `null`; frame type is ASCII I/P/B or the unknown sentinel `-1`.
+TVHeadend's wire frame type zero is normalized to the same unknown sentinel.
 `SubscribeResponse.ninetyKhz` and `normalizedTimestamps` are strict nullable
 boolean observations.
 
 ## Binary payload access
 
-`HtspBinary` owns a defensive snapshot and retains content equality and redacted
-rendering. Use `size` to allocate the final consumer buffer and `copyInto` to
-write directly into it without an intermediate payload array. The bounded copy
+`HtspBinary` owns its content and retains content equality and redacted
+rendering. Public construction and standalone map decoding take a defensive
+snapshot; typed mux decoding transfers the codec-owned payload internally so
+the playback path does not create another payload-sized array. Use `size` to
+allocate the final consumer buffer and `copyInto` to write directly into it. The bounded copy
 returns the number of bytes written and copies only the prefix that fits after
 the requested destination offset. `toByteArray()` remains available when a
 standalone defensive copy is more convenient. No borrowed mutable-array access

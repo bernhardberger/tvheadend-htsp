@@ -489,7 +489,9 @@ internal open class `HtspService-internal`(
             check(collected.compareAndSet(false, true)) {
                 "HTSP subscription stream may be collected only once"
             }
-            currentCoroutineContext().ensureActive()
+            val collectorContext = currentCoroutineContext()
+            collectorContext.ensureActive()
+            val collectorJob = collectorContext[Job]
             val stream = synchronized(connectionAttemptLock) {
                 val generation = protocolGeneration
                     ?: error("No live HTSP connection generation")
@@ -505,7 +507,10 @@ internal open class `HtspService-internal`(
                 check(subscriptionId !in generation.subscriptionStreams) {
                     "HTSP subscription stream already collected in this generation"
                 }
-                HtspSubscriptionEventBuffer(subscriptionEventBufferCapacity).also { buffer ->
+                HtspSubscriptionEventBuffer(
+                    capacity = subscriptionEventBufferCapacity,
+                    collectorJob = collectorJob,
+                ).also { buffer ->
                     generation.subscriptionStreams[subscriptionId] = buffer
                 }
             }
@@ -800,6 +805,13 @@ internal open class `HtspService-internal`(
                     val published = withCurrentConnectionAttempt(attemptId) {
                         lastReadAtMs = System.currentTimeMillis()
 
+                        if (
+                            "seq" in msg.fields &&
+                            msg.method in SUBSCRIPTION_SERVER_METHODS
+                        ) {
+                            throw HtspIncompatibleServerException()
+                        }
+
                         // Internal probe latch. SDK metadata workflow observes the typed event.
                         if (msg.seq == null && msg.method == "initialSyncCompleted") {
                             initialSyncDef?.complete(Unit)
@@ -820,17 +832,31 @@ internal open class `HtspService-internal`(
                         }
 
                         val currentGeneration = protocolGeneration
-                        val generation = currentGeneration?.token
-                        val decoded = decodeHtspServerMessage(msg.fields) { subscriptionId ->
+                        val decoded = decodeHtspServerMessage(msg) { subscriptionId ->
                             currentGeneration?.subscriptionTimestampClocks?.get(subscriptionId)
                                 ?: HtspTimestampClock.MICROSECONDS
                         }
-                        if (generation != null && decoded is HtspServerMessageDecoded) {
-                            typedEvent = HtspTransportEvent.ServerMessage(
-                                message = decoded.message,
-                                generation = generation,
-                                messageSequence = currentMessageSequence,
-                            )
+                        if (currentGeneration != null) {
+                            when (decoded) {
+                                is HtspServerMessageDecoded -> {
+                                    typedEvent = HtspTransportEvent.ServerMessage(
+                                        message = decoded.message,
+                                        generation = currentGeneration.token,
+                                        messageSequence = currentMessageSequence,
+                                    )
+                                }
+                                HtspServerMessageMalformedKnownMessage -> {
+                                    when (val malformed = msg.fields.malformedSubscriptionMessage()) {
+                                        is MalformedSubscriptionMessage.Packet ->
+                                            currentGeneration.subscriptionStreams[malformed.subscriptionId]
+                                                ?.recordDropped(1L)
+                                        MalformedSubscriptionMessage.ControlOrEnvelope ->
+                                            throw HtspIncompatibleServerException()
+                                        null -> Unit
+                                    }
+                                }
+                                HtspServerMessageUnknownMethod -> Unit
+                            }
                         }
                     } != null
                     if (!published) return
@@ -1041,54 +1067,80 @@ internal open class `HtspService-internal`(
             if (protocolGeneration !== serviceGeneration) {
                 throw CancellationException("Stale HTSP connection generation")
             }
-            if (request is SubscribeRequest) {
-                if (request.subscriptionId in serviceGeneration.subscriptionTimestampClocks) {
-                    throw HtspRequestAdmissionException(
-                        "Subscription ID already used in current connection generation",
-                    )
-                }
-                serviceGeneration.subscriptionTimestampClocks[request.subscriptionId] =
-                    if (request.ninetyKhz != null && request.ninetyKhz != 0L) {
-                        HtspTimestampClock.NINETY_KHZ
-                    } else {
-                        HtspTimestampClock.MICROSECONDS
-                    }
-            }
         }
         return try {
             HtspWireReply(
-                requestForConnectionAttempt(
-                    expectedConnectionAttemptId = serviceGeneration.attemptId,
-                    method = request.method,
-                    fields = fields,
-                    timeoutMs = timeoutMs,
-                    flush = true,
-                    disconnectOnTimeout = false,
-                    onReplyCommitted = if (request is UnsubscribeRequest) {
-                        { reply ->
-                            val result = classifyHtspReply(
-                                HtspWireReply(reply.fields),
-                                request,
-                                generation.protocolVersion ?: 0,
-                            )
-                            if (
-                                result is HtspResult.Ok &&
-                                protocolGeneration === serviceGeneration
-                            ) {
-                                serviceGeneration.subscriptionStreams[request.subscriptionId]
-                                    ?.completeAfterAcknowledgement()
+                if (request is SubscribeRequest) {
+                    requestForConnectionAttemptIf(
+                        expectedConnectionAttemptId = serviceGeneration.attemptId,
+                        isRequestAdmitted = {
+                            admitSubscribeLocked(serviceGeneration, request)
+                        },
+                        method = request.method,
+                        fields = fields,
+                        timeoutMs = timeoutMs,
+                        flush = true,
+                        disconnectOnTimeout = false,
+                    )
+                } else {
+                    requestForConnectionAttempt(
+                        expectedConnectionAttemptId = serviceGeneration.attemptId,
+                        method = request.method,
+                        fields = fields,
+                        timeoutMs = timeoutMs,
+                        flush = true,
+                        disconnectOnTimeout = false,
+                        onReplyCommitted = if (request is UnsubscribeRequest) {
+                            { reply ->
+                                val result = classifyHtspReply(
+                                    HtspWireReply(reply.fields),
+                                    request,
+                                    generation.protocolVersion ?: 0,
+                                )
+                                if (
+                                    result is HtspResult.Ok &&
+                                    protocolGeneration === serviceGeneration
+                                ) {
+                                    serviceGeneration.subscriptionStreams[request.subscriptionId]
+                                        ?.completeAfterAcknowledgement()
+                                }
                             }
-                        }
-                    } else {
-                        null
-                    },
-                ).fields,
+                        } else {
+                            null
+                        },
+                    )
+                }.fields,
             )
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (_: HtspRequestTimeoutException) {
             throw HtspCallTimeoutException()
         }
+    }
+
+    private fun admitSubscribeLocked(
+        generation: ServiceProtocolGeneration,
+        request: SubscribeRequest,
+    ): Boolean {
+        if (protocolGeneration !== generation) return false
+        val stream = generation.subscriptionStreams[request.subscriptionId]
+        if (stream == null || !stream.isAccepting()) {
+            throw HtspRequestAdmissionException(
+                "Subscription event collection must be active before subscribe",
+            )
+        }
+        if (request.subscriptionId in generation.subscriptionTimestampClocks) {
+            throw HtspRequestAdmissionException(
+                "Subscription ID already used in current connection generation",
+            )
+        }
+        generation.subscriptionTimestampClocks[request.subscriptionId] =
+            if (request.ninetyKhz != null && request.ninetyKhz != 0L) {
+                HtspTimestampClock.NINETY_KHZ
+            } else {
+                HtspTimestampClock.MICROSECONDS
+            }
+        return true
     }
 
     override fun isCurrent(generation: HtspCapturedGeneration): Boolean =
@@ -1479,6 +1531,38 @@ private data class RoutedSubscriptionEvent(
     val subscriptionId: Long,
     val event: HtspSubscriptionEvent,
 )
+
+private sealed interface MalformedSubscriptionMessage {
+    data class Packet(val subscriptionId: Long) : MalformedSubscriptionMessage
+    data object ControlOrEnvelope : MalformedSubscriptionMessage
+}
+
+internal val SUBSCRIPTION_SERVER_METHODS: Set<String> = setOf(
+    "muxpkt",
+    "queueStatus",
+    "subscriptionStart",
+    "subscriptionStop",
+    "subscriptionGrace",
+    "subscriptionStatus",
+    "signalStatus",
+    "descrambleInfo",
+    "subscriptionSpeed",
+    "timeshiftStatus",
+    "subscriptionSkip",
+)
+
+private fun Map<String, Any?>.malformedSubscriptionMessage(): MalformedSubscriptionMessage? {
+    val method = this["method"] as? String ?: return null
+    if (method !in SUBSCRIPTION_SERVER_METHODS) return null
+    if (method != "muxpkt") return MalformedSubscriptionMessage.ControlOrEnvelope
+    val subscriptionId = this["subscriptionId"] as? Long
+        ?: return MalformedSubscriptionMessage.ControlOrEnvelope
+    return if (subscriptionId in 0L..HTSP_U32_MAX) {
+        MalformedSubscriptionMessage.Packet(subscriptionId)
+    } else {
+        MalformedSubscriptionMessage.ControlOrEnvelope
+    }
+}
 
 private fun HtspServerMessage.toRoutedSubscriptionEvent(): RoutedSubscriptionEvent? = when (this) {
     is HtspSubscriptionStartMessage ->

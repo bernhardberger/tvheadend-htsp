@@ -367,18 +367,27 @@ internal fun decodeInitialSyncCompleted(fields: Map<String, Any?>): HtspServerMe
 internal fun decodeMuxPacket(
     fields: Map<String, Any?>,
     timestampClockForSubscription: (Long) -> HtspTimestampClock,
+    ownedPayload: ByteArray?,
 ): HtspServerMessage {
     val subscriptionId = fields.requiredU32("subscriptionId")
     val clock = timestampClockForSubscription(subscriptionId)
     return try {
+        val payload = fields.requiredBinary("payload")
         HtspMuxPacketMessage(
             subscriptionId = subscriptionId,
-            frameType = fields.optionalS64("frametype") ?: -1L,
+            frameType = when (val frameType = fields.optionalS64("frametype")) {
+                null, 0L -> -1L
+                else -> frameType
+            },
             streamIndex = fields.requiredU32("stream"),
             decodingTimeUs = fields.optionalS64("dts")?.let(clock::toMicroseconds),
             presentationTimeUs = fields.optionalS64("pts")?.let(clock::toMicroseconds),
             durationUs = clock.toMicroseconds(fields.requiredU32("duration")),
-            payload = HtspBinary(fields.requiredBinary("payload")),
+            payload = if (payload === ownedPayload) {
+                HtspBinary.takeOwnership(payload)
+            } else {
+                HtspBinary(payload)
+            },
         )
     } catch (_: ArithmeticException) {
         throw HtspServerMessageMappingException()

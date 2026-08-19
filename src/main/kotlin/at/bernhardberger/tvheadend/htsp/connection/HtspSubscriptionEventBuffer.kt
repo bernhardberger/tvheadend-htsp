@@ -1,11 +1,13 @@
 package at.bernhardberger.tvheadend.htsp.connection
 
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.Job
 import java.util.ArrayDeque
 
 /** Non-thread-safe queue; the owning service serializes every operation. */
 internal class HtspSubscriptionEventBuffer(
     private val capacity: Int,
+    private val collectorJob: Job? = null,
 ) {
     internal enum class OfferResult {
         ACCEPTED,
@@ -58,6 +60,16 @@ internal class HtspSubscriptionEventBuffer(
         eventsAvailable.trySend(Unit)
         spaceAvailable.trySend(Unit)
     }
+
+    internal fun recordDropped(count: Long) {
+        require(count > 0L) { "count must be positive" }
+        if (terminal || abandoned) return
+        appendDroppedAtTail(count)
+        eventsAvailable.trySend(Unit)
+    }
+
+    internal fun isAccepting(): Boolean =
+        !terminal && !abandoned && collectorJob?.isActive != false
 
     internal fun terminate(reason: HtspSubscriptionTermination) {
         if (terminal || abandoned) return

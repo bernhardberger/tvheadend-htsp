@@ -25,8 +25,10 @@ public sealed interface SubscribeChannel {
 
 /**
  * Requests [subscriptionId] for exactly one [channel]; any nonzero [ninetyKhz]
- * selects the 90 kHz packet clock. Reusing the id in one connection generation
- * throws [IllegalStateException] before another request reaches the server.
+ * selects the 90 kHz packet clock. Collection of
+ * `HtspConnection.subscriptionEvents(subscriptionId)` must already be active.
+ * Missing collection or id reuse in one connection generation throws
+ * [IllegalStateException] before another request reaches the server.
  */
 public data class SubscribeRequest(
     public val subscriptionId: Long,

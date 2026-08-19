@@ -9,9 +9,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.TestCoroutineScheduler
 import kotlinx.coroutines.withTimeout
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -22,6 +25,26 @@ import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.TimeUnit
 
 internal class HtspServiceSubscriptionEventTest : HtspServiceLifecycleFixture() {
+
+    @Test
+    fun subscriptionEnvelopeClassificationCoversEveryRoutedType() {
+        assertEquals(
+            setOf(
+                "muxpkt",
+                "queueStatus",
+                "subscriptionStart",
+                "subscriptionStop",
+                "subscriptionGrace",
+                "subscriptionStatus",
+                "signalStatus",
+                "descrambleInfo",
+                "subscriptionSpeed",
+                "timeshiftStatus",
+                "subscriptionSkip",
+            ),
+            SUBSCRIPTION_SERVER_METHODS,
+        )
+    }
 
     @Test
     fun allSubscriptionMessagesStayOrderedAndOutOfGlobalMetadataEvents() {
@@ -191,6 +214,53 @@ internal class HtspServiceSubscriptionEventTest : HtspServiceLifecycleFixture() 
     }
 
     @Test
+    fun subscribeWithoutActiveCollectionIsRejectedBeforeWireAdmission() {
+        FakeHtspServer(
+            respondToHello = true,
+            captureOnePostHandshakeRequest = true,
+        ).use { server ->
+            val service = service()
+            runBlocking {
+                service.connect(HtspEndpoint("127.0.0.1", server.port))
+
+                val rejected = runCatching {
+                    service.subscribe(subscriptionId = 18L, channelId = 1L)
+                }.exceptionOrNull()
+                assertTrue(rejected is IllegalStateException)
+                assertFalse(server.awaitPostHandshakeRequestCount(1, 150L))
+
+                val cleanupScheduler = TestCoroutineScheduler()
+                val canceledCollector = launch(
+                    context = StandardTestDispatcher(cleanupScheduler),
+                    start = CoroutineStart.UNDISPATCHED,
+                ) {
+                    service.subscriptionEvents(17L).toList()
+                }
+                canceledCollector.cancel()
+                val canceledCollectorRejection = runCatching {
+                    service.subscribe(subscriptionId = 17L, channelId = 1L)
+                }.exceptionOrNull()
+                assertTrue(canceledCollectorRejection is IllegalStateException)
+                assertFalse(server.awaitPostHandshakeRequestCount(1, 150L))
+                cleanupScheduler.runCurrent()
+
+                val events = async(start = CoroutineStart.UNDISPATCHED) {
+                    service.subscriptionEvents(18L).toList()
+                }
+                val accepted = async(Dispatchers.IO) {
+                    service.subscribe(subscriptionId = 18L, channelId = 1L)
+                }
+                assertTrue(server.awaitPostHandshakeRequestCount(1, 1_000L))
+                server.replyToCapturedPostHandshakeRequest()
+                assertTrue(withTimeout(1_000L) { accepted.await() } is HtspResult.Ok)
+                server.sendServerMessage("subscriptionStop", statusFields(18L, "stopped"))
+                assertTrue(withTimeout(1_000L) { events.await() }.single() is HtspSubscriptionEvent.Stopped)
+                service.disconnect()
+            }
+        }
+    }
+
+    @Test
     fun subscribeRequestClockConvertsPacketsBeforeAcknowledgementPerId() {
         FakeHtspServer(
             respondToHello = true,
@@ -282,6 +352,9 @@ internal class HtspServiceSubscriptionEventTest : HtspServiceLifecycleFixture() 
                 val service = service()
                 runBlocking {
                     service.connect(HtspEndpoint("127.0.0.1", firstServer.port))
+                    val firstEvents = async(start = CoroutineStart.UNDISPATCHED) {
+                        service.subscriptionEvents(25L).toList()
+                    }
                     assertTrue(service.subscribe(25L, 1L) is HtspResult.Ok)
                     val duplicate = runCatching { service.subscribe(25L, 1L) }.exceptionOrNull()
                     assertTrue(duplicate is IllegalStateException)
@@ -289,6 +362,10 @@ internal class HtspServiceSubscriptionEventTest : HtspServiceLifecycleFixture() 
                     assertEquals(1, firstServer.postHandshakeMethods().size)
 
                     service.connect(HtspEndpoint("127.0.0.1", replacementServer.port))
+                    assertTrue(
+                        withTimeout(1_000L) { firstEvents.await() }.last() is
+                            HtspSubscriptionEvent.Terminated,
+                    )
                     val events = async(start = CoroutineStart.UNDISPATCHED) {
                         service.subscriptionEvents(25L).toList()
                     }
@@ -319,6 +396,146 @@ internal class HtspServiceSubscriptionEventTest : HtspServiceLifecycleFixture() 
                     assertEquals(40_000L, packet.durationUs)
                     service.disconnect()
                 }
+            }
+        }
+    }
+
+    @Test
+    fun malformedMuxPacketsProduceOrderedDropMarkersWithoutDroppingControls() {
+        FakeHtspServer(respondToHello = true).use { server ->
+            val service = service()
+            runBlocking {
+                service.connect(HtspEndpoint("127.0.0.1", server.port))
+                val firstControl = CompletableDeferred<Unit>()
+                val releaseCollector = CompletableDeferred<Unit>()
+                val events = CopyOnWriteArrayList<HtspSubscriptionEvent>()
+                val collector = launch(start = CoroutineStart.UNDISPATCHED) {
+                    service.subscriptionEvents(19L).collect { event ->
+                        events += event
+                        if (event is HtspSubscriptionEvent.Status && events.size == 1) {
+                            firstControl.complete(Unit)
+                            releaseCollector.await()
+                        }
+                    }
+                }
+
+                server.sendServerMessage("subscriptionStatus", statusFields(19L, "gate"))
+                withTimeout(1_000L) { firstControl.await() }
+                server.sendServerMessage("muxpkt", muxPacketFields(1, subscriptionId = 19L))
+                server.sendServerMessage(
+                    "muxpkt",
+                    muxPacketFields(2, subscriptionId = 19L) - "payload",
+                )
+                server.sendServerMessage(
+                    "muxpkt",
+                    muxPacketFields(3, subscriptionId = 19L) + ("duration" to null),
+                )
+                server.sendServerMessage("subscriptionStatus", statusFields(19L, "running"))
+                server.sendServerMessage("subscriptionStop", statusFields(19L, "stopped"))
+                delay(100L)
+                releaseCollector.complete(Unit)
+                withTimeout(1_000L) { collector.join() }
+
+                assertEquals(
+                    listOf(
+                        HtspSubscriptionEvent.Status::class,
+                        HtspSubscriptionEvent.Packet::class,
+                        HtspSubscriptionEvent.Dropped::class,
+                        HtspSubscriptionEvent.Status::class,
+                        HtspSubscriptionEvent.Stopped::class,
+                    ),
+                    events.map { event -> event::class },
+                )
+                assertEquals(HtspSubscriptionEvent.Dropped(2L), events[2])
+                service.disconnect()
+            }
+        }
+    }
+
+    @Test
+    fun malformedSubscriptionControlFailsTransportInsteadOfDisappearing() {
+        val malformedFields = listOf(
+            mapOf("subscriptionId" to "malformed"),
+            statusFields(20L, "running") + ("seq" to "malformed"),
+            statusFields(20L, "running") + ("seq" to 999L),
+        )
+        malformedFields.forEach { fields ->
+            FakeHtspServer(respondToHello = true).use { server ->
+                val service = service()
+                runBlocking {
+                    service.connect(HtspEndpoint("127.0.0.1", server.port))
+                    val failure = async(start = CoroutineStart.UNDISPATCHED) {
+                        service.events.first { event -> event is HtspTransportEvent.ConnectionFailure }
+                            as HtspTransportEvent.ConnectionFailure
+                    }
+                    val subscription = async(start = CoroutineStart.UNDISPATCHED) {
+                        service.subscriptionEvents(20L).toList()
+                    }
+
+                    server.sendServerMessage("subscriptionStatus", fields)
+
+                    assertEquals(
+                        HtspTransportFailureKind.INCOMPATIBLE_SERVER,
+                        withTimeout(1_000L) { failure.await() }.failure.kind,
+                    )
+                    assertEquals(
+                        listOf(
+                            HtspSubscriptionEvent.Terminated(
+                                HtspSubscriptionTermination.TRANSPORT_CLOSED,
+                            ),
+                        ),
+                        withTimeout(1_000L) { subscription.await() },
+                    )
+                    service.close()
+                }
+            }
+        }
+    }
+
+    @Test
+    fun subscriptionEnvelopeCannotCompleteAPendingReply() {
+        FakeHtspServer(
+            respondToHello = true,
+            postHandshakeReplyPlan = listOf(null),
+        ).use { server ->
+            val service = service()
+            runBlocking {
+                service.connect(HtspEndpoint("127.0.0.1", server.port))
+                val failure = async(start = CoroutineStart.UNDISPATCHED) {
+                    service.events.first { event -> event is HtspTransportEvent.ConnectionFailure }
+                        as HtspTransportEvent.ConnectionFailure
+                }
+                val subscription = async(start = CoroutineStart.UNDISPATCHED) {
+                    service.subscriptionEvents(31L).toList()
+                }
+                val pending = async(Dispatchers.IO) {
+                    runCatching { service.getSysTime(timeoutMs = 5_000L) }
+                }
+                assertTrue(server.awaitPostHandshakeRequestCount(1, 1_000L))
+                val pendingSequence = requireNotNull(server.postHandshakeRequest(0).seq)
+
+                server.sendServerMessage(
+                    "subscriptionStatus",
+                    statusFields(31L, "running") + ("seq" to pendingSequence.toLong()),
+                )
+
+                assertEquals(
+                    HtspTransportFailureKind.INCOMPATIBLE_SERVER,
+                    withTimeout(1_000L) { failure.await() }.failure.kind,
+                )
+                assertTrue(
+                    withTimeout(1_000L) { pending.await() }.exceptionOrNull()
+                        is kotlinx.coroutines.CancellationException,
+                )
+                assertEquals(
+                    listOf(
+                        HtspSubscriptionEvent.Terminated(
+                            HtspSubscriptionTermination.TRANSPORT_CLOSED,
+                        ),
+                    ),
+                    withTimeout(1_000L) { subscription.await() },
+                )
+                service.close()
             }
         }
     }

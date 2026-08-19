@@ -230,15 +230,18 @@ private fun policyFor(failure: HtspFailure): ProtocolFailurePolicy = when (failu
 The global `events` flow contains metadata and connection failures only. For a
 live subscription, start collecting `connection.subscriptionEvents(id)` before
 sending `subscribe` with that id. Each id can be collected once per connection
-generation. The ordered stream reports packet eviction as `Dropped`, drains on
-`Stopped` or a successful unsubscribe acknowledgement, and ends generation or
-transport loss with `Terminated`.
+generation. A subscribe without an active collector is rejected before it
+reaches the server. The ordered stream reports packet pressure or a rejected
+malformed packet with a trustworthy subscription id as `Dropped`. An untrustworthy
+packet envelope closes the incompatible transport. The stream drains on `Stopped`
+or a successful unsubscribe acknowledgement, and ends generation or transport
+loss with `Terminated`.
 
 Mux packet `decodingTimeUs`, `presentationTimeUs`, and `durationUs` values are
 always microseconds. The connection applies the native or 90 kHz clock selected
 by the matching subscribe request, including packets delivered before its
-acknowledgement. `frameType` is ASCII I/P/B, or `-1` when absent or explicitly
-sent as the unknown sentinel.
+acknowledgement. `frameType` is ASCII I/P/B, or `-1` when absent or sent as
+wire zero or the explicit unknown sentinel.
 
 ## Documentation
 

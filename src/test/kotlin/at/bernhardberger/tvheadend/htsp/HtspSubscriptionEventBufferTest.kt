@@ -3,6 +3,7 @@ package at.bernhardberger.tvheadend.htsp
 import at.bernhardberger.tvheadend.htsp.connection.*
 import at.bernhardberger.tvheadend.htsp.messages.*
 import at.bernhardberger.tvheadend.htsp.wire.HtspBinary
+import kotlinx.coroutines.Job
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNull
@@ -25,6 +26,36 @@ internal class HtspSubscriptionEventBufferTest {
         assertEquals(packet(4), buffer.poll())
         assertNull(buffer.poll())
         assertFalse(buffer.isComplete())
+    }
+
+    @Test
+    fun decodedPacketDropsAreOrderedCoalescedAndOutsideProductionCapacity() {
+        val buffer = HtspSubscriptionEventBuffer(capacity = 1)
+        val first = status("first")
+        val second = status("second")
+
+        assertAccepted(buffer.offer(first))
+        buffer.recordDropped(1L)
+        buffer.recordDropped(1L)
+        assertEquals(
+            HtspSubscriptionEventBuffer.OfferResult.WAIT_FOR_SPACE,
+            buffer.offer(second),
+        )
+
+        assertEquals(first, buffer.poll())
+        assertAccepted(buffer.offer(second))
+        assertEquals(HtspSubscriptionEvent.Dropped(2L), buffer.poll())
+        assertEquals(second, buffer.poll())
+    }
+
+    @Test
+    fun cancelledCollectorStopsAdmissionBeforeItsCleanupRuns() {
+        val collectorJob = Job()
+        val buffer = HtspSubscriptionEventBuffer(capacity = 1, collectorJob = collectorJob)
+
+        assertTrue(buffer.isAccepting())
+        collectorJob.cancel()
+        assertFalse(buffer.isAccepting())
     }
 
     @Test

@@ -759,16 +759,17 @@ class HtspServerMessageTest {
 
     @Test
     fun muxPacketFrameTypesMatchVideoAsciiAndMissingSentinelExactly() {
-        listOf(-1L, 66L, 73L, 80L).forEach { frameType ->
-            val packet = decodeMessage(
-                minimalFixture("muxpkt") + ("frametype" to frameType),
-            ) as HtspMuxPacketMessage
-            assertEquals(frameType, packet.frameType)
-        }
+        listOf(-1L to -1L, 0L to -1L, 66L to 66L, 73L to 73L, 80L to 80L)
+            .forEach { (wireFrameType, expectedFrameType) ->
+                val packet = decodeMessage(
+                    minimalFixture("muxpkt") + ("frametype" to wireFrameType),
+                ) as HtspMuxPacketMessage
+                assertEquals(expectedFrameType, packet.frameType)
+            }
         val missing = decodeMessage(minimalFixture("muxpkt") - "frametype") as HtspMuxPacketMessage
         assertEquals(-1L, missing.frameType)
 
-        listOf(Long.MIN_VALUE, -2L, 0L, 1L, 65L, 67L, 72L, 74L, 79L, 81L, Long.MAX_VALUE)
+        listOf(Long.MIN_VALUE, -2L, 1L, 65L, 67L, 72L, 74L, 79L, 81L, Long.MAX_VALUE)
             .forEach { frameType ->
                 assertMalformed(minimalFixture("muxpkt") + ("frametype" to frameType))
                 assertThrows(IllegalArgumentException::class.java) {
@@ -783,6 +784,17 @@ class HtspServerMessageTest {
                     )
                 }
             }
+        assertThrows(IllegalArgumentException::class.java) {
+            HtspMuxPacketMessage(
+                subscriptionId = 1L,
+                frameType = 0L,
+                streamIndex = 0L,
+                decodingTimeUs = null,
+                presentationTimeUs = null,
+                durationUs = 0L,
+                payload = HtspBinary(byteArrayOf()),
+            )
+        }
         assertMalformed(minimalFixture("muxpkt") + ("frametype" to null))
     }
 

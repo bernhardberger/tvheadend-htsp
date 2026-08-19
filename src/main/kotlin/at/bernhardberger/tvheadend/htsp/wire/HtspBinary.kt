@@ -2,9 +2,12 @@ package at.bernhardberger.tvheadend.htsp.wire
 
 import java.util.Collections
 
-/** Defensively copied binary protocol data with content value semantics. */
-public class HtspBinary(bytes: ByteArray) {
-    private val content: ByteArray = bytes.copyOf()
+/** Owned binary protocol data with content value semantics. */
+public class HtspBinary private constructor(bytes: ByteArray, copy: Boolean) {
+    private val content: ByteArray = if (copy) bytes.copyOf() else bytes
+
+    /** Creates an owned value by defensively copying [bytes]. */
+    public constructor(bytes: ByteArray) : this(bytes, copy = true)
 
     /** Number of bytes in this value. */
     public val size: Int
@@ -38,6 +41,11 @@ public class HtspBinary(bytes: ByteArray) {
     override fun hashCode(): Int = content.contentHashCode()
 
     override fun toString(): String = "HtspBinary(size=${content.size})"
+
+    internal companion object {
+        @JvmSynthetic
+        internal fun takeOwnership(bytes: ByteArray): HtspBinary = HtspBinary(bytes, copy = false)
+    }
 }
 
 internal const val HTSP_U32_MAX: Long = 0xffff_ffffL

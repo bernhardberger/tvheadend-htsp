@@ -36,8 +36,11 @@ public interface HtspConnection {
      * Returns a cold ordered stream for one client-selected unsigned-u32 subscription id.
      * Collection registers the id and must start before `subscribe` is executed. Exactly one
      * collection is allowed for the id in the current connection generation, including after
-     * terminal completion. The stream buffers 8192 server-produced events; only packets can
-     * be evicted, with each eviction reported by an ordered [HtspSubscriptionEvent.Dropped].
+     * terminal completion. The stream buffers 8192 server-produced events. Pressure and
+     * malformed packets whose subscription id remains trustworthy are reported by an ordered
+     * [HtspSubscriptionEvent.Dropped]; an untrustworthy packet envelope closes the incompatible
+     * transport. Subscribe is rejected before its wire write when no active collection has
+     * registered the id.
      */
     public fun subscriptionEvents(subscriptionId: Long): Flow<HtspSubscriptionEvent>
 

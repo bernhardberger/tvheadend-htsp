@@ -1,5 +1,7 @@
 package at.bernhardberger.tvheadend.htsp.messages
 
+import at.bernhardberger.tvheadend.htsp.wire.HtspWireMessage
+
 /** Closed result family for decoding one candidate asynchronous HTSP message. */
 public sealed interface HtspServerMessageDecodeResult
 /** Contains the recognized and fully decoded asynchronous [message]. */
@@ -23,6 +25,26 @@ public fun decodeHtspServerMessage(fields: Map<String, Any?>): HtspServerMessage
 internal fun decodeHtspServerMessage(
     fields: Map<String, Any?>,
     timestampClockForSubscription: (Long) -> HtspTimestampClock,
+): HtspServerMessageDecodeResult =
+    decodeHtspServerMessage(fields, timestampClockForSubscription, ownedMuxPayload = null)
+
+@JvmSynthetic
+internal fun decodeHtspServerMessage(
+    message: HtspWireMessage,
+    timestampClockForSubscription: (Long) -> HtspTimestampClock,
+): HtspServerMessageDecodeResult =
+    decodeHtspServerMessage(
+        fields = message.fields,
+        timestampClockForSubscription = timestampClockForSubscription,
+        ownedMuxPayload = message.rawPayload?.takeIf { payload ->
+            payload === message.fields["payload"]
+        },
+    )
+
+private fun decodeHtspServerMessage(
+    fields: Map<String, Any?>,
+    timestampClockForSubscription: (Long) -> HtspTimestampClock,
+    ownedMuxPayload: ByteArray?,
 ): HtspServerMessageDecodeResult {
     if (fields.containsKey("seq")) return HtspServerMessageUnknownMethod
     val method = fields["method"] as? String
@@ -48,7 +70,7 @@ internal fun decodeHtspServerMessage(
         "eventDelete" -> decodeKnownServerMessage { decodeEventDelete(fields) }
         "initialSyncCompleted" -> decodeKnownServerMessage { decodeInitialSyncCompleted(fields) }
         "muxpkt" -> decodeKnownServerMessage {
-            decodeMuxPacket(fields, timestampClockForSubscription)
+            decodeMuxPacket(fields, timestampClockForSubscription, ownedMuxPayload)
         }
         "queueStatus" -> decodeKnownServerMessage { decodeQueueStatus(fields) }
         "subscriptionStart" -> decodeKnownServerMessage { decodeSubscriptionStart(fields) }

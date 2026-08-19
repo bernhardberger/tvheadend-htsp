@@ -23,17 +23,26 @@ streams retain controls under pressure, report packet eviction with ordered
 `Dropped` markers, and drain to explicit stop, unsubscribe, generation-loss, or
 transport-loss completion.
 
+Subscribe is rejected before its wire write unless collection has actively
+registered the id. Malformed mux packets whose subscription id remains
+trustworthy produce ordered `Dropped` markers. Malformed controls and
+untrustworthy packet envelopes fail the transport as incompatible rather than
+disappearing silently.
+
 **BREAKING (source + binary):** `HtspMuxPacketMessage` now exposes negotiated
 microsecond `decodingTimeUs`, `presentationTimeUs`, and `durationUs` values
 instead of raw-clock timestamp fields. Frame type accepts only unknown `-1` or
-ASCII I/P/B. `SubscribeResponse.ninetyKhz` and `normalizedTimestamps` are now
+ASCII I/P/B; TVHeadend's wire value zero is normalized to unknown. `SubscribeResponse.ninetyKhz` and `normalizedTimestamps` are now
 strict nullable booleans, while the numeric request still treats any nonzero
 `90khz` value as enabled. Subscription IDs cannot be reused in one connection
 generation, preventing packets from becoming ambiguous across clock modes.
 
 `HtspBinary` now exposes its `size` and can copy directly into a caller-owned
 buffer with bounded `copyInto`, avoiding an intermediate payload array in
-playback consumers while retaining defensive construction and `toByteArray()`.
+playback consumers while retaining defensive public construction and
+`toByteArray()`. Typed wire decoding transfers its codec-owned mux payload into
+`HtspBinary`, avoiding another payload-sized snapshot before the final consumer
+copy.
 
 `enableAsyncMetadataAwaitingInitialSync` now installs generation-scoped metadata
 observation before sending `enableAsyncMetadata`, so an adjacent acknowledgement

@@ -59,7 +59,7 @@ public sealed interface HtspSubscriptionEvent {
         public val message: HtspDescrambleInfoMessage,
     ) : HtspSubscriptionEvent
 
-    /** Reports packets evicted at this exact position in the committed stream. */
+    /** Reports trusted subscription packets unavailable due to decode rejection or pressure. */
     public data class Dropped(public val count: Long) : HtspSubscriptionEvent {
         init {
             require(count > 0L) { "count must be positive" }

@@ -113,6 +113,8 @@ public fun createHtspConnection(
     socketFactory = socketFactory,
 )
 
+internal class HtspIncompatibleServerException : Exception()
+
 internal fun typedTransportFailure(error: Throwable): HtspTransportFailure {
     val chain = generateSequence(error as Throwable?) { current -> current.cause }.toList()
     val kind = when {
@@ -120,6 +122,8 @@ internal fun typedTransportFailure(error: Throwable): HtspTransportFailure {
             HtspTransportFailureKind.PERMISSION_DENIED
         chain.any { it is UnknownHostException } -> HtspTransportFailureKind.HOST_NOT_FOUND
         chain.any { it is NoRouteToHostException } -> HtspTransportFailureKind.NETWORK_UNREACHABLE
+        chain.any { it is HtspIncompatibleServerException } ->
+            HtspTransportFailureKind.INCOMPATIBLE_SERVER
         chain.any { it is SocketTimeoutException || it is HtspRequestTimeoutException } ->
             HtspTransportFailureKind.CONNECTION_TIMEOUT
         chain.any { it is ConnectException } -> HtspTransportFailureKind.CONNECTION_REFUSED
