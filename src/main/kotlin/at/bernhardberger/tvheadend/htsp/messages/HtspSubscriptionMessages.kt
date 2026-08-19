@@ -4,23 +4,27 @@ import at.bernhardberger.tvheadend.htsp.wire.HtspBinary
 import at.bernhardberger.tvheadend.htsp.wire.immutableSnapshot
 import at.bernhardberger.tvheadend.htsp.wire.requireU32
 
-/** One subscription packet with stream and frame identifiers, optional decode and presentation timestamps, duration, and copied payload bytes. */
+/** One subscription packet with microsecond timing, ASCII I/P/B or unknown `-1` frame type, and copied payload bytes. */
 public data class HtspMuxPacketMessage(
     public val subscriptionId: Long,
     public val frameType: Long,
     public val streamIndex: Long,
-    public val decodingTimestamp: Long?,
-    public val presentationTimestamp: Long?,
-    public val duration: Long,
+    public val decodingTimeUs: Long?,
+    public val presentationTimeUs: Long?,
+    public val durationUs: Long,
     public val payload: HtspBinary,
 ) : HtspServerMessage {
     init {
         requireU32("subscriptionId", subscriptionId)
-        requireU32("frameType", frameType)
+        require(frameType in HTSP_MUX_FRAME_TYPES) {
+            "frameType must be -1 or ASCII I, P, or B"
+        }
         requireU32("streamIndex", streamIndex)
-        requireU32("duration", duration)
+        require(durationUs >= 0L) { "durationUs must be non-negative" }
     }
 }
+
+private val HTSP_MUX_FRAME_TYPES = setOf(-1L, 66L, 73L, 80L)
 
 /** Queue counters for one subscription: queued packets and bytes, optional delay, and dropped B-, P-, and I-frame counts. */
 public data class HtspQueueStatusMessage(

@@ -143,6 +143,14 @@ DVR policy.
   `htsp_subscriptions` for exact `hs_sid`, and returns the missing-subscription error when absent. It queues one
   empty reply before one `subscription_change_weight` call; that order does not
   prove the weight is applied.
+- `subscribe` keeps numeric u32 `90khz`: omission and zero select native 1 MHz
+  values, while any nonzero value selects 90 kHz. Reply `90khz` and `normts`
+  are strict optional flags exposed as nullable booleans; `normts` reports
+  timestamp-origin normalization and does not select a rate. A subscription id
+  is reserved before the request write and cannot be reused in the connection
+  generation, so messages that overtake the reply still use an unambiguous
+  clock. Timeout or caller cancellation retains that reservation because the
+  server may complete the request later.
 - `subscriptionLive` is v9 with streaming access. It requires u32
   `subscriptionId`, rejects a missing subscription, zero-initializes
   `streaming_skip_t`, sets only `SMT_SKIP_LIVE`, calls `subscription_set_skip`,
@@ -184,8 +192,8 @@ DVR policy.
   v24 unless anonymized and requires full-u32 `subscriptionId`, `pid`, `caid`,
   `provid`, `ecmtime`, and `hops`; strings `cardsystem`, `reader`, `from`, and
   `protocol` are optional and strict, with wire `from` exposed as `source`.
-  `HtspService` decodes it but does not publish it as typed
-  `HtspTransportEvent.ServerMessage`. Versionless add minima are `channelId` for
+  `HtspService` publishes it through the matching registered subscription
+  stream rather than global metadata events. Versionless add minima are `channelId` for
   `channelAdd`, `tagId` for `tagAdd`, `entryId` for `dvrEntryAdd`, and
   `eventId`/`start`/`stop` for `eventAdd`; optional names and event channel stay
   strict when present. DVR files choose the first `filename`/`path` alias in
@@ -193,6 +201,17 @@ DVR policy.
   source-conditional observations nullable; update requires string `id` and
   makes all other fields nullable; delete requires string `id`.
   `queueStatus.delay` keeps its recorded requiredness uncertainty.
+- Mux PTS and DTS remain signed s64 and are never masked or unwrapped at 33
+  bits. `HtspService` rescales 90 kHz PTS, DTS, and required u32 duration to
+  microseconds with the pinned truncation-toward-zero rule; native values pass
+  through unchanged. Missing PTS/DTS stays null. Missing or explicit signed
+  `frametype=-1` is unknown; video frame types are exactly ASCII I/P/B. The
+  standalone versionless decoder has no subscribe context and therefore
+  interprets mux timing as native microseconds.
+- No real-server long-run or post-timeshift capture was available for this
+  slice, so no claim is made about normalized first-frame behavior after seek.
+  That observation remains deferred until a fixture or hardware run supplies
+  evidence; the implementation adds no speculative timestamp unwrapping.
 
 ## Maintenance
 

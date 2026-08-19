@@ -1071,11 +1071,11 @@ public final class at/bernhardberger/tvheadend/htsp/messages/HtspMuxPacketMessag
 	public final fun copy (JJJLjava/lang/Long;Ljava/lang/Long;JLat/bernhardberger/tvheadend/htsp/wire/HtspBinary;)Lat/bernhardberger/tvheadend/htsp/messages/HtspMuxPacketMessage;
 	public static synthetic fun copy$default (Lat/bernhardberger/tvheadend/htsp/messages/HtspMuxPacketMessage;JJJLjava/lang/Long;Ljava/lang/Long;JLat/bernhardberger/tvheadend/htsp/wire/HtspBinary;ILjava/lang/Object;)Lat/bernhardberger/tvheadend/htsp/messages/HtspMuxPacketMessage;
 	public fun equals (Ljava/lang/Object;)Z
-	public final fun getDecodingTimestamp ()Ljava/lang/Long;
-	public final fun getDuration ()J
+	public final fun getDecodingTimeUs ()Ljava/lang/Long;
+	public final fun getDurationUs ()J
 	public final fun getFrameType ()J
 	public final fun getPayload ()Lat/bernhardberger/tvheadend/htsp/wire/HtspBinary;
-	public final fun getPresentationTimestamp ()Ljava/lang/Long;
+	public final fun getPresentationTimeUs ()Ljava/lang/Long;
 	public final fun getStreamIndex ()J
 	public final fun getSubscriptionId ()J
 	public fun hashCode ()I
@@ -2772,16 +2772,16 @@ public final class at/bernhardberger/tvheadend/htsp/requests/SubscribeRequest : 
 }
 
 public final class at/bernhardberger/tvheadend/htsp/requests/SubscribeResponse {
-	public fun <init> (Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;)V
-	public final fun component1 ()Ljava/lang/Long;
-	public final fun component2 ()Ljava/lang/Long;
+	public fun <init> (Ljava/lang/Boolean;Ljava/lang/Boolean;Ljava/lang/Long;Ljava/lang/Long;)V
+	public final fun component1 ()Ljava/lang/Boolean;
+	public final fun component2 ()Ljava/lang/Boolean;
 	public final fun component3 ()Ljava/lang/Long;
 	public final fun component4 ()Ljava/lang/Long;
-	public final fun copy (Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;)Lat/bernhardberger/tvheadend/htsp/requests/SubscribeResponse;
-	public static synthetic fun copy$default (Lat/bernhardberger/tvheadend/htsp/requests/SubscribeResponse;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;ILjava/lang/Object;)Lat/bernhardberger/tvheadend/htsp/requests/SubscribeResponse;
+	public final fun copy (Ljava/lang/Boolean;Ljava/lang/Boolean;Ljava/lang/Long;Ljava/lang/Long;)Lat/bernhardberger/tvheadend/htsp/requests/SubscribeResponse;
+	public static synthetic fun copy$default (Lat/bernhardberger/tvheadend/htsp/requests/SubscribeResponse;Ljava/lang/Boolean;Ljava/lang/Boolean;Ljava/lang/Long;Ljava/lang/Long;ILjava/lang/Object;)Lat/bernhardberger/tvheadend/htsp/requests/SubscribeResponse;
 	public fun equals (Ljava/lang/Object;)Z
-	public final fun getNinetyKhz ()Ljava/lang/Long;
-	public final fun getNormalizedTimestamps ()Ljava/lang/Long;
+	public final fun getNinetyKhz ()Ljava/lang/Boolean;
+	public final fun getNormalizedTimestamps ()Ljava/lang/Boolean;
 	public final fun getTimeshiftPeriodSeconds ()Ljava/lang/Long;
 	public final fun getWeight ()Ljava/lang/Long;
 	public fun hashCode ()I

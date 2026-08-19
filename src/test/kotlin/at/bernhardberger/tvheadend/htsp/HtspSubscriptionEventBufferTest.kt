@@ -100,11 +100,11 @@ internal class HtspSubscriptionEventBufferTest {
         HtspSubscriptionEvent.Packet(
             HtspMuxPacketMessage(
                 subscriptionId = 1L,
-                frameType = 1L,
+                frameType = 73L,
                 streamIndex = 0L,
-                decodingTimestamp = null,
-                presentationTimestamp = null,
-                duration = 40L,
+                decodingTimeUs = null,
+                presentationTimeUs = null,
+                durationUs = 40L,
                 payload = HtspBinary(byteArrayOf(marker.toByte())),
             ),
         )

@@ -38,13 +38,20 @@ internal abstract class HtspServiceLifecycleFixture {
     protected fun muxPacketFields(
         payloadByte: Byte,
         subscriptionId: Long = 1L,
+        frameType: Long? = 73L,
+        decodingTimestamp: Long? = null,
+        presentationTimestamp: Long? = null,
+        duration: Long = 40L,
     ): Map<String, Any?> = mapOf(
         "subscriptionId" to subscriptionId,
-        "frametype" to 1L,
         "stream" to 0L,
-        "duration" to 40L,
+        "duration" to duration,
         "payload" to byteArrayOf(payloadByte),
-    )
+    ) + listOfNotNull(
+        frameType?.let { "frametype" to it },
+        decodingTimestamp?.let { "dts" to it },
+        presentationTimestamp?.let { "pts" to it },
+    ).toMap()
 
     protected fun serviceOwnedJobCount(service: HtspService): Int =
         service.javaClass.getDeclaredField("serviceJob").let { field ->

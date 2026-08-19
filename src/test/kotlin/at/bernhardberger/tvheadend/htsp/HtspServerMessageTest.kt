@@ -753,8 +753,105 @@ class HtspServerMessageTest {
         val packet = decodeMessage(
             minimalFixture("muxpkt") + mapOf("dts" to Long.MIN_VALUE, "pts" to Long.MAX_VALUE),
         ) as HtspMuxPacketMessage
-        assertEquals(Long.MIN_VALUE, packet.decodingTimestamp)
-        assertEquals(Long.MAX_VALUE, packet.presentationTimestamp)
+        assertEquals(Long.MIN_VALUE, packet.decodingTimeUs)
+        assertEquals(Long.MAX_VALUE, packet.presentationTimeUs)
+    }
+
+    @Test
+    fun muxPacketFrameTypesMatchVideoAsciiAndMissingSentinelExactly() {
+        listOf(-1L, 66L, 73L, 80L).forEach { frameType ->
+            val packet = decodeMessage(
+                minimalFixture("muxpkt") + ("frametype" to frameType),
+            ) as HtspMuxPacketMessage
+            assertEquals(frameType, packet.frameType)
+        }
+        val missing = decodeMessage(minimalFixture("muxpkt") - "frametype") as HtspMuxPacketMessage
+        assertEquals(-1L, missing.frameType)
+
+        listOf(Long.MIN_VALUE, -2L, 0L, 1L, 65L, 67L, 72L, 74L, 79L, 81L, Long.MAX_VALUE)
+            .forEach { frameType ->
+                assertMalformed(minimalFixture("muxpkt") + ("frametype" to frameType))
+                assertThrows(IllegalArgumentException::class.java) {
+                    HtspMuxPacketMessage(
+                        subscriptionId = 1L,
+                        frameType = frameType,
+                        streamIndex = 0L,
+                        decodingTimeUs = null,
+                        presentationTimeUs = null,
+                        durationUs = 0L,
+                        payload = HtspBinary(byteArrayOf()),
+                    )
+                }
+            }
+        assertMalformed(minimalFixture("muxpkt") + ("frametype" to null))
+    }
+
+    @Test
+    fun muxPacketTimestampsUseContextClockWithoutWrappingOrTruncation() {
+        val native = decodeMessage(
+            minimalFixture("muxpkt") + mapOf(
+                "dts" to -1_000_000L,
+                "pts" to 1_000_000L,
+                "duration" to 40_000L,
+            ),
+        ) as HtspMuxPacketMessage
+        val ninetyKhz = decodeMessage(
+            fields = minimalFixture("muxpkt") + mapOf(
+                "dts" to -90_000L,
+                "pts" to 90_000L,
+                "duration" to 3_600L,
+            ),
+            timestampClock = HtspTimestampClock.NINETY_KHZ,
+        ) as HtspMuxPacketMessage
+
+        assertEquals(native.decodingTimeUs, ninetyKhz.decodingTimeUs)
+        assertEquals(native.presentationTimeUs, ninetyKhz.presentationTimeUs)
+        assertEquals(native.durationUs, ninetyKhz.durationUs)
+
+        val missing = decodeMessage(
+            fields = minimalFixture("muxpkt") - "dts" - "pts",
+            timestampClock = HtspTimestampClock.NINETY_KHZ,
+        ) as HtspMuxPacketMessage
+        assertEquals(null, missing.decodingTimeUs)
+        assertEquals(null, missing.presentationTimeUs)
+        assertEquals(0L, missing.durationUs)
+
+        val maximumDuration = decodeMessage(
+            fields = minimalFixture("muxpkt") + ("duration" to 0xffff_ffffL),
+            timestampClock = HtspTimestampClock.NINETY_KHZ,
+        ) as HtspMuxPacketMessage
+        assertEquals(47_721_858_833L, maximumDuration.durationUs)
+        assertMalformed(minimalFixture("muxpkt") - "duration")
+
+        val aroundWrapBoundary = listOf(
+            8_589_934_591L to 95_443_717_677L,
+            8_589_934_592L to 95_443_717_688L,
+            8_589_934_593L to 95_443_717_700L,
+            -8_589_934_591L to -95_443_717_677L,
+            -8_589_934_592L to -95_443_717_688L,
+            -8_589_934_593L to -95_443_717_700L,
+            99_000_000_000_000_000L to 1_100_000_000_000_000_000L,
+            -99_000_000_000_000_000L to -1_100_000_000_000_000_000L,
+        )
+        aroundWrapBoundary.forEach { (raw, expectedUs) ->
+            val packet = decodeMessage(
+                fields = minimalFixture("muxpkt") + mapOf("dts" to raw, "pts" to raw),
+                timestampClock = HtspTimestampClock.NINETY_KHZ,
+            ) as HtspMuxPacketMessage
+            assertEquals(expectedUs, packet.decodingTimeUs)
+            assertEquals(expectedUs, packet.presentationTimeUs)
+        }
+
+        assertTrue(
+            decodeHtspServerMessage(
+                minimalFixture("muxpkt") + ("pts" to Long.MAX_VALUE),
+            ) { HtspTimestampClock.NINETY_KHZ } is HtspServerMessageMalformedKnownMessage,
+        )
+        assertTrue(
+            decodeHtspServerMessage(
+                minimalFixture("muxpkt") + ("pts" to Long.MIN_VALUE),
+            ) { HtspTimestampClock.NINETY_KHZ } is HtspServerMessageMalformedKnownMessage,
+        )
     }
 
     @Test
@@ -930,6 +1027,16 @@ class HtspServerMessageTest {
         }
     }
 
+    private fun decodeMessage(
+        fields: Map<String, Any?>,
+        timestampClock: HtspTimestampClock,
+    ): HtspServerMessage {
+        return when (val result = decodeHtspServerMessage(fields) { timestampClock }) {
+            is HtspServerMessageDecoded -> result.message
+            else -> throw AssertionError("expected decoded but was $result")
+        }
+    }
+
     private fun assertMalformed(fields: Map<String, Any?>) {
         assertTrue(
             decodeHtspServerMessage(fields) is HtspServerMessageMalformedKnownMessage,
@@ -1039,7 +1146,7 @@ class HtspServerMessageTest {
         "muxpkt" -> mapOf(
             "method" to method,
             "subscriptionId" to 1L,
-            "frametype" to 0L,
+            "frametype" to 73L,
             "stream" to 0L,
             "duration" to 0L,
             "payload" to byteArrayOf(),

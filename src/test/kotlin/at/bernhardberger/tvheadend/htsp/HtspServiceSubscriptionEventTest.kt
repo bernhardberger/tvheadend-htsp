@@ -190,6 +190,206 @@ internal class HtspServiceSubscriptionEventTest : HtspServiceLifecycleFixture() 
     }
 
     @Test
+    fun subscribeRequestClockConvertsPacketsBeforeAcknowledgementPerId() {
+        FakeHtspServer(
+            respondToHello = true,
+            postHandshakeReplyPlan = listOf(null, null),
+        ).use { server ->
+            val service = service()
+            runBlocking {
+                service.connect(HtspEndpoint("127.0.0.1", server.port))
+                val nativeEvents = async(start = CoroutineStart.UNDISPATCHED) {
+                    service.subscriptionEvents(21L).toList()
+                }
+                val ninetyKhzEvents = async(start = CoroutineStart.UNDISPATCHED) {
+                    service.subscriptionEvents(22L).toList()
+                }
+
+                val nativeSubscribe = async(Dispatchers.IO) {
+                    service.subscribe(subscriptionId = 21L, channelId = 1L, ninetyKhz = 0L)
+                }
+                assertTrue(server.awaitPostHandshakeRequestCount(1, 1_000L))
+                assertEquals(0L, server.postHandshakeRequest(0).fields["90khz"])
+                server.sendServerMessage(
+                    "muxpkt",
+                    muxPacketFields(
+                        payloadByte = 1,
+                        subscriptionId = 21L,
+                        decodingTimestamp = -1_000_000L,
+                        presentationTimestamp = 1_000_000L,
+                        duration = 40_000L,
+                    ),
+                )
+                server.replyToPostHandshakeRequest(0)
+                val nativeResponse = withTimeout(1_000L) { nativeSubscribe.await() } as HtspResult.Ok
+                assertEquals(null, nativeResponse.value.ninetyKhz)
+
+                val ninetyKhzSubscribe = async(Dispatchers.IO) {
+                    service.subscribe(
+                        subscriptionId = 22L,
+                        channelId = 1L,
+                        ninetyKhz = 7L,
+                    )
+                }
+                assertTrue(server.awaitPostHandshakeRequestCount(2, 1_000L))
+                server.sendServerMessage(
+                    "muxpkt",
+                    muxPacketFields(
+                        payloadByte = 2,
+                        subscriptionId = 22L,
+                        decodingTimestamp = -90_000L,
+                        presentationTimestamp = 90_000L,
+                        duration = 3_600L,
+                    ),
+                )
+                server.replyToPostHandshakeRequest(1, mapOf("90khz" to 1L))
+                val ninetyKhzResponse = withTimeout(1_000L) {
+                    ninetyKhzSubscribe.await()
+                } as HtspResult.Ok
+                assertEquals(true, ninetyKhzResponse.value.ninetyKhz)
+
+                server.sendServerMessage("subscriptionStop", statusFields(21L, "stopped"))
+                server.sendServerMessage("subscriptionStop", statusFields(22L, "stopped"))
+                val nativePacket = withTimeout(1_000L) { nativeEvents.await() }
+                    .filterIsInstance<HtspSubscriptionEvent.Packet>()
+                    .single()
+                    .packet
+                val ninetyKhzPacket = withTimeout(1_000L) { ninetyKhzEvents.await() }
+                    .filterIsInstance<HtspSubscriptionEvent.Packet>()
+                    .single()
+                    .packet
+
+                assertEquals(nativePacket.decodingTimeUs, ninetyKhzPacket.decodingTimeUs)
+                assertEquals(nativePacket.presentationTimeUs, ninetyKhzPacket.presentationTimeUs)
+                assertEquals(nativePacket.durationUs, ninetyKhzPacket.durationUs)
+                service.disconnect()
+            }
+        }
+    }
+
+    @Test
+    fun subscriptionIdCannotBeReusedWithinGenerationButResetsOnReplacement() {
+        FakeHtspServer(
+            respondToHello = true,
+            captureOnePostHandshakeRequest = true,
+            postHandshakeReplyFields = emptyMap(),
+        ).use { firstServer ->
+            FakeHtspServer(
+                respondToHello = true,
+                captureOnePostHandshakeRequest = true,
+            ).use { replacementServer ->
+                val service = service()
+                runBlocking {
+                    service.connect(HtspEndpoint("127.0.0.1", firstServer.port))
+                    assertTrue(service.subscribe(25L, 1L) is HtspResult.Ok)
+                    val duplicate = runCatching { service.subscribe(25L, 1L) }.exceptionOrNull()
+                    assertTrue(duplicate is IllegalStateException)
+                    delay(100L)
+                    assertEquals(1, firstServer.postHandshakeMethods().size)
+
+                    service.connect(HtspEndpoint("127.0.0.1", replacementServer.port))
+                    val events = async(start = CoroutineStart.UNDISPATCHED) {
+                        service.subscriptionEvents(25L).toList()
+                    }
+                    val replacementSubscribe = async(Dispatchers.IO) {
+                        service.subscribe(25L, 1L, ninetyKhz = 1L)
+                    }
+                    assertTrue(replacementServer.postHandshakeRequestReceived.await(1, TimeUnit.SECONDS))
+                    replacementServer.sendServerMessage(
+                        "muxpkt",
+                        muxPacketFields(
+                            payloadByte = 1,
+                            subscriptionId = 25L,
+                            presentationTimestamp = 90_000L,
+                            duration = 3_600L,
+                        ),
+                    )
+                    replacementServer.replyToCapturedPostHandshakeRequest(mapOf("90khz" to 1L))
+                    assertTrue(withTimeout(1_000L) { replacementSubscribe.await() } is HtspResult.Ok)
+                    replacementServer.sendServerMessage(
+                        "subscriptionStop",
+                        statusFields(25L, "stopped"),
+                    )
+                    val packet = withTimeout(1_000L) { events.await() }
+                        .filterIsInstance<HtspSubscriptionEvent.Packet>()
+                        .single()
+                        .packet
+                    assertEquals(1_000_000L, packet.presentationTimeUs)
+                    assertEquals(40_000L, packet.durationUs)
+                    service.disconnect()
+                }
+            }
+        }
+    }
+
+    @Test
+    fun timeoutAndCancellationRetainProvisionalClockForLateSuccess() {
+        FakeHtspServer(
+            respondToHello = true,
+            postHandshakeReplyPlan = listOf(null, null),
+        ).use { server ->
+            val service = service()
+            runBlocking {
+                service.connect(HtspEndpoint("127.0.0.1", server.port))
+
+                val timedOutEvents = async(start = CoroutineStart.UNDISPATCHED) {
+                    service.subscriptionEvents(23L).toList()
+                }
+                val timedOut = async(Dispatchers.IO) {
+                    service.subscribe(23L, 1L, ninetyKhz = 1L, timeoutMs = 100L)
+                }
+                assertTrue(server.awaitPostHandshakeRequestCount(1, 1_000L))
+                assertSameResult(HtspResult.Timeout, withTimeout(1_000L) { timedOut.await() })
+                server.replyToPostHandshakeRequest(0, mapOf("90khz" to 1L))
+                server.sendServerMessage(
+                    "muxpkt",
+                    muxPacketFields(
+                        payloadByte = 1,
+                        subscriptionId = 23L,
+                        presentationTimestamp = 90_000L,
+                    ),
+                )
+                server.sendServerMessage("subscriptionStop", statusFields(23L, "stopped"))
+
+                val cancelledEvents = async(start = CoroutineStart.UNDISPATCHED) {
+                    service.subscriptionEvents(24L).toList()
+                }
+                val cancelled = async(Dispatchers.IO) {
+                    service.subscribe(24L, 1L, ninetyKhz = 1L, timeoutMs = 5_000L)
+                }
+                assertTrue(server.awaitPostHandshakeRequestCount(2, 1_000L))
+                cancelled.cancel()
+                assertTrue(
+                    runCatching { cancelled.await() }.exceptionOrNull() is
+                        kotlinx.coroutines.CancellationException,
+                )
+                server.replyToPostHandshakeRequest(1, mapOf("90khz" to 1L))
+                server.sendServerMessage(
+                    "muxpkt",
+                    muxPacketFields(
+                        payloadByte = 2,
+                        subscriptionId = 24L,
+                        presentationTimestamp = 90_000L,
+                    ),
+                )
+                server.sendServerMessage("subscriptionStop", statusFields(24L, "stopped"))
+
+                val timedOutPacket = withTimeout(1_000L) { timedOutEvents.await() }
+                    .filterIsInstance<HtspSubscriptionEvent.Packet>()
+                    .single()
+                    .packet
+                val cancelledPacket = withTimeout(1_000L) { cancelledEvents.await() }
+                    .filterIsInstance<HtspSubscriptionEvent.Packet>()
+                    .single()
+                    .packet
+                assertEquals(1_000_000L, timedOutPacket.presentationTimeUs)
+                assertEquals(1_000_000L, cancelledPacket.presentationTimeUs)
+                service.disconnect()
+            }
+        }
+    }
+
+    @Test
     fun packetPressureEvictsOnlyPacketsAndKeepsOrderedDropMarkersAndStop() {
         FakeHtspServer(respondToHello = true).use { server ->
             val service = service(subscriptionEventBufferCapacity = 2)

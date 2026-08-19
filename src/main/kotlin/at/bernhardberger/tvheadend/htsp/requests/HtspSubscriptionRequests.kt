@@ -3,10 +3,10 @@ package at.bernhardberger.tvheadend.htsp.requests
 import at.bernhardberger.tvheadend.htsp.connection.*
 import at.bernhardberger.tvheadend.htsp.wire.*
 
-/** Negotiated subscription values: optional 90 kHz mode, normalized-timestamp flag, scheduling weight, and timeshift period in seconds. */
+/** Subscription reply observations: optional 90 kHz and normalized-timestamp flags, weight, and timeshift period. */
 public data class SubscribeResponse(
-    public val ninetyKhz: Long?,
-    public val normalizedTimestamps: Long?,
+    public val ninetyKhz: Boolean?,
+    public val normalizedTimestamps: Boolean?,
     public val weight: Long?,
     public val timeshiftPeriodSeconds: Long?,
 )
@@ -23,7 +23,11 @@ public sealed interface SubscribeChannel {
     public data class Name(public val channelName: String) : SubscribeChannel
 }
 
-/** Requests [subscriptionId] for exactly one [channel] with optional profile, weight, 90 kHz timestamps, timeshift period, and queue depth. */
+/**
+ * Requests [subscriptionId] for exactly one [channel]; any nonzero [ninetyKhz]
+ * selects the 90 kHz packet clock. Reusing the id in one connection generation
+ * throws [IllegalStateException] before another request reaches the server.
+ */
 public data class SubscribeRequest(
     public val subscriptionId: Long,
     public val channel: SubscribeChannel,

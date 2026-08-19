@@ -364,15 +364,26 @@ internal fun decodeInitialSyncCompleted(fields: Map<String, Any?>): HtspServerMe
     HtspInitialSyncCompletedMessage
 
 @JvmSynthetic
-internal fun decodeMuxPacket(fields: Map<String, Any?>): HtspServerMessage = HtspMuxPacketMessage(
-    subscriptionId = fields.requiredU32("subscriptionId"),
-    frameType = fields.requiredU32("frametype"),
-    streamIndex = fields.requiredU32("stream"),
-    decodingTimestamp = fields.optionalS64("dts"),
-    presentationTimestamp = fields.optionalS64("pts"),
-    duration = fields.requiredU32("duration"),
-    payload = HtspBinary(fields.requiredBinaryCopy("payload")),
-)
+internal fun decodeMuxPacket(
+    fields: Map<String, Any?>,
+    timestampClockForSubscription: (Long) -> HtspTimestampClock,
+): HtspServerMessage {
+    val subscriptionId = fields.requiredU32("subscriptionId")
+    val clock = timestampClockForSubscription(subscriptionId)
+    return try {
+        HtspMuxPacketMessage(
+            subscriptionId = subscriptionId,
+            frameType = fields.optionalS64("frametype") ?: -1L,
+            streamIndex = fields.requiredU32("stream"),
+            decodingTimeUs = fields.optionalS64("dts")?.let(clock::toMicroseconds),
+            presentationTimeUs = fields.optionalS64("pts")?.let(clock::toMicroseconds),
+            durationUs = clock.toMicroseconds(fields.requiredU32("duration")),
+            payload = HtspBinary(fields.requiredBinaryCopy("payload")),
+        )
+    } catch (_: ArithmeticException) {
+        throw HtspServerMessageMappingException()
+    }
+}
 
 @JvmSynthetic
 internal fun decodeQueueStatus(fields: Map<String, Any?>): HtspServerMessage = HtspQueueStatusMessage(

@@ -397,8 +397,8 @@ internal object `HtspRequestCodecs-internal` {
         )
 
         is SubscribeRequest -> SubscribeResponse(
-            ninetyKhz = fields.optionalU32("90khz"),
-            normalizedTimestamps = fields.optionalU32("normts"),
+            ninetyKhz = fields.optionalFlag("90khz"),
+            normalizedTimestamps = fields.optionalFlag("normts"),
             weight = fields.optionalU32("weight"),
             timeshiftPeriodSeconds = fields.optionalU32("timeshiftPeriod"),
         )
@@ -690,6 +690,9 @@ private fun Map<*, *>.requiredU32(name: String): Long = request().requiredU32(na
 
 private fun Map<*, *>.optionalU32(name: String): Long? =
     request().optionalU32(name)
+
+private fun Map<*, *>.optionalFlag(name: String): Boolean? =
+    request().optionalFlag(name)
 
 private fun Map<*, *>.requiredString(name: String): String =
     request().requiredString(name)

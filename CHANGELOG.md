@@ -23,6 +23,14 @@ streams retain controls under pressure, report packet eviction with ordered
 `Dropped` markers, and drain to explicit stop, unsubscribe, generation-loss, or
 transport-loss completion.
 
+**BREAKING (source + binary):** `HtspMuxPacketMessage` now exposes negotiated
+microsecond `decodingTimeUs`, `presentationTimeUs`, and `durationUs` values
+instead of raw-clock timestamp fields. Frame type accepts only unknown `-1` or
+ASCII I/P/B. `SubscribeResponse.ninetyKhz` and `normalizedTimestamps` are now
+strict nullable booleans, while the numeric request still treats any nonzero
+`90khz` value as enabled. Subscription IDs cannot be reused in one connection
+generation, preventing packets from becoming ambiguous across clock modes.
+
 ## [0.2.0]
 
 Clarify that the client requests HTSP v43 by default while the typed surface

@@ -55,7 +55,7 @@ internal class HtspServiceTypedEventTest : HtspServiceLifecycleFixture() {
                     "muxpkt",
                     mapOf(
                         "subscriptionId" to 1L,
-                        "frametype" to 1L,
+                        "frametype" to 73L,
                         "stream" to 0L,
                         "duration" to 40L,
                         "payload" to byteArrayOf(1, 2, 3),

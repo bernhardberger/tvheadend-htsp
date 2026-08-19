@@ -228,6 +228,12 @@ generation. The ordered stream reports packet eviction as `Dropped`, drains on
 `Stopped` or a successful unsubscribe acknowledgement, and ends generation or
 transport loss with `Terminated`.
 
+Mux packet `decodingTimeUs`, `presentationTimeUs`, and `durationUs` values are
+always microseconds. The connection applies the native or 90 kHz clock selected
+by the matching subscribe request, including packets delivered before its
+acknowledgement. `frameType` is ASCII I/P/B, or `-1` when absent or explicitly
+sent as the unknown sentinel.
+
 ## Documentation
 
 - [API behavior: outcomes, errors, and cancellation](docs/public-api.md)

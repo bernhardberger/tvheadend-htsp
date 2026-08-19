@@ -818,8 +818,12 @@ internal open class `HtspService-internal`(
                             return@withCurrentConnectionAttempt
                         }
 
-                        val generation = protocolGeneration?.token
-                        val decoded = decodeHtspServerMessage(msg.fields)
+                        val currentGeneration = protocolGeneration
+                        val generation = currentGeneration?.token
+                        val decoded = decodeHtspServerMessage(msg.fields) { subscriptionId ->
+                            currentGeneration?.subscriptionTimestampClocks?.get(subscriptionId)
+                                ?: HtspTimestampClock.MICROSECONDS
+                        }
                         if (generation != null && decoded is HtspServerMessageDecoded) {
                             typedEvent = HtspTransportEvent.ServerMessage(
                                 message = decoded.message,
@@ -1035,6 +1039,19 @@ internal open class `HtspService-internal`(
         synchronized(connectionAttemptLock) {
             if (protocolGeneration !== serviceGeneration) {
                 throw CancellationException("Stale HTSP connection generation")
+            }
+            if (request is SubscribeRequest) {
+                if (request.subscriptionId in serviceGeneration.subscriptionTimestampClocks) {
+                    throw HtspRequestAdmissionException(
+                        "Subscription ID already used in current connection generation",
+                    )
+                }
+                serviceGeneration.subscriptionTimestampClocks[request.subscriptionId] =
+                    if (request.ninetyKhz != null && request.ninetyKhz != 0L) {
+                        HtspTimestampClock.NINETY_KHZ
+                    } else {
+                        HtspTimestampClock.MICROSECONDS
+                    }
             }
         }
         return try {
@@ -1440,6 +1457,7 @@ internal open class `HtspService-internal`(
         val token: HtspConnectionGeneration = HtspConnectionGeneration(),
     ) {
         val subscriptionStreams = mutableMapOf<Long, HtspSubscriptionEventBuffer>()
+        val subscriptionTimestampClocks = mutableMapOf<Long, HtspTimestampClock>()
     }
 
     private class HtspConnectionIdentity(

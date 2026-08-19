@@ -1755,6 +1755,21 @@ class HtspProtocolCoreTest {
     }
 
     @Test
+    fun primitiveRejectsAReplacedGenerationBeforeReportingLocalAdmissionFailure() = runTest {
+        val transport = FakeProtocolTransport(version = 44).apply {
+            failure = HtspRequestAdmissionException("rejected")
+            replaceBeforeFailure = true
+        }
+
+        val failure = runCatching {
+            HtspTypedRequestCaller(transport).call(GetProfilesRequest())
+        }.exceptionOrNull()
+
+        assertTrue(failure is CancellationException)
+        assertEquals(1, transport.dispatches)
+    }
+
+    @Test
     fun publicRequestClassesExposeNoRawEnvelopeOrReplyMapperMethods() {
         val requestClasses = listOf(
             GetProfilesRequest::class.java,
@@ -1905,6 +1920,44 @@ class HtspProtocolCoreTest {
         assertEquals(1, transport.dispatches)
         assertEquals("addDvrEntry", transport.lastMethod)
         assertEquals(linkedMapOf("channelId" to 1L, "start" to 2L, "stop" to 3L), transport.lastFields)
+    }
+
+    @Test
+    fun subscribeResponseClockObservationsAreStrictNullableFlags() {
+        val request = SubscribeRequest(1L, SubscribeChannel.Id(2L))
+        assertEquals(
+            7L,
+            HtspRequestCodecs.encode(request.copy(ninetyKhz = 7L))["90khz"],
+        )
+        val absent = classifyHtspReply(HtspWireReply(emptyMap()), request, 43)
+        val falseFlags = classifyHtspReply(
+            HtspWireReply(mapOf("90khz" to 0L, "normts" to 0L)),
+            request,
+            43,
+        )
+        val trueFlags = classifyHtspReply(
+            HtspWireReply(mapOf("90khz" to 1L, "normts" to 1L)),
+            request,
+            43,
+        )
+
+        assertEquals(null, (absent as HtspResult.Ok).value.ninetyKhz)
+        assertEquals(null, absent.value.normalizedTimestamps)
+        assertEquals(false, (falseFlags as HtspResult.Ok).value.ninetyKhz)
+        assertEquals(false, falseFlags.value.normalizedTimestamps)
+        assertEquals(true, (trueFlags as HtspResult.Ok).value.ninetyKhz)
+        assertEquals(true, trueFlags.value.normalizedTimestamps)
+
+        listOf(2L, -1L, null, 1, true, "1").forEach { malformed ->
+            assertSame(
+                HtspResult.ServerError,
+                classifyHtspReply(HtspWireReply(mapOf("90khz" to malformed)), request, 43),
+            )
+            assertSame(
+                HtspResult.ServerError,
+                classifyHtspReply(HtspWireReply(mapOf("normts" to malformed)), request, 43),
+            )
+        }
     }
 
     private fun assertIllegalArgument(block: () -> Unit) {

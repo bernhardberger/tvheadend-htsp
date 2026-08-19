@@ -67,6 +67,16 @@ packet pressure with ordered `Dropped` events, drains on stop or unsubscribe,
 and reports generation or transport loss with a final `Terminated` event.
 Collector cancellation remains `CancellationException`.
 
+Each subscription id may also be sent in only one `subscribe` request per
+connection generation; local reuse throws `IllegalStateException` without
+retiring the connection. The request's numeric `ninetyKhz` field selects the
+packet clock: absent or zero is native microseconds and any nonzero value is 90
+kHz. `HtspMuxPacketMessage` always exposes `decodingTimeUs`,
+`presentationTimeUs`, and non-null `durationUs` in microseconds. Missing PTS or
+DTS remains `null`; frame type is ASCII I/P/B or the unknown sentinel `-1`.
+`SubscribeResponse.ninetyKhz` and `normalizedTimestamps` are strict nullable
+boolean observations.
+
 ## Argument validation and lifecycle calls
 
 Passing an invalid argument, such as a non-positive timeout, may throw

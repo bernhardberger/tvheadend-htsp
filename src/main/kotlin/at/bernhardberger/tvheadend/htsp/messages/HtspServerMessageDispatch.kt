@@ -11,8 +11,19 @@ public data object HtspServerMessageUnknownMethod : HtspServerMessageDecodeResul
 /** Marks a recognized asynchronous method whose fields failed its typed decoder. */
 public data object HtspServerMessageMalformedKnownMessage : HtspServerMessageDecodeResult
 
-/** Classifies one raw field map as a decoded server message, an unknown method, or malformed known input without throwing decoder failures. */
-public fun decodeHtspServerMessage(fields: Map<String, Any?>): HtspServerMessageDecodeResult {
+/**
+ * Classifies one raw field map as a decoded server message, unknown method, or
+ * malformed known input. Standalone mux packets are interpreted as native
+ * microseconds because no subscribe request supplies a negotiated clock.
+ */
+public fun decodeHtspServerMessage(fields: Map<String, Any?>): HtspServerMessageDecodeResult =
+    decodeHtspServerMessage(fields) { HtspTimestampClock.MICROSECONDS }
+
+@JvmSynthetic
+internal fun decodeHtspServerMessage(
+    fields: Map<String, Any?>,
+    timestampClockForSubscription: (Long) -> HtspTimestampClock,
+): HtspServerMessageDecodeResult {
     if (fields.containsKey("seq")) return HtspServerMessageUnknownMethod
     val method = fields["method"] as? String
         ?: return HtspServerMessageUnknownMethod
@@ -36,7 +47,9 @@ public fun decodeHtspServerMessage(fields: Map<String, Any?>): HtspServerMessage
         "eventUpdate" -> decodeKnownServerMessage { decodeEventUpdate(fields) }
         "eventDelete" -> decodeKnownServerMessage { decodeEventDelete(fields) }
         "initialSyncCompleted" -> decodeKnownServerMessage { decodeInitialSyncCompleted(fields) }
-        "muxpkt" -> decodeKnownServerMessage { decodeMuxPacket(fields) }
+        "muxpkt" -> decodeKnownServerMessage {
+            decodeMuxPacket(fields, timestampClockForSubscription)
+        }
         "queueStatus" -> decodeKnownServerMessage { decodeQueueStatus(fields) }
         "subscriptionStart" -> decodeKnownServerMessage { decodeSubscriptionStart(fields) }
         "subscriptionStop" -> decodeKnownServerMessage { decodeSubscriptionStop(fields) }

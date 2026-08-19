@@ -151,6 +151,9 @@ internal class `HtspTypedRequestCaller-internal`(
         } catch (_: HtspProtocolMappingException) {
             ensureActiveGeneration(generation)
             HtspResult.ServerError
+        } catch (rejected: HtspRequestAdmissionException) {
+            ensureActiveGeneration(generation)
+            throw rejected
         } catch (_: Exception) {
             ensureActiveGeneration(generation)
             HtspResult.TransportUnavailable
@@ -273,3 +276,9 @@ internal typealias HtspCallTimeoutException = `HtspCallTimeoutException-internal
 internal class `HtspProtocolMappingException-internal` : Exception()
 
 internal typealias HtspProtocolMappingException = `HtspProtocolMappingException-internal`
+
+internal class `HtspRequestAdmissionException-internal`(message: String) :
+    IllegalStateException(message)
+
+internal typealias HtspRequestAdmissionException =
+    `HtspRequestAdmissionException-internal`
