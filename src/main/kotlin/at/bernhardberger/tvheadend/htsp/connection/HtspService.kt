@@ -19,6 +19,7 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.isActive
@@ -105,7 +106,7 @@ internal class `HtspRequestTimeoutException-internal`(
 
 internal typealias HtspRequestTimeoutException = `HtspRequestTimeoutException-internal`
 
-/** Internal-service connection state exposed as finite typed snapshots. */
+/** Connection lifecycle state exposed as finite typed snapshots. */
 public sealed class HtspConnectionState {
     /** No transport is currently connected or connecting. */
     public data object Disconnected : HtspConnectionState()
@@ -121,7 +122,7 @@ public sealed class HtspConnectionState {
         val htspVersion: Int?,
         val dvrAccess: Boolean? = null,
     ) : HtspConnectionState()
-    /** The current service state carries an implementation failure for internal consumers. */
+    /** A connection attempt or active transport failed. */
     public data class Error(val throwable: Throwable) : HtspConnectionState()
 }
 
@@ -139,7 +140,7 @@ internal open class `HtspService-internal`(
     private val subscriptionEventBufferCapacity: Int = SUBSCRIPTION_EVENT_BUFFER_CAPACITY,
 ) : HtspRequestTransport, HtspConnection {
     private val _state = MutableStateFlow<HtspConnectionState>(HtspConnectionState.Disconnected)
-    val state: StateFlow<HtspConnectionState> = _state
+    override val connectionState: StateFlow<HtspConnectionState> = _state.asStateFlow()
 
     private val _liveConnection = MutableStateFlow<HtspLiveConnection?>(null)
     override val liveConnection: StateFlow<HtspLiveConnection?> = _liveConnection
@@ -151,7 +152,7 @@ internal open class `HtspService-internal`(
     )
     override val events: SharedFlow<HtspTransportEvent> = _events
 
-    open fun currentConnectionState(): HtspConnectionState = state.value
+    open fun currentConnectionState(): HtspConnectionState = connectionState.value
 
     private val serviceJob = SupervisorJob()
     private val scope = CoroutineScope(serviceJob + ioDispatcher)

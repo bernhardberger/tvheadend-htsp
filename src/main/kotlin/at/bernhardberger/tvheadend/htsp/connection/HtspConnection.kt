@@ -19,6 +19,9 @@ public class HtspConnectionGeneration {
  * decoder outcomes, and implementation exceptions are intentionally absent.
  */
 public interface HtspConnection {
+    /** Current connection lifecycle state, available synchronously and as a hot stream. */
+    public val connectionState: StateFlow<HtspConnectionState>
+
     public val liveConnection: StateFlow<HtspLiveConnection?>
 
     /**

@@ -152,7 +152,7 @@ internal class HtspServiceHandshakeFactsTest : HtspServiceLifecycleFixture() {
                     soTimeoutMs = 50,
                 )
 
-                val state = service.state.value as HtspConnectionState.Connected
+                val state = service.connectionState.value as HtspConnectionState.Connected
                 assertEquals(true, state.dvrAccess)
                 assertEquals(listOf("hello", "authenticate"), server.handshakeMethods)
                 // No credentials configured: authenticate must stay bare so the server
@@ -242,7 +242,7 @@ internal class HtspServiceHandshakeFactsTest : HtspServiceLifecycleFixture() {
                     soTimeoutMs = 50,
                 )
 
-                val state = service.state.value as HtspConnectionState.Connected
+                val state = service.connectionState.value as HtspConnectionState.Connected
                 val attemptId = service.currentConnectionAttemptId()
                 val facts = requireNotNull(service.serverFactsForLiveConnectionAttempt(attemptId))
                 assertEquals("tvh-fixture", facts.serverName)
@@ -297,7 +297,7 @@ internal class HtspServiceHandshakeFactsTest : HtspServiceLifecycleFixture() {
                 assertTrue(!serialized.contains("digest"))
 
                 service.disconnect()
-                assertTrue(service.state.value !is HtspConnectionState.Connected)
+                assertTrue(service.connectionState.value !is HtspConnectionState.Connected)
                 assertNull(service.serverFactsForLiveConnectionAttempt(attemptId))
             }
         }

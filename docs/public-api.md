@@ -53,6 +53,12 @@ abandoned because the connection generation it was fenced to went stale.
 
 ## Metadata and subscription event streams
 
+`HtspConnection.connectionState` exposes the service-owned current lifecycle as
+a hot `StateFlow<HtspConnectionState>`. Its synchronous `value` is always
+available, and collectors receive subsequent state changes. StateFlow conflation
+applies, so consumers should treat it as current state rather than an audit log
+of every short-lived transition.
+
 `HtspConnection.events` has replay zero and carries metadata server messages and
 connection failures only. It has an exact 1024-event burst budget shared by
 independent collectors. An indefinitely stalled collector eventually

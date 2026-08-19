@@ -40,6 +40,11 @@ observation before sending `enableAsyncMetadata`, so an adjacent acknowledgement
 and `initialSyncCompleted` marker cannot race collector startup. Its typed timeout
 covers both phases, while caller and stale-generation cancellation still propagate.
 
+**BREAKING (source + binary):** `HtspConnection` now exposes the service-owned
+`connectionState` as a `StateFlow<HtspConnectionState>`. Custom connection
+implementations must provide the current lifecycle state instead of requiring
+consumers to reconstruct it from events.
+
 **BREAKING (behavior):** Channel, tag, event, and DVR-entry add/update messages
 and `HtspSubscriptionStartMessage` now have structural data-class equality,
 hashing, components, and snapshot-preserving `copy()` operations for metadata

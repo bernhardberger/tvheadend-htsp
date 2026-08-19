@@ -352,7 +352,7 @@ internal class HtspServiceTypedEventTest : HtspServiceLifecycleFixture() {
                 server.replyToCapturedPostHandshakeRequest()
 
                 assertNull(unexpectedTypedEvent.await())
-                assertTrue(service.state.value is HtspConnectionState.Connected)
+                assertTrue(service.connectionState.value is HtspConnectionState.Connected)
                 service.disconnect()
             }
         }

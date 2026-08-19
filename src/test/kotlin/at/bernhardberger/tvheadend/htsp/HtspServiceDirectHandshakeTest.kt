@@ -82,7 +82,7 @@ internal class HtspServiceDirectHandshakeTest : HtspServiceLifecycleFixture() {
                 assertEquals("recaptured-server", live.serverFacts.serverName)
                 assertEquals(true, live.serverFacts.dvr)
                 assertEquals(true, live.dvrAccess)
-                val state = service.state.value as HtspConnectionState.Connected
+                val state = service.connectionState.value as HtspConnectionState.Connected
                 assertEquals(2, state.htspVersion)
                 assertEquals(true, state.dvrAccess)
                 assertSame(HtspResult.NotSupported, service.getSysTime(expectedGeneration = generation))
@@ -158,7 +158,10 @@ internal class HtspServiceDirectHandshakeTest : HtspServiceLifecycleFixture() {
                 assertEquals(true, after.serverFacts.dvr)
                 assertEquals(7, after.serverFacts.limitDvr)
                 assertEquals(true, after.dvrAccess)
-                assertEquals(true, (service.state.value as HtspConnectionState.Connected).dvrAccess)
+                assertEquals(
+                    true,
+                    (service.connectionState.value as HtspConnectionState.Connected).dvrAccess,
+                )
                 service.disconnect()
             }
         }
@@ -201,7 +204,7 @@ internal class HtspServiceDirectHandshakeTest : HtspServiceLifecycleFixture() {
                 assertNull(after.serverFacts.streaming)
                 assertNull(after.serverFacts.dvr)
                 assertNull(after.dvrAccess)
-                assertNull((service.state.value as HtspConnectionState.Connected).dvrAccess)
+                assertNull((service.connectionState.value as HtspConnectionState.Connected).dvrAccess)
                 service.disconnect()
             }
         }
@@ -527,7 +530,7 @@ internal class HtspServiceDirectHandshakeTest : HtspServiceLifecycleFixture() {
                 assertSame(HtspResult.TransportUnavailable, service.getProfiles())
                 assertEquals(1, server.postHandshakeMethods().size)
                 withTimeout(1_000L) {
-                    service.state.first { state -> state is HtspConnectionState.Disconnected }
+                    service.connectionState.first { state -> state is HtspConnectionState.Disconnected }
                 }
             }
         }
@@ -569,7 +572,7 @@ internal class HtspServiceDirectHandshakeTest : HtspServiceLifecycleFixture() {
                 assertSame(HtspResult.TransportUnavailable, service.getProfiles())
                 assertEquals(1, server.postHandshakeMethods().size)
                 withTimeout(1_000L) {
-                    service.state.first { state -> state is HtspConnectionState.Disconnected }
+                    service.connectionState.first { state -> state is HtspConnectionState.Disconnected }
                 }
             }
         }
@@ -600,7 +603,7 @@ internal class HtspServiceDirectHandshakeTest : HtspServiceLifecycleFixture() {
                 assertNull(service.commitIfLive(generation) { it })
                 assertSame(HtspResult.TransportUnavailable, service.getProfiles())
                 withTimeout(1_000L) {
-                    service.state.first { state -> state is HtspConnectionState.Disconnected }
+                    service.connectionState.first { state -> state is HtspConnectionState.Disconnected }
                 }
             }
         }
@@ -643,7 +646,7 @@ internal class HtspServiceDirectHandshakeTest : HtspServiceLifecycleFixture() {
                 assertSame(generation, live.generation)
                 assertNull(live.protocolVersion)
                 assertEquals("u32-server", live.serverFacts.serverName)
-                assertNull((service.state.value as HtspConnectionState.Connected).htspVersion)
+                assertNull((service.connectionState.value as HtspConnectionState.Connected).htspVersion)
                 assertSame(HtspResult.NotSupported, service.getSysTime(expectedGeneration = generation))
                 assertEquals(listOf("hello"), server.postHandshakeMethods())
                 service.disconnect()

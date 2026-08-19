@@ -8,6 +8,7 @@ import at.bernhardberger.tvheadend.htsp.wire.*
 
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotEquals
@@ -19,6 +20,18 @@ import java.io.IOException
 import java.lang.reflect.Modifier
 
 class HtspProtocolCoreTest {
+    @Test
+    fun factoryConnectionExposesTheOwnedLifecycleState() = runTest {
+        val connection: HtspConnection = createHtspConnection(Dispatchers.Unconfined)
+        try {
+            assertSame(HtspConnectionState.Disconnected, connection.connectionState.value)
+            assertSame(connection.connectionState, connection.connectionState)
+            assertTrue(connection.connectionState !is MutableStateFlow<*>)
+        } finally {
+            connection.close()
+        }
+    }
+
     @Test
     fun publicExecuteUsesThePreservedTypedRequestPath() = runTest {
         val transport = FakeProtocolTransport(version = 44).apply {

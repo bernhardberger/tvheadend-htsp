@@ -149,7 +149,7 @@ internal class HtspServiceRequestTimeoutTest : HtspServiceLifecycleFixture() {
 
                 assertNotNull(failure)
                 assertTrue(failure is HtspRequestTimeoutException)
-                assertTrue(service.state.value is HtspConnectionState.Connected)
+                assertTrue(service.connectionState.value is HtspConnectionState.Connected)
                 service.disconnect()
             }
         }
@@ -186,7 +186,7 @@ internal class HtspServiceRequestTimeoutTest : HtspServiceLifecycleFixture() {
                 assertTrue(failure is SocketTimeoutException)
                 assertTrue(failure !is HtspRequestTimeoutException)
                 withTimeout(1_000L) {
-                    service.state.first { state -> state is HtspConnectionState.Disconnected }
+                    service.connectionState.first { state -> state is HtspConnectionState.Disconnected }
                 }
                 assertNull(service.liveConnection.value)
             }
@@ -211,10 +211,10 @@ internal class HtspServiceRequestTimeoutTest : HtspServiceLifecycleFixture() {
                 )
 
                 val leftConnected = withTimeoutOrNull(350L) {
-                    service.state.first { state -> state !is HtspConnectionState.Connected }
+                    service.connectionState.first { state -> state !is HtspConnectionState.Connected }
                 }
                 assertNull(leftConnected)
-                assertTrue(service.state.value is HtspConnectionState.Connected)
+                assertTrue(service.connectionState.value is HtspConnectionState.Connected)
 
                 val request = async(Dispatchers.IO) {
                     service.request(
@@ -255,7 +255,7 @@ internal class HtspServiceRequestTimeoutTest : HtspServiceLifecycleFixture() {
                 }.exceptionOrNull()
 
                 assertTrue(failure is TimeoutCancellationException)
-                assertTrue(service.state.value is HtspConnectionState.Connected)
+                assertTrue(service.connectionState.value is HtspConnectionState.Connected)
                 service.disconnect()
             }
         }
@@ -292,7 +292,7 @@ internal class HtspServiceRequestTimeoutTest : HtspServiceLifecycleFixture() {
                 assertTrue(failure is SocketTimeoutException)
                 assertTrue(failure !is TimeoutCancellationException)
                 withTimeout(1_000L) {
-                    service.state.first { it is HtspConnectionState.Disconnected }
+                    service.connectionState.first { it is HtspConnectionState.Disconnected }
                 }
             }
         }
@@ -328,7 +328,7 @@ internal class HtspServiceRequestTimeoutTest : HtspServiceLifecycleFixture() {
                 server.replyToCapturedPostHandshakeRequest()
 
                 assertTrue(sync.await() is TimeoutCancellationException)
-                assertTrue(service.state.value is HtspConnectionState.Connected)
+                assertTrue(service.connectionState.value is HtspConnectionState.Connected)
                 service.disconnect()
             }
         }

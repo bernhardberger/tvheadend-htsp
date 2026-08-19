@@ -217,6 +217,9 @@ internal class HtspInitialSyncOrchestrationTest {
             private set
         private var messageSequence = 0L
 
+        override val connectionState: StateFlow<HtspConnectionState> =
+            MutableStateFlow(HtspConnectionState.Disconnected)
+
         lateinit var executeScript: suspend ScriptedConnection.(
             EnableAsyncMetadataRequest,
             Long,
