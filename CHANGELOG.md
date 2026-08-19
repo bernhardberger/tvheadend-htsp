@@ -45,6 +45,11 @@ covers both phases, while caller and stale-generation cancellation still propaga
 implementations must provide the current lifecycle state instead of requiring
 consumers to reconstruct it from events.
 
+**BREAKING (Java source + JVM binary):** `createHtspConnection` now exposes its
+existing socket factory as a final Kotlin-optional parameter. Consumers can
+inject a fresh unconnected JVM socket for deterministic connect, handshake, and
+typed-request sessions without opening a network connection.
+
 **BREAKING (behavior):** Channel, tag, event, and DVR-entry add/update messages
 and `HtspSubscriptionStartMessage` now have structural data-class equality,
 hashing, components, and snapshot-preserving `copy()` operations for metadata

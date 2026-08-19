@@ -90,8 +90,8 @@ public final class at/bernhardberger/tvheadend/htsp/connection/HtspConnection$De
 }
 
 public final class at/bernhardberger/tvheadend/htsp/connection/HtspConnectionFactoryKt {
-	public static final fun createHtspConnection (Lkotlinx/coroutines/CoroutineDispatcher;Lat/bernhardberger/tvheadend/htsp/connection/HtspClientIdentity;Lat/bernhardberger/tvheadend/htsp/connection/HtspLogger;)Lat/bernhardberger/tvheadend/htsp/connection/HtspConnection;
-	public static synthetic fun createHtspConnection$default (Lkotlinx/coroutines/CoroutineDispatcher;Lat/bernhardberger/tvheadend/htsp/connection/HtspClientIdentity;Lat/bernhardberger/tvheadend/htsp/connection/HtspLogger;ILjava/lang/Object;)Lat/bernhardberger/tvheadend/htsp/connection/HtspConnection;
+	public static final fun createHtspConnection (Lkotlinx/coroutines/CoroutineDispatcher;Lat/bernhardberger/tvheadend/htsp/connection/HtspClientIdentity;Lat/bernhardberger/tvheadend/htsp/connection/HtspLogger;Lkotlin/jvm/functions/Function0;)Lat/bernhardberger/tvheadend/htsp/connection/HtspConnection;
+	public static synthetic fun createHtspConnection$default (Lkotlinx/coroutines/CoroutineDispatcher;Lat/bernhardberger/tvheadend/htsp/connection/HtspClientIdentity;Lat/bernhardberger/tvheadend/htsp/connection/HtspLogger;Lkotlin/jvm/functions/Function0;ILjava/lang/Object;)Lat/bernhardberger/tvheadend/htsp/connection/HtspConnection;
 }
 
 public final class at/bernhardberger/tvheadend/htsp/connection/HtspConnectionGeneration {

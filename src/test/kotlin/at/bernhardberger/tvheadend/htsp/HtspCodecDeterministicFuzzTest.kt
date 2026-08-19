@@ -184,6 +184,9 @@ class HtspCodecDeterministicFuzzTest {
             "scalar-types.hex",
             "muxpkt.hex",
             "nested.hex",
+            "scripted-hello-response.hex",
+            "scripted-authenticate-response.hex",
+            "scripted-get-sys-time-response.hex",
         )
         val TARGET_LENGTHS = longArrayOf(0, 1, 7, 31, 255, 32L * 1024 * 1024, 32L * 1024 * 1024 + 1, 0xffff_ffffL)
     }

@@ -1,0 +1,6 @@
+# Scripted anonymous authenticate reply: seq=2 with streaming and DVR access.
+00 00 00 3c
+03 06 00 00 00 0c 6d 65 74 68 6f 64 61 75 74 68 65 6e 74 69 63 61 74 65
+02 03 00 00 00 01 73 65 71 02
+02 09 00 00 00 01 73 74 72 65 61 6d 69 6e 67 01
+02 03 00 00 00 01 64 76 72 01

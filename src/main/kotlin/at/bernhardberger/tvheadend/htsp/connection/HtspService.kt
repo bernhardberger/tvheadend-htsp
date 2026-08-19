@@ -256,11 +256,11 @@ internal open class `HtspService-internal`(
                     HtspConnectionState.Connecting(host, port),
                 )
 
-                val s = lifecycle.admit {
-                    ensureCurrentConnectionAttempt(attemptId)
-                    socketFactory().also { connectingSocket = it }
-                }
                 try {
+                    val s = lifecycle.admit {
+                        ensureCurrentConnectionAttempt(attemptId)
+                        socketFactory().also { connectingSocket = it }
+                    }
                     s.tcpNoDelay = true
                     s.keepAlive = true
                     s.soTimeout = soTimeoutMs

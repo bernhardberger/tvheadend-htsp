@@ -5,6 +5,7 @@ package at.bernhardberger.tvheadend.htsp.connection
 import at.bernhardberger.tvheadend.htsp.messages.HtspServerMessage
 import java.net.ConnectException
 import java.net.NoRouteToHostException
+import java.net.Socket
 import java.net.SocketTimeoutException
 import java.net.UnknownHostException
 import kotlinx.coroutines.CancellationException
@@ -96,15 +97,20 @@ public sealed interface HtspTransportEvent {
     ) : HtspTransportEvent
 }
 
-/** Creates the factory-owned typed connection using the supplied dispatcher and diagnostics policy. */
+/**
+ * Creates the factory-owned typed connection using the supplied dispatcher and diagnostics policy.
+ * [socketFactory] must return a fresh, initially unconnected socket for each connection attempt.
+ */
 public fun createHtspConnection(
     ioDispatcher: CoroutineDispatcher,
     clientIdentity: HtspClientIdentity = HtspClientIdentity.Default,
     logger: HtspLogger = HtspLogger.None,
+    socketFactory: () -> Socket = ::Socket,
 ): HtspConnection = HtspService(
     ioDispatcher = ioDispatcher,
     clientIdentity = clientIdentity,
     logger = logger,
+    socketFactory = socketFactory,
 )
 
 internal fun typedTransportFailure(error: Throwable): HtspTransportFailure {

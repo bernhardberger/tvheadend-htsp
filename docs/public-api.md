@@ -118,6 +118,15 @@ Passing an invalid argument, such as a non-positive timeout, may throw
 `IllegalArgumentException`. Lifecycle calls such as `disconnect` and `close`
 return `Unit`.
 
+## Socket injection
+
+`createHtspConnection` accepts an optional `socketFactory`. The default creates
+a real JVM socket; an injected factory must return a fresh, initially
+unconnected `java.net.Socket` for each connection attempt. This is a trusted raw
+transport boundary for deterministic integration and embedding needs: custom
+sockets must not block during construction or log, retain, or expose HTSP wire
+traffic and credentials.
+
 ## What outcome values deliberately omit
 
 Failure values are stable categories, not payloads. They never expose

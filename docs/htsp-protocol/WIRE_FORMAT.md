@@ -14,6 +14,11 @@ values and are explicitly exempt from re-encode. `boolean-false.hex` is one:
 the pinned server emits false as a zero-length BOOL, while the local encoder
 emits one Boolean byte.
 
+The `scripted-*-response.hex` fixtures are deterministic server replies used by
+the public socket-factory integration test. They drive `hello`, anonymous
+`authenticate`, and `getSysTime` in request order without opening a network
+connection.
+
 ## Frame layout
 
 A frame starts with a four-byte unsigned big-endian body length, followed by
