@@ -93,6 +93,7 @@ public final class at/bernhardberger/tvheadend/htsp/connection/HtspConnectionFac
 }
 
 public final class at/bernhardberger/tvheadend/htsp/connection/HtspConnectionGeneration {
+	public fun <init> ()V
 	public fun toString ()Ljava/lang/String;
 }
 

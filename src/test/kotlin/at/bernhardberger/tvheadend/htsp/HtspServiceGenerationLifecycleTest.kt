@@ -382,8 +382,15 @@ internal class HtspServiceGenerationLifecycleTest : HtspServiceLifecycleFixture(
                     live.generation,
                     service.commitIfLive(live.generation) { snapshot -> snapshot.generation },
                 )
+                assertTrue(service.isCurrent(live.generation))
+                assertSame(
+                    live.generation,
+                    service.commitIfCurrent(live.generation) { live.generation },
+                )
 
-                val foreign = HtspConnectionGeneration.create()
+                val foreign = HtspConnectionGeneration()
+                assertTrue(!service.isCurrent(foreign))
+                assertNull(service.commitIfCurrent(foreign) { "foreign" })
                 assertNull(service.commitIfLive(foreign) { it })
                 service.disconnect(live.generation)
                 assertNull(service.commitIfLive(live.generation) { it })

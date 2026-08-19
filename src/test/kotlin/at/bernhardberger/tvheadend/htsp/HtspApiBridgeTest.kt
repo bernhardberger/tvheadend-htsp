@@ -262,7 +262,7 @@ class HtspApiBridgeTest {
         var reply: HtspWireReply,
     ) : HtspRequestTransport {
         private val generation = HtspCapturedGeneration(
-            HtspConnectionGeneration.create(),
+            HtspConnectionGeneration(),
             version,
             Any(),
         )

@@ -54,7 +54,7 @@ class HtspProtocolCoreTest {
             assertSame(HtspResult.NotSupported, connection.execute(GetProfilesRequest()))
             assertEquals(1, transport.dispatches)
 
-            val staleGeneration = HtspConnectionGeneration.create()
+            val staleGeneration = HtspConnectionGeneration()
             val staleFailure = runCatching {
                 connection.execute(GetEventRequest(7L), expectedGeneration = staleGeneration)
             }.exceptionOrNull()
@@ -1686,15 +1686,15 @@ class HtspProtocolCoreTest {
     }
 
     @Test
-    fun generationConstructorIsPrivateAndProtocolFactoryRetainsOpaqueIdentity() {
+    fun generationConstructorIsPublicAndRetainsOpaqueIdentity() {
         val constructors = HtspConnectionGeneration::class.java.declaredConstructors
         assertTrue(constructors.any { constructor ->
-            constructor.parameterCount == 0 && Modifier.isPrivate(constructor.modifiers)
+            constructor.parameterCount == 0 && Modifier.isPublic(constructor.modifiers)
         })
-        assertTrue(constructors.none { constructor ->
-            Modifier.isPublic(constructor.modifiers) && !constructor.isSynthetic
-        })
-        assertNotSame(HtspConnectionGeneration.create(), HtspConnectionGeneration.create())
+        val first = HtspConnectionGeneration()
+        val second = HtspConnectionGeneration()
+        assertNotSame(first, second)
+        assertNotEquals(first, second)
     }
 
     @Test
@@ -1966,7 +1966,7 @@ class HtspProtocolCoreTest {
 
         private fun capturedGeneration(version: Int?): HtspCapturedGeneration =
             HtspCapturedGeneration(
-                token = HtspConnectionGeneration.create(),
+                token = HtspConnectionGeneration(),
                 protocolVersion = version,
                 transportKey = Any(),
             )

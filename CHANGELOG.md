@@ -12,6 +12,9 @@ assets.
 Custom connection implementations can intercept requests, and convenience
 request functions dispatch through that member.
 
+`HtspConnectionGeneration` now has a public constructor so fakes can create
+identity-based generation tokens without an internal factory.
+
 ## [0.2.0]
 
 Clarify that the client requests HTSP v43 by default while the typed surface

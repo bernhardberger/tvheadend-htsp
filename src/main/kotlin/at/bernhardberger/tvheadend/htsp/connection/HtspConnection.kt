@@ -10,13 +10,8 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
 /** Opaque identity of one current HTSP transport generation, whether live or gone. */
-public class HtspConnectionGeneration private constructor() {
+public class HtspConnectionGeneration {
     override fun toString(): String = "HtspConnectionGeneration"
-
-    internal companion object {
-        @JvmSynthetic
-        internal fun create(): HtspConnectionGeneration = HtspConnectionGeneration()
-    }
 }
 
 /**

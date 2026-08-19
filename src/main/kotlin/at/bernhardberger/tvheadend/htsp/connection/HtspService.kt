@@ -1320,7 +1320,7 @@ internal open class `HtspService-internal`(
 
     private class ServiceProtocolGeneration(
         val attemptId: Long,
-        val token: HtspConnectionGeneration = HtspConnectionGeneration.create(),
+        val token: HtspConnectionGeneration = HtspConnectionGeneration(),
     )
 
     private class HtspConnectionIdentity(
