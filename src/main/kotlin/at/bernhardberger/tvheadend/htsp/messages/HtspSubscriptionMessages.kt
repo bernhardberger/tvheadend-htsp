@@ -99,15 +99,51 @@ public data class HtspSubscriptionSourceInfo(
 )
 
 /** Reports subscription-start metadata: stream list, source information, codec metadata, and optional status or subscription error. */
-public class HtspSubscriptionStartMessage(
+@ConsistentCopyVisibility
+public data class HtspSubscriptionStartMessage private constructor(
     public val subscriptionId: Long,
-    streams: List<HtspSubscriptionStream>? = null,
+    public val streams: List<HtspSubscriptionStream>? = null,
     public val sourceInfo: HtspSubscriptionSourceInfo? = null,
     public val codecMetadata: HtspBinary? = null,
     public val status: String? = null,
     public val subscriptionError: String? = null,
+    private val immutableSnapshot: Unit,
 ) : HtspServerMessage {
-    public val streams: List<HtspSubscriptionStream>? = streams?.immutableSnapshot()
+    public constructor(
+        subscriptionId: Long,
+        streams: List<HtspSubscriptionStream>? = null,
+        sourceInfo: HtspSubscriptionSourceInfo? = null,
+        codecMetadata: HtspBinary? = null,
+        status: String? = null,
+        subscriptionError: String? = null,
+    ) : this(
+        subscriptionId = subscriptionId,
+        streams = streams?.immutableSnapshot(),
+        sourceInfo = sourceInfo,
+        codecMetadata = codecMetadata,
+        status = status,
+        subscriptionError = subscriptionError,
+        immutableSnapshot = Unit,
+    )
+
+    /** Returns a validated copy with an immutable snapshot of replacement streams. */
+    public fun copy(
+        subscriptionId: Long = this.subscriptionId,
+        streams: List<HtspSubscriptionStream>? = this.streams,
+        sourceInfo: HtspSubscriptionSourceInfo? = this.sourceInfo,
+        codecMetadata: HtspBinary? = this.codecMetadata,
+        status: String? = this.status,
+        subscriptionError: String? = this.subscriptionError,
+    ): HtspSubscriptionStartMessage = HtspSubscriptionStartMessage(
+        subscriptionId = subscriptionId,
+        streams = streams,
+        sourceInfo = sourceInfo,
+        codecMetadata = codecMetadata,
+        status = status,
+        subscriptionError = subscriptionError,
+    )
+
+    override fun toString(): String = "HtspSubscriptionStartMessage(<redacted>)"
 
     init {
         requireU32("subscriptionId", subscriptionId)

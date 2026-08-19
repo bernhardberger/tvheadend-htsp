@@ -35,6 +35,13 @@ generation, preventing packets from becoming ambiguous across clock modes.
 buffer with bounded `copyInto`, avoiding an intermediate payload array in
 playback consumers while retaining defensive construction and `toByteArray()`.
 
+**BREAKING (behavior):** Channel, tag, event, and DVR-entry add/update messages
+and `HtspSubscriptionStartMessage` now have structural data-class equality,
+hashing, components, and snapshot-preserving `copy()` operations for metadata
+reducers. Collection inputs remain immutable snapshots, binary metadata keeps
+content equality, unsigned validation still applies to copies, and message
+rendering remains payload-free and redacted.
+
 ## [0.2.0]
 
 Clarify that the client requests HTSP v43 by default while the typed surface

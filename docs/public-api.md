@@ -87,6 +87,17 @@ the requested destination offset. `toByteArray()` remains available when a
 standalone defensive copy is more convenient. No borrowed mutable-array access
 is exposed.
 
+## Mergeable metadata messages
+
+Channel, tag, event, and DVR-entry add/update messages and
+`HtspSubscriptionStartMessage` are data classes. Reducers can merge partial
+updates with `copy()` and compare values structurally. Public list inputs are
+still copied to immutable snapshots during construction and replacement, and
+every copied unsigned field is validated again. Subscription-start binary
+metadata participates through `HtspBinary` content equality rather than raw
+array identity. Message `toString()` output remains redacted and does not expose
+paths, server errors, subscription identifiers, or payload content.
+
 ## Argument validation and lifecycle calls
 
 Passing an invalid argument, such as a non-positive timeout, may throw
