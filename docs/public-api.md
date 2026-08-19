@@ -67,6 +67,14 @@ packet pressure with ordered `Dropped` events, drains on stop or unsubscribe,
 and reports generation or transport loss with a final `Terminated` event.
 Collector cancellation remains `CancellationException`.
 
+Use `enableAsyncMetadataAwaitingInitialSync` to enable metadata and wait for the
+unsequenced `initialSyncCompleted` marker. It installs its generation-scoped
+observer before sending the request, so a marker adjacent to or preceding the
+acknowledgement is retained. One timeout covers both phases and returns
+`HtspResult.Timeout`; caller cancellation and generation replacement remain
+cancellation. Because the marker has no request sequence, callers must serialize
+this orchestration within a connection generation.
+
 Each subscription id may also be sent in only one `subscribe` request per
 connection generation; local reuse throws `IllegalStateException` without
 retiring the connection. The request's numeric `ninetyKhz` field selects the

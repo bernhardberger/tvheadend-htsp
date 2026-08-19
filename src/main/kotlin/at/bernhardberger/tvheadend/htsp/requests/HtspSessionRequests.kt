@@ -1,7 +1,20 @@
 package at.bernhardberger.tvheadend.htsp.requests
 
 import at.bernhardberger.tvheadend.htsp.connection.*
+import at.bernhardberger.tvheadend.htsp.messages.HtspInitialSyncCompletedMessage
 import at.bernhardberger.tvheadend.htsp.wire.*
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.selects.select
+import kotlinx.coroutines.withTimeoutOrNull
 
 /** One stream profile with its stable UUID, display [name], and server [comment]. */
 public data class HtspProfile(
@@ -200,6 +213,114 @@ public suspend fun HtspConnection.enableAsyncMetadata(
         timeoutMs = timeoutMs,
         expectedGeneration = expectedGeneration,
     )
+
+/**
+ * Enables asynchronous metadata after installing an initial-sync observer for the
+ * current generation. Callers must serialize this unsequenced orchestration per generation.
+ * [timeoutMs] is one deadline covering both the acknowledgement and sync marker.
+ */
+public suspend fun HtspConnection.enableAsyncMetadataAwaitingInitialSync(
+    epg: Long? = null,
+    lastUpdate: Long? = null,
+    epgMaxTime: Long? = null,
+    language: String? = null,
+    timeoutMs: Long = 30_000L,
+    expectedGeneration: HtspConnectionGeneration? = null,
+): HtspResult<Unit> {
+    require(timeoutMs > 0L) { "timeoutMs must be positive" }
+    currentCoroutineContext().ensureActive()
+    val generation = liveConnection.value?.generation
+        ?: return HtspResult.TransportUnavailable
+    if (expectedGeneration != null && expectedGeneration !== generation) {
+        throw CancellationException("Stale HTSP connection generation")
+    }
+
+    return withTimeoutOrNull(timeoutMs) {
+        coroutineScope {
+            val marker = CompletableDeferred<Unit>()
+            val terminal = CompletableDeferred<HtspResult<Unit>>()
+            val eventObserver = launch(start = CoroutineStart.UNDISPATCHED) {
+                events.collect { event ->
+                    when (event) {
+                        is HtspTransportEvent.ServerMessage -> {
+                            if (
+                                event.generation === generation &&
+                                event.message === HtspInitialSyncCompletedMessage
+                            ) {
+                                marker.complete(Unit)
+                            }
+                        }
+                        is HtspTransportEvent.ConnectionFailure -> {
+                            if (event.generation === generation) {
+                                terminal.complete(HtspResult.TransportUnavailable)
+                            }
+                        }
+                    }
+                }
+            }
+            val generationObserver = launch(start = CoroutineStart.UNDISPATCHED) {
+                liveConnection.first { connection -> connection?.generation !== generation }
+                if (isCurrent(generation)) {
+                    terminal.complete(HtspResult.TransportUnavailable)
+                } else {
+                    terminal.completeExceptionally(
+                        CancellationException("Stale HTSP connection generation"),
+                    )
+                }
+            }
+            val acknowledgement = async(start = CoroutineStart.UNDISPATCHED) {
+                enableAsyncMetadata(
+                    epg = epg,
+                    lastUpdate = lastUpdate,
+                    epgMaxTime = epgMaxTime,
+                    language = language,
+                    timeoutMs = timeoutMs,
+                    expectedGeneration = generation,
+                )
+            }
+
+            try {
+                val terminalBeforeAcknowledgement = select<Boolean> {
+                    terminal.onAwait { true }
+                    acknowledgement.onAwait { false }
+                }
+                if (terminalBeforeAcknowledgement) {
+                    terminal.await()
+                } else {
+                    when (val result = acknowledgement.await()) {
+                        is HtspResult.Ok -> {
+                            val terminalBeforeMarker = select<Boolean> {
+                                terminal.onAwait { true }
+                                marker.onAwait { false }
+                            }
+                            if (terminalBeforeMarker) {
+                                terminal.await()
+                            } else if (liveConnection.value?.generation !== generation) {
+                                if (isCurrent(generation)) {
+                                    HtspResult.TransportUnavailable
+                                } else {
+                                    throw CancellationException(
+                                        "Stale HTSP connection generation",
+                                    )
+                                }
+                            } else if (terminal.isCompleted) {
+                                terminal.await()
+                            } else {
+                                HtspResult.Ok(Unit)
+                            }
+                        }
+                        is HtspFailure -> result
+                    }
+                }
+            } finally {
+                acknowledgement.cancel()
+                eventObserver.cancel()
+                generationObserver.cancel()
+            }
+        }
+    } ?: HtspResult.Timeout
+}
+
 /** Negotiates the requested HTSP version and client name through the typed handshake request boundary. */
 public suspend fun HtspConnection.hello(
     htspVersion: Long,

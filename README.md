@@ -107,6 +107,7 @@ import at.bernhardberger.tvheadend.htsp.connection.map
 import at.bernhardberger.tvheadend.htsp.connection.onFailure
 import at.bernhardberger.tvheadend.htsp.messages.HtspServerMessage
 import at.bernhardberger.tvheadend.htsp.requests.GetEventsRequest
+import at.bernhardberger.tvheadend.htsp.requests.enableAsyncMetadataAwaitingInitialSync
 import at.bernhardberger.tvheadend.htsp.requests.getDiskSpace
 import at.bernhardberger.tvheadend.htsp.requests.getProfiles
 import at.bernhardberger.tvheadend.htsp.requests.getSysTime
@@ -163,6 +164,11 @@ suspend fun runProtocolQuickStart(
             is HtspConnectOutcome.Connected -> {
                 val generation = connectOutcome.connection.generation
                 val failures = mutableListOf<ProtocolFailurePolicy>()
+                connection.enableAsyncMetadataAwaitingInitialSync(
+                    epg = 1L,
+                    language = epgLanguage,
+                    expectedGeneration = generation,
+                ).onFailure { failure -> failures += policyFor(failure) }
                 val eventsRequest = GetEventsRequest(
                     channelId = epgChannelId,
                     language = epgLanguage,

@@ -35,6 +35,11 @@ generation, preventing packets from becoming ambiguous across clock modes.
 buffer with bounded `copyInto`, avoiding an intermediate payload array in
 playback consumers while retaining defensive construction and `toByteArray()`.
 
+`enableAsyncMetadataAwaitingInitialSync` now installs generation-scoped metadata
+observation before sending `enableAsyncMetadata`, so an adjacent acknowledgement
+and `initialSyncCompleted` marker cannot race collector startup. Its typed timeout
+covers both phases, while caller and stale-generation cancellation still propagate.
+
 **BREAKING (behavior):** Channel, tag, event, and DVR-entry add/update messages
 and `HtspSubscriptionStartMessage` now have structural data-class equality,
 hashing, components, and snapshot-preserving `copy()` operations for metadata
