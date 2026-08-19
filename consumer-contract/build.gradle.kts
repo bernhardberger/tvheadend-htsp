@@ -2,6 +2,7 @@ import java.security.MessageDigest
 import java.util.HexFormat
 import org.gradle.api.artifacts.component.ModuleComponentIdentifier
 import org.gradle.api.tasks.compile.JavaCompile
+import org.gradle.api.tasks.testing.Test
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.jetbrains.kotlin.gradle.tasks.KotlinJvmCompile
 
@@ -33,6 +34,8 @@ dependencies {
     implementation(libs.htsp) {
         version { strictly(htspVersion) }
     }
+    testImplementation(libs.junit)
+    testRuntimeOnly(libs.junit.platform.launcher)
 }
 
 tasks.withType<JavaCompile>().configureEach {
@@ -44,15 +47,19 @@ tasks.withType<KotlinJvmCompile>().configureEach {
     compilerOptions.freeCompilerArgs.add("-Xjdk-release=17")
 }
 
+tasks.withType<Test>().configureEach {
+    useJUnitPlatform()
+}
+
 tasks.register("verifyConsumerDependencyGraph") {
     group = "verification"
-    description = "Checks the consumer resolves the staged HTSP JAR bytes."
-    dependsOn("classes")
+    description = "Runs the staged runtime contract and verifies the resolved HTSP JAR bytes."
+    dependsOn("test")
 
     doLast {
         val htspGroup = "at.bernhardberger.tvheadend"
         val htspModule = "htsp"
-        val resolvedHtspJar = configurations.getByName("runtimeClasspath")
+        val resolvedHtspJar = configurations.getByName("testRuntimeClasspath")
             .incoming.artifacts.artifacts.single { artifact ->
                 val identifier = artifact.id.componentIdentifier as? ModuleComponentIdentifier
                 identifier?.group == htspGroup &&

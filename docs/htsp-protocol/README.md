@@ -204,10 +204,11 @@ DVR policy.
 - Mux PTS and DTS remain signed s64 and are never masked or unwrapped at 33
   bits. `HtspService` rescales 90 kHz PTS, DTS, and required u32 duration to
   microseconds with the pinned truncation-toward-zero rule; native values pass
-  through unchanged. Missing PTS/DTS stays null. Missing or explicit signed
-  `frametype=-1` is unknown; video frame types are exactly ASCII I/P/B. The
-  standalone versionless decoder has no subscribe context and therefore
-  interprets mux timing as native microseconds.
+  through unchanged. Missing PTS/DTS stays null. Missing frame type, wire value
+  zero, and explicit signed `frametype=-1` all decode to the public unknown
+  sentinel `-1`; video frame types are exactly ASCII I/P/B. Direct model
+  construction still rejects zero. The standalone versionless decoder has no
+  subscribe context and therefore interprets mux timing as native microseconds.
 - No real-server long-run or post-timeshift capture was available for this
   slice, so no claim is made about normalized first-frame behavior after seek.
   That observation remains deferred until a fixture or hardware run supplies

@@ -22,7 +22,7 @@ Prefixed, because the name stands on its own and would otherwise collide:
 
 - Domain models: `HtspChannel`, `HtspEvent`, `HtspProfile`, `HtspDvrCutpoint`.
   Their bare names are common words consumers already use. `Channel` is the
-  sharpest case — it collides with `kotlinx.coroutines.channels.Channel`, which
+  sharpest case because it collides with `kotlinx.coroutines.channels.Channel`, which
   this library exposes as an `api` dependency.
 - Connection-lifecycle types, for the same reason: `HtspConnection`,
   `HtspEndpoint`, `HtspConnectionState`.
@@ -69,13 +69,21 @@ High-rate subscription traffic is isolated by id through
 registers the unsigned-u32 id and must start before the matching `subscribe`
 request. An id may be collected once in a connection generation, even after the
 flow has completed. A subscribe call without an active registration is rejected
-before its wire write. The stream preserves committed packet/control order,
-reports pressure and malformed packets whose subscription id remains trustworthy
-with ordered `Dropped` events, drains on stop or unsubscribe, and reports
-generation or transport loss with a final `Terminated` event. A malformed
-subscription control or untrustworthy packet envelope fails the transport as
-incompatible rather than disappearing. Collector cancellation remains
-`CancellationException`.
+before its wire write.
+
+Each stream can hold 8192 server-produced events. When it fills, the connection
+evicts packets only and inserts an eager `Dropped` marker where each packet was
+removed. Adjacent markers may be combined. Controls and drop markers are never
+discarded. If a full queue has no packet to evict, an incoming packet becomes an
+ordered `Dropped` marker, while an incoming control backpressures the reader
+until the collector makes room. A malformed packet with a trustworthy
+subscription id is reported in the same order with `Dropped`. A malformed
+subscription control or untrustworthy packet envelope closes the incompatible
+transport instead of disappearing.
+
+The stream drains after `Stopped` or a successful unsubscribe acknowledgement.
+Generation or transport loss ends it with a final `Terminated` event. Collector
+cancellation remains `CancellationException`.
 
 Use `enableAsyncMetadataAwaitingInitialSync` to enable metadata and wait for the
 unsequenced `initialSyncCompleted` marker. It installs its generation-scoped
@@ -102,11 +110,11 @@ boolean observations.
 rendering. Public construction and standalone map decoding take a defensive
 snapshot; typed mux decoding transfers the codec-owned payload internally so
 the playback path does not create another payload-sized array. Use `size` to
-allocate the final consumer buffer and `copyInto` to write directly into it. The bounded copy
-returns the number of bytes written and copies only the prefix that fits after
-the requested destination offset. `toByteArray()` remains available when a
-standalone defensive copy is more convenient. No borrowed mutable-array access
-is exposed.
+allocate the final consumer buffer and `copyInto` to write directly into it.
+The bounded copy returns the number of bytes written and copies only the prefix
+that fits after the requested destination offset. `toByteArray()` remains
+available when a standalone defensive copy is more convenient. No borrowed
+mutable-array access is exposed.
 
 ## Mergeable metadata messages
 
@@ -144,4 +152,6 @@ logs and crash reports built from them stay free of secrets and wire internals.
 Requests reach the server only through the finite typed catalog:
 `HtspConnection.execute` accepts those request types and nothing else, so there
 is no raw "method string plus map" escape hatch and no way to subclass in a
-custom request from outside the library.
+custom request from outside the library. Every convenience request calls this
+member, which lets custom `HtspConnection` implementations intercept typed calls
+without relying on service internals.

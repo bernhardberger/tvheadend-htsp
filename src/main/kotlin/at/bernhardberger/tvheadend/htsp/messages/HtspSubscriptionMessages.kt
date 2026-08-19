@@ -4,7 +4,10 @@ import at.bernhardberger.tvheadend.htsp.wire.HtspBinary
 import at.bernhardberger.tvheadend.htsp.wire.immutableSnapshot
 import at.bernhardberger.tvheadend.htsp.wire.requireU32
 
-/** One subscription packet with microsecond timing, ASCII I/P/B or unknown `-1` frame type, and copied payload bytes. */
+/**
+ * One subscription packet with microsecond timing, owned payload bytes, and an
+ * ASCII I/P/B or unknown `-1` frame type.
+ */
 public data class HtspMuxPacketMessage(
     public val subscriptionId: Long,
     public val frameType: Long,

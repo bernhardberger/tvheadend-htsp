@@ -38,7 +38,8 @@ remains immutable. Releases after `v0.2.0` use this sequence:
 1. checks out the complete tag history without persisting credentials;
 2. validates the Gradle wrapper;
 3. builds, tests, and stages `build/local-maven` once, then verifies those staged
-   bytes and the release setup without rebuilding;
+   bytes, runs the staged consumer contract, and checks the release setup without
+   rebuilding the library;
 4. records one SHA-256 manifest for the exact five Maven originals;
 5. signs those originals with primary fingerprint
    `EAB02E488E7B944EAA6D65814BF0412FD2A3B741` and verifies every signature with

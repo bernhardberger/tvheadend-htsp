@@ -43,6 +43,7 @@ ALLOWED_VERSIONS = (
 FIXTURE_SNAPSHOT_VERSION = f"{RELEASE_BASE}-SNAPSHOT"
 JVM_VERSION = 17
 CLASS_MAJOR = 61
+KOTLIN_SOURCE_COUNT = 36
 PROJECT_URL = "https://github.com/bernhardberger/tvheadend-htsp"
 ISSUES_URL = f"{PROJECT_URL}/issues"
 SCM = f"scm:git:{PROJECT_URL}.git"
@@ -478,8 +479,11 @@ def archive_errors(kind: str, path: Path) -> list[str]:
             elif classes:
                 errors.append(f"{kind}: documentation/source archive contains class files")
             kotlin_sources = [name for name in names if name.endswith(".kt")]
-            if kind == "sources" and len(kotlin_sources) != 33:
-                errors.append(f"sources: expected 33 Kotlin sources, found {len(kotlin_sources)}")
+            if kind == "sources" and len(kotlin_sources) != KOTLIN_SOURCE_COUNT:
+                errors.append(
+                    f"sources: expected {KOTLIN_SOURCE_COUNT} Kotlin sources, "
+                    f"found {len(kotlin_sources)}"
+                )
             if kind == "javadoc":
                 if kotlin_sources:
                     errors.append("javadoc: documentation archive contains Kotlin source")
@@ -534,7 +538,7 @@ def write_jar(path: Path, kind: str, wrong_major: bool = False) -> None:
             major = 60 if wrong_major else CLASS_MAJOR
             archive.writestr("at/bernhardberger/tvheadend/htsp/wire/Synthetic.class", b"\xca\xfe\xba\xbe\x00\x00" + struct.pack(">H", major))
         elif kind == "sources":
-            for index in range(33):
+            for index in range(KOTLIN_SOURCE_COUNT):
                 archive.writestr(f"at/bernhardberger/tvheadend/htsp/wire/S{index}.kt", "package synthetic")
         else:
             archive.writestr("index.html", "documentation")
@@ -596,7 +600,7 @@ def self_test() -> list[str]:
             baseline_errors, _ = fixture_verify(repository, version)
             if baseline_errors:
                 errors.append(f"self-test rejected valid {version} publication fixture: " + "; ".join(baseline_errors))
-        unsupported = "0.3.0"
+        unsupported = "0.4.0"
         unsupported_repository = create_fixture(root / unsupported, unsupported)
         unsupported_errors, _ = fixture_verify(unsupported_repository, unsupported)
         if not any("publication version must be exactly" in error for error in unsupported_errors):

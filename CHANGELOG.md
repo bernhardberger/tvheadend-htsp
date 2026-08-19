@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [0.3.0]
 
 Link the current coordinate to Maven Central and streamline future GitHub
 prereleases to the verified Central ZIP and release manifest. Individual Maven

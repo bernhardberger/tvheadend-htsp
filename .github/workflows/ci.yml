@@ -30,4 +30,4 @@ jobs:
       - name: Verify staged JVM publication
         run: ./tools/check-published-jvm-compatibility
       - name: Verify consumer contract
-        run: ./gradlew --no-daemon -p consumer-contract clean compileKotlin verifyConsumerDependencyGraph
+        run: ./gradlew --no-daemon -p consumer-contract clean test verifyConsumerDependencyGraph

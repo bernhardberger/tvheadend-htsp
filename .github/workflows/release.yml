@@ -38,6 +38,8 @@ jobs:
         run: ./gradlew --no-daemon clean build check stageLocalPublication
       - name: Verify staged JVM publication
         run: ./tools/check-published-jvm-compatibility
+      - name: Verify staged consumer contract
+        run: ./gradlew --no-daemon -p consumer-contract clean test verifyConsumerDependencyGraph
       - name: Check release setup
         run: ./tools/publish-central-release --check-setup
       - name: Sign, publish, and verify Central

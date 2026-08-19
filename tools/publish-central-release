@@ -1138,12 +1138,21 @@ def setup_errors(root: Path = ROOT) -> list[str]:
     ordered_commands = (
         ("./gradlew --no-daemon clean build check stageLocalPublication", "stage command"),
         ("./tools/check-published-jvm-compatibility", "staged publication check"),
+        (
+            "./gradlew --no-daemon -p consumer-contract clean test verifyConsumerDependencyGraph",
+            "staged consumer contract check",
+        ),
         ("./tools/publish-central-release --check-setup", "release setup check"),
     )
     secret_position = min((release.find(f"secrets.{name}") for name in SECRET_NAMES), default=-1)
+    command_positions: list[int] = []
     for command, label in ordered_commands:
-        if release.count(command) != 1 or secret_position < 0 or release.find(command) > secret_position:
+        position = release.find(command)
+        if release.count(command) != 1 or secret_position < 0 or position > secret_position:
             errors.append(f"{label} must occur exactly once before release secret references")
+        command_positions.append(position)
+    if all(position >= 0 for position in command_positions) and command_positions != sorted(command_positions):
+        errors.append("release verification command ordering is invalid")
     publish_command = "./tools/publish-central-release --publish"
     github_command = "./tools/publish-central-release --finalize-github-release"
     if release.count(publish_command) != 1:
@@ -1437,6 +1446,31 @@ def setup_regression_tests() -> list[str]:
                 .replace("./tools/publish-central-release --publish", "ORDER_PLACEHOLDER", 1)
                 .replace("./tools/publish-central-release --finalize-github-release", "./tools/publish-central-release --publish", 1)
                 .replace("ORDER_PLACEHOLDER", "./tools/publish-central-release --finalize-github-release", 1),
+            ),
+            (
+                "missing staged consumer contract",
+                "staged consumer contract check",
+                original.replace(
+                    "./gradlew --no-daemon -p consumer-contract clean test verifyConsumerDependencyGraph",
+                    "true",
+                    1,
+                ),
+            ),
+            (
+                "staged consumer contract after setup check",
+                "verification command ordering",
+                original
+                .replace(
+                    "./gradlew --no-daemon -p consumer-contract clean test verifyConsumerDependencyGraph",
+                    "CONSUMER_PLACEHOLDER",
+                    1,
+                )
+                .replace(
+                    "./tools/publish-central-release --check-setup",
+                    "./gradlew --no-daemon -p consumer-contract clean test verifyConsumerDependencyGraph",
+                    1,
+                )
+                .replace("CONSUMER_PLACEHOLDER", "./tools/publish-central-release --check-setup", 1),
             ),
         )
         for label, expected, workflow in cases:

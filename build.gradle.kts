@@ -18,7 +18,7 @@ plugins {
 }
 
 group = "at.bernhardberger.tvheadend"
-version = "0.2.0"
+version = "0.3.0"
 
 val releaseVersion = version.toString().removeSuffix("-SNAPSHOT")
 val allowedPublicationVersions = setOf(

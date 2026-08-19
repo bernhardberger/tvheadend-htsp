@@ -11,8 +11,8 @@ The public API lives under `at.bernhardberger.tvheadend.htsp` in five packages:
   the connection lifecycle.
 - `requests`: the typed catalog of all 39 client-to-server HTSP methods, with
   convenience functions on the connection.
-- `messages`: the 30 typed server-to-client messages, delivered through a
-  Kotlin `Flow`.
+- `messages`: the 30 typed server-to-client messages, split between a global
+  metadata flow and ordered per-subscription flows.
 - `wire`: the binary framing and protocol value types underneath.
 - `jsonapi`: an opt-in bridge to TVHeadend's separate HTTP JSON API.
 
