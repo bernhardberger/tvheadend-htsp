@@ -6,6 +6,29 @@ import java.util.Collections
 public class HtspBinary(bytes: ByteArray) {
     private val content: ByteArray = bytes.copyOf()
 
+    /** Number of bytes in this value. */
+    public val size: Int
+        get() = content.size
+
+    /**
+     * Copies the content prefix that fits at [destinationOffset].
+     *
+     * @return the number of bytes copied
+     * @throws IndexOutOfBoundsException when [destinationOffset] is outside [destination]
+     */
+    public fun copyInto(destination: ByteArray, destinationOffset: Int = 0): Int {
+        if (destinationOffset !in 0..destination.size) {
+            throw IndexOutOfBoundsException("destinationOffset is outside the destination")
+        }
+        val copied = minOf(content.size, destination.size - destinationOffset)
+        content.copyInto(
+            destination = destination,
+            destinationOffset = destinationOffset,
+            endIndex = copied,
+        )
+        return copied
+    }
+
     /** Returns a new copy on every access. */
     public fun toByteArray(): ByteArray = content.copyOf()
 

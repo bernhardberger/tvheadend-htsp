@@ -77,6 +77,16 @@ DTS remains `null`; frame type is ASCII I/P/B or the unknown sentinel `-1`.
 `SubscribeResponse.ninetyKhz` and `normalizedTimestamps` are strict nullable
 boolean observations.
 
+## Binary payload access
+
+`HtspBinary` owns a defensive snapshot and retains content equality and redacted
+rendering. Use `size` to allocate the final consumer buffer and `copyInto` to
+write directly into it without an intermediate payload array. The bounded copy
+returns the number of bytes written and copies only the prefix that fits after
+the requested destination offset. `toByteArray()` remains available when a
+standalone defensive copy is more convenient. No borrowed mutable-array access
+is exposed.
+
 ## Argument validation and lifecycle calls
 
 Passing an invalid argument, such as a non-positive timeout, may throw

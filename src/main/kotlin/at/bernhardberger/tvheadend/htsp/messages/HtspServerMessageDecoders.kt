@@ -378,7 +378,7 @@ internal fun decodeMuxPacket(
             decodingTimeUs = fields.optionalS64("dts")?.let(clock::toMicroseconds),
             presentationTimeUs = fields.optionalS64("pts")?.let(clock::toMicroseconds),
             durationUs = clock.toMicroseconds(fields.requiredU32("duration")),
-            payload = HtspBinary(fields.requiredBinaryCopy("payload")),
+            payload = HtspBinary(fields.requiredBinary("payload")),
         )
     } catch (_: ArithmeticException) {
         throw HtspServerMessageMappingException()
@@ -675,8 +675,8 @@ private fun Map<*, *>.requiredString(name: String): String =
 private fun Map<*, *>.optionalString(name: String): String? =
     server().optionalString(name)
 
-private fun Map<*, *>.requiredBinaryCopy(name: String): ByteArray =
-    server().requiredBinaryCopy(name)
+private fun Map<*, *>.requiredBinary(name: String): ByteArray =
+    server().requiredBinary(name)
 
 private fun Map<*, *>.optionalBinary(name: String): ByteArray? =
     server().optionalBinary(name)

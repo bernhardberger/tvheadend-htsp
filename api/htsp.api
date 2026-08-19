@@ -3078,7 +3078,10 @@ public final class at/bernhardberger/tvheadend/htsp/requests/UpdateTimerecEntryR
 
 public final class at/bernhardberger/tvheadend/htsp/wire/HtspBinary {
 	public fun <init> ([B)V
+	public final fun copyInto ([BI)I
+	public static synthetic fun copyInto$default (Lat/bernhardberger/tvheadend/htsp/wire/HtspBinary;[BIILjava/lang/Object;)I
 	public fun equals (Ljava/lang/Object;)Z
+	public final fun getSize ()I
 	public fun hashCode ()I
 	public final fun toByteArray ()[B
 	public fun toString ()Ljava/lang/String;

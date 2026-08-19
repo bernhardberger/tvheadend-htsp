@@ -31,6 +31,10 @@ strict nullable booleans, while the numeric request still treats any nonzero
 `90khz` value as enabled. Subscription IDs cannot be reused in one connection
 generation, preventing packets from becoming ambiguous across clock modes.
 
+`HtspBinary` now exposes its `size` and can copy directly into a caller-owned
+buffer with bounded `copyInto`, avoiding an intermediate payload array in
+playback consumers while retaining defensive construction and `toByteArray()`.
+
 ## [0.2.0]
 
 Clarify that the client requests HTSP v43 by default while the typed surface

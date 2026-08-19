@@ -58,10 +58,8 @@ internal class `HtspFieldReader-internal`(
 
     internal fun requiredBinary(name: String): ByteArray = fields[name] as? ByteArray ?: fail()
 
-    internal fun requiredBinaryCopy(name: String): ByteArray = requiredBinary(name).copyOf()
-
     internal fun optionalBinary(name: String): ByteArray? =
-        if (contains(name)) requiredBinaryCopy(name) else null
+        if (contains(name)) requiredBinary(name) else null
 
     internal fun requiredObject(name: String): Map<*, *> {
         val source = fields[name] as? Map<*, *> ?: fail()

@@ -15,6 +15,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.util.concurrent.CopyOnWriteArrayList
@@ -392,7 +393,15 @@ internal class HtspServiceSubscriptionEventTest : HtspServiceLifecycleFixture() 
     @Test
     fun packetPressureEvictsOnlyPacketsAndKeepsOrderedDropMarkersAndStop() {
         FakeHtspServer(respondToHello = true).use { server ->
-            val service = service(subscriptionEventBufferCapacity = 2)
+            var publishedPacket: HtspMuxPacketMessage? = null
+            val service = service(
+                beforeTypedEventPublication = { event ->
+                    (event.message as? HtspMuxPacketMessage)?.let { packet ->
+                        publishedPacket = packet
+                    }
+                },
+                subscriptionEventBufferCapacity = 2,
+            )
             runBlocking {
                 service.connect(HtspEndpoint("127.0.0.1", server.port))
                 val firstControl = CompletableDeferred<Unit>()
@@ -423,9 +432,13 @@ internal class HtspServiceSubscriptionEventTest : HtspServiceLifecycleFixture() 
 
                 assertEquals(HtspSubscriptionEvent.Status::class, events[0]::class)
                 assertEquals(HtspSubscriptionEvent.Dropped(3L), events[1])
+                val payload = (events[2] as HtspSubscriptionEvent.Packet).packet.payload
+                val destination = ByteArray(payload.size)
+                assertEquals(payload.size, payload.copyInto(destination))
+                assertSame(publishedPacket?.payload, payload)
                 assertEquals(
                     4.toByte(),
-                    (events[2] as HtspSubscriptionEvent.Packet).packet.payload.toByteArray().single(),
+                    destination.single(),
                 )
                 assertTrue(events[3] is HtspSubscriptionEvent.Stopped)
                 service.disconnect()
