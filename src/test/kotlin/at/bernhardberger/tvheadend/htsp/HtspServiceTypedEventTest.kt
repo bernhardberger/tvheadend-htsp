@@ -29,6 +29,15 @@ import java.util.concurrent.atomic.AtomicInteger
 internal class HtspServiceTypedEventTest : HtspServiceLifecycleFixture() {
 
     @Test
+    fun metadataEnvelopeClassificationCoversEveryGlobalTypedMessage() {
+        assertEquals(
+            typedHtspServerMessageInventory.map { entry -> entry.method }.toSet() -
+                SUBSCRIPTION_SERVER_METHODS,
+            METADATA_SERVER_METHODS,
+        )
+    }
+
+    @Test
     fun typedPlaybackMessagesPublishExactlyOnceInSubscriptionOrder() {
         FakeHtspServer(respondToHello = true).use { server ->
             val service = service()
@@ -75,6 +84,109 @@ internal class HtspServiceTypedEventTest : HtspServiceLifecycleFixture() {
                 )
                 collector.cancelAndJoin()
                 service.disconnect()
+            }
+        }
+    }
+
+    @Test
+    fun malformedRecognizedMetadataFailsTransportWhileUnknownMessagesRemainCompatible() {
+        FakeHtspServer(respondToHello = true).use { server ->
+            val service = service()
+            runBlocking {
+                service.connect(HtspEndpoint("127.0.0.1", server.port))
+                val events = CopyOnWriteArrayList<HtspTransportEvent>()
+                val collector = launch(start = CoroutineStart.UNDISPATCHED) {
+                    service.events.collect { event -> events += event }
+                }
+
+                server.sendServerMessage("futureMetadata", mapOf("value" to 1L))
+                server.sendServerMessage("channelAdd", mapOf("channelId" to 71L))
+                server.sendServerMessage("channelAdd", mapOf("channelId" to "malformed"))
+                withTimeout(1_000L) {
+                    while (events.none { it is HtspTransportEvent.ConnectionFailure }) delay(1L)
+                }
+
+                assertEquals(
+                    listOf(
+                        HtspTransportEvent.ServerMessage::class,
+                        HtspTransportEvent.ConnectionFailure::class,
+                    ),
+                    events.map { event -> event::class },
+                )
+                assertEquals(
+                    HtspTransportFailureKind.INCOMPATIBLE_SERVER,
+                    (events.last() as HtspTransportEvent.ConnectionFailure).failure.kind,
+                )
+                collector.cancelAndJoin()
+                service.close()
+            }
+        }
+    }
+
+    @Test
+    fun recognizedMetadataEnvelopeCannotCompleteAPendingReply() {
+        FakeHtspServer(
+            respondToHello = true,
+            postHandshakeReplyPlan = listOf(null),
+        ).use { server ->
+            val service = service()
+            runBlocking {
+                service.connect(HtspEndpoint("127.0.0.1", server.port))
+                val failure = async(start = CoroutineStart.UNDISPATCHED) {
+                    service.events.first { event -> event is HtspTransportEvent.ConnectionFailure }
+                        as HtspTransportEvent.ConnectionFailure
+                }
+                val pending = async(Dispatchers.IO) {
+                    runCatching { service.getSysTime(timeoutMs = 5_000L) }
+                }
+                assertTrue(server.awaitPostHandshakeRequestCount(1, 1_000L))
+                val pendingSequence = requireNotNull(server.postHandshakeRequest(0).seq)
+
+                server.sendServerMessage(
+                    "channelAdd",
+                    mapOf(
+                        "channelId" to 72L,
+                        "seq" to pendingSequence.toLong(),
+                    ),
+                )
+
+                assertEquals(
+                    HtspTransportFailureKind.INCOMPATIBLE_SERVER,
+                    withTimeout(1_000L) { failure.await() }.failure.kind,
+                )
+                assertTrue(
+                    withTimeout(1_000L) { pending.await() }.exceptionOrNull()
+                        is kotlinx.coroutines.CancellationException,
+                )
+                service.close()
+            }
+        }
+    }
+
+    @Test
+    fun recognizedMetadataWithNonnumericSequenceFailsTransport() {
+        FakeHtspServer(respondToHello = true).use { server ->
+            val service = service()
+            runBlocking {
+                service.connect(HtspEndpoint("127.0.0.1", server.port))
+                val failure = async(start = CoroutineStart.UNDISPATCHED) {
+                    service.events.first { event -> event is HtspTransportEvent.ConnectionFailure }
+                        as HtspTransportEvent.ConnectionFailure
+                }
+
+                server.sendServerMessage(
+                    "channelAdd",
+                    mapOf(
+                        "channelId" to 73L,
+                        "seq" to "malformed",
+                    ),
+                )
+
+                assertEquals(
+                    HtspTransportFailureKind.INCOMPATIBLE_SERVER,
+                    withTimeout(1_000L) { failure.await() }.failure.kind,
+                )
+                service.close()
             }
         }
     }

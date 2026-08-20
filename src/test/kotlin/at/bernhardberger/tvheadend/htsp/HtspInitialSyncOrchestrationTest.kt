@@ -240,6 +240,11 @@ internal class HtspInitialSyncOrchestrationTest {
 
         override fun subscriptionEvents(subscriptionId: Long): Flow<HtspSubscriptionEvent> = emptyFlow()
 
+        override fun subscriptionEvents(
+            subscriptionId: Long,
+            expectedGeneration: HtspConnectionGeneration,
+        ): Flow<HtspSubscriptionEvent> = emptyFlow()
+
         @Suppress("UNCHECKED_CAST")
         override suspend fun <R> execute(
             request: HtspRequest<R>,

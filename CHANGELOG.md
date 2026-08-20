@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.4.0]
+
+Malformed recognized global metadata now fails the transport as an incompatible
+server instead of disappearing before a later initial-sync marker. Unknown
+future asynchronous methods remain ignored for forward compatibility.
+
+Subscription event collection can now be fenced to an expected connection
+generation. A stale cold flow fails before it can consume the same numeric id in
+a replacement generation. The new overload is abstract so implementations can
+provide atomic registration; source implementations of `HtspConnection` must add
+it, while existing binaries remain compatible unless they are asked to invoke the
+new overload.
+
 ## [0.3.0]
 
 Link the current coordinate to Maven Central and streamline future GitHub

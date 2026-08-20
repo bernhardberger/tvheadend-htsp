@@ -80,6 +80,7 @@ public abstract interface class at/bernhardberger/tvheadend/htsp/connection/Htsp
 	public abstract fun getLiveConnection ()Lkotlinx/coroutines/flow/StateFlow;
 	public abstract fun isCurrent (Lat/bernhardberger/tvheadend/htsp/connection/HtspConnectionGeneration;)Z
 	public abstract fun subscriptionEvents (J)Lkotlinx/coroutines/flow/Flow;
+	public abstract fun subscriptionEvents (JLat/bernhardberger/tvheadend/htsp/connection/HtspConnectionGeneration;)Lkotlinx/coroutines/flow/Flow;
 }
 
 public final class at/bernhardberger/tvheadend/htsp/connection/HtspConnection$DefaultImpls {

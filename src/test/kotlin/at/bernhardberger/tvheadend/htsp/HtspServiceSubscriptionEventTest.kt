@@ -171,6 +171,45 @@ internal class HtspServiceSubscriptionEventTest : HtspServiceLifecycleFixture() 
     }
 
     @Test
+    fun staleGenerationCollectionCannotConsumeReplacementGenerationId() {
+        FakeHtspServer(respondToHello = true).use { firstServer ->
+            FakeHtspServer(respondToHello = true).use { replacementServer ->
+                val service = service()
+                runBlocking {
+                    val first = service.connect(HtspEndpoint("127.0.0.1", firstServer.port))
+                        as HtspConnectOutcome.Connected
+                    val staleFlow = service.subscriptionEvents(
+                        subscriptionId = 8L,
+                        expectedGeneration = first.connection.generation,
+                    )
+
+                    val replacement = service.connect(
+                        HtspEndpoint("127.0.0.1", replacementServer.port),
+                    ) as HtspConnectOutcome.Connected
+                    val staleFailure = runCatching { staleFlow.toList() }.exceptionOrNull()
+                    assertTrue(staleFailure is kotlinx.coroutines.CancellationException)
+
+                    val replacementEvents = async(start = CoroutineStart.UNDISPATCHED) {
+                        service.subscriptionEvents(
+                            subscriptionId = 8L,
+                            expectedGeneration = replacement.connection.generation,
+                        ).toList()
+                    }
+                    replacementServer.sendServerMessage(
+                        "subscriptionStop",
+                        statusFields(8L, "stopped"),
+                    )
+                    assertTrue(
+                        withTimeout(1_000L) { replacementEvents.await() }.single() is
+                            HtspSubscriptionEvent.Stopped,
+                    )
+                    service.disconnect(replacement.connection.generation)
+                }
+            }
+        }
+    }
+
+    @Test
     fun collectionRegistersBeforeRealSubscribeAndReceivesPacketBeforeStarted() {
         assertEquals(8192, SUBSCRIPTION_EVENT_BUFFER_CAPACITY)
         FakeHtspServer(

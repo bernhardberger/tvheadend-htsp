@@ -44,6 +44,16 @@ public interface HtspConnection {
      */
     public fun subscriptionEvents(subscriptionId: Long): Flow<HtspSubscriptionEvent>
 
+    /**
+     * Returns the ordered stream for [subscriptionId] only if [expectedGeneration] is still the
+     * live connection when collection registers the id. A stale generation propagates
+     * [CancellationException] without consuming the id in the replacement generation.
+     */
+    public fun subscriptionEvents(
+        subscriptionId: Long,
+        expectedGeneration: HtspConnectionGeneration,
+    ): Flow<HtspSubscriptionEvent>
+
     /** Executes one request from the finite typed HTSP catalog. */
     public suspend fun <R> execute(
         request: HtspRequest<R>,

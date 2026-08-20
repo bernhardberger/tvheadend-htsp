@@ -482,7 +482,20 @@ internal open class `HtspService-internal`(
         expectedGeneration: HtspConnectionGeneration?,
     ): HtspResult<R> = typedRequestCaller.call(request, timeoutMs, expectedGeneration)
 
-    override fun subscriptionEvents(subscriptionId: Long): Flow<HtspSubscriptionEvent> {
+    override fun subscriptionEvents(
+        subscriptionId: Long,
+    ): Flow<HtspSubscriptionEvent> = subscriptionEventsForGeneration(subscriptionId, expectedGeneration = null)
+
+    override fun subscriptionEvents(
+        subscriptionId: Long,
+        expectedGeneration: HtspConnectionGeneration,
+    ): Flow<HtspSubscriptionEvent> =
+        subscriptionEventsForGeneration(subscriptionId, expectedGeneration)
+
+    private fun subscriptionEventsForGeneration(
+        subscriptionId: Long,
+        expectedGeneration: HtspConnectionGeneration?,
+    ): Flow<HtspSubscriptionEvent> {
         requireU32("subscriptionId", subscriptionId)
         val collected = AtomicBoolean(false)
         return flow {
@@ -495,6 +508,9 @@ internal open class `HtspService-internal`(
             val stream = synchronized(connectionAttemptLock) {
                 val generation = protocolGeneration
                     ?: error("No live HTSP connection generation")
+                if (expectedGeneration != null && generation.token !== expectedGeneration) {
+                    throw CancellationException("Stale HTSP connection generation")
+                }
                 val live = _liveConnection.value
                 check(
                     live?.generation === generation.token &&
@@ -807,7 +823,7 @@ internal open class `HtspService-internal`(
 
                         if (
                             "seq" in msg.fields &&
-                            msg.method in SUBSCRIPTION_SERVER_METHODS
+                            msg.method in ASYNCHRONOUS_SERVER_METHODS
                         ) {
                             throw HtspIncompatibleServerException()
                         }
@@ -852,7 +868,7 @@ internal open class `HtspService-internal`(
                                                 ?.recordDropped(1L)
                                         MalformedSubscriptionMessage.ControlOrEnvelope ->
                                             throw HtspIncompatibleServerException()
-                                        null -> Unit
+                                        null -> throw HtspIncompatibleServerException()
                                     }
                                 }
                                 HtspServerMessageUnknownMethod -> Unit
@@ -1550,6 +1566,31 @@ internal val SUBSCRIPTION_SERVER_METHODS: Set<String> = setOf(
     "timeshiftStatus",
     "subscriptionSkip",
 )
+
+internal val METADATA_SERVER_METHODS: Set<String> = setOf(
+    "channelAdd",
+    "channelUpdate",
+    "channelDelete",
+    "tagAdd",
+    "tagUpdate",
+    "tagDelete",
+    "dvrEntryAdd",
+    "dvrEntryUpdate",
+    "dvrEntryDelete",
+    "autorecEntryAdd",
+    "autorecEntryUpdate",
+    "autorecEntryDelete",
+    "timerecEntryAdd",
+    "timerecEntryUpdate",
+    "timerecEntryDelete",
+    "eventAdd",
+    "eventUpdate",
+    "eventDelete",
+    "initialSyncCompleted",
+)
+
+private val ASYNCHRONOUS_SERVER_METHODS: Set<String> =
+    METADATA_SERVER_METHODS + SUBSCRIPTION_SERVER_METHODS
 
 private fun Map<String, Any?>.malformedSubscriptionMessage(): MalformedSubscriptionMessage? {
     val method = this["method"] as? String ?: return null

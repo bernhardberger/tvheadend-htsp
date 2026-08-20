@@ -600,7 +600,7 @@ def self_test() -> list[str]:
             baseline_errors, _ = fixture_verify(repository, version)
             if baseline_errors:
                 errors.append(f"self-test rejected valid {version} publication fixture: " + "; ".join(baseline_errors))
-        unsupported = "0.4.0"
+        unsupported = "0.5.0"
         unsupported_repository = create_fixture(root / unsupported, unsupported)
         unsupported_errors, _ = fixture_verify(unsupported_repository, unsupported)
         if not any("publication version must be exactly" in error for error in unsupported_errors):
