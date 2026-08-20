@@ -587,7 +587,7 @@ public data class HtspDvrEntryDeleteMessage(
     }
 }
 
-/** Carries the bounded automatic-recording-rule fields reported by an add message, including match, schedule, ownership, and retention data. */
+/** Carries the bounded automatic-recording-rule fields reported by an add message, including match, schedule, ownership, and retention data. Nullable strings were absent from the server message. */
 public data class HtspAutorecEntryAddMessage(
     public val id: String,
     public val enabled: Boolean,
@@ -605,14 +605,14 @@ public data class HtspAutorecEntryAddMessage(
     public val duplicateDetection: Long,
     public val maximumRecordingCount: Long,
     public val broadcastType: Long,
-    public val comment: String,
+    public val comment: String? = null,
     public val title: String? = null,
     public val fullText: Boolean? = null,
     public val mergeText: Boolean? = null,
-    public val name: String,
+    public val name: String? = null,
     public val directory: String? = null,
-    public val owner: String,
-    public val creator: String,
+    public val owner: String? = null,
+    public val creator: String? = null,
     public val channelId: Long? = null,
     public val seriesLinkUri: String? = null,
     public val configId: String? = null,
@@ -629,6 +629,8 @@ public data class HtspAutorecEntryAddMessage(
         requireU32("broadcastType", broadcastType)
         channelId?.let { requireU32("channelId", it) }
     }
+
+    override fun toString(): String = "HtspAutorecEntryAddMessage(<redacted>)"
 }
 
 /** Carries an automatic-recording-rule update; every nullable matching, scheduling, ownership, or retention property was absent when null. */
@@ -673,6 +675,8 @@ public data class HtspAutorecEntryUpdateMessage(
         broadcastType?.let { requireU32("broadcastType", it) }
         channelId?.let { requireU32("channelId", it) }
     }
+
+    override fun toString(): String = "HtspAutorecEntryUpdateMessage(<redacted>)"
 }
 
 /** Carries the string [id] reported by an automatic-recording-rule delete message. */
@@ -708,6 +712,8 @@ public data class HtspTimerecEntryAddMessage(
         priority?.let { requireU32("priority", it) }
         retentionDays?.let { requireU32("retentionDays", it) }
     }
+
+    override fun toString(): String = "HtspTimerecEntryAddMessage(<redacted>)"
 }
 
 /** Carries a time-based recording-rule update; nullable interval, channel, day, policy, and ownership properties were absent when null. */
@@ -740,6 +746,8 @@ public data class HtspTimerecEntryUpdateMessage(
         priority?.let { requireU32("priority", it) }
         retentionDays?.let { requireU32("retentionDays", it) }
     }
+
+    override fun toString(): String = "HtspTimerecEntryUpdateMessage(<redacted>)"
 }
 
 /** Carries the string [id] reported by a time-based recording-rule delete message. */

@@ -197,9 +197,11 @@ DVR policy.
   `channelAdd`, `tagId` for `tagAdd`, `entryId` for `dvrEntryAdd`, and
   `eventId`/`start`/`stop` for `eventAdd`; optional names and event channel stay
   strict when present. DVR files choose the first `filename`/`path` alias in
-  that order. The `htsp_build_autorecentry` autorec add requires every unconditional emitter and makes only
-  source-conditional observations nullable; update requires string `id` and
-  makes all other fields nullable; delete requires string `id`.
+  that order. The `htsp_build_autorecentry` autorec add requires every
+  unconditional emitter. Its `comment`, `name`, `owner`, and `creator` values
+  use TVHeadend's nullable `htsmsg_add_str2` emitter and are therefore nullable;
+  other source-conditional observations remain nullable. Update requires string
+  `id` and makes all other fields nullable; delete requires string `id`.
   `queueStatus.delay` keeps its recorded requiredness uncertainty.
 - Mux PTS and DTS remain signed s64 and are never masked or unwrapped at 33
   bits. `HtspService` rescales 90 kHz PTS, DTS, and required u32 duration to

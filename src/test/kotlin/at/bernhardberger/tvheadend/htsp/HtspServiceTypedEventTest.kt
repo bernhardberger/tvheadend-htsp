@@ -124,6 +124,59 @@ internal class HtspServiceTypedEventTest : HtspServiceLifecycleFixture() {
     }
 
     @Test
+    fun autorecAddWithoutNullableServerStringsRemainsCompatible() {
+        FakeHtspServer(respondToHello = true).use { server ->
+            val service = service()
+            runBlocking {
+                service.connect(HtspEndpoint("127.0.0.1", server.port))
+                val events = CopyOnWriteArrayList<HtspTransportEvent.ServerMessage>()
+                val collector = launch(start = CoroutineStart.UNDISPATCHED) {
+                    service.events.collect { event ->
+                        if (event is HtspTransportEvent.ServerMessage) events += event
+                    }
+                }
+
+                server.sendServerMessage(
+                    "autorecEntryAdd",
+                    mapOf(
+                        "id" to "rule",
+                        "enabled" to 1L,
+                        "maxDuration" to 0L,
+                        "minDuration" to 0L,
+                        "retention" to 0L,
+                        "removal" to 0L,
+                        "daysOfWeek" to 0L,
+                        "approxTime" to -1L,
+                        "start" to -1L,
+                        "startWindow" to -1L,
+                        "priority" to 0L,
+                        "startExtra" to 0L,
+                        "stopExtra" to 0L,
+                        "dupDetect" to 0L,
+                        "maxCount" to 0L,
+                        "broadcastType" to 0L,
+                    ),
+                )
+                server.sendServerMessage("channelAdd", mapOf("channelId" to 74L))
+
+                withTimeout(1_000L) {
+                    while (events.size < 2) delay(1L)
+                }
+                val autorec = events.first().message as HtspAutorecEntryAddMessage
+                assertNull(autorec.comment)
+                assertNull(autorec.name)
+                assertNull(autorec.owner)
+                assertNull(autorec.creator)
+                assertTrue(events.last().message is HtspChannelAddMessage)
+                assertTrue(service.liveConnection.value != null)
+
+                collector.cancelAndJoin()
+                service.disconnect()
+            }
+        }
+    }
+
+    @Test
     fun recognizedMetadataEnvelopeCannotCompleteAPendingReply() {
         FakeHtspServer(
             respondToHello = true,

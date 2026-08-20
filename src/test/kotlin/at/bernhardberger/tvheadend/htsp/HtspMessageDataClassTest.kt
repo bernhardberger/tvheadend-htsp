@@ -5,6 +5,8 @@ import at.bernhardberger.tvheadend.htsp.jsonapi.HtspApiUuid
 import at.bernhardberger.tvheadend.htsp.jsonapi.HtspJsonApi
 import at.bernhardberger.tvheadend.htsp.messages.HtspChannelAddMessage
 import at.bernhardberger.tvheadend.htsp.messages.HtspChannelUpdateMessage
+import at.bernhardberger.tvheadend.htsp.messages.HtspAutorecEntryAddMessage
+import at.bernhardberger.tvheadend.htsp.messages.HtspAutorecEntryUpdateMessage
 import at.bernhardberger.tvheadend.htsp.messages.HtspDvrEntryAddMessage
 import at.bernhardberger.tvheadend.htsp.messages.HtspDvrEntryUpdateMessage
 import at.bernhardberger.tvheadend.htsp.messages.HtspDvrRecordingFile
@@ -14,6 +16,8 @@ import at.bernhardberger.tvheadend.htsp.messages.HtspSubscriptionStartMessage
 import at.bernhardberger.tvheadend.htsp.messages.HtspSubscriptionStream
 import at.bernhardberger.tvheadend.htsp.messages.HtspTagAddMessage
 import at.bernhardberger.tvheadend.htsp.messages.HtspTagUpdateMessage
+import at.bernhardberger.tvheadend.htsp.messages.HtspTimerecEntryAddMessage
+import at.bernhardberger.tvheadend.htsp.messages.HtspTimerecEntryUpdateMessage
 import at.bernhardberger.tvheadend.htsp.requests.FileOpenRequest
 import at.bernhardberger.tvheadend.htsp.requests.GetTicketResponse
 import at.bernhardberger.tvheadend.htsp.requests.HtspChannelService
@@ -200,6 +204,63 @@ class HtspMessageDataClassTest {
             subscriptionError = "raw-subscription-error",
         )
         assertEquals("HtspDvrEntryAddMessage(<redacted>)", dvr.toString())
+        val autorec = HtspAutorecEntryAddMessage(
+            id = "private-rule-id",
+            enabled = true,
+            maxDurationSeconds = 0L,
+            minDurationSeconds = 0L,
+            retentionDays = 0L,
+            removalDays = 0L,
+            daysOfWeekMask = 0L,
+            approximateStartMinutesSinceMidnight = -1,
+            startMinutesSinceMidnight = -1,
+            startWindowEndMinutesSinceMidnight = -1,
+            priority = 0L,
+            startExtraMinutes = 0L,
+            stopExtraMinutes = 0L,
+            duplicateDetection = 0L,
+            maximumRecordingCount = 0L,
+            broadcastType = 0L,
+            comment = "private-comment",
+            name = "private-name",
+            directory = "/private/directory",
+            owner = "private-owner",
+            creator = "private-creator",
+        )
+        assertEquals("HtspAutorecEntryAddMessage(<redacted>)", autorec.toString())
+        assertEquals(
+            "HtspAutorecEntryUpdateMessage(<redacted>)",
+            HtspAutorecEntryUpdateMessage(
+                id = "private-rule-id",
+                directory = "/private/directory",
+                owner = "private-owner",
+                creator = "private-creator",
+            ).toString(),
+        )
+        assertEquals(
+            "HtspTimerecEntryAddMessage(<redacted>)",
+            HtspTimerecEntryAddMessage(
+                id = "private-rule-id",
+                enabled = true,
+                name = "private-name",
+                title = "private-title",
+                channelId = 1,
+                startMinutesSinceMidnight = 0,
+                stopMinutesSinceMidnight = 1,
+                directory = "/private/directory",
+                owner = "private-owner",
+                creator = "private-creator",
+            ).toString(),
+        )
+        assertEquals(
+            "HtspTimerecEntryUpdateMessage(<redacted>)",
+            HtspTimerecEntryUpdateMessage(
+                id = "private-rule-id",
+                directory = "/private/directory",
+                owner = "private-owner",
+                creator = "private-creator",
+            ).toString(),
+        )
         val start = HtspSubscriptionStartMessage(
             subscriptionId = 456L,
             status = "raw-status",

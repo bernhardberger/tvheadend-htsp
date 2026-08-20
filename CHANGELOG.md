@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.5.0]
+
+Automatic-recording add metadata now accepts the nullable `comment`, `name`,
+`owner`, and `creator` fields emitted by TVHeadend. Their typed properties are
+null when absent; present fields with invalid wire types remain incompatible.
+
+**BREAKING (Kotlin source + behavior; JVM linkage unchanged):** those four
+properties are now nullable. Source consumers must handle absence, and binaries
+compiled against 0.4.0 can observe null from their existing JVM getters.
+
 ## [0.4.0]
 
 Malformed recognized global metadata now fails the transport as an incompatible

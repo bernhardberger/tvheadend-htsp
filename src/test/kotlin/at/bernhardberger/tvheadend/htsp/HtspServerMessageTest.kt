@@ -311,11 +311,18 @@ class HtspServerMessageTest {
             "id", "enabled", "maxDuration", "minDuration", "retention", "removal",
             "daysOfWeek", "approxTime", "start", "startWindow", "priority",
             "startExtra", "stopExtra", "dupDetect", "maxCount", "broadcastType",
-            "comment", "name", "owner", "creator",
         )
         requiredAddFields.forEach { requiredName ->
             assertMalformed(addFields - requiredName)
         }
+
+        val addWithoutNullableStrings = decodeMessage(
+            addFields - setOf("comment", "name", "owner", "creator"),
+        ) as HtspAutorecEntryAddMessage
+        assertEquals(null, addWithoutNullableStrings.comment)
+        assertEquals(null, addWithoutNullableStrings.name)
+        assertEquals(null, addWithoutNullableStrings.owner)
+        assertEquals(null, addWithoutNullableStrings.creator)
 
         val update = decodeMessage(
             mapOf(
@@ -354,6 +361,10 @@ class HtspServerMessageTest {
             addFields + ("stopExtra" to 1),
             addFields + ("title" to null),
             addFields + ("fulltext" to 2L),
+            addFields + ("comment" to listOf("bad")),
+            addFields + ("name" to 1L),
+            addFields + ("owner" to false),
+            addFields + ("creator" to emptyList<String>()),
             mapOf("method" to "autorecEntryUpdate"),
             mapOf("method" to "autorecEntryUpdate", "id" to 1L),
             mapOf("method" to "autorecEntryUpdate", "id" to "rule", "channel" to -1L),
