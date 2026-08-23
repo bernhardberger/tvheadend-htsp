@@ -504,7 +504,7 @@ internal open class `HtspService-internal`(
             val collectorContext = currentCoroutineContext()
             collectorContext.ensureActive()
             val collectorJob = collectorContext[Job]
-            val stream = synchronized(connectionAttemptLock) {
+            val (generation, stream) = synchronized(connectionAttemptLock) {
                 val generation = protocolGeneration
                     ?: error("No live HTSP connection generation")
                 if (expectedGeneration != null && generation.token !== expectedGeneration) {
@@ -519,15 +519,15 @@ internal open class `HtspService-internal`(
                 ) {
                     "No live HTSP connection generation"
                 }
-                check(subscriptionId !in generation.subscriptionStreams) {
+                check(generation.collectedSubscriptionIds.add(subscriptionId)) {
                     "HTSP subscription stream already collected in this generation"
                 }
-                HtspSubscriptionEventBuffer(
+                val stream = HtspSubscriptionEventBuffer(
                     capacity = subscriptionEventBufferCapacity,
                     collectorJob = collectorJob,
-                ).also { buffer ->
-                    generation.subscriptionStreams[subscriptionId] = buffer
-                }
+                )
+                generation.subscriptionStreams[subscriptionId] = stream
+                generation to stream
             }
 
             try {
@@ -548,6 +548,10 @@ internal open class `HtspService-internal`(
             } finally {
                 synchronized(connectionAttemptLock) {
                     stream.abandon()
+                    if (generation.subscriptionStreams[subscriptionId] === stream) {
+                        generation.subscriptionStreams.remove(subscriptionId)
+                        generation.subscriptionTimestampClocks.remove(subscriptionId)
+                    }
                 }
             }
         }
@@ -1546,6 +1550,7 @@ internal open class `HtspService-internal`(
         val attemptId: Long,
         val token: HtspConnectionGeneration = HtspConnectionGeneration(),
     ) {
+        val collectedSubscriptionIds = mutableSetOf<Long>()
         val subscriptionStreams = mutableMapOf<Long, HtspSubscriptionEventBuffer>()
         val subscriptionTimestampClocks = mutableMapOf<Long, HtspTimestampClock>()
     }

@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.0]
+
+Completed or cancelled subscription streams now release their event buffers,
+collector-job references, and timestamp clocks after ordered draining finishes.
+A lightweight generation-owned ID tombstone still prevents a subscription from
+being collected or used again before the connection generation changes.
+
 ## [0.7.0]
 
 Anonymous and credentialed authentication denials now both produce

@@ -442,6 +442,82 @@ internal class HtspServiceSubscriptionEventTest : HtspServiceLifecycleFixture() 
     }
 
     @Test
+    fun longZapSequenceRetiresCompletedResourcesWithoutReusingIds() {
+        val zapCount = 128
+        FakeHtspServer(
+            respondToHello = true,
+            postHandshakeReplyPlan = List(zapCount + zapCount / 2) { emptyMap() },
+        ).use { server ->
+            val service = service()
+            runBlocking {
+                service.connect(HtspEndpoint("127.0.0.1", server.port))
+
+                repeat(zapCount) { index ->
+                    val subscriptionId = index + 1L
+                    val events = async(start = CoroutineStart.UNDISPATCHED) {
+                        service.subscriptionEvents(subscriptionId).toList()
+                    }
+                    assertEquals(
+                        SubscriptionResources(
+                            buffers = 1,
+                            clocks = 0,
+                            collectedIds = index + 1,
+                        ),
+                        subscriptionResources(service),
+                    )
+
+                    assertTrue(service.subscribe(subscriptionId, channelId = 1L) is HtspResult.Ok)
+                    assertEquals(
+                        SubscriptionResources(
+                            buffers = 1,
+                            clocks = 1,
+                            collectedIds = index + 1,
+                        ),
+                        subscriptionResources(service),
+                    )
+
+                    server.sendServerMessage(
+                        "subscriptionStatus",
+                        statusFields(subscriptionId, "running"),
+                    )
+                    val expectedTypes = if (index % 2 == 0) {
+                        server.sendServerMessage(
+                            "subscriptionStop",
+                            statusFields(subscriptionId, "stopped"),
+                        )
+                        listOf(
+                            HtspSubscriptionEvent.Status::class,
+                            HtspSubscriptionEvent.Stopped::class,
+                        )
+                    } else {
+                        assertTrue(service.unsubscribe(subscriptionId) is HtspResult.Ok)
+                        listOf(HtspSubscriptionEvent.Status::class)
+                    }
+
+                    assertEquals(
+                        expectedTypes,
+                        withTimeout(1_000L) { events.await() }.map { event -> event::class },
+                    )
+                    assertEquals(
+                        SubscriptionResources(
+                            buffers = 0,
+                            clocks = 0,
+                            collectedIds = index + 1,
+                        ),
+                        subscriptionResources(service),
+                    )
+                }
+
+                assertTrue(
+                    runCatching { service.subscriptionEvents(1L).toList() }
+                        .exceptionOrNull() is IllegalStateException,
+                )
+                service.disconnect()
+            }
+        }
+    }
+
+    @Test
     fun malformedMuxPacketsProduceOrderedDropMarkersWithoutDroppingControls() {
         FakeHtspServer(respondToHello = true).use { server ->
             val service = service()
@@ -1187,15 +1263,27 @@ internal class HtspServiceSubscriptionEventTest : HtspServiceLifecycleFixture() 
 
     @Test
     fun collectorCancellationPropagatesAndKeepsGenerationTombstone() {
-        FakeHtspServer(respondToHello = true).use { server ->
+        FakeHtspServer(
+            respondToHello = true,
+            postHandshakeReplyPlan = listOf(emptyMap()),
+        ).use { server ->
             val service = service()
             runBlocking {
                 service.connect(HtspEndpoint("127.0.0.1", server.port))
                 val collector = async(start = CoroutineStart.UNDISPATCHED) {
                     service.subscriptionEvents(13L).toList()
                 }
+                assertTrue(service.subscribe(13L, channelId = 1L) is HtspResult.Ok)
+                assertEquals(
+                    SubscriptionResources(buffers = 1, clocks = 1, collectedIds = 1),
+                    subscriptionResources(service),
+                )
                 collector.cancel()
                 assertTrue(runCatching { collector.await() }.exceptionOrNull() is kotlinx.coroutines.CancellationException)
+                assertEquals(
+                    SubscriptionResources(buffers = 0, clocks = 0, collectedIds = 1),
+                    subscriptionResources(service),
+                )
                 assertTrue(
                     runCatching { service.subscriptionEvents(13L).toList() }
                         .exceptionOrNull() is IllegalStateException,
@@ -1320,6 +1408,33 @@ internal class HtspServiceSubscriptionEventTest : HtspServiceLifecycleFixture() 
     private fun statusFields(subscriptionId: Long, status: String): Map<String, Any?> = mapOf(
         "subscriptionId" to subscriptionId,
         "state" to status,
+    )
+
+    private fun subscriptionResources(service: HtspService): SubscriptionResources {
+        val generation = service.javaClass.getDeclaredField("protocolGeneration")
+            .apply { isAccessible = true }
+            .get(service)
+        val generationClass = generation.javaClass
+        val buffers = generationClass.getDeclaredField("subscriptionStreams")
+            .apply { isAccessible = true }
+            .get(generation) as Map<*, *>
+        val clocks = generationClass.getDeclaredField("subscriptionTimestampClocks")
+            .apply { isAccessible = true }
+            .get(generation) as Map<*, *>
+        val collectedIds = generationClass.getDeclaredField("collectedSubscriptionIds")
+            .apply { isAccessible = true }
+            .get(generation) as Set<*>
+        return SubscriptionResources(
+            buffers = buffers.size,
+            clocks = clocks.size,
+            collectedIds = collectedIds.size,
+        )
+    }
+
+    private data class SubscriptionResources(
+        val buffers: Int,
+        val clocks: Int,
+        val collectedIds: Int,
     )
 
     private fun assertSameResult(
