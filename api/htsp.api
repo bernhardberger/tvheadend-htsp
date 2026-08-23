@@ -1587,8 +1587,8 @@ public final class at/bernhardberger/tvheadend/htsp/messages/HtspTagUpdateMessag
 }
 
 public final class at/bernhardberger/tvheadend/htsp/messages/HtspTimerecEntryAddMessage : at/bernhardberger/tvheadend/htsp/messages/HtspServerMessage {
-	public fun <init> (Ljava/lang/String;ZLjava/lang/String;Ljava/lang/String;IIILjava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V
-	public synthetic fun <init> (Ljava/lang/String;ZLjava/lang/String;Ljava/lang/String;IIILjava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (Ljava/lang/String;ZLjava/lang/String;Ljava/lang/String;Ljava/lang/Long;Ljava/lang/Integer;Ljava/lang/Integer;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V
+	public synthetic fun <init> (Ljava/lang/String;ZLjava/lang/String;Ljava/lang/String;Ljava/lang/Long;Ljava/lang/Integer;Ljava/lang/Integer;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public final fun component1 ()Ljava/lang/String;
 	public final fun component10 ()Ljava/lang/Long;
 	public final fun component11 ()Ljava/lang/String;
@@ -1599,15 +1599,15 @@ public final class at/bernhardberger/tvheadend/htsp/messages/HtspTimerecEntryAdd
 	public final fun component2 ()Z
 	public final fun component3 ()Ljava/lang/String;
 	public final fun component4 ()Ljava/lang/String;
-	public final fun component5 ()I
-	public final fun component6 ()I
-	public final fun component7 ()I
+	public final fun component5 ()Ljava/lang/Long;
+	public final fun component6 ()Ljava/lang/Integer;
+	public final fun component7 ()Ljava/lang/Integer;
 	public final fun component8 ()Ljava/lang/Long;
 	public final fun component9 ()Ljava/lang/Long;
-	public final fun copy (Ljava/lang/String;ZLjava/lang/String;Ljava/lang/String;IIILjava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Lat/bernhardberger/tvheadend/htsp/messages/HtspTimerecEntryAddMessage;
-	public static synthetic fun copy$default (Lat/bernhardberger/tvheadend/htsp/messages/HtspTimerecEntryAddMessage;Ljava/lang/String;ZLjava/lang/String;Ljava/lang/String;IIILjava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Lat/bernhardberger/tvheadend/htsp/messages/HtspTimerecEntryAddMessage;
+	public final fun copy (Ljava/lang/String;ZLjava/lang/String;Ljava/lang/String;Ljava/lang/Long;Ljava/lang/Integer;Ljava/lang/Integer;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Lat/bernhardberger/tvheadend/htsp/messages/HtspTimerecEntryAddMessage;
+	public static synthetic fun copy$default (Lat/bernhardberger/tvheadend/htsp/messages/HtspTimerecEntryAddMessage;Ljava/lang/String;ZLjava/lang/String;Ljava/lang/String;Ljava/lang/Long;Ljava/lang/Integer;Ljava/lang/Integer;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Lat/bernhardberger/tvheadend/htsp/messages/HtspTimerecEntryAddMessage;
 	public fun equals (Ljava/lang/Object;)Z
-	public final fun getChannelId ()I
+	public final fun getChannelId ()Ljava/lang/Long;
 	public final fun getComment ()Ljava/lang/String;
 	public final fun getConfigId ()Ljava/lang/String;
 	public final fun getCreator ()Ljava/lang/String;
@@ -1619,8 +1619,8 @@ public final class at/bernhardberger/tvheadend/htsp/messages/HtspTimerecEntryAdd
 	public final fun getOwner ()Ljava/lang/String;
 	public final fun getPriority ()Ljava/lang/Long;
 	public final fun getRetentionDays ()Ljava/lang/Long;
-	public final fun getStartMinutesSinceMidnight ()I
-	public final fun getStopMinutesSinceMidnight ()I
+	public final fun getStartMinutesSinceMidnight ()Ljava/lang/Integer;
+	public final fun getStopMinutesSinceMidnight ()Ljava/lang/Integer;
 	public final fun getTitle ()Ljava/lang/String;
 	public fun hashCode ()I
 	public fun toString ()Ljava/lang/String;
@@ -1638,8 +1638,8 @@ public final class at/bernhardberger/tvheadend/htsp/messages/HtspTimerecEntryDel
 }
 
 public final class at/bernhardberger/tvheadend/htsp/messages/HtspTimerecEntryUpdateMessage : at/bernhardberger/tvheadend/htsp/messages/HtspServerMessage {
-	public fun <init> (Ljava/lang/String;Ljava/lang/Boolean;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Integer;Ljava/lang/Integer;Ljava/lang/Integer;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V
-	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/Boolean;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Integer;Ljava/lang/Integer;Ljava/lang/Integer;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (Ljava/lang/String;Ljava/lang/Boolean;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;Ljava/lang/Integer;Ljava/lang/Integer;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/Boolean;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;Ljava/lang/Integer;Ljava/lang/Integer;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public final fun component1 ()Ljava/lang/String;
 	public final fun component10 ()Ljava/lang/Long;
 	public final fun component11 ()Ljava/lang/String;
@@ -1650,15 +1650,15 @@ public final class at/bernhardberger/tvheadend/htsp/messages/HtspTimerecEntryUpd
 	public final fun component2 ()Ljava/lang/Boolean;
 	public final fun component3 ()Ljava/lang/String;
 	public final fun component4 ()Ljava/lang/String;
-	public final fun component5 ()Ljava/lang/Integer;
+	public final fun component5 ()Ljava/lang/Long;
 	public final fun component6 ()Ljava/lang/Integer;
 	public final fun component7 ()Ljava/lang/Integer;
 	public final fun component8 ()Ljava/lang/Long;
 	public final fun component9 ()Ljava/lang/Long;
-	public final fun copy (Ljava/lang/String;Ljava/lang/Boolean;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Integer;Ljava/lang/Integer;Ljava/lang/Integer;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Lat/bernhardberger/tvheadend/htsp/messages/HtspTimerecEntryUpdateMessage;
-	public static synthetic fun copy$default (Lat/bernhardberger/tvheadend/htsp/messages/HtspTimerecEntryUpdateMessage;Ljava/lang/String;Ljava/lang/Boolean;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Integer;Ljava/lang/Integer;Ljava/lang/Integer;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Lat/bernhardberger/tvheadend/htsp/messages/HtspTimerecEntryUpdateMessage;
+	public final fun copy (Ljava/lang/String;Ljava/lang/Boolean;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;Ljava/lang/Integer;Ljava/lang/Integer;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Lat/bernhardberger/tvheadend/htsp/messages/HtspTimerecEntryUpdateMessage;
+	public static synthetic fun copy$default (Lat/bernhardberger/tvheadend/htsp/messages/HtspTimerecEntryUpdateMessage;Ljava/lang/String;Ljava/lang/Boolean;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;Ljava/lang/Integer;Ljava/lang/Integer;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Lat/bernhardberger/tvheadend/htsp/messages/HtspTimerecEntryUpdateMessage;
 	public fun equals (Ljava/lang/Object;)Z
-	public final fun getChannelId ()Ljava/lang/Integer;
+	public final fun getChannelId ()Ljava/lang/Long;
 	public final fun getComment ()Ljava/lang/String;
 	public final fun getConfigId ()Ljava/lang/String;
 	public final fun getCreator ()Ljava/lang/String;

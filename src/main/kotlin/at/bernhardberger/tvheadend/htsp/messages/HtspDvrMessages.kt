@@ -682,47 +682,17 @@ public data class HtspAutorecEntryUpdateMessage(
 /** Carries the string [id] reported by an automatic-recording-rule delete message. */
 public data class HtspAutorecEntryDeleteMessage(public val id: String) : HtspServerMessage
 
-/** Carries the bounded time-based recording-rule fields reported by an add message, including channel, interval, policy, and ownership data. */
+/**
+ * Carries time-based recording-rule fields reported by an add message.
+ * Nullable channel, name, and title values were omitted; nullable interval values were the
+ * explicit signed `-1` unset sentinel.
+ */
 public data class HtspTimerecEntryAddMessage(
     public val id: String,
     public val enabled: Boolean,
-    public val name: String,
-    public val title: String,
-    public val channelId: Int,
-    public val startMinutesSinceMidnight: Int,
-    public val stopMinutesSinceMidnight: Int,
-    public val daysOfWeekMask: Long? = null,
-    public val priority: Long? = null,
-    public val retentionDays: Long? = null,
-    public val directory: String? = null,
-    public val owner: String? = null,
-    public val creator: String? = null,
-    public val configId: String? = null,
-    public val comment: String? = null,
-) : HtspServerMessage {
-    init {
-        require(channelId >= 0) { "channelId must be non-negative" }
-        require(startMinutesSinceMidnight in 0..1_440) {
-            "startMinutesSinceMidnight must be between 0 and 1440"
-        }
-        require(stopMinutesSinceMidnight in 0..1_440) {
-            "stopMinutesSinceMidnight must be between 0 and 1440"
-        }
-        daysOfWeekMask?.let { requireU32("daysOfWeekMask", it) }
-        priority?.let { requireU32("priority", it) }
-        retentionDays?.let { requireU32("retentionDays", it) }
-    }
-
-    override fun toString(): String = "HtspTimerecEntryAddMessage(<redacted>)"
-}
-
-/** Carries a time-based recording-rule update; nullable interval, channel, day, policy, and ownership properties were absent when null. */
-public data class HtspTimerecEntryUpdateMessage(
-    public val id: String,
-    public val enabled: Boolean? = null,
     public val name: String? = null,
     public val title: String? = null,
-    public val channelId: Int? = null,
+    public val channelId: Long? = null,
     public val startMinutesSinceMidnight: Int? = null,
     public val stopMinutesSinceMidnight: Int? = null,
     public val daysOfWeekMask: Long? = null,
@@ -735,12 +705,57 @@ public data class HtspTimerecEntryUpdateMessage(
     public val comment: String? = null,
 ) : HtspServerMessage {
     init {
-        require(channelId == null || channelId >= 0) { "channelId must be non-negative" }
-        require(startMinutesSinceMidnight == null || startMinutesSinceMidnight in 0..1_440) {
-            "startMinutesSinceMidnight must be between 0 and 1440"
+        channelId?.let { requireU32("channelId", it) }
+        startMinutesSinceMidnight?.let {
+            require(it in 0 until 1_440) {
+                "startMinutesSinceMidnight must be between 0 and 1439"
+            }
         }
-        require(stopMinutesSinceMidnight == null || stopMinutesSinceMidnight in 0..1_440) {
-            "stopMinutesSinceMidnight must be between 0 and 1440"
+        stopMinutesSinceMidnight?.let {
+            require(it in 0 until 1_440) {
+                "stopMinutesSinceMidnight must be between 0 and 1439"
+            }
+        }
+        daysOfWeekMask?.let { requireU32("daysOfWeekMask", it) }
+        priority?.let { requireU32("priority", it) }
+        retentionDays?.let { requireU32("retentionDays", it) }
+    }
+
+    override fun toString(): String = "HtspTimerecEntryAddMessage(<redacted>)"
+}
+
+/**
+ * Carries a time-based recording-rule update. Nullable interval values were absent or used the
+ * explicit signed `-1` unset sentinel; other nullable values were absent.
+ */
+public data class HtspTimerecEntryUpdateMessage(
+    public val id: String,
+    public val enabled: Boolean? = null,
+    public val name: String? = null,
+    public val title: String? = null,
+    public val channelId: Long? = null,
+    public val startMinutesSinceMidnight: Int? = null,
+    public val stopMinutesSinceMidnight: Int? = null,
+    public val daysOfWeekMask: Long? = null,
+    public val priority: Long? = null,
+    public val retentionDays: Long? = null,
+    public val directory: String? = null,
+    public val owner: String? = null,
+    public val creator: String? = null,
+    public val configId: String? = null,
+    public val comment: String? = null,
+) : HtspServerMessage {
+    init {
+        channelId?.let { requireU32("channelId", it) }
+        startMinutesSinceMidnight?.let {
+            require(it in 0 until 1_440) {
+                "startMinutesSinceMidnight must be between 0 and 1439"
+            }
+        }
+        stopMinutesSinceMidnight?.let {
+            require(it in 0 until 1_440) {
+                "stopMinutesSinceMidnight must be between 0 and 1439"
+            }
         }
         daysOfWeekMask?.let { requireU32("daysOfWeekMask", it) }
         priority?.let { requireU32("priority", it) }

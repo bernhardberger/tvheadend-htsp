@@ -177,6 +177,52 @@ internal class HtspServiceTypedEventTest : HtspServiceLifecycleFixture() {
     }
 
     @Test
+    fun upstreamAllChannelTimerecWithUnsetTimesRemainsCompatible() {
+        FakeHtspServer(respondToHello = true).use { server ->
+            val service = service()
+            runBlocking {
+                service.connect(HtspEndpoint("127.0.0.1", server.port))
+                val events = CopyOnWriteArrayList<HtspTransportEvent.ServerMessage>()
+                val collector = launch(start = CoroutineStart.UNDISPATCHED) {
+                    service.events.collect { event ->
+                        if (event is HtspTransportEvent.ServerMessage) events += event
+                    }
+                }
+
+                server.sendServerMessage(
+                    "timerecEntryAdd",
+                    mapOf(
+                        "id" to "rule",
+                        "enabled" to 1L,
+                        "daysOfWeek" to 0x7fL,
+                        "retention" to 0L,
+                        "removal" to 0L,
+                        "priority" to 0L,
+                        "start" to -1L,
+                        "stop" to -1L,
+                    ),
+                )
+                server.sendServerMessage("channelAdd", mapOf("channelId" to 75L))
+
+                withTimeout(1_000L) {
+                    while (events.size < 2) delay(1L)
+                }
+                val timerec = events.first().message as HtspTimerecEntryAddMessage
+                assertNull(timerec.name)
+                assertNull(timerec.title)
+                assertNull(timerec.channelId)
+                assertNull(timerec.startMinutesSinceMidnight)
+                assertNull(timerec.stopMinutesSinceMidnight)
+                assertTrue(events.last().message is HtspChannelAddMessage)
+                assertTrue(service.liveConnection.value != null)
+
+                collector.cancelAndJoin()
+                service.disconnect()
+            }
+        }
+    }
+
+    @Test
     fun recognizedMetadataEnvelopeCannotCompleteAPendingReply() {
         FakeHtspServer(
             respondToHello = true,

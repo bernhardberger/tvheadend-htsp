@@ -115,6 +115,8 @@ public fun createHtspConnection(
 
 internal class HtspIncompatibleServerException : Exception()
 
+internal class HtspAuthenticationRejectedException : Exception()
+
 internal fun typedTransportFailure(error: Throwable): HtspTransportFailure {
     val chain = generateSequence(error as Throwable?) { current -> current.cause }.toList()
     val kind = when {
@@ -127,10 +129,8 @@ internal fun typedTransportFailure(error: Throwable): HtspTransportFailure {
         chain.any { it is SocketTimeoutException || it is HtspRequestTimeoutException } ->
             HtspTransportFailureKind.CONNECTION_TIMEOUT
         chain.any { it is ConnectException } -> HtspTransportFailureKind.CONNECTION_REFUSED
-        chain.any { throwable ->
-            throwable is IllegalStateException &&
-                throwable.message?.contains("auth", ignoreCase = true) == true
-        } -> HtspTransportFailureKind.AUTHENTICATION_REJECTED
+        chain.any { it is HtspAuthenticationRejectedException } ->
+            HtspTransportFailureKind.AUTHENTICATION_REJECTED
         else -> HtspTransportFailureKind.TRANSPORT_UNAVAILABLE
     }
     return HtspTransportFailure(kind)

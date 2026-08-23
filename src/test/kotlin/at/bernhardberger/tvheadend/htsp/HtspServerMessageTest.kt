@@ -126,7 +126,7 @@ class HtspServerMessageTest {
     }
 
     @Test
-    fun timerecMessagesDecodeCompleteAddPartialUpdateAndExactDelete() {
+    fun timerecMessagesDecodePinnedUpstreamConfiguredAndAllChannelShapes() {
         val add = decodeMessage(
             mapOf(
                 "method" to "timerecEntryAdd",
@@ -134,9 +134,9 @@ class HtspServerMessageTest {
                 "enabled" to 1L,
                 "name" to "Weekdays",
                 "title" to "News",
-                "channel" to 7L,
+                "channel" to 0xffff_ffffL,
                 "start" to 360L,
-                "stop" to 420L,
+                "stop" to 1_439L,
                 "daysOfWeek" to 31L,
                 "priority" to 2L,
                 "retention" to 14L,
@@ -150,11 +150,30 @@ class HtspServerMessageTest {
         ) as HtspTimerecEntryAddMessage
         assertEquals("rule-1", add.id)
         assertEquals(true, add.enabled)
-        assertEquals(7, add.channelId)
+        assertEquals(0xffff_ffffL, add.channelId)
         assertEquals(360, add.startMinutesSinceMidnight)
-        assertEquals(420, add.stopMinutesSinceMidnight)
+        assertEquals(1_439, add.stopMinutesSinceMidnight)
         assertEquals(31L, add.daysOfWeekMask)
         assertFalse(add.javaClass.declaredMethods.any { it.name.contains("removal", ignoreCase = true) })
+
+        val allChannel = decodeMessage(
+            mapOf(
+                "method" to "timerecEntryAdd",
+                "id" to "all-channel-rule",
+                "enabled" to 1L,
+                "daysOfWeek" to 0x7fL,
+                "retention" to 0L,
+                "removal" to 0L,
+                "priority" to 0L,
+                "start" to -1L,
+                "stop" to -1L,
+            ),
+        ) as HtspTimerecEntryAddMessage
+        assertEquals(null, allChannel.name)
+        assertEquals(null, allChannel.title)
+        assertEquals(null, allChannel.channelId)
+        assertEquals(null, allChannel.startMinutesSinceMidnight)
+        assertEquals(null, allChannel.stopMinutesSinceMidnight)
 
         val update = decodeMessage(
             mapOf(
@@ -163,14 +182,16 @@ class HtspServerMessageTest {
                 "enabled" to 0L,
                 "title" to "",
                 "channel" to 0L,
-                "start" to 0L,
-                "stop" to 1_440L,
+                "start" to -1L,
+                "stop" to 1_439L,
             ),
         ) as HtspTimerecEntryUpdateMessage
         assertEquals("rule-1", update.id)
         assertEquals(false, update.enabled)
         assertEquals("", update.title)
-        assertEquals(0, update.channelId)
+        assertEquals(0L, update.channelId)
+        assertEquals(null, update.startMinutesSinceMidnight)
+        assertEquals(1_439, update.stopMinutesSinceMidnight)
         assertEquals(null, update.name)
 
         assertEquals(
@@ -182,63 +203,54 @@ class HtspServerMessageTest {
     @Test
     fun timerecMessagesRejectIncompleteOrOutOfRangeKnownShapes() {
         assertMalformed(mapOf("method" to "timerecEntryAdd", "id" to "rule"))
+        assertMalformed(minimalFixture("timerecEntryAdd") - "id")
+        assertMalformed(minimalFixture("timerecEntryAdd") - "enabled")
+        assertMalformed(minimalFixture("timerecEntryAdd") - "start")
+        assertMalformed(minimalFixture("timerecEntryAdd") - "stop")
         assertMalformed(minimalFixture("timerecEntryAdd") + ("enabled" to 2L))
-        assertMalformed(minimalFixture("timerecEntryAdd") + ("channel" to (Int.MAX_VALUE.toLong() + 1L)))
-        assertMalformed(minimalFixture("timerecEntryAdd") + ("start" to -1L))
-        assertMalformed(minimalFixture("timerecEntryAdd") + ("stop" to 1_441L))
+        assertMalformed(minimalFixture("timerecEntryAdd") + ("channel" to -1L))
+        assertMalformed(minimalFixture("timerecEntryAdd") + ("channel" to 0x1_0000_0000L))
+        assertMalformed(minimalFixture("timerecEntryAdd") + ("start" to -2L))
+        assertMalformed(minimalFixture("timerecEntryAdd") + ("start" to 1_440L))
+        assertMalformed(minimalFixture("timerecEntryAdd") + ("stop" to -2L))
+        assertMalformed(minimalFixture("timerecEntryAdd") + ("stop" to 1_440L))
         assertMalformed(mapOf("method" to "timerecEntryUpdate", "id" to 1L, "priority" to -1L))
         assertMalformed(mapOf("method" to "timerecEntryDelete", "id" to 1L))
     }
 
     @Test
-    fun timerecMalformedOptionalsAreOmittedWhileValidSiblingsSurvive() {
-        val add = decodeMessage(
-            minimalFixture("timerecEntryAdd") + mapOf(
-                "daysOfWeek" to -1L,
-                "priority" to "invalid",
-                "retention" to 0x1_0000_0000L,
-                "directory" to listOf("invalid"),
-                "owner" to null,
-                "creator" to 3L,
-                "configId" to false,
-                "comment" to "kept",
-            ),
-        ) as HtspTimerecEntryAddMessage
-        assertEquals(null, add.daysOfWeekMask)
-        assertEquals(null, add.priority)
-        assertEquals(null, add.retentionDays)
-        assertEquals(null, add.directory)
-        assertEquals(null, add.owner)
-        assertEquals(null, add.creator)
-        assertEquals(null, add.configId)
-        assertEquals("kept", add.comment)
+    fun timerecMessagesRejectMalformedPresentOptionalFields() {
+        listOf(
+            "name" to 7L,
+            "title" to false,
+            "daysOfWeek" to -1L,
+            "priority" to "invalid",
+            "retention" to 0x1_0000_0000L,
+            "directory" to listOf("invalid"),
+            "owner" to null,
+            "creator" to 3L,
+            "configId" to false,
+            "comment" to 1L,
+        ).forEach { (name, value) ->
+            assertMalformed(minimalFixture("timerecEntryAdd") + (name to value))
+        }
 
-        val update = decodeMessage(
-            mapOf(
-                "method" to "timerecEntryUpdate",
-                "id" to "rule",
-                "enabled" to 2L,
-                "name" to 7L,
-                "title" to "updated",
-                "channel" to -1L,
-                "start" to 1_441L,
-                "stop" to "invalid",
-                "daysOfWeek" to -1L,
-                "priority" to 0x1_0000_0000L,
-                "retention" to null,
-                "directory" to "kept",
-            ),
-        ) as HtspTimerecEntryUpdateMessage
-        assertEquals(null, update.enabled)
-        assertEquals(null, update.name)
-        assertEquals("updated", update.title)
-        assertEquals(null, update.channelId)
-        assertEquals(null, update.startMinutesSinceMidnight)
-        assertEquals(null, update.stopMinutesSinceMidnight)
-        assertEquals(null, update.daysOfWeekMask)
-        assertEquals(null, update.priority)
-        assertEquals(null, update.retentionDays)
-        assertEquals("kept", update.directory)
+        listOf(
+            "enabled" to 2L,
+            "name" to 7L,
+            "title" to false,
+            "channel" to -1L,
+            "channel" to 0x1_0000_0000L,
+            "start" to -2L,
+            "start" to 1_440L,
+            "stop" to "invalid",
+            "daysOfWeek" to -1L,
+            "priority" to 0x1_0000_0000L,
+            "retention" to null,
+            "directory" to 3L,
+        ).forEach { (name, value) ->
+            assertMalformed(mapOf("method" to "timerecEntryUpdate", "id" to "rule", name to value))
+        }
     }
 
     @Test
@@ -1148,11 +1160,8 @@ class HtspServerMessageTest {
             "method" to method,
             "id" to "rule",
             "enabled" to 1L,
-            "name" to "Rule",
-            "title" to "Title",
-            "channel" to 1L,
-            "start" to 0L,
-            "stop" to 1_440L,
+            "start" to -1L,
+            "stop" to -1L,
         )
         "timerecEntryUpdate" -> mapOf("method" to method, "id" to "rule")
         "timerecEntryDelete" -> mapOf("method" to method, "id" to "rule")

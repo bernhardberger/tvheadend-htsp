@@ -345,16 +345,7 @@ internal open class `HtspService-internal`(
                         )
                     ) {
                         is HtspResult.Ok -> result.value
-                        HtspResult.AccessDenied,
-                        HtspResult.ConnectionLimit,
-                        -> throw IllegalStateException(
-                            if (withCredentials) {
-                                "HTSP authentication failed (noaccess=1)"
-                            } else {
-                                "HTSP server requires credentials (noaccess=1)"
-                            },
-                        )
-                        is HtspFailure -> throw IllegalStateException("HTSP authentication failed")
+                        is HtspFailure -> throw HtspAuthenticationRejectedException()
                     }
                     // HTSP ≥ 26 includes ACCESS_HTSP_RECORDER as "dvr".
                     val dvrAccess =

@@ -58,10 +58,9 @@ Keep three distinctions clear:
 - Typed server-message coverage means payload models and a finite decoder.
   Channel, tag, EPG, DVR, autorec, timerec, and event messages publish through
   the global metadata flow. All eleven subscription message types publish only
-  through the registered ordered per-subscription flow. Decoding is strict
-  except that malformed optional timerec add/update fields become omitted or
-  null while valid siblings survive; required add fields and update identity
-  remain strict.
+  through the registered ordered per-subscription flow. Decoding is strict:
+  malformed present fields in recognized timerec add/update messages are not
+  converted into absence.
 
 Autorec and timerec Add/Update/Delete messages are finite read-only metadata.
 `descrambleInfo` completes the typed subscription catalog and publishes through
@@ -202,6 +201,14 @@ DVR policy.
   use TVHeadend's nullable `htsmsg_add_str2` emitter and are therefore nullable;
   other source-conditional observations remain nullable. Update requires string
   `id` and makes all other fields nullable; delete requires string `id`.
+  The shared `htsp_build_timerecentry` add/update shape conditionally omits
+  `channel`, `name`, and `title`; an absent channel means all channels. Channel
+  IDs retain their complete unsigned-u32 domain. Add requires signed-s32
+  `start` and `stop`: `-1` is exposed as nullable unset, `0..1439` are valid
+  minutes since midnight, and every other present value is malformed. Update
+  retains string `id` as its only required decoder field for compatibility but
+  applies the same strict channel and time domains whenever those fields are
+  present.
   `queueStatus.delay` keeps its recorded requiredness uncertainty.
 - Mux PTS and DTS remain signed s64 and are never masked or unwrapped at 33
   bits. `HtspService` rescales 90 kHz PTS, DTS, and required u32 duration to

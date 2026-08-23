@@ -23,6 +23,7 @@ private val EVENT_CONTENT_KEYS = listOf("contentType", "content")
 private val SUBSCRIPTION_ID_KEYS = listOf("subscriptionId", "id")
 private val STATUS_KEYS = listOf("state", "status")
 private val SUBSCRIPTION_ERROR_KEYS = listOf("subscriptionError", "error")
+private const val TIMEREC_MINUTES_PER_DAY = 24 * 60
 
 private class `HtspServerMessageMappingException-internal` : IllegalArgumentException()
 
@@ -268,39 +269,39 @@ internal fun decodeTimerecEntryAdd(fields: Map<String, Any?>): HtspServerMessage
     HtspTimerecEntryAddMessage(
         id = fields.requiredString("id"),
         enabled = fields.requiredFlag("enabled"),
-        name = fields.requiredString("name"),
-        title = fields.requiredString("title"),
-        channelId = fields.requiredBoundedInt("channel", 0..Int.MAX_VALUE),
-        startMinutesSinceMidnight = fields.requiredBoundedInt("start", 0..1_440),
-        stopMinutesSinceMidnight = fields.requiredBoundedInt("stop", 0..1_440),
-        daysOfWeekMask = optionalTimerecValue { fields.optionalU32("daysOfWeek") },
-        priority = optionalTimerecValue { fields.optionalU32("priority") },
-        retentionDays = optionalTimerecValue { fields.optionalU32("retention") },
-        directory = optionalTimerecValue { fields.optionalString("directory") },
-        owner = optionalTimerecValue { fields.optionalString("owner") },
-        creator = optionalTimerecValue { fields.optionalString("creator") },
-        configId = optionalTimerecValue { fields.optionalString("configId") },
-        comment = optionalTimerecValue { fields.optionalString("comment") },
+        name = fields.optionalString("name"),
+        title = fields.optionalString("title"),
+        channelId = fields.optionalU32("channel"),
+        startMinutesSinceMidnight = fields.requiredTimerecMinutes("start"),
+        stopMinutesSinceMidnight = fields.requiredTimerecMinutes("stop"),
+        daysOfWeekMask = fields.optionalU32("daysOfWeek"),
+        priority = fields.optionalU32("priority"),
+        retentionDays = fields.optionalU32("retention"),
+        directory = fields.optionalString("directory"),
+        owner = fields.optionalString("owner"),
+        creator = fields.optionalString("creator"),
+        configId = fields.optionalString("configId"),
+        comment = fields.optionalString("comment"),
     )
 
 @JvmSynthetic
 internal fun decodeTimerecEntryUpdate(fields: Map<String, Any?>): HtspServerMessage =
     HtspTimerecEntryUpdateMessage(
         id = fields.requiredString("id"),
-        enabled = optionalTimerecValue { fields.optionalFlag("enabled") },
-        name = optionalTimerecValue { fields.optionalString("name") },
-        title = optionalTimerecValue { fields.optionalString("title") },
-        channelId = optionalTimerecValue { fields.optionalBoundedInt("channel", 0..Int.MAX_VALUE) },
-        startMinutesSinceMidnight = optionalTimerecValue { fields.optionalBoundedInt("start", 0..1_440) },
-        stopMinutesSinceMidnight = optionalTimerecValue { fields.optionalBoundedInt("stop", 0..1_440) },
-        daysOfWeekMask = optionalTimerecValue { fields.optionalU32("daysOfWeek") },
-        priority = optionalTimerecValue { fields.optionalU32("priority") },
-        retentionDays = optionalTimerecValue { fields.optionalU32("retention") },
-        directory = optionalTimerecValue { fields.optionalString("directory") },
-        owner = optionalTimerecValue { fields.optionalString("owner") },
-        creator = optionalTimerecValue { fields.optionalString("creator") },
-        configId = optionalTimerecValue { fields.optionalString("configId") },
-        comment = optionalTimerecValue { fields.optionalString("comment") },
+        enabled = fields.optionalFlag("enabled"),
+        name = fields.optionalString("name"),
+        title = fields.optionalString("title"),
+        channelId = fields.optionalU32("channel"),
+        startMinutesSinceMidnight = fields.optionalTimerecMinutes("start"),
+        stopMinutesSinceMidnight = fields.optionalTimerecMinutes("stop"),
+        daysOfWeekMask = fields.optionalU32("daysOfWeek"),
+        priority = fields.optionalU32("priority"),
+        retentionDays = fields.optionalU32("retention"),
+        directory = fields.optionalString("directory"),
+        owner = fields.optionalString("owner"),
+        creator = fields.optionalString("creator"),
+        configId = fields.optionalString("configId"),
+        comment = fields.optionalString("comment"),
     )
 
 @JvmSynthetic
@@ -590,11 +591,15 @@ private fun decodeSubscriptionSourceInfo(fields: Map<*, *>): HtspSubscriptionSou
     )
 }
 
-private inline fun <T> optionalTimerecValue(block: () -> T?): T? = try {
-    block()
-} catch (_: HtspServerMessageMappingException) {
-    null
-}
+private fun Map<*, *>.requiredTimerecMinutes(name: String): Int? =
+    when (val value = requiredS32(name)) {
+        -1 -> null
+        in 0 until TIMEREC_MINUTES_PER_DAY -> value
+        else -> throw HtspServerMessageMappingException()
+    }
+
+private fun Map<*, *>.optionalTimerecMinutes(name: String): Int? =
+    if (containsKey(name)) requiredTimerecMinutes(name) else null
 
 private fun Map<*, *>.server(): HtspFieldReader =
     HtspFieldReader(this) { throw HtspServerMessageMappingException() }

@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.7.0]
+
+Anonymous and credentialed authentication denials now both produce
+`AUTHENTICATION_REJECTED` through a typed internal cause rather than exception
+message matching.
+
+Time-based recording add/update messages now match the pinned TVHeadend wire
+shape: channel, name, and title may be absent; channel IDs retain the complete
+unsigned-u32 range; and signed `-1` start/stop values become explicit nullable
+unset times. Present known fields are decoded strictly, and valid minute values
+are `0..1439`.
+
+**BREAKING (Kotlin source + JVM binary):** `HtspTimerecEntryAddMessage` makes
+channel, name, title, start, and stop nullable, and both timerec message types
+expose channel IDs as `Long?` instead of `Int?`/`Int`. Consumers must handle
+all-channel rules and unset intervals explicitly.
+
 ## [0.6.0]
 
 Subscription streams now preserve a durable, payload-free terminal reason for

@@ -70,28 +70,31 @@ internal class HtspServiceHandshakeFactsTest : HtspServiceLifecycleFixture() {
     }
 
     @Test
-    fun authenticationErrorReplyDoesNotEstablishAConnection() {
+    fun credentialedAccessDenialIsAuthenticationRejected() {
         FakeHtspServer(
             respondToHello = true,
-            authFields = mapOf("error" to "server-provided detail"),
+            authFields = mapOf("noaccess" to 1),
         ).use { server ->
             val service = service()
 
-            val failure = runBlocking {
-                runCatching {
-                    service.connect(
+            val outcome = runBlocking {
+                service.connect(
+                    endpoint = HtspEndpoint(
                         host = "127.0.0.1",
                         port = server.port,
                         username = "viewer",
                         password = "secret",
-                        connectTimeoutMs = 1_000,
-                        responseTimeoutMs = 1_000,
-                        soTimeoutMs = 50,
-                    )
-                }.exceptionOrNull()
+                    ),
+                    options = HtspConnectOptions(responseTimeoutMs = 1_000),
+                )
             }
 
-            assertTrue(requireNotNull(failure).message.orEmpty().contains("authentication failed"))
+            assertEquals(
+                HtspConnectOutcome.Failed(
+                    HtspTransportFailure(HtspTransportFailureKind.AUTHENTICATION_REJECTED),
+                ),
+                outcome,
+            )
             assertEquals(listOf("hello", "authenticate"), server.handshakeMethods)
         }
     }
@@ -430,20 +433,20 @@ internal class HtspServiceHandshakeFactsTest : HtspServiceLifecycleFixture() {
             authFields = mapOf("noaccess" to 1),
         ).use { server ->
             val service = service()
-            val failure = runBlocking {
-                runCatching {
-                    service.connect(
-                        host = "127.0.0.1",
-                        port = server.port,
-                        connectTimeoutMs = 1_000,
-                        responseTimeoutMs = 1_000,
-                        soTimeoutMs = 50,
-                    )
-                }.exceptionOrNull()
+            val outcome = runBlocking {
+                service.connect(
+                    endpoint = HtspEndpoint("127.0.0.1", server.port),
+                    options = HtspConnectOptions(responseTimeoutMs = 1_000),
+                )
             }
 
-            assertNotNull(failure)
-            assertTrue(requireNotNull(failure).message.orEmpty().contains("noaccess=1"))
+            assertEquals(
+                HtspConnectOutcome.Failed(
+                    HtspTransportFailure(HtspTransportFailureKind.AUTHENTICATION_REJECTED),
+                ),
+                outcome,
+            )
+            assertEquals(listOf("hello", "authenticate"), server.handshakeMethods)
         }
     }
 }

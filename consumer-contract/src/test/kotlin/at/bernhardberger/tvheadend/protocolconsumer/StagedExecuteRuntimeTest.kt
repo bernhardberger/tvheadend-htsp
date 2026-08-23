@@ -6,6 +6,7 @@ import at.bernhardberger.tvheadend.htsp.connection.HtspResult
 import at.bernhardberger.tvheadend.htsp.connection.HtspSubscriptionEvent
 import at.bernhardberger.tvheadend.htsp.connection.HtspSubscriptionTermination
 import at.bernhardberger.tvheadend.htsp.connection.createHtspConnection
+import at.bernhardberger.tvheadend.htsp.messages.HtspTimerecEntryAddMessage
 import at.bernhardberger.tvheadend.htsp.requests.GetSysTimeRequest
 import at.bernhardberger.tvheadend.htsp.requests.GetSysTimeResponse
 import at.bernhardberger.tvheadend.htsp.requests.HtspRequest
@@ -17,6 +18,24 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 class StagedExecuteRuntimeTest {
+    @Test
+    fun correctedTimerecShapeIsAvailableFromTheStagedArtifact() {
+        val allChannel = HtspTimerecEntryAddMessage(
+            id = "rule",
+            enabled = true,
+        )
+        assertEquals(null, allChannel.name)
+        assertEquals(null, allChannel.title)
+        assertEquals(null, allChannel.channelId)
+        assertEquals(null, allChannel.startMinutesSinceMidnight)
+        assertEquals(null, allChannel.stopMinutesSinceMidnight)
+
+        assertEquals(
+            0xffff_ffffL,
+            allChannel.copy(channelId = 0xffff_ffffL).channelId,
+        )
+    }
+
     @Test
     fun terminalAttributionIsAvailableFromTheStagedArtifact() {
         assertEquals(

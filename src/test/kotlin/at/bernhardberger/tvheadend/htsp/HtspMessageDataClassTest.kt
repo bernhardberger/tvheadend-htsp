@@ -124,6 +124,14 @@ class HtspMessageDataClassTest {
         assertEquals(1, copiedDvr.files?.size)
         assertUnmodifiable(copiedDvr.files!!)
 
+        val timerec = HtspTimerecEntryAddMessage(
+            id = "rule",
+            enabled = true,
+            channelId = 0xffff_ffffL,
+            startMinutesSinceMidnight = 0,
+            stopMinutesSinceMidnight = 1_439,
+        )
+
         val invalidCopies = listOf<() -> Unit>(
             { channel.copy(channelNumber = -1L) },
             { channel.copy(tagIds = listOf(-1L)) },
@@ -132,6 +140,10 @@ class HtspMessageDataClassTest {
             { HtspTagUpdateMessage(1L).copy(channelIds = listOf(-1L)) },
             { HtspEventUpdateMessage(1L).copy(contentType = -1L) },
             { HtspDvrEntryAddMessage(1L).copy(enabled = -1L) },
+            { timerec.copy(channelId = -1L) },
+            { timerec.copy(channelId = 0x1_0000_0000L) },
+            { timerec.copy(startMinutesSinceMidnight = -1) },
+            { timerec.copy(stopMinutesSinceMidnight = 1_440) },
         )
         invalidCopies.forEach { invalidCopy ->
             assertThrows(IllegalArgumentException::class.java) { invalidCopy() }
@@ -244,7 +256,7 @@ class HtspMessageDataClassTest {
                 enabled = true,
                 name = "private-name",
                 title = "private-title",
-                channelId = 1,
+                channelId = 1L,
                 startMinutesSinceMidnight = 0,
                 stopMinutesSinceMidnight = 1,
                 directory = "/private/directory",
