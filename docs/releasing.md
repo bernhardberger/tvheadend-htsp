@@ -1,10 +1,9 @@
 # Releasing
 
-`0.2.0` is a provisional major-zero release with intentional source and binary
-changes from `0.1.1`. The signed `v0.1.0` tag stopped before publication and is
-not reused. Release notes for `0.2.0` do not promise compatibility or support.
-Major zero communicates that status; the Maven version does not need an alpha
-suffix.
+Releases remain provisional during the major-zero line and may contain
+intentional source, binary, or behavioral changes. Release notes must state
+those changes without promising compatibility or support. Major zero
+communicates that status; the Maven version does not need an alpha suffix.
 
 Local staging does not establish external publication or availability.
 Publication and availability are independently verified external state. This

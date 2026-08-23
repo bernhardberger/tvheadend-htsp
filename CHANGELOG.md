@@ -1,13 +1,11 @@
 # Changelog
 
-## [0.8.0]
+## [0.6.0]
 
 Completed or cancelled subscription streams now release their event buffers,
 collector-job references, and timestamp clocks after ordered draining finishes.
 A lightweight generation-owned ID tombstone still prevents a subscription from
 being collected or used again before the connection generation changes.
-
-## [0.7.0]
 
 Anonymous and credentialed authentication denials now both produce
 `AUTHENTICATION_REJECTED` through a typed internal cause rather than exception
@@ -23,8 +21,6 @@ are `0..1439`.
 channel, name, title, start, and stop nullable, and both timerec message types
 expose channel IDs as `Long?` instead of `Int?`/`Int`. Consumers must handle
 all-channel rules and unset intervals explicitly.
-
-## [0.6.0]
 
 Subscription streams now preserve a durable, payload-free terminal reason for
 generation replacement, remote EOF, transport I/O, framing, malformed server
