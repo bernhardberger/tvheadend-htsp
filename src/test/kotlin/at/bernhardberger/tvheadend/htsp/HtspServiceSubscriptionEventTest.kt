@@ -21,8 +21,10 @@ import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import java.io.IOException
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 
 internal class HtspServiceSubscriptionEventTest : HtspServiceLifecycleFixture() {
 
@@ -520,13 +522,283 @@ internal class HtspServiceSubscriptionEventTest : HtspServiceLifecycleFixture() 
                     assertEquals(
                         listOf(
                             HtspSubscriptionEvent.Terminated(
-                                HtspSubscriptionTermination.TRANSPORT_CLOSED,
+                                HtspSubscriptionTermination.MALFORMED_MESSAGE,
                             ),
                         ),
                         withTimeout(1_000L) { subscription.await() },
                     )
                     service.close()
                 }
+            }
+        }
+    }
+
+    @Test
+    fun invalidFrameTerminatesSubscriptionWithFramingAttribution() {
+        FakeHtspServer(respondToHello = true).use { server ->
+            val service = service()
+            runBlocking {
+                service.connect(HtspEndpoint("127.0.0.1", server.port))
+                val subscription = async(start = CoroutineStart.UNDISPATCHED) {
+                    service.subscriptionEvents(32L).toList()
+                }
+
+                server.sendRaw(byteArrayOf(0, 0, 0, 0))
+
+                assertEquals(
+                    listOf(
+                        HtspSubscriptionEvent.Terminated(
+                            HtspSubscriptionTermination.FRAMING_FAILURE,
+                        ),
+                    ),
+                    withTimeout(1_000L) { subscription.await() },
+                )
+                service.close()
+            }
+        }
+    }
+
+    @Test
+    fun truncatedFrameTerminatesSubscriptionWithFramingAttribution() {
+        FakeHtspServer(respondToHello = true).use { server ->
+            val service = service()
+            runBlocking {
+                service.connect(HtspEndpoint("127.0.0.1", server.port))
+                val subscription = async(start = CoroutineStart.UNDISPATCHED) {
+                    service.subscriptionEvents(42L).toList()
+                }
+
+                server.sendRaw(byteArrayOf(0, 0))
+                server.closeClientTransport()
+
+                assertEquals(
+                    listOf(
+                        HtspSubscriptionEvent.Terminated(
+                            HtspSubscriptionTermination.FRAMING_FAILURE,
+                        ),
+                    ),
+                    withTimeout(1_000L) { subscription.await() },
+                )
+                service.close()
+            }
+        }
+    }
+
+    @Test
+    fun readerIoFailureTerminatesSubscriptionWithIoAttribution() {
+        val failNextFrame = AtomicBoolean(false)
+        FakeHtspServer(respondToHello = true).use { server ->
+            val service = service(
+                beforeFrameRead = {
+                    if (failNextFrame.compareAndSet(true, false)) {
+                        throw IOException("synthetic reader failure")
+                    }
+                },
+            )
+            runBlocking {
+                service.connect(HtspEndpoint("127.0.0.1", server.port))
+                val subscription = async(start = CoroutineStart.UNDISPATCHED) {
+                    service.subscriptionEvents(33L).toList()
+                }
+
+                failNextFrame.set(true)
+                server.sendServerMessage("subscriptionStatus", statusFields(33L, "wake"))
+
+                assertEquals(
+                    listOf(
+                        HtspSubscriptionEvent.Status(
+                            HtspSubscriptionStatusMessage(
+                                subscriptionId = 33L,
+                                status = "wake",
+                                subscriptionError = null,
+                            ),
+                        ),
+                        HtspSubscriptionEvent.Terminated(
+                            HtspSubscriptionTermination.IO_FAILURE,
+                        ),
+                    ),
+                    withTimeout(1_000L) { subscription.await() },
+                )
+                service.close()
+            }
+        }
+    }
+
+    @Test
+    fun unexpectedReaderFailureTerminatesSubscriptionWithBoundedAttribution() {
+        val failNextFrame = AtomicBoolean(false)
+        FakeHtspServer(respondToHello = true).use { server ->
+            val service = service(
+                beforeFrameRead = {
+                    if (failNextFrame.compareAndSet(true, false)) {
+                        throw IllegalStateException("unclassified reader detail")
+                    }
+                },
+            )
+            runBlocking {
+                service.connect(HtspEndpoint("127.0.0.1", server.port))
+                val subscription = async(start = CoroutineStart.UNDISPATCHED) {
+                    service.subscriptionEvents(41L).toList()
+                }
+
+                failNextFrame.set(true)
+                server.sendServerMessage("subscriptionStatus", statusFields(41L, "wake"))
+
+                val events = withTimeout(1_000L) { subscription.await() }
+                assertTrue(events.first() is HtspSubscriptionEvent.Status)
+                assertEquals(
+                    HtspSubscriptionEvent.Terminated(
+                        HtspSubscriptionTermination.INTERNAL_FAILURE,
+                    ),
+                    events.last(),
+                )
+                service.close()
+            }
+        }
+    }
+
+    @Test
+    fun publicationHookFailureIsContainedAndAttributed() {
+        listOf<() -> Throwable>(
+            { IllegalStateException("unpublished hook detail") },
+            { kotlinx.coroutines.CancellationException("unpublished hook cancellation") },
+            { AssertionError("unpublished hook error") },
+        ).forEach { hookFailure ->
+            FakeHtspServer(respondToHello = true).use { server ->
+                val service = service(
+                    beforeTypedEventPublication = { event ->
+                        if ((event.message as? HtspSubscriptionStatusMessage)?.subscriptionId == 34L) {
+                            throw hookFailure()
+                        }
+                    },
+                )
+                runBlocking {
+                    service.connect(HtspEndpoint("127.0.0.1", server.port))
+                    val subscription = async(start = CoroutineStart.UNDISPATCHED) {
+                        service.subscriptionEvents(34L).toList()
+                    }
+
+                    server.sendServerMessage("subscriptionStatus", statusFields(34L, "running"))
+
+                    assertEquals(
+                        listOf(
+                            HtspSubscriptionEvent.Terminated(
+                                HtspSubscriptionTermination.PUBLICATION_FAILURE,
+                            ),
+                        ),
+                        withTimeout(1_000L) { subscription.await() },
+                    )
+                    service.close()
+                }
+            }
+        }
+    }
+
+    @Test
+    fun explicitCloseTerminatesSubscriptionAsLocalRetirement() {
+        FakeHtspServer(respondToHello = true).use { server ->
+            val service = service()
+            runBlocking {
+                service.connect(HtspEndpoint("127.0.0.1", server.port))
+                val subscription = async(start = CoroutineStart.UNDISPATCHED) {
+                    service.subscriptionEvents(35L).toList()
+                }
+
+                service.close()
+
+                assertEquals(
+                    listOf(
+                        HtspSubscriptionEvent.Terminated(
+                            HtspSubscriptionTermination.LOCAL_RETIREMENT,
+                        ),
+                    ),
+                    withTimeout(1_000L) { subscription.await() },
+                )
+            }
+        }
+    }
+
+    @Test
+    fun explicitDisconnectDrainsThenTerminatesAsLocalRetirement() {
+        FakeHtspServer(respondToHello = true).use { server ->
+            val service = service()
+            runBlocking {
+                service.connect(HtspEndpoint("127.0.0.1", server.port))
+                val events = CopyOnWriteArrayList<HtspSubscriptionEvent>()
+                val subscription = launch(start = CoroutineStart.UNDISPATCHED) {
+                    service.subscriptionEvents(43L).collect { event -> events += event }
+                }
+                server.sendServerMessage("subscriptionStatus", statusFields(43L, "queued"))
+                withTimeout(1_000L) {
+                    while (events.none { event -> event is HtspSubscriptionEvent.Status }) delay(1L)
+                }
+
+                service.disconnect()
+
+                withTimeout(1_000L) { subscription.join() }
+                assertEquals(
+                    listOf(
+                        HtspSubscriptionEvent.Status::class,
+                        HtspSubscriptionEvent.Terminated::class,
+                    ),
+                    events.map { event -> event::class },
+                )
+                assertEquals(
+                    HtspSubscriptionEvent.Terminated(
+                        HtspSubscriptionTermination.LOCAL_RETIREMENT,
+                    ),
+                    events.last(),
+                )
+                service.close()
+            }
+        }
+    }
+
+    @Test
+    fun postSeekBurstDrainsInOrderBeforeAttributedRemoteEof() {
+        FakeHtspServer(respondToHello = true).use { server ->
+            val service = service()
+            runBlocking {
+                service.connect(HtspEndpoint("127.0.0.1", server.port))
+                val subscription = async(start = CoroutineStart.UNDISPATCHED) {
+                    service.subscriptionEvents(36L).toList()
+                }
+
+                server.sendServerMessage("subscriptionSkip", mapOf("subscriptionId" to 36L))
+                server.sendServerMessage(
+                    "timeshiftStatus",
+                    mapOf("subscriptionId" to 36L, "full" to 0L, "shift" to -1L),
+                )
+                server.sendServerMessage(
+                    "muxpkt",
+                    muxPacketFields(
+                        payloadByte = 1,
+                        subscriptionId = 36L,
+                        frameType = 73L,
+                        presentationTimestamp = 1_000_000L,
+                    ),
+                )
+                server.closeClientTransport()
+
+                val events = withTimeout(1_000L) { subscription.await() }
+                assertEquals(
+                    listOf(
+                        HtspSubscriptionEvent.Skipped::class,
+                        HtspSubscriptionEvent.Timeshift::class,
+                        HtspSubscriptionEvent.Packet::class,
+                        HtspSubscriptionEvent.Terminated::class,
+                    ),
+                    events.map { event -> event::class },
+                )
+                assertEquals(
+                    HtspSubscriptionEvent.Terminated(HtspSubscriptionTermination.REMOTE_EOF),
+                    events.last(),
+                )
+                assertEquals(
+                    73L,
+                    (events[2] as HtspSubscriptionEvent.Packet).packet.frameType,
+                )
+                service.close()
             }
         }
     }
@@ -569,7 +841,7 @@ internal class HtspServiceSubscriptionEventTest : HtspServiceLifecycleFixture() 
                 assertEquals(
                     listOf(
                         HtspSubscriptionEvent.Terminated(
-                            HtspSubscriptionTermination.TRANSPORT_CLOSED,
+                            HtspSubscriptionTermination.MALFORMED_MESSAGE,
                         ),
                     ),
                     withTimeout(1_000L) { subscription.await() },
@@ -863,7 +1135,7 @@ internal class HtspServiceSubscriptionEventTest : HtspServiceLifecycleFixture() 
     }
 
     @Test
-    fun replacementAndTransportLossAppendDistinctPayloadFreeTerminalEvents() {
+    fun replacementAndRemoteEofAppendDistinctPayloadFreeTerminalEvents() {
         FakeHtspServer(respondToHello = true).use { firstServer ->
             FakeHtspServer(respondToHello = true).use { replacementServer ->
                 val service = service()
@@ -903,7 +1175,7 @@ internal class HtspServiceSubscriptionEventTest : HtspServiceLifecycleFixture() 
                     withTimeout(1_000L) { closedCollector.join() }
                     assertEquals(
                         HtspSubscriptionEvent.Terminated(
-                            HtspSubscriptionTermination.TRANSPORT_CLOSED,
+                            HtspSubscriptionTermination.REMOTE_EOF,
                         ),
                         closedEvents.last(),
                     )

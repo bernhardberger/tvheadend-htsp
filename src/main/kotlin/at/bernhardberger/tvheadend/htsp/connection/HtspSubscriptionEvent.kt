@@ -74,6 +74,30 @@ public sealed interface HtspSubscriptionEvent {
 
 /** Payload-free reason why a subscription stream ended without a server stop. */
 public enum class HtspSubscriptionTermination {
+    /** A newer connection generation replaced the stream's generation. */
     GENERATION_LOST,
-    TRANSPORT_CLOSED,
+
+    /** The remote peer ended the transport between HTSP frames. */
+    REMOTE_EOF,
+
+    /** The transport failed while reading an HTSP frame. */
+    IO_FAILURE,
+
+    /** The remote byte stream violated HTSP framing. */
+    FRAMING_FAILURE,
+
+    /** A recognized server message had an incompatible envelope or payload. */
+    MALFORMED_MESSAGE,
+
+    /** A transport-level timeout retired the stream. */
+    TIMEOUT,
+
+    /** A local disconnect, close, or captured-generation retirement ended the stream. */
+    LOCAL_RETIREMENT,
+
+    /** The transport's typed-event publication boundary failed. */
+    PUBLICATION_FAILURE,
+
+    /** An otherwise unclassified internal reader failure ended the stream. */
+    INTERNAL_FAILURE,
 }

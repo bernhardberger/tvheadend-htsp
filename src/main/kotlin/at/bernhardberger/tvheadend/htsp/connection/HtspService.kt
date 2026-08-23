@@ -63,6 +63,8 @@ internal class HtspTransportInputStream(
         currentFrameTimeouts = 0
     }
 
+    fun frameBytesRead(): Int = currentFrameBytesRead
+
     override fun read(): Int = retryMidFrameTimeout {
         delegate.read().also { value ->
             if (value >= 0) currentFrameBytesRead++
@@ -106,6 +108,8 @@ internal class `HtspRequestTimeoutException-internal`(
 
 internal typealias HtspRequestTimeoutException = `HtspRequestTimeoutException-internal`
 
+private class HtspEventPublicationException : Exception("HTSP event publication failed")
+
 /** Connection lifecycle state exposed as finite typed snapshots. */
 public sealed class HtspConnectionState {
     /** No transport is currently connected or connecting. */
@@ -136,6 +140,7 @@ internal open class `HtspService-internal`(
     private val afterTeardownAdmission: suspend () -> Unit = {},
     private val beforeTypedRecapture: suspend (HtspRequest<*>) -> Unit = {},
     private val beforeTypedEventPublication: (HtspTransportEvent.ServerMessage) -> Unit = {},
+    private val beforeFrameRead: () -> Unit = {},
     private val metadataEventBufferCapacity: Int = METADATA_EVENT_BUFFER_CAPACITY,
     private val subscriptionEventBufferCapacity: Int = SUBSCRIPTION_EVENT_BUFFER_CAPACITY,
 ) : HtspRequestTransport, HtspConnection {
@@ -383,6 +388,7 @@ internal open class `HtspService-internal`(
                         t = cancelled,
                         attemptId = attemptId,
                         publishState = true,
+                        termination = HtspSubscriptionTermination.LOCAL_RETIREMENT,
                     )
                     throw cancelled
                 } catch (t: Throwable) {
@@ -393,6 +399,7 @@ internal open class `HtspService-internal`(
                             t = superseded,
                             attemptId = attemptId,
                             publishState = false,
+                            termination = HtspSubscriptionTermination.GENERATION_LOST,
                         )
                         throw superseded
                     }
@@ -401,6 +408,7 @@ internal open class `HtspService-internal`(
                         t = t,
                         attemptId = attemptId,
                         publishState = true,
+                        termination = HtspSubscriptionTermination.INTERNAL_FAILURE,
                     )
                     throw t
                 }
@@ -464,7 +472,7 @@ internal open class `HtspService-internal`(
                 true
             }
             if (completed != true) {
-                markTransportGone(metadataSocket)
+                markTransportGone(metadataSocket, HtspSubscriptionTermination.TIMEOUT)
                 throw SocketTimeoutException(
                     "HTSP initial metadata sync timed out after ${timeoutMs}ms"
                 )
@@ -722,7 +730,7 @@ internal open class `HtspService-internal`(
                 preserveLateReplyObserver(s)
 
                 if (disconnectOnTimeout) {
-                    markTransportGone(admission.socket)
+                    markTransportGone(admission.socket, HtspSubscriptionTermination.TIMEOUT)
                     throw SocketTimeoutException(
                         "HTSP request '$method' timed out after ${timeoutMs}ms"
                     )
@@ -762,6 +770,7 @@ internal open class `HtspService-internal`(
                 t = CancellationException("Disconnected"),
                 attemptId = attemptId,
                 publishState = true,
+                termination = HtspSubscriptionTermination.LOCAL_RETIREMENT,
             )
         }
     }
@@ -783,7 +792,7 @@ internal open class `HtspService-internal`(
     }
 
     internal fun beginClose(): Long? = lifecycle.close {
-        beginConnectionAttempt(HtspSubscriptionTermination.TRANSPORT_CLOSED)
+        beginConnectionAttempt(HtspSubscriptionTermination.LOCAL_RETIREMENT)
     }
 
     internal suspend fun finishClose(attemptId: Long) {
@@ -795,6 +804,7 @@ internal open class `HtspService-internal`(
                         t = CancellationException("HTSP service closed"),
                         attemptId = attemptId,
                         publishState = true,
+                        termination = HtspSubscriptionTermination.LOCAL_RETIREMENT,
                     )
                 }
             } finally {
@@ -815,6 +825,7 @@ internal open class `HtspService-internal`(
             while (currentCoroutineContext().isActive) {
                 try {
                     framedInput.beginFrame()
+                    beforeFrameRead()
                     val msg = HtspCodec.readMessage(framedInput)
                     val currentMessageSequence = ++messageSequence
                     var typedEvent: HtspTransportEvent.ServerMessage? = null
@@ -883,8 +894,11 @@ internal open class `HtspService-internal`(
                         val silent = now - lastReadAtMs
                         if (silent >= pendingMaxSilentMs) {
                             failAll(
-                                SocketTimeoutException("HTSP no incoming data for ${silent}ms with ${pending.size} pending requests"),
-                                attemptId,
+                                failure = SocketTimeoutException(
+                                    "HTSP no incoming data for ${silent}ms with ${pending.size} pending requests",
+                                ),
+                                attemptId = attemptId,
+                                termination = HtspSubscriptionTermination.TIMEOUT,
                             )
                             return
                         }
@@ -892,15 +906,14 @@ internal open class `HtspService-internal`(
                     continue
                 }
             }
-        } catch (t: NoSuchElementException) {
-            failAll(
-                EOFException("Broken/EOF HTSP stream").apply { initCause(t) },
-                attemptId,
-            )
         } catch (t: Throwable) {
             if (t is CancellationException) throw t
             if (!currentCoroutineContext().isActive) return
-            failAll(t, attemptId)
+            failAll(
+                failure = t,
+                attemptId = attemptId,
+                termination = readerTermination(t, framedInput.frameBytesRead()),
+            )
         }
     }
 
@@ -924,13 +937,14 @@ internal open class `HtspService-internal`(
         t: Throwable,
         attemptId: Long,
         publishState: Boolean,
+        termination: HtspSubscriptionTermination,
     ) {
         val callerJob = currentCoroutineContext()[Job]
         val retirement = synchronized(connectionAttemptLock) {
             if (connectionAttempt != attemptId) return
             terminateSubscriptionStreamsLocked(
                 protocolGeneration,
-                HtspSubscriptionTermination.TRANSPORT_CLOSED,
+                termination,
             )
             captureCurrentTransportLocked(t)
         }
@@ -950,22 +964,27 @@ internal open class `HtspService-internal`(
         }
     }
 
-    private suspend fun failAll(t: Throwable, attemptId: Long) {
+    private suspend fun failAll(
+        failure: Throwable,
+        attemptId: Long,
+        termination: HtspSubscriptionTermination,
+    ) {
         if (!isCurrentConnectionAttempt(attemptId)) return
         var typedEvent: HtspTransportEvent.ConnectionFailure? = null
         val published = connectMutex.withLock {
             if (!isCurrentConnectionAttempt(attemptId)) return@withLock false
             withCurrentConnectionAttempt(attemptId) {
-                _state.value = HtspConnectionState.Error(t)
+                _state.value = HtspConnectionState.Error(failure)
                 typedEvent = HtspTransportEvent.ConnectionFailure(
-                    failure = typedTransportFailure(t),
+                    failure = typedTransportFailure(failure),
                     generation = protocolGeneration?.token,
                 )
             } ?: return@withLock false
             disconnectInternal(
-                t = t,
+                t = failure,
                 attemptId = attemptId,
                 publishState = true,
+                termination = termination,
             )
             true
         }
@@ -977,7 +996,12 @@ internal open class `HtspService-internal`(
         attemptId: Long,
         event: HtspTransportEvent.ServerMessage,
     ) {
-        beforeTypedEventPublication(event)
+        try {
+            beforeTypedEventPublication(event)
+        } catch (_: Throwable) {
+            currentCoroutineContext().ensureActive()
+            throw HtspEventPublicationException()
+        }
         val routed = event.message.toRoutedSubscriptionEvent()
         if (routed == null) {
             publishMetadataEvent(attemptId, event)
@@ -1170,7 +1194,10 @@ internal open class `HtspService-internal`(
                 _state.value is HtspConnectionState.Connected
         }
 
-    override fun retire(generation: HtspCapturedGeneration) {
+    override fun retire(
+        generation: HtspCapturedGeneration,
+        termination: HtspSubscriptionTermination,
+    ) {
         val target = synchronized(connectionAttemptLock) {
             val serviceGeneration = generation.transportKey as? ServiceProtocolGeneration
                 ?: return@synchronized null
@@ -1185,7 +1212,7 @@ internal open class `HtspService-internal`(
             val target = socket
             terminateSubscriptionStreamsLocked(
                 serviceGeneration,
-                HtspSubscriptionTermination.TRANSPORT_CLOSED,
+                termination,
             )
             liveTransportAttempt = null
             liveServerFacts = null
@@ -1357,12 +1384,15 @@ internal open class `HtspService-internal`(
         liveConnectionIdentity = null
     }
 
-    private fun markTransportGone(target: Socket?) {
+    private fun markTransportGone(
+        target: Socket?,
+        termination: HtspSubscriptionTermination,
+    ) {
         synchronized(connectionAttemptLock) {
             if (socket === target) {
                 terminateSubscriptionStreamsLocked(
                     protocolGeneration,
-                    HtspSubscriptionTermination.TRANSPORT_CLOSED,
+                    termination,
                 )
                 liveTransportAttempt = null
                 liveServerFacts = null
@@ -1541,6 +1571,22 @@ internal open class `HtspService-internal`(
                 username == other.username &&
                 password == other.password
     }
+}
+
+private fun readerTermination(
+    failure: Throwable,
+    frameBytesRead: Int,
+): HtspSubscriptionTermination = when (failure) {
+    is HtspEventPublicationException -> HtspSubscriptionTermination.PUBLICATION_FAILURE
+    is HtspIncompatibleServerException -> HtspSubscriptionTermination.MALFORMED_MESSAGE
+    is HtspFramingException -> HtspSubscriptionTermination.FRAMING_FAILURE
+    is EOFException -> if (frameBytesRead == 0) {
+        HtspSubscriptionTermination.REMOTE_EOF
+    } else {
+        HtspSubscriptionTermination.FRAMING_FAILURE
+    }
+    is IOException -> HtspSubscriptionTermination.IO_FAILURE
+    else -> HtspSubscriptionTermination.INTERNAL_FAILURE
 }
 
 private data class RoutedSubscriptionEvent(

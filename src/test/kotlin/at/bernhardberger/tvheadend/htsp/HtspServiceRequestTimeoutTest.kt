@@ -7,9 +7,11 @@ import at.bernhardberger.tvheadend.htsp.requests.*
 import at.bernhardberger.tvheadend.htsp.wire.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.TimeoutCancellationException
@@ -170,6 +172,9 @@ internal class HtspServiceRequestTimeoutTest : HtspServiceLifecycleFixture() {
                     responseTimeoutMs = 100,
                     soTimeoutMs = 25,
                 )
+                val subscription = async(start = CoroutineStart.UNDISPATCHED) {
+                    service.subscriptionEvents(37L).toList()
+                }
 
                 val request = async(Dispatchers.IO) {
                     runCatching {
@@ -185,6 +190,14 @@ internal class HtspServiceRequestTimeoutTest : HtspServiceLifecycleFixture() {
                 val failure = withTimeout(1_000L) { request.await() }
                 assertTrue(failure is SocketTimeoutException)
                 assertTrue(failure !is HtspRequestTimeoutException)
+                assertEquals(
+                    listOf(
+                        HtspSubscriptionEvent.Terminated(
+                            HtspSubscriptionTermination.TIMEOUT,
+                        ),
+                    ),
+                    withTimeout(1_000L) { subscription.await() },
+                )
                 withTimeout(1_000L) {
                     service.connectionState.first { state -> state is HtspConnectionState.Disconnected }
                 }
@@ -276,6 +289,9 @@ internal class HtspServiceRequestTimeoutTest : HtspServiceLifecycleFixture() {
                     responseTimeoutMs = 1_000,
                     soTimeoutMs = 50,
                 )
+                val subscription = async(start = CoroutineStart.UNDISPATCHED) {
+                    service.subscriptionEvents(40L).toList()
+                }
 
                 val sync = async(Dispatchers.IO) {
                     try {
@@ -291,6 +307,14 @@ internal class HtspServiceRequestTimeoutTest : HtspServiceLifecycleFixture() {
                 val failure = sync.await()
                 assertTrue(failure is SocketTimeoutException)
                 assertTrue(failure !is TimeoutCancellationException)
+                assertEquals(
+                    listOf(
+                        HtspSubscriptionEvent.Terminated(
+                            HtspSubscriptionTermination.TIMEOUT,
+                        ),
+                    ),
+                    withTimeout(1_000L) { subscription.await() },
+                )
                 withTimeout(1_000L) {
                     service.connectionState.first { it is HtspConnectionState.Disconnected }
                 }

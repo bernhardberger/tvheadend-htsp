@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.6.0]
+
+Subscription streams now preserve a durable, payload-free terminal reason for
+generation replacement, remote EOF, transport I/O, framing, malformed server
+messages, timeout teardown, local retirement, publication-boundary failure, and
+otherwise unclassified reader failure. Every terminal remains ordered after
+already committed subscription events.
+
+**BREAKING (Kotlin source + JVM binary):**
+`HtspSubscriptionTermination.TRANSPORT_CLOSED` is replaced by the bounded
+attribution cases above. Consumers must handle the expanded enum and map each
+reason according to their own recovery policy.
+
 ## [0.5.0]
 
 Automatic-recording add metadata now accepts the nullable `comment`, `name`,

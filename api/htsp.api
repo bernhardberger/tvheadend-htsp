@@ -454,8 +454,15 @@ public final class at/bernhardberger/tvheadend/htsp/connection/HtspSubscriptionE
 }
 
 public final class at/bernhardberger/tvheadend/htsp/connection/HtspSubscriptionTermination : java/lang/Enum {
+	public static final field FRAMING_FAILURE Lat/bernhardberger/tvheadend/htsp/connection/HtspSubscriptionTermination;
 	public static final field GENERATION_LOST Lat/bernhardberger/tvheadend/htsp/connection/HtspSubscriptionTermination;
-	public static final field TRANSPORT_CLOSED Lat/bernhardberger/tvheadend/htsp/connection/HtspSubscriptionTermination;
+	public static final field INTERNAL_FAILURE Lat/bernhardberger/tvheadend/htsp/connection/HtspSubscriptionTermination;
+	public static final field IO_FAILURE Lat/bernhardberger/tvheadend/htsp/connection/HtspSubscriptionTermination;
+	public static final field LOCAL_RETIREMENT Lat/bernhardberger/tvheadend/htsp/connection/HtspSubscriptionTermination;
+	public static final field MALFORMED_MESSAGE Lat/bernhardberger/tvheadend/htsp/connection/HtspSubscriptionTermination;
+	public static final field PUBLICATION_FAILURE Lat/bernhardberger/tvheadend/htsp/connection/HtspSubscriptionTermination;
+	public static final field REMOTE_EOF Lat/bernhardberger/tvheadend/htsp/connection/HtspSubscriptionTermination;
+	public static final field TIMEOUT Lat/bernhardberger/tvheadend/htsp/connection/HtspSubscriptionTermination;
 	public static fun getEntries ()Lkotlin/enums/EnumEntries;
 	public static fun valueOf (Ljava/lang/String;)Lat/bernhardberger/tvheadend/htsp/connection/HtspSubscriptionTermination;
 	public static fun values ()[Lat/bernhardberger/tvheadend/htsp/connection/HtspSubscriptionTermination;

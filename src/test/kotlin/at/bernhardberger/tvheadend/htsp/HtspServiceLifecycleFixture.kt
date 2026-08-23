@@ -22,6 +22,7 @@ internal abstract class HtspServiceLifecycleFixture {
         afterTeardownAdmission: suspend () -> Unit = {},
         beforeTypedRecapture: suspend (HtspRequest<*>) -> Unit = {},
         beforeTypedEventPublication: (HtspTransportEvent.ServerMessage) -> Unit = {},
+        beforeFrameRead: () -> Unit = {},
         metadataEventBufferCapacity: Int = METADATA_EVENT_BUFFER_CAPACITY,
         subscriptionEventBufferCapacity: Int = SUBSCRIPTION_EVENT_BUFFER_CAPACITY,
     ) = HtspService(
@@ -31,6 +32,7 @@ internal abstract class HtspServiceLifecycleFixture {
         afterTeardownAdmission = afterTeardownAdmission,
         beforeTypedRecapture = beforeTypedRecapture,
         beforeTypedEventPublication = beforeTypedEventPublication,
+        beforeFrameRead = beforeFrameRead,
         metadataEventBufferCapacity = metadataEventBufferCapacity,
         subscriptionEventBufferCapacity = subscriptionEventBufferCapacity,
     )
@@ -156,6 +158,12 @@ internal abstract class HtspServiceLifecycleFixture {
                 method = method,
                 fields = fields,
             )
+            output.flush()
+        }
+
+        fun sendRaw(bytes: ByteArray) {
+            val output = checkNotNull(clientSocket).getOutputStream()
+            output.write(bytes)
             output.flush()
         }
 

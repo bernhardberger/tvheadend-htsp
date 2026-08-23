@@ -11,6 +11,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
@@ -521,6 +522,9 @@ internal class HtspServiceDirectHandshakeTest : HtspServiceLifecycleFixture() {
                     soTimeoutMs = 50,
                 )
                 val generation = requireNotNull(service.liveConnection.value).generation
+                val subscription = async(start = CoroutineStart.UNDISPATCHED) {
+                    service.subscriptionEvents(38L, generation).toList()
+                }
 
                 assertSame(HtspResult.Timeout, service.hello(44L, "timeout-client", 100L, generation))
                 assertTrue(server.awaitPostHandshakeRequestCount(1, 1_000L))
@@ -528,6 +532,14 @@ internal class HtspServiceDirectHandshakeTest : HtspServiceLifecycleFixture() {
                 assertNull(service.liveConnection.value)
                 assertNull(service.commitIfLive(generation) { it })
                 assertSame(HtspResult.TransportUnavailable, service.getProfiles())
+                assertEquals(
+                    listOf(
+                        HtspSubscriptionEvent.Terminated(
+                            HtspSubscriptionTermination.TIMEOUT,
+                        ),
+                    ),
+                    withTimeout(1_000L) { subscription.await() },
+                )
                 assertEquals(1, server.postHandshakeMethods().size)
                 withTimeout(1_000L) {
                     service.connectionState.first { state -> state is HtspConnectionState.Disconnected }
@@ -596,12 +608,23 @@ internal class HtspServiceDirectHandshakeTest : HtspServiceLifecycleFixture() {
                     soTimeoutMs = 50,
                 )
                 val generation = requireNotNull(service.liveConnection.value).generation
+                val subscription = async(start = CoroutineStart.UNDISPATCHED) {
+                    service.subscriptionEvents(39L, generation).toList()
+                }
 
                 assertSame(HtspResult.ServerError, service.hello(44L, "malformed-client", 1_000L, generation))
                 assertTrue(service.isCurrent(generation))
                 assertNull(service.liveConnection.value)
                 assertNull(service.commitIfLive(generation) { it })
                 assertSame(HtspResult.TransportUnavailable, service.getProfiles())
+                assertEquals(
+                    listOf(
+                        HtspSubscriptionEvent.Terminated(
+                            HtspSubscriptionTermination.LOCAL_RETIREMENT,
+                        ),
+                    ),
+                    withTimeout(1_000L) { subscription.await() },
+                )
                 withTimeout(1_000L) {
                     service.connectionState.first { state -> state is HtspConnectionState.Disconnected }
                 }

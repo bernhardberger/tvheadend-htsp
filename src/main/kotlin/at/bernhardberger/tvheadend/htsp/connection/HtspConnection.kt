@@ -153,15 +153,17 @@ internal class `HtspTypedRequestCaller-internal`(
             classifyHtspReply(reply, request, protocolVersion ?: 0).also { result ->
                 transport.recapture(generation, request, result)
                 if (request is HelloRequest && result !is HtspResult.Ok) {
-                    transport.retire(generation)
+                    transport.retire(generation, HtspSubscriptionTermination.LOCAL_RETIREMENT)
                 }
             }
         } catch (cancelled: CancellationException) {
-            if (isHandshake && dispatchStarted) transport.retire(generation)
+            if (isHandshake && dispatchStarted) {
+                transport.retire(generation, HtspSubscriptionTermination.LOCAL_RETIREMENT)
+            }
             throw cancelled
         } catch (_: HtspCallTimeoutException) {
             ensureCurrentGeneration(generation)
-            if (isHandshake) transport.retire(generation)
+            if (isHandshake) transport.retire(generation, HtspSubscriptionTermination.TIMEOUT)
             currentCoroutineContext().ensureActive()
             HtspResult.Timeout
         } catch (_: HtspProtocolMappingException) {
@@ -274,7 +276,10 @@ internal interface `HtspRequestTransport-internal` {
     fun isCurrent(generation: HtspCapturedGeneration): Boolean
 
     /** Makes only the exact captured generation immediately non-admissible. */
-    fun retire(generation: HtspCapturedGeneration) = Unit
+    fun retire(
+        generation: HtspCapturedGeneration,
+        termination: HtspSubscriptionTermination,
+    ) = Unit
 
     suspend fun <R> recapture(
         generation: HtspCapturedGeneration,

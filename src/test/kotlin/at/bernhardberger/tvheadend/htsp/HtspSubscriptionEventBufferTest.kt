@@ -93,11 +93,11 @@ internal class HtspSubscriptionEventBufferTest {
         val terminated = HtspSubscriptionEventBuffer(capacity = 2)
         val status = status("queued")
         assertAccepted(terminated.offer(status))
-        terminated.terminate(HtspSubscriptionTermination.TRANSPORT_CLOSED)
+        terminated.terminate(HtspSubscriptionTermination.LOCAL_RETIREMENT)
 
         assertEquals(status, terminated.poll())
         assertEquals(
-            HtspSubscriptionEvent.Terminated(HtspSubscriptionTermination.TRANSPORT_CLOSED),
+            HtspSubscriptionEvent.Terminated(HtspSubscriptionTermination.LOCAL_RETIREMENT),
             terminated.poll(),
         )
         assertTrue(terminated.isComplete())

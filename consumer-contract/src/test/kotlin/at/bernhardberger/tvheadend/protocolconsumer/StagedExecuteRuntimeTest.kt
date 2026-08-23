@@ -3,6 +3,8 @@ package at.bernhardberger.tvheadend.protocolconsumer
 import at.bernhardberger.tvheadend.htsp.connection.HtspConnection
 import at.bernhardberger.tvheadend.htsp.connection.HtspConnectionGeneration
 import at.bernhardberger.tvheadend.htsp.connection.HtspResult
+import at.bernhardberger.tvheadend.htsp.connection.HtspSubscriptionEvent
+import at.bernhardberger.tvheadend.htsp.connection.HtspSubscriptionTermination
 import at.bernhardberger.tvheadend.htsp.connection.createHtspConnection
 import at.bernhardberger.tvheadend.htsp.requests.GetSysTimeRequest
 import at.bernhardberger.tvheadend.htsp.requests.GetSysTimeResponse
@@ -15,6 +17,14 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 class StagedExecuteRuntimeTest {
+    @Test
+    fun terminalAttributionIsAvailableFromTheStagedArtifact() {
+        assertEquals(
+            HtspSubscriptionTermination.REMOTE_EOF,
+            HtspSubscriptionEvent.Terminated(HtspSubscriptionTermination.REMOTE_EOF).reason,
+        )
+    }
+
     @Test
     fun convenienceRequestUsesFakeExecuteMember(): Unit = runBlocking {
         val owner = createHtspConnection(Dispatchers.Unconfined)
