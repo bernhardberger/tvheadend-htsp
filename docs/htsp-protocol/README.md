@@ -154,7 +154,9 @@ DVR policy.
   `subscriptionId`, rejects a missing subscription, zero-initializes
   `streaming_skip_t`, sets only `SMT_SKIP_LIVE`, calls `subscription_set_skip`,
   then queues one empty reply. This does not guarantee delivery order or settled
-  state; asynchronous `subscriptionSkip` remains authoritative.
+  state; asynchronous `subscriptionSkip` remains authoritative. On the pinned
+  server, this path also selects an `INT64_MAX` return-live operation whose
+  timeshift reader can flush the remaining buffer without normal pacing.
 - `subscriptionSeek` and `subscriptionSkip` are distinct v44 dispatch names for
   `htsp_method_skip`, a streaming handler with minimum v9. It requires u32
   `subscriptionId`, defaults optional u32 `absolute` to 0, takes signed-s64
@@ -162,6 +164,13 @@ DVR policy.
   `absolute` selects absolute semantics. It calls `subscription_set_skip` before
   queuing an empty reply. The official docs call seek a synonym, describe
   time/size as optional u64, and omit the either/or rule.
+- `subscriptionSkipNearLive` is an additive client helper, not another wire
+  method. It requires observed start/end bounds, an explicit matching timestamp
+  clock, and a positive caller-selected margin. It validates `end - margin`
+  against the observed buffer and the pinned server's multiply-before-divide
+  conversion range, then sends one absolute time `subscriptionSkip`. It never
+  invokes or falls back to `subscriptionLive`, does not guarantee `TS_LIVE`, and
+  leaves the ordered asynchronous timeshift/skip events authoritative.
 - `subscriptionFilterStream` is v12 with streaming access. It requires u32
   `subscriptionId`, processes optional `enable:list[u32]` before
   `disable:list[u32]`, and accepts only `HMF_S64` members. It returns one empty

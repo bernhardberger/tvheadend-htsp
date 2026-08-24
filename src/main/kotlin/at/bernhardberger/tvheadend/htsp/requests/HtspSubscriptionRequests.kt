@@ -1,6 +1,7 @@
 package at.bernhardberger.tvheadend.htsp.requests
 
 import at.bernhardberger.tvheadend.htsp.connection.*
+import at.bernhardberger.tvheadend.htsp.messages.HtspTimeshiftStatusMessage
 import at.bernhardberger.tvheadend.htsp.wire.*
 
 /** Subscription reply observations: optional 90 kHz and normalized-timestamp flags, weight, and timeshift period. */
@@ -91,6 +92,12 @@ public sealed interface SubscriptionSeekPosition {
     public data class Time(public val time: Long) : SubscriptionSeekPosition
     /** Carries a signed byte [size] coordinate for seek or skip. */
     public data class Size(public val size: Long) : SubscriptionSeekPosition
+}
+
+/** Timestamp clock selected by the matching subscribe request for timeshift-status coordinates. */
+public enum class SubscriptionTimestampClock {
+    MICROSECONDS,
+    NINETY_KHZ,
 }
 
 /** Selects a subscription, one signed [position], and an optional unsigned [absolute] flag for seeking. */
@@ -316,6 +323,57 @@ public suspend fun HtspConnection.subscriptionSkip(
         expectedGeneration = expectedGeneration,
     )
 
+/**
+ * Requests one normal absolute skip to [marginSeconds] before the observed timeshift [status]
+ * end. This is a near-live operation, not a guarantee that TVHeadend entered exact live mode.
+ *
+ * [status] and [clock] must describe the same subscription and connection generation selected by
+ * the caller. A successful result acknowledges only the request reply; the matching ordered
+ * `Timeshift` and `Skipped` subscription events remain authoritative. This operation never falls
+ * back to `subscriptionLive`.
+ *
+ * Invalid or missing bounds, unsafe arithmetic, and coordinates that would overflow TVHeadend's
+ * selected-clock conversion are rejected before dispatch.
+ */
+public suspend fun HtspConnection.subscriptionSkipNearLive(
+    status: HtspTimeshiftStatusMessage,
+    clock: SubscriptionTimestampClock,
+    marginSeconds: Long,
+    timeoutMs: Long = 5_000L,
+    expectedGeneration: HtspConnectionGeneration? = null,
+): HtspResult<HtspEmptyResponse> {
+    val start = requireNotNull(status.start) { "status.start must be present" }
+    val end = requireNotNull(status.end) { "status.end must be present" }
+    require(marginSeconds > 0L) { "marginSeconds must be positive" }
+
+    val (unitsPerSecond, serverConversionMultiplier) = when (clock) {
+        SubscriptionTimestampClock.MICROSECONDS ->
+            MICROSECONDS_PER_SECOND to NINETY_KHZ_UNITS_PER_SECOND
+        SubscriptionTimestampClock.NINETY_KHZ ->
+            NINETY_KHZ_UNITS_PER_SECOND to MICROSECONDS_PER_SECOND
+    }
+    require(marginSeconds <= Long.MAX_VALUE / unitsPerSecond) {
+        "marginSeconds exceeds the selected timestamp clock"
+    }
+    val margin = marginSeconds * unitsPerSecond
+    require(end >= Long.MIN_VALUE + margin) { "near-live target underflows" }
+    val target = end - margin
+    require(target >= start) { "near-live target precedes status.start" }
+
+    val safeCoordinate = Long.MAX_VALUE / serverConversionMultiplier
+    require(target in -safeCoordinate..safeCoordinate) {
+        "near-live target exceeds TVHeadend's safe conversion range"
+    }
+
+    return subscriptionSkip(
+        subscriptionId = status.subscriptionId,
+        position = SubscriptionSeekPosition.Time(target),
+        absolute = 1L,
+        timeoutMs = timeoutMs,
+        expectedGeneration = expectedGeneration,
+    )
+}
+
 /** Requests the signed playback speed for one subscription and decodes the typed acknowledgement. */
 public suspend fun HtspConnection.subscriptionSpeed(
     subscriptionId: Long,
@@ -363,3 +421,6 @@ public suspend fun HtspConnection.subscriptionFilterStream(
         timeoutMs = timeoutMs,
         expectedGeneration = expectedGeneration,
     )
+
+private const val MICROSECONDS_PER_SECOND = 1_000_000L
+private const val NINETY_KHZ_UNITS_PER_SECOND = 90_000L

@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.7.0]
+
+Added an explicit near-live subscription helper that derives one bounded
+absolute `subscriptionSkip` from an observed timeshift end, caller-selected
+timestamp clock, and caller-selected margin. It validates the observed buffer
+span and TVHeadend's multiply-before-divide conversion range before dispatch.
+
+The exact `subscriptionLive` request remains available for protocol fidelity.
+The new helper never falls back to it and does not claim exact live mode or
+treat the synchronous request acknowledgement as settled positioning; ordered
+timeshift and skip events remain authoritative.
+
 ## [0.6.0]
 
 Completed or cancelled subscription streams now release their event buffers,

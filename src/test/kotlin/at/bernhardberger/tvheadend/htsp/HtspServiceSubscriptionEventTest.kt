@@ -880,6 +880,90 @@ internal class HtspServiceSubscriptionEventTest : HtspServiceLifecycleFixture() 
     }
 
     @Test
+    fun nearLiveSkipEventsCanPrecedeTheRequestAcknowledgement() {
+        FakeHtspServer(
+            respondToHello = true,
+            captureOnePostHandshakeRequest = true,
+        ).use { server ->
+            val service = service()
+            runBlocking {
+                val live = service.connect(HtspEndpoint("127.0.0.1", server.port))
+                    as HtspConnectOutcome.Connected
+                val events = CopyOnWriteArrayList<HtspSubscriptionEvent>()
+                val collector = launch(start = CoroutineStart.UNDISPATCHED) {
+                    service.subscriptionEvents(37L, live.connection.generation)
+                        .collect { event -> events += event }
+                }
+                val request = async(Dispatchers.IO) {
+                    service.subscriptionSkipNearLive(
+                        status = HtspTimeshiftStatusMessage(
+                            subscriptionId = 37L,
+                            full = 0L,
+                            shift = 5_000_000L,
+                            start = 10_000_000L,
+                            end = 20_000_000L,
+                        ),
+                        clock = SubscriptionTimestampClock.MICROSECONDS,
+                        marginSeconds = 3L,
+                        expectedGeneration = live.connection.generation,
+                    )
+                }
+                assertTrue(server.postHandshakeRequestReceived.await(1, TimeUnit.SECONDS))
+                assertEquals("subscriptionSkip", server.capturedPostHandshakeRequest().method)
+                assertEquals(
+                    mapOf(
+                        "subscriptionId" to 37L,
+                        "time" to 17_000_000L,
+                        "absolute" to 1L,
+                    ),
+                    server.capturedPostHandshakeRequest().fields.filterKeys { key ->
+                        key != "method" && key != "seq"
+                    },
+                )
+
+                server.sendServerMessage(
+                    "timeshiftStatus",
+                    mapOf(
+                        "subscriptionId" to 37L,
+                        "full" to 0L,
+                        "shift" to 3_000_000L,
+                        "start" to 10_000_000L,
+                        "end" to 20_000_000L,
+                    ),
+                )
+                server.sendServerMessage(
+                    "subscriptionSkip",
+                    mapOf(
+                        "subscriptionId" to 37L,
+                        "absolute" to 1L,
+                        "time" to 17_000_000L,
+                    ),
+                )
+                withTimeout(1_000L) {
+                    while (events.size < 2) delay(1L)
+                }
+                assertEquals(
+                    listOf(
+                        HtspSubscriptionEvent.Timeshift::class,
+                        HtspSubscriptionEvent.Skipped::class,
+                    ),
+                    events.map { event -> event::class },
+                )
+                assertFalse(request.isCompleted)
+
+                request.cancel()
+                assertTrue(
+                    runCatching { request.await() }.exceptionOrNull() is
+                        kotlinx.coroutines.CancellationException,
+                )
+                server.sendServerMessage("subscriptionStop", statusFields(37L, "stopped"))
+                withTimeout(1_000L) { collector.join() }
+                service.close()
+            }
+        }
+    }
+
+    @Test
     fun subscriptionEnvelopeCannotCompleteAPendingReply() {
         FakeHtspServer(
             respondToHello = true,

@@ -104,6 +104,19 @@ TVHeadend's wire frame type zero is normalized to the same unknown sentinel.
 `SubscribeResponse.ninetyKhz` and `normalizedTimestamps` are strict nullable
 boolean observations.
 
+`subscriptionSkipNearLive` derives one ordinary absolute time skip from an
+observed `HtspTimeshiftStatusMessage`, the matching
+`SubscriptionTimestampClock`, and an explicit positive margin in seconds. Both
+status bounds must be present, the target `end - margin` must remain within the
+observed buffer, and the target must be safe for TVHeadend's selected-clock
+integer conversion. Validation fails before dispatch. The caller owns status
+provenance, generation fencing, and per-subscription navigation serialization.
+A successful result acknowledges only the synchronous request reply; matching
+ordered `Timeshift` and `Skipped` events establish success or rejection and may
+precede that reply. Already-live subscriptions, buffers without an indexed
+frame, and full buffers can produce server-specific outcomes. The helper never
+falls back to `subscriptionLive` and does not promise exact live mode.
+
 ## Binary payload access
 
 `HtspBinary` owns its content and retains content equality and redacted

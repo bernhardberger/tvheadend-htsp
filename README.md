@@ -237,6 +237,15 @@ packet envelope closes the incompatible transport. The stream drains on `Stopped
 or a successful unsubscribe acknowledgement, and ends generation or transport
 loss with `Terminated`.
 
+To request a position near the live edge without invoking the exact
+`subscriptionLive` wire operation, retain an observed `Timeshift` event from the
+same subscription generation and call `subscriptionSkipNearLive` with the
+matching `SubscriptionTimestampClock` and an explicit positive margin. The
+helper sends one normal absolute skip to `status.end - margin`; it does not
+choose a default margin, fall back to `subscriptionLive`, guarantee exact live
+mode, or wait for the asynchronous result. Serialize navigation and use the
+ordered `Timeshift` and `Skipped` events to establish the outcome.
+
 Mux packet `decodingTimeUs`, `presentationTimeUs`, and `durationUs` values are
 always microseconds. The connection applies the native or 90 kHz clock selected
 by the matching subscribe request, including packets delivered before its
