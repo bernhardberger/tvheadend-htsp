@@ -17,6 +17,12 @@ plugins {
     alias(libs.plugins.dokka)
 }
 
+dokka {
+    dokkaPublications.html {
+        moduleName.set("TVHeadend HTSP for Kotlin/JVM")
+    }
+}
+
 group = "at.bernhardberger.tvheadend"
 version = "0.7.0"
 
@@ -124,8 +130,8 @@ publishing {
             from(components["java"])
             artifactId = "htsp"
             pom {
-                name.set("HTSP for Kotlin/JVM")
-                description.set("A standalone Kotlin/JVM client library for the TVHeadend HTSP protocol.")
+                name.set("TVHeadend HTSP for Kotlin/JVM")
+                description.set("An independently maintained Kotlin/JVM client library for the TVHeadend HTSP protocol.")
                 url.set("https://github.com/bernhardberger/tvheadend-htsp")
                 licenses {
                     license {

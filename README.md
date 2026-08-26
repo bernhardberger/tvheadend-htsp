@@ -1,9 +1,13 @@
-# HTSP for Kotlin/JVM
+# TVHeadend HTSP for Kotlin/JVM
 
-A Kotlin/JVM client library for the HTSP protocol spoken by
-[TVHeadend](https://github.com/tvheadend/tvheadend) servers. It gives you the
-protocol as typed Kotlin requests, responses, and server messages instead of
-raw method strings and maps, on top of a coroutines-based transport.
+[![CI](https://github.com/bernhardberger/tvheadend-htsp/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/bernhardberger/tvheadend-htsp/actions/workflows/ci.yml)
+[![Maven Central](https://img.shields.io/maven-central/v/at.bernhardberger.tvheadend/htsp)](https://central.sonatype.com/artifact/at.bernhardberger.tvheadend/htsp)
+[![License: GPLv3](https://img.shields.io/badge/license-GPLv3-blue.svg)](LICENSE)
+
+This Kotlin/JVM client library provides typed requests, responses, and server
+messages for the HTSP protocol used by
+[TVHeadend](https://github.com/tvheadend/tvheadend) servers. Callers use the
+coroutine-based typed API rather than raw method names and maps.
 
 The public API lives under `at.bernhardberger.tvheadend.htsp` in five packages:
 
@@ -16,8 +20,8 @@ The public API lives under `at.bernhardberger.tvheadend.htsp` in five packages:
 - `wire`: the binary framing and protocol value types underneath.
 - `jsonapi`: an opt-in bridge to TVHeadend's separate HTTP JSON API.
 
-The only runtime dependency is `kotlinx-coroutines-core`. The artifact contains
-no Android, Media3, or decoder code.
+The artifact uses Kotlin's standard library and `kotlinx-coroutines-core` at
+runtime. It contains no Android, Media3, or decoder code.
 
 ## Requirements
 
