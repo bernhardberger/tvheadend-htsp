@@ -964,6 +964,89 @@ internal class HtspServiceSubscriptionEventTest : HtspServiceLifecycleFixture() 
     }
 
     @Test
+    fun speedRepliesRemainCorrelatedAcrossBothAsyncOrderings() {
+        FakeHtspServer(
+            respondToHello = true,
+            postHandshakeReplyPlan = listOf(null, null),
+        ).use { server ->
+            val service = service()
+            runBlocking {
+                val live = service.connect(HtspEndpoint("127.0.0.1", server.port))
+                    as HtspConnectOutcome.Connected
+                val events = CopyOnWriteArrayList<HtspSubscriptionEvent>()
+                val collector = launch(start = CoroutineStart.UNDISPATCHED) {
+                    service.subscriptionEvents(37L, live.connection.generation)
+                        .collect { event -> events += event }
+                }
+
+                listOf(0, 100).forEachIndexed { index, speed ->
+                    val request = async(Dispatchers.IO) {
+                        service.subscriptionSpeed(
+                            subscriptionId = 37L,
+                            speed = speed,
+                            expectedGeneration = live.connection.generation,
+                        )
+                    }
+                    assertTrue(server.awaitPostHandshakeRequestCount(index + 1, 1_000L))
+                    val captured = server.postHandshakeRequest(index)
+                    assertEquals("subscriptionSpeed", captured.method)
+                    assertEquals(
+                        mapOf("subscriptionId" to 37L, "speed" to speed.toLong()),
+                        captured.fields.filterKeys { key -> key != "method" && key != "seq" },
+                    )
+
+                    val sendObservations = {
+                        server.sendServerMessage(
+                            "subscriptionSpeed",
+                            mapOf("subscriptionId" to 37L, "speed" to speed.toLong()),
+                        )
+                        server.sendServerMessage(
+                            "timeshiftStatus",
+                            mapOf("subscriptionId" to 37L, "full" to 0L, "shift" to -1L),
+                        )
+                    }
+                    if (index == 0) {
+                        sendObservations()
+                        withTimeout(1_000L) {
+                            while (events.size < 2) delay(1L)
+                        }
+                        assertFalse(request.isCompleted)
+                        server.replyToPostHandshakeRequestWithoutMethod(index)
+                    } else {
+                        server.replyToPostHandshakeRequestWithoutMethod(index)
+                        sendObservations()
+                    }
+
+                    assertTrue(withTimeout(1_000L) { request.await() } is HtspResult.Ok)
+                    withTimeout(1_000L) {
+                        while (events.size < (index + 1) * 2) delay(1L)
+                    }
+                }
+
+                assertEquals(
+                    listOf(
+                        HtspSubscriptionEvent.Speed::class,
+                        HtspSubscriptionEvent.Timeshift::class,
+                        HtspSubscriptionEvent.Speed::class,
+                        HtspSubscriptionEvent.Timeshift::class,
+                    ),
+                    events.map { event -> event::class },
+                )
+                assertEquals(
+                    listOf(0, 100),
+                    events.filterIsInstance<HtspSubscriptionEvent.Speed>()
+                        .map { event -> event.message.speed },
+                )
+                assertSame(live.connection.generation, service.liveConnection.value?.generation)
+
+                server.sendServerMessage("subscriptionStop", statusFields(37L, "stopped"))
+                withTimeout(1_000L) { collector.join() }
+                service.close()
+            }
+        }
+    }
+
+    @Test
     fun subscriptionEnvelopeCannotCompleteAPendingReply() {
         FakeHtspServer(
             respondToHello = true,

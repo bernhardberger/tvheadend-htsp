@@ -6,9 +6,11 @@ import at.bernhardberger.tvheadend.htsp.messages.*
 import at.bernhardberger.tvheadend.htsp.requests.*
 import at.bernhardberger.tvheadend.htsp.wire.*
 import kotlinx.coroutines.Dispatchers
+import java.io.ByteArrayOutputStream
 import java.io.Closeable
 import java.net.ServerSocket
 import java.net.Socket
+import java.nio.ByteBuffer
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.TimeUnit
@@ -194,6 +196,13 @@ internal abstract class HtspServiceLifecycleFixture {
             replyToPostHandshakeRequest(postHandshakeRequests[index], replyFields)
         }
 
+        fun replyToPostHandshakeRequestWithoutMethod(index: Int) {
+            val request = postHandshakeRequests[index]
+            val output = checkNotNull(clientSocket).getOutputStream()
+            output.write(sequenceOnlyReply(requireNotNull(request.seq)))
+            output.flush()
+        }
+
         private fun replyToPostHandshakeRequest(
             request: HtspWireMessage,
             replyFields: Map<String, Any?>,
@@ -205,6 +214,22 @@ internal abstract class HtspServiceLifecycleFixture {
                 fields = mapOf("seq" to requireNotNull(request.seq)) + replyFields,
             )
             output.flush()
+        }
+
+        private fun sequenceOnlyReply(sequence: Int): ByteArray {
+            require(sequence >= 0)
+            val encoded = ByteArrayOutputStream().also { output ->
+                HtspCodec.writeMessage(output, method = "", fields = mapOf("seq" to sequence))
+            }.toByteArray()
+            val methodNameSize = encoded[Int.SIZE_BYTES + 1].toInt() and 0xff
+            val methodValueSize = ByteBuffer.wrap(encoded, Int.SIZE_BYTES + 2, Int.SIZE_BYTES).int
+            val methodFieldSize = 1 + 1 + Int.SIZE_BYTES + methodNameSize + methodValueSize
+            val encodedPayloadSize = ByteBuffer.wrap(encoded, 0, Int.SIZE_BYTES).int
+            val replyPayloadSize = encodedPayloadSize - methodFieldSize
+            return ByteBuffer.allocate(Int.SIZE_BYTES + replyPayloadSize).apply {
+                putInt(replyPayloadSize)
+                put(encoded, Int.SIZE_BYTES + methodFieldSize, replyPayloadSize)
+            }.array()
         }
 
         fun capturedPostHandshakeRequest(): HtspWireMessage = checkNotNull(postHandshakeRequest)
@@ -219,5 +244,6 @@ internal abstract class HtspServiceLifecycleFixture {
             runCatching { serverSocket.close() }
             serverThread.join(1_000)
         }
+
     }
 }
