@@ -20,6 +20,28 @@ official TVHeadend software or as wholly original work.
 - API-design advice applies only to hand-written public APIs and cannot
   authorize ABI changes.
 
+## Delegation and review routing
+
+- Repository-local `htsp-*` subagents are read-only advisers. The package
+  primary keeps planning, write, gate, adjudication, and completion authority.
+  Give each child a bounded question, named evidence, and required output; do
+  not ask a child to remediate its own findings.
+- Use `htsp-locator` for exact repository evidence, `htsp-planner` for bounded
+  implementation plans, `htsp-analyze` for root-cause and design analysis, and
+  `htsp-research` for upstream protocol research. These roles do not replace
+  the package primary or create an external orchestrator.
+- Critical or complex non-release implementation packets require an
+  independent `htsp-review-sol` review after the candidate commit and gates are
+  frozen. Add an independent `htsp-review-opus` review only when the coordinator
+  quota selector routes it. Optional-provider failure is non-blocking; a clean
+  mandatory Sol review is not optional.
+- Release packets and lower-stakes packets are Sol-only. Package primaries must
+  never source review-selector credentials. Independently adjudicate every
+  completed review finding against the frozen evidence before completion.
+- Do not restore removed generation tooling, remediation permissions, legacy
+  commands, package arrays, or an external orchestration layer as part of
+  delegation work.
+
 ## Build and verify
 
 The Gradle wrapper is the build prerequisite; JDK toolchains resolve
