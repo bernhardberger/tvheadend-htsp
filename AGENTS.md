@@ -36,7 +36,8 @@ official TVHeadend software or as wholly original work.
 - Only genuinely critical or complex non-release review packets are eligible
   for Opus. After the candidate commit and gates are frozen, run the mandatory
   `htsp-review-sol`, then immediately run `./review-provider-route.sh select
-  eligible`; add `htsp-review-opus` only when the selector returns `opus`.
+  eligible`; add the fixed Opus/medium `htsp-review-opus` only when the selector
+  returns `opus`. Do not raise its effort to match the primary.
 - Routine, trivial, lower-stakes, documentation, test-only, configuration-only,
   and release packets are Sol-only and must not run the Opus selector. A
   primary's effort or model variant never makes a packet Opus-eligible.
@@ -44,8 +45,16 @@ official TVHeadend software or as wholly original work.
   actual security complexity, not by their effort label. Package primaries must
   never source review-selector credentials. Optional-provider failure is
   non-blocking, but a clean mandatory Sol review is not optional. Independently
-  adjudicate every completed finding against the frozen evidence; a material
-  correction requires new gates, a new frozen candidate, and a new review round.
+  adjudicate every completed finding against the frozen evidence.
+- Reviewer packets contain only variable scope, actual relevant diff or exact
+  readable changed paths, acceptance criteria, gate evidence and prior finding
+  IDs. They must not redefine a reviewer's role, permissions, generic policy or
+  verdict vocabulary, and must treat Git identity and gate status as
+  caller-provided evidence when the reviewer cannot run commands.
+- Run one broad frozen review round. After material corrections, run at most one
+  closure limited to prior finding IDs, the fix delta and directly affected
+  neighboring logic. Do not rerun a full Opus review unless the Opus-reviewed
+  behavior or scope materially changed.
 - Do not restore removed generation tooling, remediation permissions, legacy
   commands, package arrays, or an external orchestration layer as part of
   delegation work.

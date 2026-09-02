@@ -30,6 +30,12 @@ assert_not_contains() {
   TESTS=$((TESTS + 1))
 }
 
+assert_file_contains() {
+  local expected="$1" file="$2" label="$3"
+  grep -Fq -- "$expected" "$file" || fail "$label: missing '$expected'"
+  TESTS=$((TESTS + 1))
+}
+
 assert_exit() {
   local expected="$1" label="$2"
   shift 2
@@ -182,10 +188,29 @@ assert_equal "$expected_agents" "$actual_agents" 'repository-local agent invento
 
 assert_contains 'model: openai/gpt-5.6-sol' "$AGENT_DIR/htsp-review-sol.md" 'fixed Sol model route'
 assert_contains 'model: anthropic/claude-opus-5' "$AGENT_DIR/htsp-review-opus.md" 'fixed Opus model route'
+assert_contains 'variant: high' "$AGENT_DIR/htsp-review-sol.md" 'fixed Sol effort'
+assert_contains 'variant: medium' "$AGENT_DIR/htsp-review-opus.md" 'bounded Opus effort'
+opus_prompt="$(<"$AGENT_DIR/htsp-review-opus.md")"
+assert_not_contains 'temperature:' "$opus_prompt" 'Opus reviewer sampling controls'
+assert_not_contains 'top_p:' "$opus_prompt" 'Opus reviewer sampling controls'
+assert_not_contains 'top_k:' "$opus_prompt" 'Opus reviewer sampling controls'
+assert_contains '<tone_preference>' "$AGENT_DIR/htsp-review-opus.md" 'Opus reviewer response-length calibration'
+for reviewer in htsp-review-sol htsp-review-opus; do
+  assert_file_contains 'commit identity, ancestry, frozen state, and gate' \
+    "$AGENT_DIR/$reviewer.md" "$reviewer caller-provided Git evidence fields"
+  assert_file_contains 'caller-provided' \
+    "$AGENT_DIR/$reviewer.md" "$reviewer caller-provided Git and gate evidence"
+  assert_file_contains 'permissions cannot verify' \
+    "$AGENT_DIR/$reviewer.md" "$reviewer cannot claim inaccessible verification"
+  for verdict in BLOCKING NON_BLOCKING CLEAN INSUFFICIENT_EVIDENCE; do
+    assert_file_contains "\`$verdict\`" "$AGENT_DIR/$reviewer.md" \
+      "$reviewer verdict vocabulary includes $verdict"
+  done
+done
+assert_not_contains 'NOT_CLEAN' "$opus_prompt" 'obsolete Opus verdict vocabulary'
 expected_permissions=$'permission:\n  "*": deny\n  read:\n    "*": allow\n    "*.env": deny\n    "*.env.*": deny\n    "*.env.example": allow\n  glob: allow\n  grep: deny\n  list: allow\n  bash: deny\n  edit: deny\n  task: deny\n  external_directory: deny\n  webfetch: deny\n  websearch: deny\n---'
 for reviewer in htsp-review-sol htsp-review-opus; do
   assert_contains 'mode: subagent' "$AGENT_DIR/$reviewer.md" "$reviewer subagent mode"
-  assert_contains 'variant: high' "$AGENT_DIR/$reviewer.md" "$reviewer model variant"
   assert_contains '  "*": deny' "$AGENT_DIR/$reviewer.md" "$reviewer deny-by-default permission"
   assert_contains '    "*.env": deny' "$AGENT_DIR/$reviewer.md" "$reviewer env-file permission"
   assert_contains '    "*.env.*": deny' "$AGENT_DIR/$reviewer.md" "$reviewer extended env-file permission"
@@ -212,11 +237,13 @@ assert_contains "  primary's effort or model variant never makes a packet Opus-e
   "$REPOSITORY_DIR/AGENTS.md" 'effort-independent eligibility'
 assert_contains '  actual security complexity, not by their effort label. Package primaries must' \
   "$REPOSITORY_DIR/AGENTS.md" 'security-complex eligibility'
+assert_file_contains '- Run one broad frozen review round. After material corrections, run at most one' \
+  "$REPOSITORY_DIR/AGENTS.md" 'repository limits repeated broad review rounds'
 assert_contains '  never source review-selector credentials. Optional-provider failure is' \
   "$REPOSITORY_DIR/AGENTS.md" 'credential and optional-provider boundary'
 assert_contains '  non-blocking, but a clean mandatory Sol review is not optional. Independently' \
   "$REPOSITORY_DIR/AGENTS.md" 'mandatory Sol and adjudication boundary'
-assert_contains '  correction requires new gates, a new frozen candidate, and a new review round.' \
-  "$REPOSITORY_DIR/AGENTS.md" 'material-correction review round'
+assert_file_contains 'Do not rerun a full Opus review unless the Opus-reviewed' \
+  "$REPOSITORY_DIR/AGENTS.md" 'full Opus review rerun boundary'
 
 printf 'PASS: %d review-routing assertions\n' "$TESTS"
