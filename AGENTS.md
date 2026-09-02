@@ -30,14 +30,22 @@ official TVHeadend software or as wholly original work.
   implementation plans, `htsp-analyze` for root-cause and design analysis, and
   `htsp-research` for upstream protocol research. These roles do not replace
   the package primary or create an external orchestrator.
-- Critical or complex non-release implementation packets require an
-  independent `htsp-review-sol` review after the candidate commit and gates are
-  frozen. Add an independent `htsp-review-opus` review only when the coordinator
-  quota selector routes it. Optional-provider failure is non-blocking; a clean
-  mandatory Sol review is not optional.
-- Release packets and lower-stakes packets are Sol-only. Package primaries must
-  never source review-selector credentials. Independently adjudicate every
-  completed review finding against the frozen evidence before completion.
+- Package primaries invoke the fixed repository `htsp-review-sol` and
+  `htsp-review-opus` Task subagents directly. Never ask the coordinator to
+  select or launch them, and never launch them as external top-level sessions.
+- Only genuinely critical or complex non-release review packets are eligible
+  for Opus. After the candidate commit and gates are frozen, run the mandatory
+  `htsp-review-sol`, then immediately run `./review-provider-route.sh select
+  eligible`; add `htsp-review-opus` only when the selector returns `opus`.
+- Routine, trivial, lower-stakes, documentation, test-only, configuration-only,
+  and release packets are Sol-only and must not run the Opus selector. A
+  primary's effort or model variant never makes a packet Opus-eligible.
+- Classify executable credential-boundary or reviewer-routing changes by their
+  actual security complexity, not by their effort label. Package primaries must
+  never source review-selector credentials. Optional-provider failure is
+  non-blocking, but a clean mandatory Sol review is not optional. Independently
+  adjudicate every completed finding against the frozen evidence; a material
+  correction requires new gates, a new frozen candidate, and a new review round.
 - Do not restore removed generation tooling, remediation permissions, legacy
   commands, package arrays, or an external orchestration layer as part of
   delegation work.
@@ -48,6 +56,7 @@ The Gradle wrapper is the build prerequisite; JDK toolchains resolve
 automatically. CI (`.github/workflows/ci.yml`) is the authoritative gate.
 
 - Local verification: `./gradlew clean build check stageLocalPublication`.
+- Review-routing verification: `./test-review-routing.sh`.
 
 ## Invariants
 
