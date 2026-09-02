@@ -303,8 +303,8 @@ def pom_errors(path: Path) -> list[str]:
         return errors
     expected_text = {
         "modelVersion": "4.0.0", "groupId": GROUP, "artifactId": ARTIFACT,
-        "version": VERSION, "name": "HTSP for Kotlin/JVM",
-        "description": "A standalone Kotlin/JVM client library for the TVHeadend HTSP protocol.",
+        "version": VERSION, "name": "TVHeadend HTSP for Kotlin/JVM",
+        "description": "An independently maintained Kotlin/JVM client library for the TVHeadend HTSP protocol.",
         "url": PROJECT_URL,
     }
     for name, expected in expected_text.items():
@@ -517,7 +517,7 @@ def verify(repository: Path = REPOSITORY) -> tuple[list[str], dict[str, str]]:
 def pom_text() -> str:
     dependencies = "".join(f"<dependency><groupId>{group}</groupId><artifactId>{module}</artifactId><version>{version}</version><scope>compile</scope></dependency>" for group, module, version in sorted(POM_DEPENDENCIES))
     properties = "".join(f"<{name}>{value}</{name}>" for name, value in PROPERTIES.items())
-    return f"""<project><modelVersion>4.0.0</modelVersion><groupId>{GROUP}</groupId><artifactId>{ARTIFACT}</artifactId><version>{VERSION}</version><name>HTSP for Kotlin/JVM</name><description>A standalone Kotlin/JVM client library for the TVHeadend HTSP protocol.</description><url>{PROJECT_URL}</url><licenses><license><name>{GPL_NAME}</name><url>{GPL_URL}</url><distribution>repo</distribution></license></licenses><developers><developer><id>{DEVELOPER['id']}</id><name>{DEVELOPER['name']}</name><url>{DEVELOPER['url']}</url></developer></developers><scm><connection>{SCM}</connection><developerConnection>{SCM_DEVELOPER}</developerConnection><url>{PROJECT_URL}</url></scm><issueManagement><system>GitHub Issues</system><url>{ISSUES_URL}</url></issueManagement><properties>{properties}</properties><dependencies>{dependencies}</dependencies></project>"""
+    return f"""<project><modelVersion>4.0.0</modelVersion><groupId>{GROUP}</groupId><artifactId>{ARTIFACT}</artifactId><version>{VERSION}</version><name>TVHeadend HTSP for Kotlin/JVM</name><description>An independently maintained Kotlin/JVM client library for the TVHeadend HTSP protocol.</description><url>{PROJECT_URL}</url><licenses><license><name>{GPL_NAME}</name><url>{GPL_URL}</url><distribution>repo</distribution></license></licenses><developers><developer><id>{DEVELOPER['id']}</id><name>{DEVELOPER['name']}</name><url>{DEVELOPER['url']}</url></developer></developers><scm><connection>{SCM}</connection><developerConnection>{SCM_DEVELOPER}</developerConnection><url>{PROJECT_URL}</url></scm><issueManagement><system>GitHub Issues</system><url>{ISSUES_URL}</url></issueManagement><properties>{properties}</properties><dependencies>{dependencies}</dependencies></project>"""
 
 
 def module_model() -> dict[str, Any]:
