@@ -30,17 +30,28 @@ official TVHeadend software or as wholly original work.
   implementation plans, `htsp-analyze` for root-cause and design analysis, and
   `htsp-research` for upstream protocol research. These roles do not replace
   the package primary or create an external orchestrator.
-- Package primaries invoke the fixed repository `htsp-review-sol` and
-  `htsp-review-opus` Task subagents directly. Never ask the coordinator to
-  select or launch them, and never launch them as external top-level sessions.
+- Package primaries invoke the fixed repository `htsp-review-sol`,
+  `htsp-review-muse`, and `htsp-review-opus` Task subagents directly. Never ask
+  the coordinator to select or launch them, and never launch them as external
+  top-level sessions.
+- During the Muse field test, run one fixed Sol/high `htsp-review-sol` and one
+  fixed Muse Spark 1.3 Contributor Free/xhigh `htsp-review-muse` in parallel on
+  every frozen package with substantively identical packets. Sol remains the
+  mandatory gate; Muse provider failure is non-blocking and does not replace a
+  Sol verdict. Adjudicate every concrete finding from either completed reviewer
+  and record the Muse session, verdict, and disposition in package evidence.
+  Run at most one Muse review alongside each admitted Sol broad or closure round;
+  never start an independent Muse retry or review loop. Apply the same
+  credential-redaction rules used for every external reviewer packet.
 - Only genuinely critical or complex non-release review packets are eligible
   for Opus. After the candidate commit and gates are frozen, run the mandatory
   `htsp-review-sol`, then immediately run `./review-provider-route.sh select
   eligible`; add the fixed Opus/medium `htsp-review-opus` only when the selector
   returns `opus`. Do not raise its effort to match the primary.
 - Routine, trivial, lower-stakes, documentation, test-only, configuration-only,
-  and release packets are Sol-only and must not run the Opus selector. A
-  primary's effort or model variant never makes a packet Opus-eligible.
+  and release packets use Sol plus experimental Muse only and must not run the
+  Opus selector. A primary's effort or model variant never makes a packet
+  Opus-eligible.
 - Classify executable credential-boundary or reviewer-routing changes by their
   actual security complexity, not by their effort label. Package primaries must
   never source review-selector credentials. Optional-provider failure is

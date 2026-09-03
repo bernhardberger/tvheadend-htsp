@@ -182,20 +182,22 @@ TESTS=$((TESTS + 1))
 trap - EXIT
 rm -f "$credential_probe"
 
-expected_agents=$'htsp-analyze.md\nhtsp-locator.md\nhtsp-planner.md\nhtsp-research.md\nhtsp-review-opus.md\nhtsp-review-sol.md'
+expected_agents=$'htsp-analyze.md\nhtsp-locator.md\nhtsp-planner.md\nhtsp-research.md\nhtsp-review-muse.md\nhtsp-review-opus.md\nhtsp-review-sol.md'
 actual_agents="$(printf '%s\n' "$AGENT_DIR"/htsp-*.md | while read -r path; do basename "$path"; done | sort)"
 assert_equal "$expected_agents" "$actual_agents" 'repository-local agent inventory'
 
 assert_contains 'model: openai/gpt-5.6-sol' "$AGENT_DIR/htsp-review-sol.md" 'fixed Sol model route'
+assert_contains 'model: opencode/muse-spark-1.3-contributor-free' "$AGENT_DIR/htsp-review-muse.md" 'fixed Muse model route'
 assert_contains 'model: anthropic/claude-opus-5' "$AGENT_DIR/htsp-review-opus.md" 'fixed Opus model route'
 assert_contains 'variant: high' "$AGENT_DIR/htsp-review-sol.md" 'fixed Sol effort'
+assert_contains 'variant: xhigh' "$AGENT_DIR/htsp-review-muse.md" 'fixed Muse effort'
 assert_contains 'variant: medium' "$AGENT_DIR/htsp-review-opus.md" 'bounded Opus effort'
 opus_prompt="$(<"$AGENT_DIR/htsp-review-opus.md")"
 assert_not_contains 'temperature:' "$opus_prompt" 'Opus reviewer sampling controls'
 assert_not_contains 'top_p:' "$opus_prompt" 'Opus reviewer sampling controls'
 assert_not_contains 'top_k:' "$opus_prompt" 'Opus reviewer sampling controls'
 assert_contains '<tone_preference>' "$AGENT_DIR/htsp-review-opus.md" 'Opus reviewer response-length calibration'
-for reviewer in htsp-review-sol htsp-review-opus; do
+for reviewer in htsp-review-sol htsp-review-muse htsp-review-opus; do
   assert_file_contains 'commit identity, ancestry, frozen state, and gate' \
     "$AGENT_DIR/$reviewer.md" "$reviewer caller-provided Git evidence fields"
   assert_file_contains 'caller-provided' \
@@ -209,7 +211,7 @@ for reviewer in htsp-review-sol htsp-review-opus; do
 done
 assert_not_contains 'NOT_CLEAN' "$opus_prompt" 'obsolete Opus verdict vocabulary'
 expected_permissions=$'permission:\n  "*": deny\n  read:\n    "*": allow\n    "*.env": deny\n    "*.env.*": deny\n    "*.env.example": allow\n  glob: allow\n  grep: deny\n  list: allow\n  bash: deny\n  edit: deny\n  task: deny\n  external_directory: deny\n  webfetch: deny\n  websearch: deny\n---'
-for reviewer in htsp-review-sol htsp-review-opus; do
+for reviewer in htsp-review-sol htsp-review-muse htsp-review-opus; do
   assert_contains 'mode: subagent' "$AGENT_DIR/$reviewer.md" "$reviewer subagent mode"
   assert_contains '  "*": deny' "$AGENT_DIR/$reviewer.md" "$reviewer deny-by-default permission"
   assert_contains '    "*.env": deny' "$AGENT_DIR/$reviewer.md" "$reviewer env-file permission"
@@ -225,15 +227,15 @@ for reviewer in htsp-review-sol htsp-review-opus; do
     "$reviewer exact permission boundary"
 done
 
-assert_contains '- Package primaries invoke the fixed repository `htsp-review-sol` and' \
+assert_contains '- Package primaries invoke the fixed repository `htsp-review-sol`,' \
   "$REPOSITORY_DIR/AGENTS.md" 'direct fixed reviewer invocation'
-assert_contains '  select or launch them, and never launch them as external top-level sessions.' \
+assert_contains '  the coordinator to select or launch them, and never launch them as external' \
   "$REPOSITORY_DIR/AGENTS.md" 'no coordinator or top-level reviewer launch'
 assert_contains '- Routine, trivial, lower-stakes, documentation, test-only, configuration-only,' \
-  "$REPOSITORY_DIR/AGENTS.md" 'Sol-only packet classes'
-assert_contains '  and release packets are Sol-only and must not run the Opus selector. A' \
-  "$REPOSITORY_DIR/AGENTS.md" 'Sol-only packet classes'
-assert_contains "  primary's effort or model variant never makes a packet Opus-eligible." \
+  "$REPOSITORY_DIR/AGENTS.md" 'lower-stakes packet classes'
+assert_contains '  and release packets use Sol plus experimental Muse only and must not run the' \
+  "$REPOSITORY_DIR/AGENTS.md" 'lower-stakes Muse field-test route'
+assert_contains "  Opus selector. A primary's effort or model variant never makes a packet" \
   "$REPOSITORY_DIR/AGENTS.md" 'effort-independent eligibility'
 assert_contains '  actual security complexity, not by their effort label. Package primaries must' \
   "$REPOSITORY_DIR/AGENTS.md" 'security-complex eligibility'
