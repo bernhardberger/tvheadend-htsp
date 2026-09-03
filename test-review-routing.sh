@@ -227,15 +227,17 @@ for reviewer in htsp-review-sol htsp-review-muse htsp-review-opus; do
     "$reviewer exact permission boundary"
 done
 
-assert_contains '- Package primaries invoke the fixed repository `htsp-review-sol`,' \
+assert_contains '- Package primaries invoke the fixed repository `htsp-review-sol` and' \
   "$REPOSITORY_DIR/AGENTS.md" 'direct fixed reviewer invocation'
-assert_contains '  the coordinator to select or launch them, and never launch them as external' \
+assert_contains '  or launch them, and never launch them as external top-level sessions. The Muse' \
   "$REPOSITORY_DIR/AGENTS.md" 'no coordinator or top-level reviewer launch'
 assert_contains '- Routine, trivial, lower-stakes, documentation, test-only, configuration-only,' \
   "$REPOSITORY_DIR/AGENTS.md" 'lower-stakes packet classes'
-assert_contains '  and release packets use Sol plus experimental Muse only and must not run the' \
-  "$REPOSITORY_DIR/AGENTS.md" 'lower-stakes Muse field-test route'
-assert_contains "  Opus selector. A primary's effort or model variant never makes a packet" \
+assert_contains '  and release packets use Sol only and must not run the Opus selector. A' \
+  "$REPOSITORY_DIR/AGENTS.md" 'lower-stakes Sol-only route'
+assert_contains '  reviewer field test is complete; do not invoke `htsp-review-muse`.' \
+  "$REPOSITORY_DIR/AGENTS.md" 'retired Muse field-test route'
+assert_contains "  primary's effort or model variant never makes a packet Opus-eligible." \
   "$REPOSITORY_DIR/AGENTS.md" 'effort-independent eligibility'
 assert_contains '  actual security complexity, not by their effort label. Package primaries must' \
   "$REPOSITORY_DIR/AGENTS.md" 'security-complex eligibility'
