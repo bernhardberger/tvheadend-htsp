@@ -187,7 +187,7 @@ actual_agents="$(printf '%s\n' "$AGENT_DIR"/htsp-*.md | while read -r path; do b
 assert_equal "$expected_agents" "$actual_agents" 'repository-local agent inventory'
 
 assert_contains 'model: openai/gpt-5.6-sol' "$AGENT_DIR/htsp-review-sol.md" 'fixed Sol model route'
-assert_contains 'model: opencode/muse-spark-1.3-contributor-free' "$AGENT_DIR/htsp-review-muse.md" 'fixed Muse model route'
+assert_contains 'model: openrouter/meta/muse-spark-1.3-contributor' "$AGENT_DIR/htsp-review-muse.md" 'fixed Muse model route'
 assert_contains 'model: anthropic/claude-opus-5' "$AGENT_DIR/htsp-review-opus.md" 'fixed Opus model route'
 assert_contains 'variant: high' "$AGENT_DIR/htsp-review-sol.md" 'fixed Sol effort'
 assert_contains 'variant: xhigh' "$AGENT_DIR/htsp-review-muse.md" 'fixed Muse effort'

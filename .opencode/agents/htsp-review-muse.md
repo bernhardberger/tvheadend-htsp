@@ -1,7 +1,7 @@
 ---
 description: Experimental Muse Spark review beside mandatory Sol for a frozen HTSP candidate
 mode: subagent
-model: opencode/muse-spark-1.3-contributor-free
+model: openrouter/meta/muse-spark-1.3-contributor
 variant: xhigh
 steps: 24
 permission:

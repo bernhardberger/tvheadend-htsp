@@ -35,7 +35,7 @@ official TVHeadend software or as wholly original work.
   the coordinator to select or launch them, and never launch them as external
   top-level sessions.
 - During the Muse field test, run one fixed Sol/high `htsp-review-sol` and one
-  fixed Muse Spark 1.3 Contributor Free/xhigh `htsp-review-muse` in parallel on
+  fixed OpenRouter Muse Spark 1.3 Contributor/xhigh `htsp-review-muse` in parallel on
   every frozen package with substantively identical packets. Sol remains the
   mandatory gate; Muse provider failure is non-blocking and does not replace a
   Sol verdict. Adjudicate every concrete finding from either completed reviewer
