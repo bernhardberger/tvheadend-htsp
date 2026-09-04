@@ -22,59 +22,32 @@ official TVHeadend software or as wholly original work.
 
 ## Delegation and review routing
 
-- New package primaries default to Astra Medium; use Low for exact mechanical
-  work and High only for justified difficult work. Existing manifests retain
-  authority. Resolve routine choices within scope, reuse existing patterns, and
-  finish after relevant checks and required gates pass unless a concrete concern
-  needs investigation. Delegate bounded independent questions when worthwhile;
-  preserve child permissions and depth. The primary integrates results.
-- The selector's legacy `sol` output names the mandatory OpenAI lane, now
-  `htsp-review-astra`; its wire format stays stable for existing consumers.
-
-- Repository-local `htsp-*` subagents are read-only advisers. The package
-  primary keeps planning, write, gate, adjudication, and completion authority.
-  Give each child a bounded question, named evidence, and required output; do
-  not ask a child to remediate its own findings.
-- Use `htsp-locator` for exact repository evidence, `htsp-planner` for bounded
-  implementation plans, `htsp-analyze` for root-cause and design analysis, and
-  `htsp-research` for upstream protocol research. These roles do not replace
-  the package primary or create an external orchestrator.
-- Package primaries invoke the fixed repository `htsp-review-astra` and
-  `htsp-review-opus` Task subagents directly. Never ask the coordinator to select
-  or launch them, and never launch them as external top-level sessions. The Muse
-  reviewer field test is complete; do not invoke `htsp-review-muse`.
-- Only genuinely critical or complex non-release review packets are eligible
-  for Opus. After the candidate commit and gates are frozen, run the mandatory
-  `htsp-review-astra`, then immediately run `./review-provider-route.sh select
-  eligible`; add the fixed Opus/medium `htsp-review-opus` only when the selector
-  returns `opus`. Do not raise its effort to match the primary.
-- Routine, trivial, lower-stakes, documentation, test-only, configuration-only,
-  and release packets use Astra only and must not run the Opus selector. A
-  primary's effort or model variant never makes a packet Opus-eligible.
-- Classify executable credential-boundary or reviewer-routing changes by their
-  actual security complexity, not by their effort label. Package primaries must
-  never source review-selector credentials. Optional-provider failure is
-  non-blocking, but a clean mandatory Astra review is not optional. Independently
-  adjudicate every completed finding against the frozen evidence.
-- Reviewer packets contain only variable scope, actual relevant diff or exact
-  readable changed paths, acceptance criteria, gate evidence and prior finding
-  IDs. They must not redefine a reviewer's role, permissions, generic policy or
-  verdict vocabulary, and must treat Git identity and gate status as
-  caller-provided evidence when the reviewer cannot run commands.
-- Run one broad frozen review round. After material corrections, run at most one
-  closure limited to prior finding IDs, the fix delta and directly affected
-  neighboring logic. Do not rerun a full Opus review unless the Opus-reviewed
-  behavior or scope materially changed.
-- Do not restore removed generation tooling, remediation permissions, legacy
-  commands, package arrays, or an external orchestration layer as part of
-  delegation work.
+- One primary owns the task end-to-end. Routine work and ordinary releases need
+  no planner, reviewer, package chain or coordinator. Split only for a real
+  dependency, ownership or authorization boundary, not for workflow stages.
+- Use read-only advisers for concrete questions that benefit from independence.
+  Require one independent review for security-sensitive changes or substantial
+  protocol, concurrency or public-contract changes; otherwise review is optional.
+  Select one suitable configured reviewer, not a mandatory pair or provider.
+- Supply the relevant diff, evidence, question and stop condition. Children keep
+  their configured permissions. The primary adjudicates and fixes findings;
+  re-review only a specific fix whose correctness remains uncertain.
+- Model and effort choices live in configuration, not product policy. The old
+  quota selector is optional; never source it or its credential file. Do not
+  revive retired field-test roles or add another orchestration layer.
+  Legacy selector `sol`/`sol_required` output is a route contract, not a review mandate.
+- Existing admitted manifests retain their explicit authority and gates; do not
+  silently weaken an in-flight package.
 
 ## Build and verify
 
 The Gradle wrapper is the build prerequisite; JDK toolchains resolve
 automatically. CI (`.github/workflows/ci.yml`) is the authoritative gate.
 
-- Local verification: `./gradlew clean build check stageLocalPublication`.
+- Run affected tests while developing and `./gradlew build check` for the final
+  code gate. Stage publication only for publication/build changes or release.
+  Do not clean by default or repeat successful unchanged gates for review.
+  Test concrete behavior, not model names, prompt prose or hypothetical scope.
 - Review-routing verification: `./test-review-routing.sh`.
 
 ## Invariants
@@ -95,6 +68,11 @@ automatically. CI (`.github/workflows/ci.yml`) is the authoritative gate.
   validation; update it only through the documented ABI dump workflow.
 
 ## Release trust boundary
+
+- One authorized task may prepare, verify, tag, publish and confirm availability.
+  No separate release-preparation, review, convergence or verification packages
+  are required. Use `docs/releasing.md`; retain its artifact checks and the
+  exact publication authorization below.
 
 - The tagged release workflow (GitHub Actions on repository `main`, exact tag
   `v*`) is the only publication path. Preparing or checking release files never

@@ -1,5 +1,10 @@
 # Releasing
 
+One authorized owner completes preparation, the tag workflow and verification
+in one task. An ordinary release through this existing path needs no planner,
+model approval or separate convergence package. This does not authorize a tag
+or publication: retain exact maintainer authorization and the checks below.
+
 Releases remain provisional during the major-zero line and may contain
 intentional source, binary, or behavioral changes. Release notes must state
 those changes without promising compatibility or support. Major zero
