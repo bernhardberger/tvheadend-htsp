@@ -22,6 +22,15 @@ official TVHeadend software or as wholly original work.
 
 ## Delegation and review routing
 
+- New package primaries default to Astra Medium; use Low for exact mechanical
+  work and High only for justified difficult work. Existing manifests retain
+  authority. Resolve routine choices within scope, reuse existing patterns, and
+  finish after relevant checks and required gates pass unless a concrete concern
+  needs investigation. Delegate bounded independent questions when worthwhile;
+  preserve child permissions and depth. The primary integrates results.
+- The selector's legacy `sol` output names the mandatory OpenAI lane, now
+  `htsp-review-astra`; its wire format stays stable for existing consumers.
+
 - Repository-local `htsp-*` subagents are read-only advisers. The package
   primary keeps planning, write, gate, adjudication, and completion authority.
   Give each child a bounded question, named evidence, and required output; do
@@ -30,22 +39,22 @@ official TVHeadend software or as wholly original work.
   implementation plans, `htsp-analyze` for root-cause and design analysis, and
   `htsp-research` for upstream protocol research. These roles do not replace
   the package primary or create an external orchestrator.
-- Package primaries invoke the fixed repository `htsp-review-sol` and
+- Package primaries invoke the fixed repository `htsp-review-astra` and
   `htsp-review-opus` Task subagents directly. Never ask the coordinator to select
   or launch them, and never launch them as external top-level sessions. The Muse
   reviewer field test is complete; do not invoke `htsp-review-muse`.
 - Only genuinely critical or complex non-release review packets are eligible
   for Opus. After the candidate commit and gates are frozen, run the mandatory
-  `htsp-review-sol`, then immediately run `./review-provider-route.sh select
+  `htsp-review-astra`, then immediately run `./review-provider-route.sh select
   eligible`; add the fixed Opus/medium `htsp-review-opus` only when the selector
   returns `opus`. Do not raise its effort to match the primary.
 - Routine, trivial, lower-stakes, documentation, test-only, configuration-only,
-  and release packets use Sol only and must not run the Opus selector. A
+  and release packets use Astra only and must not run the Opus selector. A
   primary's effort or model variant never makes a packet Opus-eligible.
 - Classify executable credential-boundary or reviewer-routing changes by their
   actual security complexity, not by their effort label. Package primaries must
   never source review-selector credentials. Optional-provider failure is
-  non-blocking, but a clean mandatory Sol review is not optional. Independently
+  non-blocking, but a clean mandatory Astra review is not optional. Independently
   adjudicate every completed finding against the frozen evidence.
 - Reviewer packets contain only variable scope, actual relevant diff or exact
   readable changed paths, acceptance criteria, gate evidence and prior finding

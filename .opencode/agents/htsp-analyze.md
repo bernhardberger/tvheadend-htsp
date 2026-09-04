@@ -1,8 +1,8 @@
 ---
 description: Analyze HTSP behavior, failures, and protocol-library design
 mode: subagent
-model: openai/gpt-5.6-sol
-variant: high
+model: openai/gpt-6-astra
+variant: medium
 steps: 20
 permission:
   "*": deny
