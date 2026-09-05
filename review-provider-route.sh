@@ -130,7 +130,7 @@ select_eligible_route() {
   local credential_file="${1:-}" payload reason rc
   if ! payload="$(fetch_claude_quota "$credential_file")"; then
     log_skip "trustworthy Claude quota telemetry is unavailable"
-    printf 'sol\n'
+    printf 'astra\n'
     return 0
   fi
 
@@ -142,7 +142,7 @@ select_eligible_route() {
     printf 'opus\n'
   else
     log_skip "${reason:-trustworthy Claude quota telemetry is unavailable}"
-    printf 'sol\n'
+    printf 'astra\n'
   fi
 }
 
@@ -155,7 +155,7 @@ main() {
           select_eligible_route
           ;;
         default|release|lower-stakes)
-          printf 'sol\n'
+          printf 'astra\n'
           ;;
         *)
           printf 'usage: %s select [eligible|release|lower-stakes]\n' "$0" >&2
@@ -164,10 +164,10 @@ main() {
       esac
       ;;
     fallback)
-      printf 'sol\n'
+      printf 'astra\n'
       ;;
     status)
-      route="sol"
+      route="astra"
       if [[ "$selection" == "eligible" ]]; then
         route="$(select_eligible_route)"
       elif [[ "$selection" != "default" && "$selection" != "release" && "$selection" != "lower-stakes" ]]; then
@@ -175,8 +175,8 @@ main() {
         return 2
       fi
       printf 'route=%s\n' "$route"
-      printf 'fallback_route=sol\n'
-      printf 'sol_required=true\n'
+      printf 'fallback_route=astra\n'
+      printf 'astra_required=true\n'
       printf 'opus_optional=%s\n' "$([[ "$selection" == "eligible" ]] && printf true || printf false)"
       ;;
     *)

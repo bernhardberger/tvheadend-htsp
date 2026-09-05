@@ -102,22 +102,22 @@ below_range='{"ok":true,"configured":true,"usage":{"windows":{"5h":{"remainingPe
 invalid_value='{"ok":true,"configured":true,"usage":{"windows":{"5h":{"remainingPercent":"100"},"7d":{"remainingPercent":100}}}}'
 
 assert_equal opus "$(route_for "$healthy" 2>/dev/null)" 'healthy eligible quota'
-assert_equal sol "$(route_for "$at_five_hour_guard" 2>/dev/null)" '5h exact guard'
-assert_equal sol "$(route_for "$at_weekly_guard" 2>/dev/null)" '7d exact guard'
-assert_equal sol "$(route_for "$unavailable" 2>/dev/null)" 'provider unavailable'
-assert_equal sol "$(route_for "$unconfigured" 2>/dev/null)" 'unconfigured provider falls back to Sol'
-assert_equal sol "$(route_for "$missing_weekly" 2>/dev/null)" 'missing weekly window'
-assert_equal sol "$(route_for "$above_range" 2>/dev/null)" 'quota above valid range'
-assert_equal sol "$(route_for "$below_range" 2>/dev/null)" 'quota below valid range'
-assert_equal sol "$(route_for "$invalid_value" 2>/dev/null)" 'non-numeric quota value'
-assert_equal sol "$(route_for 'not-json' 2>/dev/null)" 'malformed telemetry'
-assert_equal sol "$(unavailable_route 2>/dev/null)" 'production fetch failure falls back to Sol'
-assert_equal sol "$("$SELECTOR" select release)" 'release bypasses quota'
-assert_equal sol "$("$SELECTOR" select lower-stakes)" 'lower-stakes bypasses quota'
-assert_equal sol "$("$SELECTOR" fallback)" 'fallback remains Sol'
-assert_equal $'route=sol\nfallback_route=sol\nsol_required=true\nopus_optional=false' \
+assert_equal astra "$(route_for "$at_five_hour_guard" 2>/dev/null)" '5h exact guard'
+assert_equal astra "$(route_for "$at_weekly_guard" 2>/dev/null)" '7d exact guard'
+assert_equal astra "$(route_for "$unavailable" 2>/dev/null)" 'provider unavailable'
+assert_equal astra "$(route_for "$unconfigured" 2>/dev/null)" 'unconfigured provider falls back to Astra'
+assert_equal astra "$(route_for "$missing_weekly" 2>/dev/null)" 'missing weekly window'
+assert_equal astra "$(route_for "$above_range" 2>/dev/null)" 'quota above valid range'
+assert_equal astra "$(route_for "$below_range" 2>/dev/null)" 'quota below valid range'
+assert_equal astra "$(route_for "$invalid_value" 2>/dev/null)" 'non-numeric quota value'
+assert_equal astra "$(route_for 'not-json' 2>/dev/null)" 'malformed telemetry'
+assert_equal astra "$(unavailable_route 2>/dev/null)" 'production fetch failure falls back to Astra'
+assert_equal astra "$("$SELECTOR" select release)" 'release bypasses quota'
+assert_equal astra "$("$SELECTOR" select lower-stakes)" 'lower-stakes bypasses quota'
+assert_equal astra "$("$SELECTOR" fallback)" 'fallback remains Astra'
+assert_equal $'route=astra\nfallback_route=astra\nastra_required=true\nopus_optional=false' \
   "$("$SELECTOR" status release)" 'release status remains Sol-only'
-assert_equal $'route=opus\nfallback_route=sol\nsol_required=true\nopus_optional=true' \
+assert_equal $'route=opus\nfallback_route=astra\nastra_required=true\nopus_optional=true' \
   "$(status_for "$healthy")" 'eligible status reports optional Opus route'
 assert_exit 2 'unknown selection is rejected' "$SELECTOR" select unknown
 assert_exit 2 'unknown status is rejected' "$SELECTOR" status unknown
@@ -163,7 +163,7 @@ untrusted_route="$(
   source "$SELECTOR"
   select_eligible_route "$credential_probe" 2>/dev/null
 )"
-assert_equal sol "$untrusted_route" 'untrusted credential file routes to Sol'
+assert_equal astra "$untrusted_route" 'untrusted credential file routes to Astra'
 
 cookie_probe="$(mktemp /tmp/tvheadend-htsp-cookie-test.XXXXXX)"
 (

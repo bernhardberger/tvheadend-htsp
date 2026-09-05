@@ -35,8 +35,8 @@ official TVHeadend software or as wholly original work.
 - Before every Opus review or follow-up dispatch, execute
   `./review-provider-route.sh select eligible`; only successful `opus` output
   permits dispatch. Never source the selector or its credential file. Unknown or
-  unavailable quota uses an independent Astra fallback; legacy `sol` is that
-  fallback, not Opus coverage. Record the reason and absent Opus coverage.
+  unavailable quota returns `astra` for an independent Astra fallback.
+  Record the reason and absent Opus coverage.
 - If Opus hits quota exhaustion despite preflight, abort that exact reviewer
   through supported session control and verify it stopped. Do not wait for quota
   reset, retry in a loop or spawn repeated Opus replacements. Continue fallback
