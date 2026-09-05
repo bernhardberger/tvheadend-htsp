@@ -25,17 +25,27 @@ official TVHeadend software or as wholly original work.
 - One primary owns the task end-to-end. Routine work and ordinary releases need
   no planner, reviewer, package chain or coordinator. Split only for a real
   dependency, ownership or authorization boundary, not for workflow stages.
-- Use read-only advisers for concrete questions that benefit from independence.
-  Require one independent review for security-sensitive changes or substantial
-  protocol, concurrency or public-contract changes; otherwise review is optional.
-  Select one suitable configured reviewer, not a mandatory pair or provider.
+- For non-trivial non-UX changes, use independent Astra primary and Opus second
+  reviewers on the same bounded change and evidence. Keep the second initial
+  packet free of the first reviewer's verdict and findings. Routine low-impact
+  work needs no pair. UX-specific roles are not engineering-review substitutes.
 - Supply the relevant diff, evidence, question and stop condition. Children keep
   their configured permissions. The primary adjudicates and fixes findings;
   re-review only a specific fix whose correctness remains uncertain.
-- Model and effort choices live in configuration, not product policy. The old
-  quota selector is optional; never source it or its credential file. Do not
-  revive retired field-test roles or add another orchestration layer.
-  Legacy selector `sol`/`sol_required` output is a route contract, not a review mandate.
+- Before every Opus review or follow-up dispatch, execute
+  `./review-provider-route.sh select eligible`; only successful `opus` output
+  permits dispatch. Never source the selector or its credential file. Unknown or
+  unavailable quota uses an independent Astra fallback; legacy `sol` is that
+  fallback, not Opus coverage. Record the reason and absent Opus coverage.
+- If Opus hits quota exhaustion despite preflight, abort that exact reviewer
+  through supported session control and verify it stopped. Do not wait for quota
+  reset, retry in a loop or spawn repeated Opus replacements. Continue fallback
+  and independent authorized work. Explicitly non-substitutable admitted gates
+  require central reconciliation, not silent waiver.
+- No review packages, automatic third reviewer or repeated broad audits. Model
+  and effort assignments otherwise remain in configuration; retired roles stay
+  retired. The implementing primary adjudicates both reviews and fixes supported
+  findings; follow up only unresolved findings or material changes.
 - Existing admitted manifests retain their explicit authority and gates; do not
   silently weaken an in-flight package.
 
