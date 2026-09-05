@@ -73,11 +73,6 @@ internal object `HtspCodec-internal` {
         output.write(body)
     }
 
-    fun isMuxPkt(msg: HtspWireMessage): Boolean = msg.method == "muxpkt"
-
-    fun tsPayload(msg: HtspWireMessage): ByteArray? =
-        msg.rawPayload ?: (msg.fields["payload"] as? ByteArray)
-
     // ----------------------------
     // DECODING
     // ----------------------------

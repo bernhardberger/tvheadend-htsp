@@ -6,7 +6,6 @@ import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import org.junit.jupiter.api.Assertions.assertArrayEquals
 import org.junit.jupiter.api.Assertions.assertEquals
-import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
@@ -86,23 +85,20 @@ class HtspGoldenCorpusTest {
     }
 
     @Test
-    fun muxpkt_pinsRawPayloadFastPathAndHelpers() {
+    fun muxpkt_pinsRawPayloadFastPath() {
         val frame = loadHtspGoldenFrame("muxpkt.hex")
         val decoded = HtspCodec.readMessage(ByteArrayInputStream(frame))
 
         assertEquals(0x2C, frame.size - 4)
         assertEquals("muxpkt", decoded.method)
         assertEquals(7, decoded.seq)
-        assertTrue(HtspCodec.isMuxPkt(decoded))
         assertArrayEquals(byteArrayOf(0x47, 1, 2), decoded.rawPayload)
         assertTrue(decoded.rawPayload === decoded.fields["payload"])
-        assertTrue(decoded.rawPayload === HtspCodec.tsPayload(decoded))
         assertArrayEquals(frame, encode(decoded.method!!, decoded.fields - "method"))
 
         val ordinary = HtspCodec.readMessage(ByteArrayInputStream(loadHtspGoldenFrame("hello.hex")))
-        assertFalse(HtspCodec.isMuxPkt(ordinary))
+        assertEquals("hello", ordinary.method)
         assertEquals(null, ordinary.rawPayload)
-        assertEquals(null, HtspCodec.tsPayload(ordinary))
     }
 
     private fun encode(method: String, fields: Map<String, Any?>): ByteArray =

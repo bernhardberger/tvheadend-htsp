@@ -7,7 +7,6 @@ import java.io.ByteArrayOutputStream
 import org.junit.jupiter.api.Assertions.assertArrayEquals
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertThrows
-import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 class HtspCodecTest {
@@ -52,8 +51,7 @@ class HtspCodecTest {
         assertEquals(1.5, decoded.fields["ratio"])
         assertEquals(9L, decoded.map("nested")?.get("value"))
         assertEquals(listOf("first", 2L), decoded.list("items"))
-        assertArrayEquals(payload, HtspCodec.tsPayload(decoded))
-        assertTrue(HtspCodec.isMuxPkt(decoded))
+        assertArrayEquals(payload, decoded.rawPayload)
     }
 
     @Test
