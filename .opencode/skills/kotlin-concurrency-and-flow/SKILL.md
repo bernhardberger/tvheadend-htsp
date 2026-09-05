@@ -21,7 +21,8 @@ the product contract.
    event only when its loss and replay behavior are explicitly acceptable.
 4. Choose Flow sharing and buffering semantics from the producer and consumer
    lifetimes rather than from a default.
-5. Read the focused reference for the material concern below.
+5. Read the focused reference below for an unresolved ownership or delivery
+   question, not as a mandatory prelude to every coroutine edit.
 6. Finish when cancellation, restart, replay, and failure behavior are all
    observable from the public API and no caller must guess who owns the work.
 
@@ -31,7 +32,6 @@ the product contract.
 |---|---|
 | Stored `CoroutineScope`, `init { launch }`, fire-and-forget API, `runBlocking`, broad catch, or cancellation boundary | [Structured concurrency](references/structured-concurrency.md) |
 | `StateFlow`, `SharedFlow`, `Channel`, `stateIn`, `SharingStarted`, `.value`, state updates, sentinel values, or one-shot events | [Flow state and events](references/flow-state-events.md) |
-| Compose collection or UI effect handling | [Compose state and effects](../compose-state-and-effects/SKILL.md) |
 
 ## RED/GREEN agent scenarios
 
