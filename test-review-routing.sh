@@ -116,7 +116,7 @@ assert_equal astra "$("$SELECTOR" select release)" 'release bypasses quota'
 assert_equal astra "$("$SELECTOR" select lower-stakes)" 'lower-stakes bypasses quota'
 assert_equal astra "$("$SELECTOR" fallback)" 'fallback remains Astra'
 assert_equal $'route=astra\nfallback_route=astra\nastra_required=true\nopus_optional=false' \
-  "$("$SELECTOR" status release)" 'release status remains Sol-only'
+  "$("$SELECTOR" status release)" 'release status remains Astra-only'
 assert_equal $'route=opus\nfallback_route=astra\nastra_required=true\nopus_optional=true' \
   "$(status_for "$healthy")" 'eligible status reports optional Opus route'
 assert_exit 2 'unknown selection is rejected' "$SELECTOR" select unknown
