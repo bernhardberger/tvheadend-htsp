@@ -32,6 +32,11 @@ official TVHeadend software or as wholly original work.
 - Supply the relevant diff, evidence, question and stop condition. Children keep
   their configured permissions. The primary adjudicates and fixes findings;
   re-review only a specific fix whose correctness remains uncertain.
+- `htsp-implementer` is the one writable child. It may edit and run Gradle
+  inside a single delegated slice with named paths, tests and gate, but never
+  commits, tags, publishes or reaches a server. The primary reviews its diff,
+  runs the final gate and owns commits. Never run it while another writer is
+  editing the same worktree.
 - Before every Opus review or follow-up dispatch, execute
   `./review-provider-route.sh select eligible`; only successful `opus` output
   permits dispatch. Never source the selector or its credential file. Unknown or
