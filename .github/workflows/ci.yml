@@ -8,6 +8,11 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  # Only superseded runs of the same PR share a group; every main run is unique.
+  group: ci-${{ github.event_name }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   verify:
     runs-on: ubuntu-24.04
@@ -23,6 +28,17 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
+      - name: Set up Gradle dependency cache
+        uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
+        with:
+          cache-read-only: ${{ github.event_name != 'push' || github.ref != 'refs/heads/main' || github.repository != 'bernhardberger/tvheadend-htsp' }}
+          # Enhanced caching supports exclusions; never restore test task outputs.
+          cache-provider: enhanced
+          gradle-home-cache-excludes: |
+            caches/build-cache-*
+            caches/keyrings
+          # The dedicated wrapper validation step above remains mandatory.
+          validate-wrappers: false
       - name: Verify publication checker self-tests
         run: ./tools/check-published-jvm-compatibility --self-test
       - name: Build and stage publication
