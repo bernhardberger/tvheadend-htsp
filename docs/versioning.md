@@ -1,13 +1,14 @@
 # Versioning and compatibility
 
-The current immutable release coordinate is `at.bernhardberger.tvheadend:htsp:0.7.0`.
-`0.7.0` is a provisional major-zero release that adds the bounded near-live
-subscription API and its behavioral contract to `0.6.0`. Published release
-bytes are immutable and must never be replaced.
+The current immutable release coordinate is `at.bernhardberger.tvheadend:htsp:0.8.0`.
+`0.8.0` is a provisional major-zero release that makes subscription stops
+restartable and hardens reply correlation and JSON API diagnostic rendering.
+The subscription completion behavior changes; Kotlin source and JVM signatures
+are unchanged. Published release bytes are immutable and must never be replaced.
 
-The `0.7.0` coordinate is available from
-[Maven Central](https://central.sonatype.com/artifact/at.bernhardberger.tvheadend/htsp/0.7.0),
-with its [repository files](https://repo1.maven.org/maven2/at/bernhardberger/tvheadend/htsp/0.7.0/)
+The `0.8.0` coordinate is available from
+[Maven Central](https://central.sonatype.com/artifact/at.bernhardberger.tvheadend/htsp/0.8.0),
+with its [repository files](https://repo1.maven.org/maven2/at/bernhardberger/tvheadend/htsp/0.8.0/)
 available directly. Publication and availability remain independently verified
 external state for every release.
 
@@ -18,6 +19,6 @@ No source, binary, or behavioral compatibility is promised for the provisional
 0.x line. A known breaking change requires the next minor version, not a patch
 version. Patch versions are reserved for backward-compatible fixes.
 
-Read the `0.7.0` release notes before using it as a baseline. Local checks and
+Read the `0.8.0` release notes before using it as a baseline. Local checks and
 candidate CI do not establish publication, availability, distribution, Java 17
 runtime support, or release readiness.

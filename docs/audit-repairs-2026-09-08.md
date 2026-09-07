@@ -64,3 +64,21 @@ environment and a loopback-only network namespace, using `--offline --no-daemon`
 The final source gate is `./gradlew build check --no-daemon` under that isolation;
 release staging, consumer checks, independent review and remote verification are
 additional delivery evidence, not implied by this scope record.
+
+## Published Evidence
+
+The [0.8.0 release workflow](https://github.com/bernhardberger/tvheadend-htsp/actions/runs/34168816245)
+passed on `1b0a65cd9d0e7ffd43155085a49bb4ec7f857a0f`, the peeled `v0.8.0` tag.
+On 2026-09-07 UTC, a separate read-only verification downloaded the two
+[GitHub prerelease assets](https://github.com/bernhardberger/tvheadend-htsp/releases/tag/v0.8.0)
+and all 20 [Maven Central members](https://repo1.maven.org/maven2/at/bernhardberger/tvheadend/htsp/0.8.0/).
+The five originals matched their manifest SHA-256 values; their five signatures
+validated against tracked primary fingerprint
+`EAB02E488E7B944EAA6D65814BF0412FD2A3B741`. All Central bytes reconstructed the
+exact GitHub bundle. All 36 published Kotlin source files byte-matched the tag.
+
+- Bundle SHA-256: `f0c242127f8665c2ee1b5c0c883feb07ac1a326530ced96fc026d3a28f99e467`.
+- Manifest SHA-256: `1f967bfb4d87da2f95e300a48e99249da13e221481fe81f36b9c4215cb37e56b`.
+
+This establishes availability of `at.bernhardberger.tvheadend:htsp:0.8.0`, not
+SDK or application adoption. The consumer limitations above still apply.
