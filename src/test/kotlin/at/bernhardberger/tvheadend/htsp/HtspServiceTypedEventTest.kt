@@ -12,6 +12,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
@@ -218,6 +219,79 @@ internal class HtspServiceTypedEventTest : HtspServiceLifecycleFixture() {
 
                 collector.cancelAndJoin()
                 service.disconnect()
+            }
+        }
+    }
+
+    @Test
+    fun numericReplyAliasesCannotCompletePendingOrLateUnsubscribe() {
+        listOf(false, true).forEach { late ->
+            listOf<(Int) -> Any>(
+                { sequence -> sequence.toLong() + 0x1_0000_0000L },
+                { sequence -> sequence.toDouble() + 0.9 },
+            ).forEach { alias ->
+                FakeHtspServer(
+                    respondToHello = true,
+                    postHandshakeReplyPlan = listOf(null),
+                ).use { server ->
+                    val service = service()
+                    runBlocking {
+                        service.connect(HtspEndpoint("127.0.0.1", server.port))
+                        val failure = async(start = CoroutineStart.UNDISPATCHED) {
+                            service.events.first { it is HtspTransportEvent.ConnectionFailure }
+                                as HtspTransportEvent.ConnectionFailure
+                        }
+                        val events = async(start = CoroutineStart.UNDISPATCHED) {
+                            service.subscriptionEvents(42L).toList()
+                        }
+                        val pending = async(Dispatchers.IO) {
+                            runCatching { service.unsubscribe(42L, timeoutMs = if (late) 100L else 5_000L) }
+                        }
+                        assertTrue(server.awaitPostHandshakeRequestCount(1, 1_000L))
+                        val sequence = requireNotNull(server.postHandshakeRequest(0).seq)
+                        if (late) assertSame(HtspResult.Timeout, withTimeout(1_000L) { pending.await() }.getOrThrow())
+                        server.replyToPostHandshakeRequest(0, mapOf("seq" to alias(sequence)))
+
+                        assertEquals(
+                            HtspTransportFailureKind.INCOMPATIBLE_SERVER,
+                            withTimeout(1_000L) { failure.await() }.failure.kind,
+                        )
+                        if (!late) assertTrue(withTimeout(1_000L) { pending.await() }.isFailure)
+                        assertEquals(
+                            listOf(HtspSubscriptionEvent.Terminated(HtspSubscriptionTermination.MALFORMED_MESSAGE)),
+                            withTimeout(1_000L) { events.await() },
+                        )
+                        service.close()
+                    }
+                }
+            }
+        }
+    }
+
+    @Test
+    fun requestSequenceRolloverUsesCanonicalUnsignedWireValues() {
+        FakeHtspServer(
+            respondToHello = true,
+            postHandshakeReplyPlan = List(4) { null },
+        ).use { server ->
+            val service = service()
+            runBlocking {
+                service.connect(HtspEndpoint("127.0.0.1", server.port))
+                val sequence = service.javaClass.getDeclaredField("seq").apply { isAccessible = true }
+                    .get(service) as AtomicInteger
+                listOf(Int.MAX_VALUE, Int.MIN_VALUE, -1, 0).forEachIndexed { index, value ->
+                    sequence.set(value)
+                    val pending = async(Dispatchers.IO) {
+                        service.request("sequenceProbe", timeoutMs = 1_000L, disconnectOnTimeout = false)
+                    }
+                    assertTrue(server.awaitPostHandshakeRequestCount(index + 1, 1_000L))
+                    val wireSequence = value.toLong() and 0xFFFF_FFFFL
+                    assertEquals(wireSequence, server.postHandshakeRequest(index).fields["seq"])
+                    server.replyToPostHandshakeRequest(index, mapOf("seq" to wireSequence))
+                    assertEquals(value, withTimeout(1_000L) { pending.await() }.seq)
+                    assertEquals(value + 1, sequence.get())
+                }
+                service.close()
             }
         }
     }

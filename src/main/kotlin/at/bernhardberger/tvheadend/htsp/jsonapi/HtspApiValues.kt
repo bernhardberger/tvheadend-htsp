@@ -38,7 +38,7 @@ public class HtspApiObject private constructor(entries: Array<out Pair<String, H
 
     override fun hashCode(): Int = values.hashCode()
 
-    override fun toString(): String = "HtspApiObject(values=$values)"
+    override fun toString(): String = "HtspApiObject(size=$size)"
 }
 
 /** Ordered immutable recursive list. */
@@ -66,13 +66,15 @@ public class HtspApiList private constructor(values: Array<out HtspApiValue>) : 
 
     override fun hashCode(): Int = values.contentHashCode()
 
-    override fun toString(): String = "HtspApiList(values=${values.contentToString()})"
+    override fun toString(): String = "HtspApiList(size=$size)"
 }
 
 /** Exact UTF-8 string value. */
 @HtspJsonApi
 @JvmInline
-public value class HtspApiString(public val value: String) : HtspApiValue
+public value class HtspApiString(public val value: String) : HtspApiValue {
+    override fun toString(): String = "HtspApiString(<redacted>)"
+}
 
 /** Exact signed 64-bit integer value. */
 @HtspJsonApi

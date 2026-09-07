@@ -153,7 +153,7 @@ public data class HtspSubscriptionStartMessage private constructor(
     }
 }
 
-/** Reports a subscription-stop message with the server's optional terminal status and subscription error. */
+/** Reports a stream stop with optional status and error; the same subscription may start again. */
 public data class HtspSubscriptionStopMessage(
     public val subscriptionId: Long,
     public val status: String?,

@@ -10,6 +10,7 @@ import java.io.ByteArrayOutputStream
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Assertions.assertArrayEquals
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotSame
 import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertThrows
@@ -18,6 +19,34 @@ import org.junit.jupiter.api.Test
 
 @OptIn(HtspJsonApi::class)
 class HtspApiBridgeTest {
+    @Test
+    fun diagnosticsHideStringsKeysAndPathsWithoutChangingPayloads() {
+        val secret = "synthetic-ticket-secret"
+        val key = "synthetic-private-object-key"
+        val path = "/synthetic-private-path?ticket=$secret"
+        val string = HtspApiString(secret)
+        val nested = htspApiObject(key to htspApiList(string))
+        val list = htspApiList(nested, string)
+        val request = ApiRequest(path, nested)
+        listOf<Any>(
+            string, nested, list, request,
+            ApiResponse.Payload(list), HtspResult.Ok(ApiResponse.Payload(nested)),
+        ).forEach { value ->
+            val diagnostic = value.toString()
+            listOf(secret, key, path).forEach { sentinel -> assertFalse(sentinel in diagnostic) }
+        }
+        assertEquals("HtspApiString(<redacted>)", string.toString())
+        assertEquals("HtspApiObject(size=1)", nested.toString())
+        assertEquals("HtspApiList(size=2)", list.toString())
+        assertEquals("ApiRequest(<redacted>)", request.toString())
+        assertEquals(secret, string.value)
+        assertEquals(path, request.path)
+        assertEquals(string, (nested[key] as HtspApiList)[0])
+        val decoded = codecRoundTrip("api", HtspRequestCodecs.encode(request))
+        assertEquals(path, decoded["path"])
+        assertEquals(mapOf(key to listOf(secret)), decoded["args"])
+    }
+
     @Test
     fun requestPreservesExactPathAndArgsOmissionVersusOrderedRecursiveObject() {
         assertEquals(linkedMapOf("path" to ""), HtspRequestCodecs.encode(ApiRequest("")))

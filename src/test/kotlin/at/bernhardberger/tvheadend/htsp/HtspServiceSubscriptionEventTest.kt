@@ -10,6 +10,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -57,7 +58,7 @@ internal class HtspServiceSubscriptionEventTest : HtspServiceLifecycleFixture() 
                 val subscriptionEvents = CopyOnWriteArrayList<HtspSubscriptionEvent>()
                 val metadataEvents = CopyOnWriteArrayList<HtspTransportEvent.ServerMessage>()
                 val subscriptionCollector = launch(start = CoroutineStart.UNDISPATCHED) {
-                    service.subscriptionEvents(7L).collect { event -> subscriptionEvents += event }
+                    service.subscriptionEvents(7L).take(11).collect { event -> subscriptionEvents += event }
                 }
                 val metadataCollector = launch(start = CoroutineStart.UNDISPATCHED) {
                     service.events.collect { event ->
@@ -145,8 +146,85 @@ internal class HtspServiceSubscriptionEventTest : HtspServiceLifecycleFixture() 
     }
 
     @Test
+    fun sameSubscriptionRestartsWithReplacementMetadataAndRetainsClockUntilUnsubscribe() {
+        FakeHtspServer(
+            respondToHello = true,
+            postHandshakeReplyPlan = listOf(emptyMap(), emptyMap()),
+        ).use { server ->
+            val service = service()
+            runBlocking {
+                service.connect(HtspEndpoint("127.0.0.1", server.port))
+                val events = CopyOnWriteArrayList<HtspSubscriptionEvent>()
+                val collector = launch(start = CoroutineStart.UNDISPATCHED) {
+                    service.subscriptionEvents(41L).collect { events += it }
+                }
+                assertTrue(service.subscribe(41L, channelId = 1L, ninetyKhz = 1L) is HtspResult.Ok)
+
+                listOf("MPEG2VIDEO", "H264", "HEVC").forEachIndexed { index, codec ->
+                    server.sendServerMessage(
+                        "subscriptionStart",
+                        mapOf(
+                            "subscriptionId" to 41L,
+                            "streams" to listOf(mapOf("index" to index.toLong(), "type" to codec)),
+                            "sourceinfo" to mapOf("service" to "source-$index"),
+                        ),
+                    )
+                    server.sendServerMessage(
+                        "muxpkt",
+                        muxPacketFields(
+                            payloadByte = index.toByte(),
+                            subscriptionId = 41L,
+                            presentationTimestamp = 90_000L,
+                            duration = 3_600L,
+                        ) + ("stream" to index.toLong()),
+                    )
+                    server.sendServerMessage(
+                        "subscriptionStop",
+                        mapOf("subscriptionId" to 41L, "status" to "Source reconfigured"),
+                    )
+                    withTimeout(1_000L) { while (events.size < (index + 1) * 3) delay(1L) }
+                    assertTrue(collector.isActive)
+                    assertEquals(
+                        SubscriptionResources(buffers = 1, clocks = 1, collectedIds = 1),
+                        subscriptionResources(service),
+                    )
+                }
+
+                assertTrue(service.unsubscribe(41L) is HtspResult.Ok)
+                withTimeout(1_000L) { collector.join() }
+                assertEquals(
+                    List(3) {
+                        listOf(
+                            HtspSubscriptionEvent.Started::class,
+                            HtspSubscriptionEvent.Packet::class,
+                            HtspSubscriptionEvent.Stopped::class,
+                        )
+                    }.flatten(),
+                    events.map { it::class },
+                )
+                val starts = events.filterIsInstance<HtspSubscriptionEvent.Started>()
+                assertEquals(
+                    listOf("MPEG2VIDEO", "H264", "HEVC"),
+                    starts.map { requireNotNull(it.message.streams).single().streamType },
+                )
+                assertEquals(listOf("source-0", "source-1", "source-2"), starts.map { it.message.sourceInfo?.service })
+                events.filterIsInstance<HtspSubscriptionEvent.Packet>().forEachIndexed { index, event ->
+                    assertEquals(index.toLong(), event.packet.streamIndex)
+                    assertEquals(1_000_000L, event.packet.presentationTimeUs)
+                    assertEquals(40_000L, event.packet.durationUs)
+                }
+                assertEquals(
+                    SubscriptionResources(buffers = 0, clocks = 0, collectedIds = 1),
+                    subscriptionResources(service),
+                )
+                service.close()
+            }
+        }
+    }
+
+    @Test
     fun collectionIsExclusiveForAnIdDuringAndAfterTerminalCompletion() {
-        FakeHtspServer(respondToHello = true).use { server ->
+        FakeHtspServer(respondToHello = true, postHandshakeReplyPlan = listOf(emptyMap())).use { server ->
             val service = service()
             runBlocking {
                 service.connect(HtspEndpoint("127.0.0.1", server.port))
@@ -159,6 +237,7 @@ internal class HtspServiceSubscriptionEventTest : HtspServiceLifecycleFixture() 
                 assertTrue(activeDuplicate is IllegalStateException)
 
                 server.sendServerMessage("subscriptionStop", statusFields(8L, "stopped"))
+                assertTrue(service.unsubscribe(8L) is HtspResult.Ok)
                 withTimeout(1_000L) { collector.join() }
 
                 val recollection = runCatching { events.toList() }.exceptionOrNull()
@@ -195,7 +274,7 @@ internal class HtspServiceSubscriptionEventTest : HtspServiceLifecycleFixture() 
                         service.subscriptionEvents(
                             subscriptionId = 8L,
                             expectedGeneration = replacement.connection.generation,
-                        ).toList()
+                        ).take(1).toList()
                     }
                     replacementServer.sendServerMessage(
                         "subscriptionStop",
@@ -223,7 +302,7 @@ internal class HtspServiceSubscriptionEventTest : HtspServiceLifecycleFixture() 
                 service.connect(HtspEndpoint("127.0.0.1", server.port))
                 val events = CopyOnWriteArrayList<HtspSubscriptionEvent>()
                 val collector = launch(start = CoroutineStart.UNDISPATCHED) {
-                    service.subscriptionEvents(17L).collect { event -> events += event }
+                    service.subscriptionEvents(17L).take(3).collect { event -> events += event }
                 }
                 val subscribe = async(Dispatchers.IO) {
                     service.subscribe(subscriptionId = 17L, channelId = 1L)
@@ -286,7 +365,7 @@ internal class HtspServiceSubscriptionEventTest : HtspServiceLifecycleFixture() 
                 cleanupScheduler.runCurrent()
 
                 val events = async(start = CoroutineStart.UNDISPATCHED) {
-                    service.subscriptionEvents(18L).toList()
+                    service.subscriptionEvents(18L).take(1).toList()
                 }
                 val accepted = async(Dispatchers.IO) {
                     service.subscribe(subscriptionId = 18L, channelId = 1L)
@@ -311,10 +390,10 @@ internal class HtspServiceSubscriptionEventTest : HtspServiceLifecycleFixture() 
             runBlocking {
                 service.connect(HtspEndpoint("127.0.0.1", server.port))
                 val nativeEvents = async(start = CoroutineStart.UNDISPATCHED) {
-                    service.subscriptionEvents(21L).toList()
+                    service.subscriptionEvents(21L).take(2).toList()
                 }
                 val ninetyKhzEvents = async(start = CoroutineStart.UNDISPATCHED) {
-                    service.subscriptionEvents(22L).toList()
+                    service.subscriptionEvents(22L).take(2).toList()
                 }
 
                 val nativeSubscribe = async(Dispatchers.IO) {
@@ -408,7 +487,7 @@ internal class HtspServiceSubscriptionEventTest : HtspServiceLifecycleFixture() 
                             HtspSubscriptionEvent.Terminated,
                     )
                     val events = async(start = CoroutineStart.UNDISPATCHED) {
-                        service.subscriptionEvents(25L).toList()
+                        service.subscriptionEvents(25L).take(2).toList()
                     }
                     val replacementSubscribe = async(Dispatchers.IO) {
                         service.subscribe(25L, 1L, ninetyKhz = 1L)
@@ -446,7 +525,7 @@ internal class HtspServiceSubscriptionEventTest : HtspServiceLifecycleFixture() 
         val zapCount = 128
         FakeHtspServer(
             respondToHello = true,
-            postHandshakeReplyPlan = List(zapCount + zapCount / 2) { emptyMap() },
+            postHandshakeReplyPlan = List(zapCount * 2) { emptyMap() },
         ).use { server ->
             val service = service()
             runBlocking {
@@ -490,9 +569,9 @@ internal class HtspServiceSubscriptionEventTest : HtspServiceLifecycleFixture() 
                             HtspSubscriptionEvent.Stopped::class,
                         )
                     } else {
-                        assertTrue(service.unsubscribe(subscriptionId) is HtspResult.Ok)
                         listOf(HtspSubscriptionEvent.Status::class)
                     }
+                    assertTrue(service.unsubscribe(subscriptionId) is HtspResult.Ok)
 
                     assertEquals(
                         expectedTypes,
@@ -527,7 +606,7 @@ internal class HtspServiceSubscriptionEventTest : HtspServiceLifecycleFixture() 
                 val releaseCollector = CompletableDeferred<Unit>()
                 val events = CopyOnWriteArrayList<HtspSubscriptionEvent>()
                 val collector = launch(start = CoroutineStart.UNDISPATCHED) {
-                    service.subscriptionEvents(19L).collect { event ->
+                    service.subscriptionEvents(19L).take(5).collect { event ->
                         events += event
                         if (event is HtspSubscriptionEvent.Status && events.size == 1) {
                             firstControl.complete(Unit)
@@ -957,8 +1036,8 @@ internal class HtspServiceSubscriptionEventTest : HtspServiceLifecycleFixture() 
                         kotlinx.coroutines.CancellationException,
                 )
                 server.sendServerMessage("subscriptionStop", statusFields(37L, "stopped"))
-                withTimeout(1_000L) { collector.join() }
                 service.close()
+                withTimeout(1_000L) { collector.join() }
             }
         }
     }
@@ -1040,8 +1119,8 @@ internal class HtspServiceSubscriptionEventTest : HtspServiceLifecycleFixture() 
                 assertSame(live.connection.generation, service.liveConnection.value?.generation)
 
                 server.sendServerMessage("subscriptionStop", statusFields(37L, "stopped"))
-                withTimeout(1_000L) { collector.join() }
                 service.close()
+                withTimeout(1_000L) { collector.join() }
             }
         }
     }
@@ -1105,7 +1184,7 @@ internal class HtspServiceSubscriptionEventTest : HtspServiceLifecycleFixture() 
                 service.connect(HtspEndpoint("127.0.0.1", server.port))
 
                 val timedOutEvents = async(start = CoroutineStart.UNDISPATCHED) {
-                    service.subscriptionEvents(23L).toList()
+                    service.subscriptionEvents(23L).take(2).toList()
                 }
                 val timedOut = async(Dispatchers.IO) {
                     service.subscribe(23L, 1L, ninetyKhz = 1L, timeoutMs = 100L)
@@ -1124,7 +1203,7 @@ internal class HtspServiceSubscriptionEventTest : HtspServiceLifecycleFixture() 
                 server.sendServerMessage("subscriptionStop", statusFields(23L, "stopped"))
 
                 val cancelledEvents = async(start = CoroutineStart.UNDISPATCHED) {
-                    service.subscriptionEvents(24L).toList()
+                    service.subscriptionEvents(24L).take(2).toList()
                 }
                 val cancelled = async(Dispatchers.IO) {
                     service.subscribe(24L, 1L, ninetyKhz = 1L, timeoutMs = 5_000L)
@@ -1179,7 +1258,7 @@ internal class HtspServiceSubscriptionEventTest : HtspServiceLifecycleFixture() 
                 val releaseCollector = CompletableDeferred<Unit>()
                 val events = CopyOnWriteArrayList<HtspSubscriptionEvent>()
                 val collector = launch(start = CoroutineStart.UNDISPATCHED) {
-                    service.subscriptionEvents(9L).collect { event ->
+                    service.subscriptionEvents(9L).take(4).collect { event ->
                         events += event
                         if (event is HtspSubscriptionEvent.Status) {
                             firstControl.complete(Unit)
@@ -1230,7 +1309,7 @@ internal class HtspServiceSubscriptionEventTest : HtspServiceLifecycleFixture() 
                 val releaseCollector = CompletableDeferred<Unit>()
                 val events = CopyOnWriteArrayList<HtspSubscriptionEvent>()
                 val collector = launch(start = CoroutineStart.UNDISPATCHED) {
-                    service.subscriptionEvents(10L).collect { event ->
+                    service.subscriptionEvents(10L).take(4).collect { event ->
                         events += event
                         if (event is HtspSubscriptionEvent.Status && events.size == 1) {
                             firstControl.complete(Unit)
@@ -1307,7 +1386,7 @@ internal class HtspServiceSubscriptionEventTest : HtspServiceLifecycleFixture() 
     }
 
     @Test
-    fun stoppedBeforeUnsubscribeAcknowledgementRemainsTheSingleTerminalTransition() {
+    fun stoppedBeforeUnsubscribeAcknowledgementWaitsForTrueRetirement() {
         FakeHtspServer(
             respondToHello = true,
             captureOnePostHandshakeRequest = true,
@@ -1323,9 +1402,11 @@ internal class HtspServiceSubscriptionEventTest : HtspServiceLifecycleFixture() 
                 assertTrue(server.postHandshakeRequestReceived.await(1, TimeUnit.SECONDS))
 
                 server.sendServerMessage("subscriptionStop", statusFields(14L, "stopped"))
-                withTimeout(1_000L) { collector.join() }
+                withTimeout(1_000L) { while (events.isEmpty()) delay(1L) }
+                assertTrue(collector.isActive)
                 server.replyToCapturedPostHandshakeRequest()
                 assertTrue(withTimeout(1_000L) { unsubscribe.await() } is HtspResult.Ok)
+                withTimeout(1_000L) { collector.join() }
                 assertEquals(1, events.size)
                 assertTrue(events.single() is HtspSubscriptionEvent.Stopped)
                 service.disconnect()
@@ -1389,7 +1470,7 @@ internal class HtspServiceSubscriptionEventTest : HtspServiceLifecycleFixture() 
                         service.subscriptionEvents(12L).collect { event -> replacedEvents += event }
                     }
                     firstServer.sendServerMessage(
-                        "subscriptionStatus",
+                        "subscriptionStop",
                         statusFields(12L, "old"),
                     )
                     withTimeout(1_000L) {
@@ -1410,7 +1491,7 @@ internal class HtspServiceSubscriptionEventTest : HtspServiceLifecycleFixture() 
                         service.subscriptionEvents(12L).collect { event -> closedEvents += event }
                     }
                     replacementServer.sendServerMessage(
-                        "subscriptionStatus",
+                        "subscriptionStop",
                         statusFields(12L, "current"),
                     )
                     withTimeout(1_000L) { while (closedEvents.isEmpty()) delay(1L) }

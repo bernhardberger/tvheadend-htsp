@@ -704,9 +704,9 @@ internal open class `HtspService-internal`(
 
         try {
             val msgFields = LinkedHashMap<String, Any?>(fields.size + 1).apply {
-                this["seq"] = s
+                this["seq"] = s.toLong() and 0xFFFF_FFFFL
                 putAll(fields)
-                this["seq"] = s
+                this["seq"] = s.toLong() and 0xFFFF_FFFFL
             }
 
             writeMutex.withLock {
@@ -829,7 +829,7 @@ internal open class `HtspService-internal`(
 
                         if (
                             "seq" in msg.fields &&
-                            msg.method in ASYNCHRONOUS_SERVER_METHODS
+                            (msg.seq == null || msg.method in ASYNCHRONOUS_SERVER_METHODS)
                         ) {
                             throw HtspIncompatibleServerException()
                         }

@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.8.0]
+
+**BREAKING (behavior; Kotlin source and JVM signatures unchanged):**
+`HtspSubscriptionEvent.Stopped` no longer completes subscription collection.
+TVHeadend can stop and restart streams on the same subscription when source
+components change. The flow now preserves the next `Started`, replacement
+metadata, and packets in order, without resetting its timestamp clock. Successful
+unsubscribe acknowledgement still drains and completes; transport or local
+retirement still appends `Terminated`, including after a stop. Packet drop
+accounting and collector cleanup remain intact. This repairs HTSP-01 in the
+protocol library, not the SDK or application decoder/state-machine handling.
+
+Reply sequences now require an integer in the complete unsigned-u32 wire domain.
+Oversized, negative, floating-point, and nonnumeric sequences cannot alias pending
+requests or late unsubscribe acknowledgements (HTSP-05). Request rollover retains
+the complete unsigned range. General scalar compatibility is unchanged apart
+from rejecting oversized root sequence integers.
+
+JSON API diagnostic rendering no longer includes string values, object keys,
+nested payload contents, or request paths (HTSP-06). Exact accessors, equality,
+and wire payloads are unchanged. This is not a guarantee for explicitly logged
+raw accessor values or unrelated message types.
+
 ## [0.7.0]
 
 Added an explicit near-live subscription helper that derives one bounded

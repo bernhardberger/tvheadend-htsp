@@ -4,7 +4,7 @@ import at.bernhardberger.tvheadend.htsp.messages.*
 
 /** Ordered control and packet events for one registered HTSP subscription. */
 public sealed interface HtspSubscriptionEvent {
-    /** Reports server acceptance and stream metadata for the subscription. */
+    /** Reports initial or replacement stream metadata for the same subscription. */
     public data class Started(
         public val message: HtspSubscriptionStartMessage,
     ) : HtspSubscriptionEvent
@@ -19,7 +19,10 @@ public sealed interface HtspSubscriptionEvent {
         public val message: HtspSubscriptionSkipMessage,
     ) : HtspSubscriptionEvent
 
-    /** Reports the server's terminal subscription stop. */
+    /**
+     * Reports a stream interruption, not subscription retirement. A later [Started] may
+     * reconfigure the same subscription; keep collecting unless the consumer chooses to cancel.
+     */
     public data class Stopped(
         public val message: HtspSubscriptionStopMessage,
     ) : HtspSubscriptionEvent
@@ -66,13 +69,13 @@ public sealed interface HtspSubscriptionEvent {
         }
     }
 
-    /** Final event when the stream ends without a server `subscriptionStop`. */
+    /** Final event on transport or local retirement, including after a server [Stopped]. */
     public data class Terminated(
         public val reason: HtspSubscriptionTermination,
     ) : HtspSubscriptionEvent
 }
 
-/** Payload-free reason why a subscription stream ended without a server stop. */
+/** Payload-free reason why a subscription stream ended through transport or local retirement. */
 public enum class HtspSubscriptionTermination {
     /** A newer connection generation replaced the stream's generation. */
     GENERATION_LOST,

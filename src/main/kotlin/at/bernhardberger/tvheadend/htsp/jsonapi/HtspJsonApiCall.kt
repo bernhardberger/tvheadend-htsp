@@ -13,7 +13,9 @@ public data class ApiRequest(
     method = "api",
     access = HtspAccess.ACCESS_ANONYMOUS,
     minimumProtocolVersion = 24,
-)
+) {
+    override fun toString(): String = "ApiRequest(<redacted>)"
+}
 
 /** Finite successful JSON API reply: either a typed container payload or an explicit absence of payload. */
 @HtspJsonApi

@@ -55,6 +55,35 @@ class HtspCodecTest {
     }
 
     @Test
+    fun replySequencesRetainTheFullUnsignedDomainWithoutNumericAliasing() {
+        listOf(0L, 7L, Int.MAX_VALUE.toLong(), 0x8000_0000L, 0xFFFF_FFFFL).forEach { seq ->
+            val output = ByteArrayOutputStream()
+            HtspCodec.writeMessage(output, "reply", mapOf("seq" to seq))
+            val decoded = HtspCodec.readMessage(ByteArrayInputStream(output.toByteArray()))
+            assertEquals(seq.toInt(), decoded.seq)
+            assertEquals(seq, decoded.fields["seq"])
+        }
+        listOf(-1L, 0x1_0000_0007L, Long.MAX_VALUE, 7.0, 7.9, "7", true).forEach { seq ->
+            val output = ByteArrayOutputStream()
+            HtspCodec.writeMessage(output, "reply", mapOf("seq" to seq))
+            assertEquals(null, HtspCodec.readMessage(ByteArrayInputStream(output.toByteArray())).seq)
+        }
+    }
+
+    @Test
+    fun oversizedSequenceIntegerCannotAliasItsLowBytes() {
+        val frame = byteArrayOf(
+            0, 0, 0, 18,
+            2, 3, 0, 0, 0, 9, 's'.code.toByte(), 'e'.code.toByte(), 'q'.code.toByte(),
+            7, 0, 0, 0, 0, 0, 0, 0, 1,
+        )
+        val failure = assertThrows(HtspFramingException::class.java) {
+            HtspCodec.readMessage(ByteArrayInputStream(frame))
+        }
+        assertEquals("sequence integer exceeds 64 bits", failure.failure)
+    }
+
+    @Test
     fun invalidRootLength_isFramingFailureWithoutTransportPolicy() {
         val failure = assertThrows(HtspFramingException::class.java) {
             HtspCodec.readMessage(ByteArrayInputStream(byteArrayOf(0, 0, 0, 0)))

@@ -52,7 +52,7 @@ internal object `HtspCodec-internal` {
         reader.drain(what = "message tail")
 
         val method = fields["method"] as? String
-        val seq = (fields["seq"] as? Number)?.toInt()
+        val seq = (fields["seq"] as? Long)?.takeIf { it in 0L..0xFFFF_FFFFL }?.toInt()
         val rawPayload = if (method == "muxpkt") fields["payload"] as? ByteArray else null
 
         return HtspWireMessage(
@@ -119,6 +119,10 @@ internal object `HtspCodec-internal` {
         } else null
 
         val data = r.slice(dataLen)
+
+        if (depth == 0 && name == "seq" && type == TYPE_S64 && dataLen > 8) {
+            throw HtspFramingException("sequence integer exceeds 64 bits", r.byteOffset)
+        }
 
         val value: Any? = when (type) {
             TYPE_MAP -> LinkedHashMap<String, Any?>().also { decodeMap(data, it, depth + 1) }

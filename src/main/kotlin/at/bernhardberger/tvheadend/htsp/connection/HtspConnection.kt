@@ -40,7 +40,10 @@ public interface HtspConnection {
      * malformed packets whose subscription id remains trustworthy are reported by an ordered
      * [HtspSubscriptionEvent.Dropped]; an untrustworthy packet envelope closes the incompatible
      * transport. Subscribe is rejected before its wire write when no active collection has
-     * registered the id.
+     * registered the id. Server [HtspSubscriptionEvent.Stopped] events do not complete the flow:
+     * the same subscription may restart with replacement stream metadata. A successful unsubscribe
+     * acknowledgement drains committed events then completes; transport or local retirement adds
+     * [HtspSubscriptionEvent.Terminated] before completion. Collector cancellation propagates.
      */
     public fun subscriptionEvents(subscriptionId: Long): Flow<HtspSubscriptionEvent>
 

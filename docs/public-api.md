@@ -81,9 +81,27 @@ subscription id is reported in the same order with `Dropped`. A malformed
 subscription control or untrustworthy packet envelope closes the incompatible
 transport instead of disappearing.
 
-The stream drains after `Stopped` or a successful unsubscribe acknowledgement.
-Generation or transport loss ends it with a final `Terminated` event. Collector
-cancellation remains `CancellationException`.
+`Stopped` is an ordered stream interruption, not subscription retirement. Keep
+collecting: the same id may receive another `Started` with replacement stream and
+source metadata, then more packets. Do not infer retirement from status text.
+A successful unsubscribe acknowledgement drains committed events and completes
+the flow. Generation, transport or local retirement ends it with a final
+`Terminated`, even after `Stopped`. Collector cancellation remains
+`CancellationException`. Reconfiguration does not reset the subscription's
+negotiated timestamp clock or permit a second collection/subscribe for that id.
+
+This follows the pinned upstream's `service_restart_streams` in `src/service.c`
+(lines 1050-1073): a composition change emits `SMT_STOP` with
+`SM_CODE_SOURCE_RECONFIGURED`, followed by `SMT_START`. In `src/htsp_server.c`,
+lines 4632-4639 forward these through the same subscription; lines 4377-4399
+serialize the same id without destroying it. Unsubscribe separately acknowledges
+then destroys the subscription (lines 2751-2773). See the
+[upstream pin](htsp-protocol/upstream.json).
+
+Consumers must handle repeated `Started` and reconfigure their decoding pipeline.
+The SDK playback state machine currently treats `Stopped` as terminal and rejects
+a second `Started`; upgrading this protocol library alone does not repair SDK or
+application playback. SDK integration is tracked separately by P30-S1.
 
 Use `enableAsyncMetadataAwaitingInitialSync` to enable metadata and wait for the
 unsequenced `initialSyncCompleted` marker. It installs its generation-scoped

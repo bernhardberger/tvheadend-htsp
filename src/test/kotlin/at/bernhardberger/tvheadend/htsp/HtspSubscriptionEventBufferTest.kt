@@ -84,8 +84,34 @@ internal class HtspSubscriptionEventBufferTest {
         assertEquals(second, buffer.poll())
         assertEquals(HtspSubscriptionEvent.Dropped(1L), buffer.poll())
         assertEquals(stopped, buffer.poll())
-        assertTrue(buffer.isComplete())
+        assertFalse(buffer.isComplete())
+        assertTrue(buffer.isAccepting())
         assertNull(buffer.poll())
+    }
+
+    @Test
+    fun restartControlsPreserveDropPositionsAndDoNotSuppressRetirement() {
+        val buffer = HtspSubscriptionEventBuffer(capacity = 2)
+        val stopped = HtspSubscriptionEvent.Stopped(HtspSubscriptionStopMessage(1L, null, null))
+        val started = HtspSubscriptionEvent.Started(
+            HtspSubscriptionStartMessage(subscriptionId = 1L, streams = emptyList()),
+        )
+        assertAccepted(buffer.offer(packet(1)))
+        assertAccepted(buffer.offer(stopped))
+        assertAccepted(buffer.offer(started))
+        assertAccepted(buffer.offer(packet(2)))
+        buffer.terminate(HtspSubscriptionTermination.REMOTE_EOF)
+
+        assertEquals(HtspSubscriptionEvent.Dropped(1L), buffer.poll())
+        assertEquals(stopped, buffer.poll())
+        assertEquals(started, buffer.poll())
+        assertEquals(HtspSubscriptionEvent.Dropped(1L), buffer.poll())
+        assertEquals(
+            HtspSubscriptionEvent.Terminated(HtspSubscriptionTermination.REMOTE_EOF),
+            buffer.poll(),
+        )
+        assertTrue(buffer.isComplete())
+        assertEquals(HtspSubscriptionEventBuffer.OfferResult.IGNORED, buffer.offer(packet(3)))
     }
 
     @Test

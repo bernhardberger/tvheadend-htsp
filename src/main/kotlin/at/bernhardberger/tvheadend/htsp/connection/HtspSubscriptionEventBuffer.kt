@@ -46,10 +46,6 @@ internal class HtspSubscriptionEventBuffer(
         }
 
         append(event, isProduction = true)
-        if (event is HtspSubscriptionEvent.Stopped) {
-            terminal = true
-            spaceAvailable.trySend(Unit)
-        }
         eventsAvailable.trySend(Unit)
         return OfferResult.ACCEPTED
     }
