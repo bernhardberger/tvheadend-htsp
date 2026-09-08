@@ -70,6 +70,14 @@ DVR policy.
 
 ## Protocol quirks and version notes
 
+- `queueStatus.errors` is an optional u32 cumulative data-error counter, exposed
+  as nullable `HtspQueueStatusMessage.errorCount`. Absence is not converted to
+  zero. In pinned `src/htsp_server.c:4159-4160`, packet errors accumulate in
+  `hs_data_errors`; lines 4225-4226 emit `errors` only when that count is nonzero.
+  On 2026-09-08, upstream master `9a6f78d37c1db9ca68df62512efb410a207885ec`
+  had the same source blob `2837efd3b41ae0ba7f82de2853d8a1d4a1ea88e1` as the
+  pinned revision. There is no negotiated-version guard on this field. The
+  counter is distinct from `Bdrops`, `Pdrops`, and `Idrops`.
 - Interpret fields by direction, wire or container type, presence, and known
   minimum version. Named nested shapes may be complete, partial, dynamic or
   opaque, known-empty, alternative, or unknown. Global RPC fields `seq`,

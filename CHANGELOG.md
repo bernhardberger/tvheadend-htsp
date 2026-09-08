@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.10.0]
+
+**BREAKING (JVM ABI):** `HtspQueueStatusMessage` gains trailing nullable
+`errorCount: Long? = null`, decoding the optional unsigned-u32 `queueStatus.errors`
+field. Existing Kotlin constructor calls can omit it, but the constructor and
+generated `copy` JVM signatures change; recompile consumers. Equality, hashing,
+and rendering now include the new counter. No other field types or wire names
+change.
+
+Absence remains null, distinct from an explicit zero. Values through
+`4294967295` are retained without signed-Int truncation. Malformed present values
+produce the existing redacted malformed-message outcome. This is the cumulative
+server data-error count, not dropped frames or a per-report delta.
+
 ## [0.9.0]
 
 **BREAKING (behavior; Kotlin source and JVM signatures unchanged):** request

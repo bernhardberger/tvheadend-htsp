@@ -29,7 +29,7 @@ public data class HtspMuxPacketMessage(
 
 private val HTSP_MUX_FRAME_TYPES = setOf(-1L, 66L, 73L, 80L)
 
-/** Queue counters for one subscription: queued packets and bytes, optional delay, and dropped B-, P-, and I-frame counts. */
+/** Queue counters for one subscription: queued packets and bytes, optional delay and data errors, and dropped B-, P-, and I-frame counts. */
 public data class HtspQueueStatusMessage(
     public val subscriptionId: Long,
     public val packetCount: Long,
@@ -38,6 +38,8 @@ public data class HtspQueueStatusMessage(
     public val bFrameDropCount: Long,
     public val pFrameDropCount: Long,
     public val iFrameDropCount: Long,
+    /** Cumulative unsigned-u32 data errors (`errors`); null when not reported, distinct from an explicit zero. */
+    public val errorCount: Long? = null,
 ) : HtspServerMessage {
     init {
         requireU32("subscriptionId", subscriptionId)
@@ -46,6 +48,7 @@ public data class HtspQueueStatusMessage(
         requireU32("bFrameDropCount", bFrameDropCount)
         requireU32("pFrameDropCount", pFrameDropCount)
         requireU32("iFrameDropCount", iFrameDropCount)
+        errorCount?.let { requireU32("errorCount", it) }
     }
 }
 

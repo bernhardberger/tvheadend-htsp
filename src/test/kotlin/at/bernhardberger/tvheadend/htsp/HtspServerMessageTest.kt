@@ -4,6 +4,7 @@ import at.bernhardberger.tvheadend.htsp.messages.*
 import at.bernhardberger.tvheadend.htsp.requests.*
 import at.bernhardberger.tvheadend.htsp.wire.*
 
+import java.io.ByteArrayOutputStream
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotEquals
@@ -12,6 +13,42 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 class HtspServerMessageTest {
+    @Test
+    fun queueErrorsPreservePresenceAndUnsignedWireValues() {
+        val fixture = minimalFixture("queueStatus")
+        val absent = decodeMessage(fixture) as HtspQueueStatusMessage
+        assertEquals(null, absent.errorCount)
+        assertEquals(absent, HtspQueueStatusMessage(1L, 0L, 0L, null, 0L, 0L, 0L))
+        listOf(0L, 1L, 0x8000_0000L, 0xffff_ffffL).forEach { errors ->
+            val fields = fixture + ("errors" to errors)
+            val message = decodeMessage(fields) as HtspQueueStatusMessage
+            assertEquals(errors, message.errorCount)
+            assertEquals(absent.copy(errorCount = errors), message)
+            assertNotEquals(absent, message)
+        }
+        listOf(null, 0L, 1L, 0x8000_0000L, 0xffff_ffffL).forEach { errors ->
+            val fields = if (errors == null) fixture else fixture + ("errors" to errors)
+            val output = ByteArrayOutputStream()
+            HtspCodec.writeMessage(output, "queueStatus", fields)
+            val wireFields = HtspCodec.readMessage(output.toByteArray().inputStream()).fields
+            assertEquals(absent.copy(errorCount = errors), decodeMessage(wireFields))
+        }
+    }
+
+    @Test
+    fun queueErrorsRejectMalformedPresentValuesAndInvalidModelCounts() {
+        val fixture = minimalFixture("queueStatus")
+        listOf(null, -1L, 0x1_0000_0000L, 1, "private-error-value", false, 1.0, emptyList<Long>())
+            .forEach { errors -> assertMalformed(fixture + ("errors" to errors)) }
+        assertFalse(decodeHtspServerMessage(fixture + ("errors" to "private-error-value"))
+            .toString().contains("private-error-value"))
+        listOf(-1L, 0x1_0000_0000L).forEach { errors ->
+            assertThrows(IllegalArgumentException::class.java) {
+                HtspQueueStatusMessage(1L, 0L, 0L, null, 0L, 0L, 0L, errors)
+            }
+        }
+    }
+
     @Test
     fun catalogContainsExactlyTheAssignedTypedServerMessages() {
         assertEquals(

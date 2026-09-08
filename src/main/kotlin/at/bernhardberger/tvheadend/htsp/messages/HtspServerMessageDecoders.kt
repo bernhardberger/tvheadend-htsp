@@ -404,6 +404,7 @@ internal fun decodeQueueStatus(fields: Map<String, Any?>): HtspServerMessage = H
     bFrameDropCount = fields.requiredU32("Bdrops"),
     pFrameDropCount = fields.requiredU32("Pdrops"),
     iFrameDropCount = fields.requiredU32("Idrops"),
+    errorCount = fields.optionalU32("errors"),
 )
 
 @JvmSynthetic

@@ -94,6 +94,7 @@ internal class HtspServiceSubscriptionEventTest : HtspServiceLifecycleFixture() 
                         "Bdrops" to 0L,
                         "Pdrops" to 0L,
                         "Idrops" to 0L,
+                        "errors" to 0xffff_ffffL,
                     ),
                 )
                 server.sendServerMessage(
@@ -133,6 +134,10 @@ internal class HtspServiceSubscriptionEventTest : HtspServiceLifecycleFixture() 
                         HtspSubscriptionEvent.Stopped::class,
                     ),
                     subscriptionEvents.map { event -> event::class },
+                )
+                assertEquals(
+                    0xffff_ffffL,
+                    subscriptionEvents.filterIsInstance<HtspSubscriptionEvent.Queue>().single().message.errorCount,
                 )
                 assertEquals(
                     listOf(91L),
