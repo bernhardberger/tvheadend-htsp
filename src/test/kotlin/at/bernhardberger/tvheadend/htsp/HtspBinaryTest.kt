@@ -4,11 +4,14 @@ import at.bernhardberger.tvheadend.htsp.messages.HtspMuxPacketMessage
 import at.bernhardberger.tvheadend.htsp.messages.HtspServerMessageDecoded
 import at.bernhardberger.tvheadend.htsp.messages.HtspTimestampClock
 import at.bernhardberger.tvheadend.htsp.messages.decodeHtspServerMessage
+import at.bernhardberger.tvheadend.htsp.requests.FileReadRequest
+import at.bernhardberger.tvheadend.htsp.requests.HtspRequestCodecs
 import at.bernhardberger.tvheadend.htsp.wire.HtspBinary
 import at.bernhardberger.tvheadend.htsp.wire.HtspCodec
 import com.sun.management.ThreadMXBean
 import org.junit.jupiter.api.Assertions.assertArrayEquals
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -97,6 +100,34 @@ internal class HtspBinaryTest {
             if (!allocationWasEnabled) {
                 allocationBean.isThreadAllocatedMemoryEnabled = false
             }
+        }
+    }
+
+    @Test
+    fun standaloneFileReadMapDecodeStillSnapshotsCodecPayload() {
+        val frame = ByteArrayOutputStream().also { output ->
+            HtspCodec.writeMessage(output, "fileRead", mapOf("data" to byteArrayOf(1, 2, 3)))
+        }.toByteArray()
+        val message = HtspCodec.readMessage(ByteArrayInputStream(frame))
+        val response = HtspRequestCodecs.decode(FileReadRequest(1L, 3L), message.fields, 43)
+
+        (message.fields["data"] as ByteArray)[0] = 99
+
+        assertArrayEquals(byteArrayOf(1, 2, 3), response.data.toByteArray())
+    }
+
+    @Test
+    fun ownedFileReadPayloadIsReusedWithoutExposingMutableContent() {
+        for (input in listOf(ByteArray(0), byteArrayOf(1, 2, 3))) {
+            val expected = input.copyOf()
+            val binary = HtspBinary(input)
+            val response = HtspRequestCodecs.decode(
+                FileReadRequest(1L, input.size.toLong()), mapOf("data" to binary), 43,
+            )
+            assertSame(binary, response.data)
+            input.fill(99)
+            response.data.toByteArray().fill(99)
+            assertArrayEquals(expected, response.data.toByteArray())
         }
     }
 

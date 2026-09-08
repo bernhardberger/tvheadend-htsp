@@ -10,7 +10,7 @@ public data class FileOpenResponse(
     public val modifiedAtUnixSeconds: Long?,
 )
 
-/** Contains one defensively copied bounded payload; an empty payload is a valid successful read. */
+/** Contains one owned immutable bounded payload; an empty payload is a valid successful read. */
 public data class FileReadResponse(public val data: HtspBinary)
 
 /** Explicit successful empty acknowledgement returned for a protocol file-close request. */

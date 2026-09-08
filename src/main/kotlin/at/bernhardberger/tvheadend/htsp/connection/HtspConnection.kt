@@ -7,7 +7,7 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withTimeoutOrNull
 
 /** Opaque identity of one current HTSP transport generation, whether live or gone. */
 public class HtspConnectionGeneration {
@@ -57,7 +57,10 @@ public interface HtspConnection {
         expectedGeneration: HtspConnectionGeneration,
     ): Flow<HtspSubscriptionEvent>
 
-    /** Executes one request from the finite typed HTSP catalog. */
+    /**
+     * Executes one typed request. [timeoutMs] covers handshake/write serialization,
+     * dispatch, socket write/flush, and the reply wait. Caller cancellation propagates.
+     */
     public suspend fun <R> execute(
         request: HtspRequest<R>,
         timeoutMs: Long = 5_000L,
@@ -73,13 +76,19 @@ public interface HtspConnection {
     /** Returns whether [generation] is the current live-or-gone generation identity. */
     public fun isCurrent(generation: HtspConnectionGeneration): Boolean
 
-    /** Runs [block] only while [generation] is the current live-or-gone identity. */
+    /**
+     * Runs [block] only while [generation] is the current live-or-gone identity.
+     * The block holds the generation lock and must be short and non-blocking.
+     */
     public fun <T> commitIfCurrent(
         generation: HtspConnectionGeneration,
         block: () -> T,
     ): T?
 
-    /** Runs [block] with the exact live snapshot only while [generation] is current and live. */
+    /**
+     * Runs [block] with the exact live snapshot only while [generation] is current and live.
+     * The block holds the generation lock and must be short and non-blocking.
+     */
     public fun <T> commitIfLive(
         generation: HtspConnectionGeneration,
         block: (HtspLiveConnection) -> T,
@@ -116,6 +125,7 @@ internal class `HtspTypedRequestCaller-internal`(
     ): HtspResult<R> {
         require(timeoutMs > 0L) { "timeoutMs must be positive" }
         currentCoroutineContext().ensureActive()
+        val startedAtNanos = System.nanoTime()
         val generation = transport.captureGeneration() ?: return HtspResult.TransportUnavailable
         if (expectedGeneration != null && generation.token !== expectedGeneration) {
             throw CancellationException("Stale HTSP connection generation")
@@ -127,31 +137,48 @@ internal class `HtspTypedRequestCaller-internal`(
         }
 
         return if (request.isDirectHandshake()) {
-            handshakeMutex.withLock {
+            var acquired = false
+            try {
+                val remainingMs = timeoutMs - (System.nanoTime() - startedAtNanos) / 1_000_000L
+                val withinBudget = withTimeoutOrNull(remainingMs) {
+                    handshakeMutex.lock()
+                    acquired = true
+                    true
+                } ?: false
                 ensureActiveGeneration(generation)
-                callCaptured(request, timeoutMs, generation, protocolVersion, isHandshake = true)
+                if (withinBudget) {
+                    callCaptured(request, timeoutMs, startedAtNanos, generation, protocolVersion, isHandshake = true)
+                } else {
+                    HtspResult.Timeout
+                }
+            } finally {
+                if (acquired) handshakeMutex.unlock()
             }
         } else {
-            callCaptured(request, timeoutMs, generation, protocolVersion, isHandshake = false)
+            callCaptured(request, timeoutMs, startedAtNanos, generation, protocolVersion, isHandshake = false)
         }
     }
 
     private suspend fun <R> callCaptured(
         request: HtspRequest<R>,
         timeoutMs: Long,
+        startedAtNanos: Long,
         generation: HtspCapturedGeneration,
         protocolVersion: Int?,
         isHandshake: Boolean,
     ): HtspResult<R> {
-        var dispatchStarted = false
+        var replyReceived = false
         return try {
-            dispatchStarted = true
+            val fields = HtspRequestCodecs.encode(request)
+            val remainingMs = timeoutMs - (System.nanoTime() - startedAtNanos) / 1_000_000L
+            if (remainingMs <= 0L) throw HtspCallTimeoutException()
             val reply = transport.dispatch(
                 generation = generation,
                 request = request,
-                fields = HtspRequestCodecs.encode(request),
-                timeoutMs = timeoutMs,
+                fields = fields,
+                timeoutMs = remainingMs,
             )
+            replyReceived = true
             ensureActiveGeneration(generation)
             classifyHtspReply(reply, request, protocolVersion ?: 0).also { result ->
                 transport.recapture(generation, request, result)
@@ -160,13 +187,12 @@ internal class `HtspTypedRequestCaller-internal`(
                 }
             }
         } catch (cancelled: CancellationException) {
-            if (isHandshake && dispatchStarted) {
+            if (isHandshake && replyReceived) {
                 transport.retire(generation, HtspSubscriptionTermination.LOCAL_RETIREMENT)
             }
             throw cancelled
         } catch (_: HtspCallTimeoutException) {
             ensureCurrentGeneration(generation)
-            if (isHandshake) transport.retire(generation, HtspSubscriptionTermination.TIMEOUT)
             currentCoroutineContext().ensureActive()
             HtspResult.Timeout
         } catch (_: HtspProtocolMappingException) {
@@ -276,6 +302,7 @@ internal interface `HtspRequestTransport-internal` {
         timeoutMs: Long,
     ): HtspWireReply
 
+    /** Identity only: losing the transport does not replace its generation. */
     fun isCurrent(generation: HtspCapturedGeneration): Boolean
 
     /** Makes only the exact captured generation immediately non-admissible. */

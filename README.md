@@ -237,9 +237,10 @@ sending `subscribe` with that id. Each id can be collected once per connection
 generation. A subscribe without an active collector is rejected before it
 reaches the server. The ordered stream reports packet pressure or a rejected
 malformed packet with a trustworthy subscription id as `Dropped`. An untrustworthy
-packet envelope closes the incompatible transport. The stream drains on `Stopped`
-or a successful unsubscribe acknowledgement, and ends generation or transport
-loss with `Terminated`.
+packet envelope closes the incompatible transport. `Stopped` is an interruption:
+keep collecting because the same stream can receive another `Started`. A successful
+unsubscribe acknowledgement drains and completes the stream; generation or transport
+loss ends it with `Terminated`.
 
 To request a position near the live edge without invoking the exact
 `subscriptionLive` wire operation, retain an observed `Timeshift` event from the

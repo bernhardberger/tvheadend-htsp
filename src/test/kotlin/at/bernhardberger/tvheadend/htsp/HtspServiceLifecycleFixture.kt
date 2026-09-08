@@ -6,6 +6,7 @@ import at.bernhardberger.tvheadend.htsp.messages.*
 import at.bernhardberger.tvheadend.htsp.requests.*
 import at.bernhardberger.tvheadend.htsp.wire.*
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CoroutineDispatcher
 import java.io.ByteArrayOutputStream
 import java.io.Closeable
 import java.net.ServerSocket
@@ -27,8 +28,10 @@ internal abstract class HtspServiceLifecycleFixture {
         beforeFrameRead: () -> Unit = {},
         metadataEventBufferCapacity: Int = METADATA_EVENT_BUFFER_CAPACITY,
         subscriptionEventBufferCapacity: Int = SUBSCRIPTION_EVENT_BUFFER_CAPACITY,
+        nanoTime: () -> Long = System::nanoTime,
+        ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     ) = HtspService(
-        ioDispatcher = Dispatchers.IO,
+        ioDispatcher = ioDispatcher,
         afterConnectionAdmission = afterConnectionAdmission,
         afterTransportInstallation = afterTransportInstallation,
         afterTeardownAdmission = afterTeardownAdmission,
@@ -37,6 +40,7 @@ internal abstract class HtspServiceLifecycleFixture {
         beforeFrameRead = beforeFrameRead,
         metadataEventBufferCapacity = metadataEventBufferCapacity,
         subscriptionEventBufferCapacity = subscriptionEventBufferCapacity,
+        nanoTime = nanoTime,
     )
 
     protected fun muxPacketFields(

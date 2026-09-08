@@ -48,8 +48,42 @@ failure case you pattern-match on, or unwrap with the `map`, `fold`,
 
 Cancelling the calling coroutine cancels the in-flight call, which propagates
 CancellationException like any other suspending Kotlin code. Cancellation never
-shows up disguised as a failure outcome. The same applies when a call is
-abandoned because the connection generation it was fenced to went stale.
+shows up disguised as a failure outcome or a transport-failure event. The same
+applies when a call is abandoned because its fenced connection generation went stale.
+
+`execute` uses one timeout budget for generation capture, handshake serialization,
+request encoding/admission, write serialization, socket write/flush, and the reply
+wait. A timeout or cancellation while queued does not retire the connection.
+Once an ordinary frame has been completely written, cancelling its reply wait also leaves the connection
+live. Aborting an incomplete write retires the exact socket because its frame may
+be partial. A started direct handshake is retired on cancellation or timeout even
+after the frame is written, because its server-side state may have changed.
+An enclosing coroutine timeout is caller cancellation, not the request's owned
+timeout. A completed ordinary reply remains valid if its generation subsequently
+loses the transport; replacing the generation still cancels stale work.
+
+`commitIfCurrent` and `commitIfLive` run their blocks under the generation lock.
+Keep those blocks short and non-blocking: do not perform I/O or wait for another
+HTSP operation inside them, because admission and the reader need the same lock.
+
+Socket creation, DNS resolution, connect, and writes run on the supplied I/O
+dispatcher; it must accommodate concurrent blocking reader and writer work, such
+as `Dispatchers.IO`. Blocking socket operations are caller-owned and cancellation
+closes their captured raw socket before waiting for the worker to finish. System
+DNS and arbitrary application factories cannot be reliably interrupted; their
+workers must return before cancellation completes. `connectTimeoutMs` bounds TCP
+connect, not DNS or factory execution. Late factory sockets are closed rather than
+installed after cancellation.
+
+The transport's silence watchdog uses twice the configured handshake response
+timeout. Before a frame starts, it requires both that much incoming silence and
+an outstanding fully written request of that age; previous idle time and local
+write/dispatcher queues do not count against the server. A partial frame may recover
+from a socket timeout, but a consecutive timeout streak gets only the same
+watchdog interval of grace after its first timeout. Successful byte progress resets that grace. Expiration
+is checked at socket-read timeout boundaries, so a long socket-read timeout also
+delays detection. A connection with neither pending work nor a partial frame may
+remain idle indefinitely.
 
 ## Metadata and subscription event streams
 
@@ -139,8 +173,8 @@ falls back to `subscriptionLive` and does not promise exact live mode.
 
 `HtspBinary` owns its content and retains content equality and redacted
 rendering. Public construction and standalone map decoding take a defensive
-snapshot; typed mux decoding transfers the codec-owned payload internally so
-the playback path does not create another payload-sized array. Use `size` to
+snapshot; typed mux decoding and private typed file reads transfer codec-owned
+payloads internally without another payload-sized array. Use `size` to
 allocate the final consumer buffer and `copyInto` to write directly into it.
 The bounded copy returns the number of bytes written and copies only the prefix
 that fits after the requested destination offset. `toByteArray()` remains

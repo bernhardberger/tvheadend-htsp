@@ -256,7 +256,9 @@ internal class HtspServiceTypedEventTest : HtspServiceLifecycleFixture() {
                             HtspTransportFailureKind.INCOMPATIBLE_SERVER,
                             withTimeout(1_000L) { failure.await() }.failure.kind,
                         )
-                        if (!late) assertTrue(withTimeout(1_000L) { pending.await() }.isFailure)
+                        if (!late) {
+                            assertSame(HtspResult.TransportUnavailable, withTimeout(1_000L) { pending.await() }.getOrThrow())
+                        }
                         assertEquals(
                             listOf(HtspSubscriptionEvent.Terminated(HtspSubscriptionTermination.MALFORMED_MESSAGE)),
                             withTimeout(1_000L) { events.await() },
@@ -327,10 +329,7 @@ internal class HtspServiceTypedEventTest : HtspServiceLifecycleFixture() {
                     HtspTransportFailureKind.INCOMPATIBLE_SERVER,
                     withTimeout(1_000L) { failure.await() }.failure.kind,
                 )
-                assertTrue(
-                    withTimeout(1_000L) { pending.await() }.exceptionOrNull()
-                        is kotlinx.coroutines.CancellationException,
-                )
+                assertSame(HtspResult.TransportUnavailable, withTimeout(1_000L) { pending.await() }.getOrThrow())
                 service.close()
             }
         }

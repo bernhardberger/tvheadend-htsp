@@ -1156,10 +1156,7 @@ internal class HtspServiceSubscriptionEventTest : HtspServiceLifecycleFixture() 
                     HtspTransportFailureKind.INCOMPATIBLE_SERVER,
                     withTimeout(1_000L) { failure.await() }.failure.kind,
                 )
-                assertTrue(
-                    withTimeout(1_000L) { pending.await() }.exceptionOrNull()
-                        is kotlinx.coroutines.CancellationException,
-                )
+                assertSame(HtspResult.TransportUnavailable, withTimeout(1_000L) { pending.await() }.getOrThrow())
                 assertEquals(
                     listOf(
                         HtspSubscriptionEvent.Terminated(

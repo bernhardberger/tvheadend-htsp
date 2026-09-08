@@ -422,7 +422,9 @@ internal object `HtspRequestCodecs-internal` {
 
         is FileOpenRequest -> decodeFileOpen(fields)
 
-        is FileReadRequest -> FileReadResponse(HtspBinary(fields.requiredBinary("data")))
+        is FileReadRequest -> FileReadResponse(
+            fields["data"] as? HtspBinary ?: HtspBinary(fields.requiredBinary("data")),
+        )
 
         is FileCloseRequest -> decodeFileClose(fields)
 

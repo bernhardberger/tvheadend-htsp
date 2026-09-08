@@ -10,6 +10,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.async
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
@@ -21,7 +22,9 @@ import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.atomic.AtomicInteger
+import kotlin.concurrent.thread
 
 internal class HtspServiceDirectHandshakeTest : HtspServiceLifecycleFixture() {
 
@@ -453,7 +456,7 @@ internal class HtspServiceDirectHandshakeTest : HtspServiceLifecycleFixture() {
     }
 
     @Test
-    fun cancelledHandshakeWaitingForSerializationDoesNotRetireItsGeneration() {
+    fun cancelledOrTimedOutHandshakeWaitingForSerializationDoesNotRetireItsGeneration() {
         val firstRecaptureReached = CompletableDeferred<Unit>()
         val resumeFirstRecapture = CompletableDeferred<Unit>()
         FakeHtspServer(
@@ -491,8 +494,34 @@ internal class HtspServiceDirectHandshakeTest : HtspServiceLifecycleFixture() {
                 waiting.cancel()
                 val cancellation = runCatching { waiting.await() }.exceptionOrNull()
                 assertTrue(cancellation is CancellationException)
+                assertSame(HtspResult.Timeout, service.authenticate(50L, generation))
+                assertTrue(service.liveConnection.value != null)
                 assertTrue(!server.awaitPostHandshakeRequestCount(2, 150L))
                 assertTrue(service.isCurrent(generation))
+
+                val lockHeld = CountDownLatch(1)
+                val captureStarted = CountDownLatch(1)
+                val releaseLock = CountDownLatch(1)
+                val holder = thread(name = "hold-htsp-generation-capture") {
+                    service.commitIfCurrent(generation) {
+                        lockHeld.countDown()
+                        check(releaseLock.await(3, TimeUnit.SECONDS))
+                    }
+                }
+                try {
+                    assertTrue(lockHeld.await(1, TimeUnit.SECONDS))
+                    val delayedCapture = async(Dispatchers.IO) {
+                        captureStarted.countDown()
+                        service.authenticate(500L, generation)
+                    }
+                    assertTrue(captureStarted.await(1, TimeUnit.SECONDS))
+                    delay(600L)
+                    releaseLock.countDown()
+                    assertSame(HtspResult.Timeout, withTimeout(250L) { delayedCapture.await() })
+                } finally {
+                    releaseLock.countDown()
+                    holder.join(1_000L)
+                }
 
                 resumeFirstRecapture.complete(Unit)
                 assertTrue(first.await() is HtspResult.Ok)

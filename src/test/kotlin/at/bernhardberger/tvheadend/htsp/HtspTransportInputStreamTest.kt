@@ -18,7 +18,7 @@ class HtspTransportInputStreamTest {
     fun timeoutBeforeCurrentFrameBytes_propagatesWithoutRetryOrLog() {
         val entries = mutableListOf<LogEntry>()
         val source = TimeoutBeforeBytesInputStream()
-        val input = HtspTransportInputStream(source, logger(entries))
+        val input = HtspTransportInputStream(source, logger(entries), timeoutGraceMs = 100L)
         input.beginFrame()
 
         assertThrows(SocketTimeoutException::class.java) {
@@ -39,6 +39,7 @@ class HtspTransportInputStreamTest {
         val input = HtspTransportInputStream(
             PartialThenTimeoutInputStream(encodedFrames, partialByteCount = 2),
             logger(entries),
+            timeoutGraceMs = 100L,
         )
         input.beginFrame()
 
@@ -54,6 +55,53 @@ class HtspTransportInputStreamTest {
         assertEquals(HtspLogLevel.WARNING, entries.single().level)
         assertTrue(entries.single().message.contains("current HTSP frame"))
         assertTrue(entries.single().cause is SocketTimeoutException)
+    }
+
+    @Test
+    fun persistentPartialTimeoutExpiresAtGraceBoundary() {
+        val source = TimedInputStream(listOf(0 to 0L, null to 0L, null to 99L, null to 100L))
+        val input = HtspTransportInputStream(source, HtspLogger.None, 100L) { source.nowMs * 1_000_000L }
+        input.beginFrame()
+        assertEquals(0, input.read())
+        assertThrows(SocketTimeoutException::class.java) { input.read() }
+        assertEquals(4, source.readCalls)
+        assertEquals(1, input.frameBytesRead())
+    }
+
+    @Test
+    fun successfulByteProgressResetsTimeoutGrace() {
+        val source = TimedInputStream(
+            listOf(1 to 0L, null to 0L, 2 to 90L, null to 95L, null to 190L, 3 to 190L),
+        )
+        val input = HtspTransportInputStream(source, HtspLogger.None, 100L) { source.nowMs * 1_000_000L }
+        input.beginFrame()
+        assertEquals(1, input.read())
+        assertEquals(2, input.read())
+        assertEquals(3, input.read())
+        assertEquals(6, source.readCalls)
+    }
+
+    @Test
+    fun firstPartialTimeoutStillRetriesWhenSocketTimeoutExceedsGrace() {
+        val source = TimedInputStream(listOf(0 to 0L, null to 1_000L, null to 2_000L))
+        val input = HtspTransportInputStream(source, HtspLogger.None, 100L) { source.nowMs * 1_000_000L }
+        input.beginFrame()
+        assertEquals(0, input.read())
+        assertThrows(SocketTimeoutException::class.java) { input.read() }
+        assertEquals(3, source.readCalls)
+    }
+
+    private class TimedInputStream(private val reads: List<Pair<Int?, Long>>) : InputStream() {
+        var nowMs = 0L
+            private set
+        var readCalls = 0
+            private set
+
+        override fun read(): Int {
+            val (byte, time) = reads[readCalls++]
+            nowMs = time
+            return byte ?: throw SocketTimeoutException("Scripted timeout")
+        }
     }
 
     private fun logger(entries: MutableList<LogEntry>) =

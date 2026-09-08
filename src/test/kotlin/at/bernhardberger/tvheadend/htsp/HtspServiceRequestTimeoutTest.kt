@@ -8,8 +8,11 @@ import at.bernhardberger.tvheadend.htsp.wire.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
+import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
@@ -20,13 +23,211 @@ import kotlinx.coroutines.withTimeoutOrNull
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.net.SocketTimeoutException
 import java.util.concurrent.Executors
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
 
 internal class HtspServiceRequestTimeoutTest : HtspServiceLifecycleFixture() {
+
+    @Test
+    fun eofDuringTypedRequestReturnsTransportUnavailableForCurrentGeneration() = runBlocking {
+        FakeHtspServer(
+            respondToHello = true,
+            captureOnePostHandshakeRequest = true,
+        ).use { server ->
+            val service = service()
+            try {
+                service.connect("127.0.0.1", server.port)
+                val generation = requireNotNull(service.liveConnection.value).generation
+                val events = async(start = CoroutineStart.UNDISPATCHED) {
+                    service.subscriptionEvents(47L, generation).toList()
+                }
+                val request = async(start = CoroutineStart.UNDISPATCHED) {
+                    service.getProfiles(timeoutMs = 2_000L, expectedGeneration = generation)
+                }
+                assertTrue(server.postHandshakeRequestReceived.await(1, TimeUnit.SECONDS))
+                server.closeClientTransport()
+
+                assertSame(HtspResult.TransportUnavailable, withTimeout(1_000L) { request.await() })
+                assertTrue(service.isCurrent(generation))
+                assertNull(service.liveConnection.value)
+                assertSame(HtspResult.TransportUnavailable, service.getProfiles(expectedGeneration = generation))
+                assertEquals(
+                    listOf(HtspSubscriptionEvent.Terminated(HtspSubscriptionTermination.REMOTE_EOF)),
+                    withTimeout(1_000L) { events.await() },
+                )
+            } finally {
+                service.close()
+            }
+        }
+    }
+
+    @Test
+    fun completedOrdinaryReplySurvivesSameGenerationEofBeforeRecapture() = runBlocking {
+        FakeHtspServer(
+            respondToHello = true,
+            captureOnePostHandshakeRequest = true,
+            postHandshakeReplyFields = emptyMap(),
+        ).use { server ->
+            val recaptureReached = CompletableDeferred<Unit>()
+            val resumeRecapture = CompletableDeferred<Unit>()
+            val service = service(beforeTypedRecapture = { request ->
+                if (request is GetProfilesRequest) {
+                    recaptureReached.complete(Unit)
+                    resumeRecapture.await()
+                }
+            })
+            try {
+                service.connect("127.0.0.1", server.port)
+                val generation = requireNotNull(service.liveConnection.value).generation
+                val failure = async(start = CoroutineStart.UNDISPATCHED) {
+                    service.events.first { it is HtspTransportEvent.ConnectionFailure }
+                }
+                val request = async { service.getProfiles(expectedGeneration = generation) }
+                withTimeout(1_000L) { recaptureReached.await() }
+                server.closeClientTransport()
+                withTimeout(1_000L) { failure.await() }
+                assertNull(service.liveConnection.value)
+                resumeRecapture.complete(Unit)
+                assertEquals(HtspResult.Ok(GetProfilesResponse(null)), withTimeout(1_000L) { request.await() })
+                assertTrue(service.isCurrent(generation))
+            } finally {
+                resumeRecapture.complete(Unit)
+                service.close()
+            }
+        }
+    }
+
+    @Test
+    fun watchdogDoesNotChargePreviousIdleTimeOrOverflowLargeTimeout() = runBlocking {
+        for (responseTimeoutMs in listOf(100L, Long.MAX_VALUE)) {
+            FakeHtspServer(
+                respondToHello = true,
+                captureOnePostHandshakeRequest = true,
+            ).use { server ->
+                val clock = AtomicLong()
+                val readCycles = AtomicInteger()
+                val service = service(nanoTime = clock::get, beforeFrameRead = { readCycles.incrementAndGet() })
+                try {
+                    service.connect(
+                        "127.0.0.1", server.port,
+                        responseTimeoutMs = responseTimeoutMs, soTimeoutMs = 25,
+                    )
+                    clock.set(10_000_000_000L)
+                    var previousCycle = readCycles.get()
+                    withTimeout(1_000L) {
+                        while (readCycles.get() == previousCycle) delay(1L)
+                    }
+                    val request = async(start = CoroutineStart.UNDISPATCHED) {
+                        service.getProfiles(timeoutMs = 2_000L)
+                    }
+                    assertTrue(server.postHandshakeRequestReceived.await(1, TimeUnit.SECONDS))
+                    clock.addAndGet(199_000_000L)
+                    previousCycle = readCycles.get()
+                    withTimeout(1_000L) {
+                        while (readCycles.get() == previousCycle) delay(1L)
+                    }
+                    assertTrue(service.connectionState.value is HtspConnectionState.Connected)
+                    assertTrue(!request.isCompleted)
+                    server.replyToCapturedPostHandshakeRequest()
+                    assertEquals(HtspResult.Ok(GetProfilesResponse(null)), withTimeout(1_000L) { request.await() })
+                } finally {
+                    service.close()
+                }
+            }
+        }
+    }
+
+    @Test
+    fun watchdogDoesNotChargeTimeQueuedOnIoDispatcher() = runBlocking {
+        Executors.newFixedThreadPool(2).asCoroutineDispatcher().use { dispatcher ->
+            FakeHtspServer(respondToHello = true, captureOnePostHandshakeRequest = true).use { server ->
+                val clock = AtomicLong()
+                val readCycles = AtomicInteger()
+                val service = service(
+                    ioDispatcher = dispatcher,
+                    nanoTime = clock::get,
+                    beforeFrameRead = { readCycles.incrementAndGet() },
+                )
+                val occupied = CountDownLatch(1)
+                val release = CountDownLatch(1)
+                try {
+                    service.connect("127.0.0.1", server.port, responseTimeoutMs = 100L, soTimeoutMs = 25)
+                    val blocker = launch(dispatcher) {
+                        occupied.countDown()
+                        check(release.await(3, TimeUnit.SECONDS))
+                    }
+                    assertTrue(occupied.await(1, TimeUnit.SECONDS))
+                    val request = async(start = CoroutineStart.UNDISPATCHED) {
+                        service.getProfiles(timeoutMs = 2_000L)
+                    }
+                    clock.set(300_000_000L)
+                    val previousCycle = readCycles.get()
+                    withTimeout(1_000L) {
+                        while (readCycles.get() == previousCycle && service.liveConnection.value != null) delay(1L)
+                    }
+                    assertNotNull(service.liveConnection.value)
+                    assertTrue(!request.isCompleted)
+                    assertEquals(emptyList<String>(), server.postHandshakeMethods())
+                    release.countDown()
+                    blocker.join()
+                    assertTrue(server.postHandshakeRequestReceived.await(1, TimeUnit.SECONDS))
+                    server.replyToCapturedPostHandshakeRequest()
+                    assertTrue(withTimeout(1_000L) { request.await() } is HtspResult.Ok)
+                } finally {
+                    release.countDown()
+                    service.close()
+                }
+            }
+        }
+    }
+
+    @Test
+    fun persistentPartialFrameRetiresTransportWithAndWithoutPendingRequest() = runBlocking {
+        for (withPendingRequest in listOf(false, true)) {
+            FakeHtspServer(
+                respondToHello = true,
+                captureOnePostHandshakeRequest = withPendingRequest,
+            ).use { server ->
+                val service = service()
+                try {
+                    service.connect("127.0.0.1", server.port, responseTimeoutMs = 100L, soTimeoutMs = 25)
+                    val events = async(start = CoroutineStart.UNDISPATCHED) {
+                        service.subscriptionEvents(48L).toList()
+                    }
+                    val failure = async(start = CoroutineStart.UNDISPATCHED) {
+                        service.events.first { it is HtspTransportEvent.ConnectionFailure }
+                    }
+                    val request = if (withPendingRequest) {
+                        async(start = CoroutineStart.UNDISPATCHED) { service.getProfiles(timeoutMs = 2_000L) }
+                    } else {
+                        null
+                    }
+                    if (withPendingRequest) {
+                        assertTrue(server.postHandshakeRequestReceived.await(1, TimeUnit.SECONDS))
+                    }
+                    server.sendRaw(byteArrayOf(0))
+
+                    assertEquals(
+                        listOf(HtspSubscriptionEvent.Terminated(HtspSubscriptionTermination.TIMEOUT)),
+                        withTimeout(1_500L) { events.await() },
+                    )
+                    val transportFailure = withTimeout(1_000L) { failure.await() } as HtspTransportEvent.ConnectionFailure
+                    assertEquals(HtspTransportFailureKind.CONNECTION_TIMEOUT, transportFailure.failure.kind)
+                    assertNull(service.liveConnection.value)
+                    request?.let { assertSame(HtspResult.TransportUnavailable, withTimeout(1_000L) { it.await() }) }
+                } finally {
+                    service.close()
+                }
+            }
+        }
+    }
 
     @Test
     fun staleSubscriptionCommandCannotUseReplacementTransport() {

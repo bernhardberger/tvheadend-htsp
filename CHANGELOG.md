@@ -1,5 +1,36 @@
 # Changelog
 
+## [0.9.0]
+
+**BREAKING (behavior; Kotlin source and JVM signatures unchanged):** request
+timeouts now include local serialization and socket writes. Cancellation and
+transport-loss outcomes follow the boundaries described below.
+
+Transport loss during a typed request now returns `TransportUnavailable` for the
+current generation instead of spuriously cancelling the caller. Failed or aborted
+partial writes retire their exact socket before another request can reuse it.
+Stale request fences remain cancellation even after a failed replacement leaves
+no transport live. Caller cancellation does not emit a spurious transport failure.
+Completed ordinary replies survive same-generation transport loss during result
+delivery; generation replacement still rejects stale results.
+
+Socket setup and writes now run on the supplied I/O dispatcher with caller-owned
+workers and socket-close cancellation. Request deadlines include handshake/write
+serialization and write/flush time, not just the reply wait. Cancellation while
+queued or after a complete ordinary frame leaves the shared connection live.
+System DNS and application socket factories remain subject to their own blocking
+behavior; the TCP connect timeout does not bound those operations.
+
+The silence watchdog uses monotonic time since complete writes and no longer
+charges previous idle time or local queues to the server. Partial frames retain
+alignment across transient socket timeouts but retire the transport when a
+consecutive timeout streak exhausts its grace interval, including when no requests
+are pending.
+
+Typed file reads transfer their private decoder-owned payload rather than copy
+it again. Public binary construction and standalone decoding still take defensive
+snapshots, and byte-array accessors still return copies.
+
 ## [0.8.0]
 
 **BREAKING (behavior; Kotlin source and JVM signatures unchanged):**
