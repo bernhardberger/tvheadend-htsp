@@ -33,9 +33,9 @@ runtime. It contains no Android, Media3, or decoder code.
 ## Installation
 
 The exact immutable release coordinate is
-`at.bernhardberger.tvheadend:htsp:0.9.0`. It is available from
-[Maven Central](https://central.sonatype.com/artifact/at.bernhardberger.tvheadend/htsp/0.9.0),
-with the [repository files](https://repo1.maven.org/maven2/at/bernhardberger/tvheadend/htsp/0.9.0/)
+`at.bernhardberger.tvheadend:htsp:0.10.0`. It is available from
+[Maven Central](https://central.sonatype.com/artifact/at.bernhardberger.tvheadend/htsp/0.10.0),
+with the [repository files](https://repo1.maven.org/maven2/at/bernhardberger/tvheadend/htsp/0.10.0/)
 available directly.
 
 The Gradle dependency is:
@@ -43,7 +43,7 @@ The Gradle dependency is:
 <!-- dependency-static:htsp -->
 ```kotlin
 dependencies {
-    implementation("at.bernhardberger.tvheadend:htsp:0.9.0")
+    implementation("at.bernhardberger.tvheadend:htsp:0.10.0")
 }
 ```
 
