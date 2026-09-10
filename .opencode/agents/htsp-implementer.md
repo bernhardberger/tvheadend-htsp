@@ -1,8 +1,8 @@
 ---
 description: Writable HTSP protocol-library implementer for one delegated, bounded code slice with tests and the build gate; never commits, tags, publishes, or reaches a server
 mode: subagent
-model: anthropic/claude-sonnet-5
-variant: high
+model: openai/gpt-6-astra
+variant: medium
 steps: 120
 permission:
   edit: allow
@@ -52,8 +52,9 @@ diff, runs the final gate, and commits.
 - Do not edit `docs/`, `AGENTS.md`, `.opencode/`, `CHANGELOG`, version fields,
   or `api/htsp.api` unless the packet names the exact file. When an ABI update
   is authorized, use the documented ABI dump task, never a hand edit.
-- If the slice needs a decision the packet does not cover, stop and return the
-  question instead of guessing.
+- Resolve routine implementation choices within the accepted requirements and
+  named paths, recording the reason. Return consequential product or authority
+  gaps and missing load-bearing evidence to the primary rather than guessing.
 
 ## Build rules
 

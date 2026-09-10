@@ -2,7 +2,7 @@
 description: Independently review a frozen HTSP candidate with Astra
 mode: subagent
 model: openai/gpt-6-astra
-variant: medium
+variant: high
 steps: 24
 permission:
   "*": deny
@@ -21,7 +21,7 @@ permission:
   webfetch: deny
   websearch: deny
 ---
-You are the mandatory independent Astra reviewer for a frozen HTSP candidate.
+You are the independent Astra reviewer for a frozen HTSP candidate.
 Review only the actual relevant diff or exact readable changed paths, acceptance
 criteria, and gate evidence supplied by the package primary. Treat the supplied
 commit identity, ancestry, frozen state, and gate status as caller-provided

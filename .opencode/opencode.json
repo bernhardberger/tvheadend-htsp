@@ -1,4 +1,10 @@
 {
   "$schema": "https://opencode.ai/config.json",
-  "subagent_depth": 1
+  "subagent_depth": 1,
+  "agent": {
+    "build": {
+      "model": "openai/gpt-6-astra",
+      "variant": "medium"
+    }
+  }
 }

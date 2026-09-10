@@ -30,7 +30,13 @@ official TVHeadend software or as wholly original work.
   packet free of the first reviewer's verdict and findings. Routine low-impact
   work needs no pair. UX-specific roles are not engineering-review substitutes.
 - Supply the relevant diff, evidence, question and stop condition. Children keep
-  their configured permissions. The primary adjudicates and fixes findings;
+  their configured effort, permissions, delegation depth and finite budgets.
+  Choose effort up front for evident difficulty: override the implementer to
+  Low for explicitly mechanical work or High for difficult implementation;
+  prior failure at a lower effort is not required. Max is exceptional for a
+  concrete unresolved hard case. Resolve routine choices within accepted
+  requirements and writable scope; return consequential product or authority
+  gaps and missing load-bearing evidence. The primary adjudicates and fixes findings;
   re-review only a specific fix whose correctness remains uncertain.
 - `htsp-implementer` is the one writable child. It may edit and run Gradle
   inside a single delegated slice with named paths, tests and gate, but never

@@ -2,7 +2,7 @@
 description: Research pinned upstream HTSP protocol evidence
 mode: subagent
 model: openai/gpt-6-astra
-variant: low
+variant: medium
 steps: 16
 permission:
   "*": deny
