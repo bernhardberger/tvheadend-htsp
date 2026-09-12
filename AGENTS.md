@@ -29,36 +29,31 @@ official TVHeadend software or as wholly original work.
   reviewers on the same bounded change and evidence. Keep the second initial
   packet free of the first reviewer's verdict and findings. Routine low-impact
   work needs no pair. UX-specific roles are not engineering-review substitutes.
-- Supply the relevant diff, evidence, question and stop condition. Children keep
-  their configured effort, permissions, delegation depth and finite budgets.
-  Choose effort up front for evident difficulty: override the implementer to
-  Low for explicitly mechanical work or High for difficult implementation;
-  prior failure at a lower effort is not required. Max is exceptional for a
-  concrete unresolved hard case. Resolve routine choices within accepted
-  requirements and writable scope; return consequential product or authority
-  gaps and missing load-bearing evidence. The primary adjudicates and fixes findings;
-  re-review only a specific fix whose correctness remains uncertain.
-- `htsp-implementer` is the one writable child. It may edit and run Gradle
-  inside a single delegated slice with named paths, tests and gate, but never
-  commits, tags, publishes or reaches a server. The primary reviews its diff,
-  runs the final gate and owns commits. Never run it while another writer is
-  editing the same worktree.
-- Before every Opus review or follow-up dispatch, execute
-  `./review-provider-route.sh select eligible`; only successful `opus` output
-  permits dispatch. Never source the selector or its credential file. Unknown or
-  unavailable quota returns `astra` for an independent Astra fallback.
-  Record the reason and absent Opus coverage.
-- If Opus hits quota exhaustion despite preflight, abort that exact reviewer
-  through supported session control and verify it stopped. Do not wait for quota
-  reset, retry in a loop or spawn repeated Opus replacements. Continue fallback
-  and independent authorized work. Explicitly non-substitutable admitted gates
-  require central reconciliation, not silent waiver.
-- No review packages, automatic third reviewer or repeated broad audits. Model
-  and effort assignments otherwise remain in configuration; retired roles stay
-  retired. The implementing primary adjudicates both reviews and fixes supported
-  findings; follow up only unresolved findings or material changes.
+- Before any child dispatch or reviewer follow-up, read
+  `docs/review-routing.md` for packet requirements, writable-child limits, Opus
+  preflight, fallback and adjudication. Keep configured role settings and contracts.
 - Existing admitted manifests retain their explicit authority and gates; do not
   silently weaken an in-flight package.
+
+## Context and outcome routing
+
+Load only the procedure relevant to the current work:
+
+| Work | Local context |
+|---|---|
+| Instruction/harness changes or authorized task delivery | `docs/ai-engineering-harness.md` |
+| Child dispatch or review follow-up | `docs/review-routing.md` |
+| Protocol method or wire-field changes | `docs/htsp-protocol/README.md` and its pinned evidence |
+| Public API or ABI changes | `docs/public-api.md` and the ABI workflow in `docs/htsp-protocol/README.md` |
+| Kotlin ownership/type design or coroutine semantics | Matching local skill, then only its relevant reference |
+| Release preparation, signing or publication | `docs/releasing.md` |
+
+Own the authorized outcome through verification and delivery, including ordinary
+in-scope recovery. Stop for missing authority, a consequential unresolved product
+choice or a demonstrated blocker; a failed first approach alone is not a stop.
+Coordinate actual conflicting edits and Git/build actions. For centrally admitted
+work, repository/resource overlap alone is not a scheduling gate; the restricted
+writable-child rules still apply.
 
 ## Build and verify
 
@@ -70,6 +65,9 @@ automatically. CI (`.github/workflows/ci.yml`) is the authoritative gate.
   Do not clean by default or repeat successful unchanged gates for review.
   Test concrete behavior, not model names, prompt prose or hypothetical scope.
 - Review-routing verification: `./test-review-routing.sh`.
+- Low-impact instruction-only cleanup uses affected existing static/routing and
+  fresh-loading checks plus final diff/settings inspection; no mandatory reviewer
+  pair, product build or new prompt-wording tests. Explicit admitted gates remain.
 
 ## Invariants
 
@@ -92,18 +90,13 @@ automatically. CI (`.github/workflows/ci.yml`) is the authoritative gate.
 
 - One authorized task may prepare, verify, tag, publish and confirm availability.
   No separate release-preparation, review, convergence or verification packages
-  are required. Use `docs/releasing.md`; retain its artifact checks and the
-  exact publication authorization below.
+  are required. Read `docs/releasing.md` before release work; it owns the
+  authorization, credential and artifact-verification procedure.
 
 - The tagged release workflow (GitHub Actions on repository `main`, exact tag
   `v*`) is the only publication path. Preparing or checking release files never
   authorizes a tag, credential operation, publication, or release.
-- One-time setup places `MAVEN_GPG_PRIVATE_KEY`, `MAVEN_GPG_PASSPHRASE`, and
-  `CENTRAL_PORTAL_TOKEN` in the `central` GitHub Environment. Only the release
-  publish step receives them.
-- Never print release secrets or place them in source, process arguments,
-  artifacts, logs, reports, or generated output. The dedicated Maven/OpenPGP
-  key remains separate from any Android APK signing key. The tracked public key
-  and its full primary fingerprint are the signature-verification authority.
-- Never run `git tag`, `git push`, signing, or publication steps without an
-  explicit maintainer instruction for that specific operation.
+- Commits, pushes, credential use, tags, signing and publication require explicit
+  maintainer authority covering those operations and targets. An already-authorized
+  task may carry them through without repeated per-operation approval; ordinary
+  repository delivery does not authorize release operations. Never expose secrets.

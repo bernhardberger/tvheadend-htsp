@@ -4,6 +4,12 @@ One authorized owner completes preparation, the tag workflow and verification
 in one task. An ordinary release through this existing path needs no planner,
 model approval or separate convergence package. This does not authorize a tag
 or publication: retain exact maintainer authorization and the checks below.
+Authorization must cover the release operations and exact targets, including tag
+push, credential use, signing and publication. When the task already covers these,
+no repeated per-operation approval is needed. Ordinary repository commit/push
+authority does not cover release operations. The tagged GitHub Actions workflow
+on repository `main`, exact tag `v*`, is the only publication path; preparation or
+checks alone grant no tag, credential or publication authority.
 
 Releases remain provisional during the major-zero line and may contain
 intentional source, binary, or behavioral changes. Release notes must state

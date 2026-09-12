@@ -13,6 +13,10 @@ platform independence.
 
 ## Procedure
 
+Apply only the steps relevant to the current API question. Repository invariants
+take precedence: this skill does not authorize public API or ABI changes or new
+platform dependencies.
+
 1. Name the domain concept, its owning type or module, and the callers that
    need to depend on it.
 2. Choose function ownership before adding an extension, factory, helper, or

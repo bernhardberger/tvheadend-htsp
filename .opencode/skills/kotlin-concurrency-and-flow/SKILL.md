@@ -13,6 +13,10 @@ the product contract.
 
 ## Procedure
 
+Apply only the steps relevant to the current concurrency question. Preserve
+intentional transport-owned lifecycle scopes and cancellation contracts; a stored
+scope alone is not evidence of incorrect ownership.
+
 1. Identify each coroutine owner, cancellation boundary, producer, consumer,
    durable state, and transient event.
 2. Select a scope whose lifecycle owns the work; do not retain arbitrary scopes

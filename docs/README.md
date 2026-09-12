@@ -16,6 +16,10 @@ Guides for people using the library, and references for people working on it.
 
 ## Repository internals
 
+- [`ai-engineering-harness.md`](ai-engineering-harness.md): local instruction
+  maintenance, fresh-loading checks and authorized outcome delivery.
+- [`review-routing.md`](review-routing.md): child packets, independent review,
+  Opus preflight/fallback and primary adjudication.
 - [`htsp-protocol/README.md`](htsp-protocol/README.md): the upstream pin,
   wire-level reference, and maintenance notes for the hand-maintained typed
   catalog.
