@@ -1,7 +1,7 @@
 ---
 description: Locate exact HTSP declarations, tests, and protocol evidence
 mode: subagent
-model: openai/gpt-5.6-luna
+model: openai/gpt-6-luna
 variant: low
 steps: 8
 permission:

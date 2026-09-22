@@ -32,7 +32,10 @@ primary owns ordinary recovery and integration through the authorized outcome.
 ## Independent review
 
 Give the independent Astra primary and Opus second reviewers the same bounded
-change and evidence. Keep the second initial packet free of the first reviewer's
+change and evidence. There is no named Opus agent: the Opus reviewer is a
+separate `htsp-review-astra` session dispatched with task override
+`model: anthropic/claude-opus-5-5`, `reasoning: medium` (`high` for evidently
+hard packets; never above `xhigh`). Keep the second initial packet free of the first reviewer's
 verdict and findings. UX-specific roles are not engineering-review substitutes.
 The experimental Muse role is not a replacement for required reviewers and does
 not add an automatic third review.
