@@ -6,8 +6,8 @@ variant: medium
 steps: 120
 permission:
   edit: allow
-  bash: allow
-  task:
+  shell: allow
+  subagent:
     "*": deny
     htsp-locator: allow
   external_directory:

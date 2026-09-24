@@ -14,9 +14,9 @@ permission:
   glob: allow
   grep: allow
   list: allow
-  bash: deny
+  shell: deny
   edit: deny
-  task: deny
+  subagent: deny
   external_directory: deny
   webfetch: allow
   websearch: deny
