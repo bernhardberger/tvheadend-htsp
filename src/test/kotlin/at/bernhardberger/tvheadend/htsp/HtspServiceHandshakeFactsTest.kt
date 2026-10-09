@@ -123,7 +123,7 @@ internal class HtspServiceHandshakeFactsTest : HtspServiceLifecycleFixture() {
                 )
 
                 val hello = requireNotNull(server.handshakeFields["hello"])
-                assertEquals(43L, hello["htspversion"])
+                assertEquals(44L, hello["htspversion"])
                 assertEquals("Kotlin HTSP client", hello["clientname"])
                 assertTrue(!hello.containsKey("clientversion"))
                 val auth = requireNotNull(server.handshakeFields["authenticate"])

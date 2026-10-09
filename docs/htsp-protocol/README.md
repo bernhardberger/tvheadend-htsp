@@ -15,12 +15,16 @@ The upstream source bodies are not vendored here.
 
 ## Version posture
 
-The client requests HTSP v43 by default, and servers clamp the negotiated
+The client requests HTSP v44 by default, and servers clamp the negotiated
 version with `MIN(server, requested)`. Callers may explicitly request another
 version. The typed surface's coverage ceiling is TVHeadend master at
 `27295c5a`, which reports HTSP v44. v44 adds only `feAbsoluteSNR` and
-`feAbsoluteSignal` on `signalStatus`; both are decoded as optional fields and
-are absent on v43 links.
+`feAbsoluteSignal` on `signalStatus`; both are decoded as optional fields.
+The server emits them according to the frontend's signal scale, not the
+negotiated version (pinned `src/htsp_server.c:4499-4506` has no version
+guard), so a v44 server may send them on a v43 link and an older server never
+sends them. The pinned server has no other behavior that depends on a
+negotiated version of 43 or 44.
 
 HTSP protocol versions are not TVHeadend release versions. Bumping the pin is a
 manual, reviewed change: read the upstream diff, edit the Kotlin, add focused

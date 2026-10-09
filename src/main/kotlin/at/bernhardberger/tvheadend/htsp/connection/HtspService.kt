@@ -257,7 +257,7 @@ internal open class `HtspService-internal`(
         password: String? = null,
         clientName: String = clientIdentity.clientName,
         clientVersion: String = clientIdentity.clientVersion,
-        htspVersion: Int = 43,
+        htspVersion: Int = 44,
 
         connectTimeoutMs: Int = 10_000,
         responseTimeoutMs: Long = 5_000,

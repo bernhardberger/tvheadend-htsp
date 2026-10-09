@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+**BREAKING (behavior):** the client now requests HTSP v44 by default instead of
+v43 (`HtspConnectOptions.requestedProtocolVersion`). Servers still negotiate
+`MIN(server, requested)`; at the pinned TVHeadend revision nothing depends on
+a negotiated 43 versus 44, so `HtspLiveConnection.protocolVersion` reports 44
+on v44 servers. Pass `requestedProtocolVersion = 43` to keep the old request.
+
 The `api` dependency `kotlinx-coroutines-core` moves from 1.10.2 to 1.11.0, so
 consumers resolve 1.11.0 transitively. The build now uses Gradle 9.8.1.
 

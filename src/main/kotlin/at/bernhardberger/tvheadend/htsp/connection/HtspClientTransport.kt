@@ -28,7 +28,7 @@ public data class HtspConnectOptions(
     public val responseTimeoutMs: Long = 5_000L,
     public val socketReadTimeoutMs: Int = 60_000,
     public val socketBufferBytes: Int = 64 * 1_024,
-    public val requestedProtocolVersion: Int = 43,
+    public val requestedProtocolVersion: Int = 44,
     public val forceReconnect: Boolean = false,
 ) {
     init {

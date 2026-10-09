@@ -48,7 +48,7 @@ official TVHeadend software or as wholly original work.
   propagates as cancellation. Preserve the transport-owned lifecycle scopes.
   Error values never carry secrets or credentials.
 - `docs/htsp-protocol/` holds the upstream pin record and protocol notes. The
-  client requests HTSP v43 by default, while the typed surface has a v44
+  client requests HTSP v44 by default, matching the typed surface's v44
   coverage ceiling. The protocol surface is hand-maintained; a method or
   wire-field change ships with a focused regression test in the same change.
 - The public ABI is tracked in `api/htsp.api` by Kotlin Gradle plugin ABI

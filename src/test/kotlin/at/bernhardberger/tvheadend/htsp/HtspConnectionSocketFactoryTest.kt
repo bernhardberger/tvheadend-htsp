@@ -118,7 +118,7 @@ class HtspConnectionSocketFactoryTest {
         val requests = socket.requests()
         assertEquals(listOf("hello", "authenticate", "getSysTime"), requests.map { it.method })
         assertEquals(listOf(1, 2, 3), requests.map { it.seq })
-        assertEquals(43L, requests[0].fields["htspversion"])
+        assertEquals(44L, requests[0].fields["htspversion"])
         assertEquals("socket-seam-client", requests[0].fields["clientname"])
         assertEquals(setOf("method", "seq"), requests[1].fields.keys)
         assertEquals(setOf("method", "seq"), requests[2].fields.keys)
