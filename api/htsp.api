@@ -462,6 +462,7 @@ public final class at/bernhardberger/tvheadend/htsp/connection/HtspSubscriptionT
 	public static final field MALFORMED_MESSAGE Lat/bernhardberger/tvheadend/htsp/connection/HtspSubscriptionTermination;
 	public static final field PUBLICATION_FAILURE Lat/bernhardberger/tvheadend/htsp/connection/HtspSubscriptionTermination;
 	public static final field REMOTE_EOF Lat/bernhardberger/tvheadend/htsp/connection/HtspSubscriptionTermination;
+	public static final field SUBSCRIBE_REJECTED Lat/bernhardberger/tvheadend/htsp/connection/HtspSubscriptionTermination;
 	public static final field TIMEOUT Lat/bernhardberger/tvheadend/htsp/connection/HtspSubscriptionTermination;
 	public static fun getEntries ()Lkotlin/enums/EnumEntries;
 	public static fun valueOf (Ljava/lang/String;)Lat/bernhardberger/tvheadend/htsp/connection/HtspSubscriptionTermination;

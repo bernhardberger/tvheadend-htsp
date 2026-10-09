@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+**BREAKING (behavior and ABI addition):** when the server refuses `subscribe`
+with an error or access denial (`ServerError`, `AccessDenied`,
+`ConnectionLimit`, `NotSupported`), the registered `subscriptionEvents(id)` flow
+now delivers earlier events and ends with `Terminated` and the new
+`HtspSubscriptionTermination.SUBSCRIBE_REJECTED` reason, instead of staying
+open until cancellation or generation loss. A timeout or cancellation alone, or
+a reply that only fails local decoding, still leaves the flow open.
+
 **BREAKING (behavior):** the client now requests HTSP v44 by default instead of
 v43 (`HtspConnectOptions.requestedProtocolVersion`). Servers still negotiate
 `MIN(server, requested)`; at the pinned TVHeadend revision nothing depends on

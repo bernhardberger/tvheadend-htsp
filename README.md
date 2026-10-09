@@ -239,8 +239,8 @@ reaches the server. The ordered stream reports packet pressure or a rejected
 malformed packet with a trustworthy subscription id as `Dropped`. An untrustworthy
 packet envelope closes the incompatible transport. `Stopped` is an interruption:
 keep collecting because the same stream can receive another `Started`. A successful
-unsubscribe acknowledgement drains and completes the stream; generation or transport
-loss ends it with `Terminated`.
+unsubscribe acknowledgement drains and completes the stream; a server refusal of
+`subscribe`, generation loss or transport loss ends it with `Terminated`.
 
 To request a position near the live edge without invoking the exact
 `subscriptionLive` wire operation, retain an observed `Timeshift` event from the

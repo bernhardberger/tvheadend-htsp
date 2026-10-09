@@ -339,6 +339,129 @@ internal class HtspServiceSubscriptionEventTest : HtspServiceLifecycleFixture() 
     }
 
     @Test
+    fun rejectedSubscribeTerminatesTheRegisteredStreamAfterEarlierEvents() {
+        val rejections = listOf(
+            mapOf("error" to "No such channel") to HtspResult.ServerError,
+            mapOf("noaccess" to 1L) to HtspResult.AccessDenied,
+            mapOf("noaccess" to 1L, "connlimit" to 1L) to HtspResult.ConnectionLimit,
+            mapOf("error" to "Method not found") to HtspResult.NotSupported,
+        )
+        for ((replyFields, expected) in rejections) {
+            FakeHtspServer(
+                respondToHello = true,
+                captureOnePostHandshakeRequest = true,
+            ).use { server ->
+                val service = service()
+                runBlocking {
+                    service.connect(HtspEndpoint("127.0.0.1", server.port))
+                    val events = async(start = CoroutineStart.UNDISPATCHED) {
+                        service.subscriptionEvents(21L).toList()
+                    }
+                    val subscribe = async(Dispatchers.IO) {
+                        service.subscribe(subscriptionId = 21L, channelId = 1L)
+                    }
+                    assertTrue(server.postHandshakeRequestReceived.await(1, TimeUnit.SECONDS))
+                    server.sendServerMessage("subscriptionStatus", statusFields(21L, "noFreeAdapter"))
+                    server.replyToCapturedPostHandshakeRequest(replyFields)
+
+                    assertSame(expected, withTimeout(1_000L) { subscribe.await() })
+                    assertEquals(
+                        listOf(
+                            HtspSubscriptionEvent.Status::class,
+                            HtspSubscriptionEvent.Terminated::class,
+                        ),
+                        withTimeout(1_000L) { events.await() }.map { event -> event::class },
+                    )
+                    assertEquals(
+                        HtspSubscriptionEvent.Terminated(HtspSubscriptionTermination.SUBSCRIBE_REJECTED),
+                        events.await().last(),
+                    )
+                    service.disconnect()
+                }
+            }
+        }
+    }
+
+    @Test
+    fun timedOutSubscribeKeepsTheStreamOpenForLateServerEvents() {
+        FakeHtspServer(
+            respondToHello = true,
+            captureOnePostHandshakeRequest = true,
+        ).use { server ->
+            val service = service()
+            runBlocking {
+                service.connect(HtspEndpoint("127.0.0.1", server.port))
+                val events = async(start = CoroutineStart.UNDISPATCHED) {
+                    service.subscriptionEvents(22L).take(1).toList()
+                }
+                val subscribe = service.subscribe(subscriptionId = 22L, channelId = 1L, timeoutMs = 100L)
+                assertSame(HtspResult.Timeout, subscribe)
+
+                server.sendServerMessage(
+                    "subscriptionStart",
+                    mapOf("subscriptionId" to 22L, "streams" to emptyList<Map<String, Any?>>()),
+                )
+                assertTrue(withTimeout(1_000L) { events.await() }.single() is HtspSubscriptionEvent.Started)
+                service.disconnect()
+            }
+        }
+    }
+
+    @Test
+    fun locallyMalformedSubscribeReplyKeepsTheStreamOpen() {
+        FakeHtspServer(
+            respondToHello = true,
+            captureOnePostHandshakeRequest = true,
+        ).use { server ->
+            val service = service()
+            runBlocking {
+                service.connect(HtspEndpoint("127.0.0.1", server.port))
+                val events = async(start = CoroutineStart.UNDISPATCHED) {
+                    service.subscriptionEvents(23L).take(1).toList()
+                }
+                val subscribe = async(Dispatchers.IO) {
+                    service.subscribe(subscriptionId = 23L, channelId = 1L)
+                }
+                assertTrue(server.postHandshakeRequestReceived.await(1, TimeUnit.SECONDS))
+                server.replyToCapturedPostHandshakeRequest(mapOf("90khz" to "yes"))
+                assertSame(HtspResult.ServerError, withTimeout(1_000L) { subscribe.await() })
+
+                server.sendServerMessage(
+                    "subscriptionStart",
+                    mapOf("subscriptionId" to 23L, "streams" to emptyList<Map<String, Any?>>()),
+                )
+                assertTrue(withTimeout(1_000L) { events.await() }.single() is HtspSubscriptionEvent.Started)
+                service.disconnect()
+            }
+        }
+    }
+
+    @Test
+    fun lateRefusalAfterSubscribeTimeoutTerminatesTheStream() {
+        FakeHtspServer(
+            respondToHello = true,
+            captureOnePostHandshakeRequest = true,
+        ).use { server ->
+            val service = service()
+            runBlocking {
+                service.connect(HtspEndpoint("127.0.0.1", server.port))
+                val events = async(start = CoroutineStart.UNDISPATCHED) {
+                    service.subscriptionEvents(24L).toList()
+                }
+                val subscribe = service.subscribe(subscriptionId = 24L, channelId = 1L, timeoutMs = 100L)
+                assertSame(HtspResult.Timeout, subscribe)
+
+                server.replyToCapturedPostHandshakeRequest(mapOf("error" to "No free adapter"))
+                assertEquals(
+                    listOf(HtspSubscriptionEvent.Terminated(HtspSubscriptionTermination.SUBSCRIBE_REJECTED)),
+                    withTimeout(1_000L) { events.await() },
+                )
+                service.disconnect()
+            }
+        }
+    }
+
+    @Test
     fun subscribeWithoutActiveCollectionIsRejectedBeforeWireAdmission() {
         FakeHtspServer(
             respondToHello = true,

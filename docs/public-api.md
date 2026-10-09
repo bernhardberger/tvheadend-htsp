@@ -119,8 +119,15 @@ transport instead of disappearing.
 collecting: the same id may receive another `Started` with replacement stream and
 source metadata, then more packets. Do not infer retirement from status text.
 A successful unsubscribe acknowledgement drains committed events and completes
-the flow. Generation, transport or local retirement ends it with a final
-`Terminated`, even after `Stopped`. Collector cancellation remains
+the flow. When the server refuses `subscribe` with an error or access denial
+(`ServerError`, `AccessDenied`, `ConnectionLimit`, or `NotSupported`), the flow
+delivers events committed before the reply, then ends with
+`Terminated(SUBSCRIBE_REJECTED)`; the id remains used for that generation. A
+timeout or cancellation alone leaves the flow open, because the server may still
+have created the subscription; a refusal that arrives later still ends it. A
+reply that only fails local decoding returns `ServerError` but leaves the flow
+open; send `unsubscribe` to release it. Generation, transport or local
+retirement ends the flow with a final `Terminated`, even after `Stopped`. Collector cancellation remains
 `CancellationException`. Reconfiguration does not reset the subscription's
 negotiated timestamp clock or permit a second collection/subscribe for that id.
 

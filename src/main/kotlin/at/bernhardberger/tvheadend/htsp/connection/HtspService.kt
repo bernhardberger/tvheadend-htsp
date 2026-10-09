@@ -689,6 +689,7 @@ internal open class `HtspService-internal`(
         timeoutMs: Long = 5_000,
         flush: Boolean = true,
         disconnectOnTimeout: Boolean = true,
+        onReplyCommitted: ((HtspWireMessage) -> Unit)? = null,
     ): HtspWireMessage = requestInternal(
         expectedConnectionAttemptId = expectedConnectionAttemptId,
         method = method,
@@ -697,6 +698,7 @@ internal open class `HtspService-internal`(
         flush = flush,
         disconnectOnTimeout = disconnectOnTimeout,
         isRequestAdmitted = isRequestAdmitted,
+        onReplyCommitted = onReplyCommitted,
     )
 
     private suspend fun requestInternal(
@@ -1234,6 +1236,15 @@ internal open class `HtspService-internal`(
                     timeoutMs = remainingMs,
                     flush = true,
                     disconnectOnTimeout = false,
+                    onReplyCommitted = { reply ->
+                        // Only an explicit server refusal ends the stream; a reply that merely fails
+                        // local decoding may belong to a subscription the server did create.
+                        val refused = reply.fields["error"] is String || reply.fields["noaccess"] == 1L
+                        if (refused && protocolGeneration === serviceGeneration) {
+                            serviceGeneration.subscriptionStreams[request.subscriptionId]
+                                ?.terminate(HtspSubscriptionTermination.SUBSCRIBE_REJECTED)
+                        }
+                    },
                 )
             } else if (request is FileReadRequest) {
                 // Only this private, observer-free path owns the decoded file payload.

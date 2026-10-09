@@ -73,7 +73,7 @@ public sealed interface HtspSubscriptionEvent {
         }
     }
 
-    /** Final event on transport or local retirement, including after a server [Stopped]. */
+    /** Final event on transport or local retirement or a rejected `subscribe`, including after a server [Stopped]. */
     public data class Terminated(
         public val reason: HtspSubscriptionTermination,
     ) : HtspSubscriptionEvent
@@ -111,4 +111,7 @@ public enum class HtspSubscriptionTermination {
 
     /** An otherwise unclassified internal reader failure ended the stream. */
     INTERNAL_FAILURE,
+
+    /** The server refused the stream's `subscribe` request with an error or access denial. */
+    SUBSCRIBE_REJECTED,
 }
