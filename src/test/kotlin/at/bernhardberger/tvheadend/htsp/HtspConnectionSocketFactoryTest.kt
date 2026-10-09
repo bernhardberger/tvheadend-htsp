@@ -526,8 +526,7 @@ class HtspConnectionSocketFactoryTest {
                 }
                 assertTrue(workerQueued.await(1, TimeUnit.SECONDS))
                 val holder = thread(name = "hold-htsp-worker-admission") {
-                    synchronized(HtspService::class.java.getDeclaredField("connectionAttemptLock")
-                        .apply { isAccessible = true }.get(connection)) {
+                    synchronized(connection.attemptLockForTest()) {
                         lockHeld.countDown()
                         check(releaseLock.await(3, TimeUnit.SECONDS))
                     }
@@ -614,8 +613,7 @@ class HtspConnectionSocketFactoryTest {
                 val generation = requireNotNull(connection.liveConnection.value).generation
                 val holder = thread(name = "hold-htsp-admission") {
                     check(dispatchReached.await(3, TimeUnit.SECONDS))
-                    synchronized(HtspService::class.java.getDeclaredField("connectionAttemptLock")
-                        .apply { isAccessible = true }.get(connection)) {
+                    synchronized(connection.attemptLockForTest()) {
                         lockHeld.countDown()
                         check(release.await(3, TimeUnit.SECONDS))
                     }

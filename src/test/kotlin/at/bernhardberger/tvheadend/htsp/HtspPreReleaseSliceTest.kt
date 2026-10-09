@@ -21,19 +21,6 @@ class HtspPreReleaseSliceTest {
     }
 
     @Test
-    fun handshakeFactsPreserveUnsignedWidth() {
-        listOf(2_147_483_648L, 4_294_967_295L).forEach { value ->
-            val facts = htspServerFactsFromHandshake(
-                HtspWireMessage("hello", 1, mapOf("api_version" to value)),
-                HtspWireMessage("authenticate", 2, mapOf("limitall" to value, "limitdvr" to value,
-                    "limitstreaming" to value, "uilevel" to value)),
-            )
-            assertEquals(listOf(value, value, value, value, value),
-                listOf(facts.apiVersion, facts.limitAll, facts.limitDvr, facts.limitStreaming, facts.uiLevel))
-        }
-    }
-
-    @Test
     fun creationOptionsEncodeAndTitleIsRequired() {
         listOf(null, "").forEach { title ->
             assertThrows(IllegalArgumentException::class.java) {

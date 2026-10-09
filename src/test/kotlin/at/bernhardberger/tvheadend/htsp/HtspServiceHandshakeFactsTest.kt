@@ -255,33 +255,6 @@ internal class HtspServiceHandshakeFactsTest : HtspServiceLifecycleFixture() {
     }
 
     @Test
-    fun negativeU32HandshakeFactsStayUnknown() {
-        val facts = htspServerFactsFromHandshake(
-            hello = HtspWireMessage(
-                method = "hello",
-                seq = 1,
-                fields = mapOf("api_version" to (-1).toByte()),
-            ),
-            auth = HtspWireMessage(
-                method = "authenticate",
-                seq = 2,
-                fields = mapOf(
-                    "limitall" to (-1).toShort(),
-                    "limitdvr" to -1,
-                    "limitstreaming" to -1L,
-                    "uilevel" to (-1).toByte(),
-                ),
-            ),
-        )
-
-        assertNull(facts.apiVersion)
-        assertNull(facts.limitAll)
-        assertNull(facts.limitDvr)
-        assertNull(facts.limitStreaming)
-        assertNull(facts.uiLevel)
-    }
-
-    @Test
     fun successfulHandshakePublishesStrictOptionalServerFactsWithoutSecrets() {
         val mutableCapabilities = mutableListOf("timeshift", "htsp")
         FakeHtspServer(

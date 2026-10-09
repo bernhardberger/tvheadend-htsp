@@ -30,8 +30,7 @@ internal class HtspPublicationFenceTest : HtspServiceLifecycleFixture() {
                 lateinit var service: HtspService
                 service = service(afterPublicationCurrencyCheck = { event ->
                     if (event.generation === old) {
-                        val lock = HtspService::class.java.getDeclaredField("connectionAttemptLock")
-                            .apply { isAccessible = true }.get(service)
+                        val lock = service.attemptLockForTest()
                         assertTrue(Thread.holdsLock(lock))
                         checked.countDown()
                         check(release.await(5, TimeUnit.SECONDS))
@@ -56,8 +55,7 @@ internal class HtspPublicationFenceTest : HtspServiceLifecycleFixture() {
                             service.connect(HtspEndpoint("127.0.0.1", replacement.port))
                         }
                         withTimeout(2_000L) {
-                            val lock = HtspService::class.java.getDeclaredField("connectionAttemptLock")
-                                .apply { isAccessible = true }.get(service)
+                            val lock = service.attemptLockForTest()
                             val bean = java.lang.management.ManagementFactory.getThreadMXBean()
                             while (true) {
                                 val info = thread.get()?.let { bean.getThreadInfo(it.id) }

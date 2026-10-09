@@ -138,7 +138,7 @@ internal class HtspReviewDeliveryRegressionTest : HtspServiceLifecycleFixture() 
         FakeHtspServer(respondToHello = true).use { server ->
             val service = service()
             service.connect(HtspEndpoint("127.0.0.1", server.port))
-            val lock = HtspService::class.java.getDeclaredField("connectionAttemptLock").apply { isAccessible = true }.get(service)
+            val lock = service.attemptLockForTest()
             val stateReady = CompletableDeferred<Unit>()
             val liveReady = CompletableDeferred<Unit>()
             val state = async(Dispatchers.Unconfined, start = CoroutineStart.UNDISPATCHED) {
@@ -174,7 +174,7 @@ internal class HtspReviewDeliveryRegressionTest : HtspServiceLifecycleFixture() 
         FakeHtspServer(respondToHello = true, postHandshakeReplyPlan = listOf(null)).use { server ->
             val service = service()
             service.connect(HtspEndpoint("127.0.0.1", server.port))
-            val lock = HtspService::class.java.getDeclaredField("connectionAttemptLock").apply { isAccessible = true }.get(service)
+            val lock = service.attemptLockForTest()
             val call = async(Dispatchers.Unconfined, start = CoroutineStart.UNDISPATCHED) {
                 val reply = service.execute(GetProfilesRequest())
                 reply to Thread.holdsLock(lock)
@@ -207,7 +207,7 @@ internal class HtspReviewDeliveryRegressionTest : HtspServiceLifecycleFixture() 
         FakeHtspServer(respondToHello = true, postHandshakeReplyPlan = listOf(mapOf("profiles" to emptyList<Any>()))).use { server ->
             val service = service()
             service.connect(HtspEndpoint("127.0.0.1", server.port))
-            val lock = HtspService::class.java.getDeclaredField("connectionAttemptLock").apply { isAccessible = true }.get(service)
+            val lock = service.attemptLockForTest()
             val entered = CountDownLatch(1)
             val release = CountDownLatch(1)
             val first = async(Dispatchers.Unconfined, start = CoroutineStart.UNDISPATCHED) { service.events.first() }

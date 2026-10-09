@@ -3,7 +3,7 @@ package at.bernhardberger.tvheadend.htsp.connection
 import kotlinx.coroutines.channels.Channel
 import java.util.ArrayDeque
 
-/** Every operation is serialized by the owning service's connectionAttemptLock. */
+/** Every operation is serialized by the owning service's [HtspAttemptMonitor.withAttemptLock]. */
 internal class HtspMetadataEventBuffer(
     private val capacity: Int,
     private val byteCapacity: Long,

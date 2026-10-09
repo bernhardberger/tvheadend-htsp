@@ -148,8 +148,7 @@ internal class HtspServiceDirectHandshakeTest : HtspServiceLifecycleFixture() {
     }
 
     private fun readerJob(service: HtspService): kotlinx.coroutines.Job? {
-        val lock = HtspService::class.java.getDeclaredField("connectionAttemptLock")
-            .apply { isAccessible = true }.get(service)
+        val lock = service.attemptLockForTest()
         return synchronized(lock) {
             HtspService::class.java.getDeclaredField("readerJob")
                 .apply { isAccessible = true }.get(service) as kotlinx.coroutines.Job?
@@ -767,8 +766,7 @@ internal class HtspServiceDirectHandshakeTest : HtspServiceLifecycleFixture() {
                 val captureStarted = CountDownLatch(1)
                 val releaseLock = CountDownLatch(1)
                 val holder = thread(name = "hold-htsp-generation-capture") {
-                    synchronized(HtspService::class.java.getDeclaredField("connectionAttemptLock")
-                        .apply { isAccessible = true }.get(service)) {
+                    synchronized(service.attemptLockForTest()) {
                         lockHeld.countDown()
                         check(releaseLock.await(3, TimeUnit.SECONDS))
                     }
