@@ -84,6 +84,13 @@ internal object `HtspRequestCodecs-internal` {
             putIfNotNull("summary", request.summary)
             putIfNotNull("description", request.description)
             putIfNotNull("ageRating", request.ageRating)
+            putIfNotNull("enabled", request.enabled?.toWireFlag())
+            putIfNotNull("startExtra", request.startExtraMinutes)
+            putIfNotNull("stopExtra", request.stopExtraMinutes)
+            putIfNotNull("priority", request.priority)
+            putIfNotNull("retention", request.retentionDays)
+            putIfNotNull("removal", request.removalDays)
+            putIfNotNull("comment", request.comment)
         }
 
         is UpdateDvrEntryRequest -> linkedMapOf<String, Any?>()
@@ -443,6 +450,7 @@ internal object `HtspRequestCodecs-internal` {
                 conditionalAccessId = service.optionalU32("caid"),
                 conditionalAccessName = service.optionalString("caname"),
                 providerName = service.optionalString("providername"),
+                hbbtv = decodeHbbtvApplications(service, ::malformedReply),
             )
         }
         return GetChannelResponse(
@@ -649,8 +657,12 @@ private fun validateTimerecU32Fields(
     priority: Long?,
     daysOfWeekMask: Long?,
 ) {
-    startMinutesSinceMidnight?.let { requireU32("start", it) }
-    stopMinutesSinceMidnight?.let { requireU32("stop", it) }
+    startMinutesSinceMidnight?.let {
+        require(it in 0L..1439L) { "startMinutesSinceMidnight must be between 0 and 1439" }
+    }
+    stopMinutesSinceMidnight?.let {
+        require(it in 0L..1439L) { "stopMinutesSinceMidnight must be between 0 and 1439" }
+    }
     retentionDays?.let { requireU32("retention", it) }
     removalDays?.let { requireU32("removal", it) }
     priority?.let { requireU32("priority", it) }
@@ -763,6 +775,7 @@ private fun eventFromFields(fields: Map<*, *>): HtspEvent = fields.request().run
         image = optionalString("image"),
         dvrId = optionalU32("dvrId"),
         nextEventId = optionalU32("nextEventId"),
+        credits = decodeProgrammeCredits(fields, "credits", ::malformedReply),
     )
 }
 
@@ -803,13 +816,13 @@ private fun epgBroadcastObjectFromFields(fields: Map<*, *>): HtspEpgBroadcastObj
         keywords = fields.optionalSortedUniqueStringList("key"),
         seriesLinkUri = fields.optionalString("slink"),
         episodeLinkUri = fields.optionalString("elink"),
+        credits = decodeProgrammeCredits(fields, "cred", ::malformedReply),
     )
 }
 
 private fun Map<*, *>.optionalTrueFlag(name: String): Boolean {
     if (!containsKey(name)) return false
-    if (requiredU32(name) != 1L) malformedReply()
-    return true
+    return request().requiredFlag(name)
 }
 
 private fun Map<*, *>.optionalStringMap(name: String): Map<String, String>? {

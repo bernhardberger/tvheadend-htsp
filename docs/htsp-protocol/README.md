@@ -74,12 +74,32 @@ DVR policy.
 
 ## Protocol quirks and version notes
 
+`subscriptionStart` can contain duplicate top-level `meta` keys
+(`src/htsp_server.c:4370–4372`); the codec keeps the last value.
+
+Recording-file `info` is a list of stream maps (`src/dvr/dvr_rec.c:1465–1513`):
+optional type, language, audio codes, video dimensions/aspect ratio,
+90 kHz frame duration (normalized to microseconds), and subtitle IDs. Channel
+service `hbbtv` maps section strings to application lists with localized titles,
+URL and visibility strings (`src/input/mpegts/dvb_psi_hbbtv.c:104–183`). Both
+representations snapshot their collections and tolerate legacy nested data:
+the server copies saved configuration back unchecked (`src/service.c:1788–1794`,
+`src/dvr/dvr_db.c:1108–1110`). Missing, wrongly typed, or out-of-domain recording
+stream fields become null; non-map stream elements become all-null placeholders
+to preserve positions. Outer containers (`hbbtv` map, `info` list, and `credits`
+map) remain strict; credit names and roles also retain strict string validation.
+Packet `com` uses shared enum constants for unknown/commercial/non-commercial;
+future u32 codes map to `UNRECOGNIZED` (`src/streaming.h:59–63`).
+
 ### Integer flags
 
 The typed API exposes integer 0/1 flags as Boolean values, preserving nullable
 absence. Request encoding uses integer 0/1, not HTSP's separate BOOL type, where
-the pinned server reads an integer. Incoming integer flags are strict: only 0
-and 1 decode. Evidence below refers to pinned `src/htsp_server.c`:
+the pinned server reads an integer. Incoming message and reply data flags accept zero as false and any
+nonzero integer as true; non-integer types remain malformed. This includes
+normalized flags as well as raw `isNew` (`src/epg.c:1839`) and timeshift `full`.
+Reply envelope `success`, `noaccess`, and `connlimit` remain strict 0/1.
+Evidence below refers to pinned `src/htsp_server.c`:
 
 | Kotlin property / surface | Wire field | Lines |
 |---|---|---|
@@ -198,11 +218,12 @@ to `epg_object_serialize` there rather than expanded in the HTSP sender.
   access, and has no evidenced minimum. The enum has undefined and broadcast,
   but only broadcast has a serializer. Its reply combines base and broadcast
   fields: required `id`, broadcast `tp`, signed-s64 `up`, `start`, and `stop`,
-  plus bounded optional scalars, true-only flags, language maps, episode
+  plus bounded optional scalars, zero/nonzero flags, language maps, episode
   numbers, genres, and string lists. `lang_str_serialize_map` gives language
   maps strict string keys and values; string-list output is sorted and unique. `time_t` values remain Unix
-  seconds. The unconstrained copied `cred` object remains opaque and is omitted
-  from the public response. The official reply is `TODO`.
+  seconds. `cred` maps person names to role strings, produced by
+  `src/epggrab/module/xmltv.c:726–740` and serialized by `src/epg.c:1766–1768`.
+  `ratingLabel` is a rating-label UUID (`src/epg.c:1740–1742`). The official reply is `TODO`.
 - `getDvrCutpoints` preserves `dc_start_ms` and `dc_end_ms`, source TAILQ order,
   overlaps, and duplicates. The official page does not define the millisecond
   origin, chronology, overlap, or uniqueness semantics.
@@ -276,13 +297,17 @@ to `epg_object_serialize` there rather than expanded in the HTSP sender.
   larger values are ignored, overlap ends disabled, and an omitted or empty list
   leaves that side unchanged.
 - The complete shared `service` shape contains name, type, content, conditional
-  access, provider, and an opaque dynamic `hbbtv` child. A complete `getChannel`
+  access, provider, and a typed `hbbtv` child. A complete `getChannel`
   reply does not make partial `channelUpdate` semantics complete. Shared
   `stream` and `sourceInfo` are partial: stream index/type are required, known
   metadata is optional, and source metadata is independently optional. Their
   minima do not require those containers in `subscriptionStart`.
 - The complete shared `event` shape from `htsp_build_event` is used by `getEvent`, `getEvents`, and
-  `eventAdd`. Category and keyword are ordered string lists; credits are opaque.
+  `eventAdd`. Category and keyword are ordered string lists; credits are immutable
+  ordered `HtspProgrammeCredit` lists (`src/htsp_server.c:1373–1374`).
+  The producer can append repeated names (`src/epggrab/module/xmltv.c:727,740`),
+  but the codec currently keeps the last role per name because nested HTSP maps
+  use Kotlin maps. The public list can represent repeated names without a later API change.
   Update compatibility requires only `eventId`, allows every other field to be
   omitted, and merges present fields by `eventId` without claiming that pinned
   builders omit otherwise required fields.
@@ -292,6 +317,20 @@ to `epg_object_serialize` there rather than expanded in the HTSP sender.
   event/explicit-time and subscription ID/name choices have wrapper-free
   conveniences. Seek and skip use `SubscriptionSeekPosition.Time` and `.Size`
   because both values are `Long`.
+
+Persisted HbbTV service data is copied on load/save without schema validation
+(`src/service.c:1673–1679,1788–1794`). Missing or wrongly typed application
+URL/visibility and title language become null; absent title lists become empty,
+and unusable nested entries are skipped. Recording-file `info` is likewise
+copied from DVR logs (`src/dvr/dvr_db.c:1108–1110,3362–3367`): stream fields are
+optional, with missing, wrongly typed, or out-of-domain fields decoded as null.
+Non-map stream elements become all-null placeholders, preserving later stream
+indexes. The outer `hbbtv` map, `info` list, and `credits` map types remain strict.
+These snapshots compare structurally.
+
+New `addDvrEntry` creation options have no additional minimum-version gate:
+their introduction versions are unknown. Older servers predating an option
+silently ignore it and may still answer Ok.
 - The internal `decodeHtspServerMessage(Map<String, Any?>)` is the versionless finite decoder, not a public API. It treats every `seq` reply envelope, unknown or
   missing/non-string method, as unknown; malformed recognized messages are
   malformed-known. It is not a version gate. `descrambleInfo` is emitted from

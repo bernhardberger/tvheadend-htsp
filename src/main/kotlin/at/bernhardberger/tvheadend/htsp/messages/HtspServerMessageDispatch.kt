@@ -3,15 +3,15 @@ package at.bernhardberger.tvheadend.htsp.messages
 import at.bernhardberger.tvheadend.htsp.wire.HtspWireMessage
 
 /** Closed result family for decoding one candidate asynchronous HTSP message. */
-public sealed interface HtspServerMessageDecodeResult
+internal sealed interface HtspServerMessageDecodeResult
 /** Contains the recognized and fully decoded asynchronous [message]. */
-public data class HtspServerMessageDecoded(
-    public val message: HtspServerMessage,
+internal data class HtspServerMessageDecoded(
+    val message: HtspServerMessage,
 ) : HtspServerMessageDecodeResult
 /** Marks an RPC envelope or message whose method is absent, malformed, or outside the finite dispatch catalog. */
-public data object HtspServerMessageUnknownMethod : HtspServerMessageDecodeResult
+internal data object HtspServerMessageUnknownMethod : HtspServerMessageDecodeResult
 /** Marks a recognized asynchronous method whose fields failed its typed decoder. */
-public data object HtspServerMessageMalformedKnownMessage : HtspServerMessageDecodeResult
+internal data object HtspServerMessageMalformedKnownMessage : HtspServerMessageDecodeResult
 
 /**
  * Classifies one raw field map as a decoded server message, unknown method, or

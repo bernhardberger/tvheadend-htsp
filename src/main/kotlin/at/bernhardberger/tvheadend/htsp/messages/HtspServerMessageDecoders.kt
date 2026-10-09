@@ -114,6 +114,8 @@ internal fun decodeDvrEntryAdd(fields: Map<String, Any?>): HtspServerMessage = H
     playCount = fields.optionalServerAliasU32(DVR_PLAY_COUNT_KEYS),
     playPositionSeconds = fields.optionalServerAliasU32(DVR_PLAY_POSITION_KEYS),
     seasonNumber = fields.optionalU32("seasonNumber"),
+    seasonCount = fields.optionalU32("seasonCount"),
+    episodeOnscreen = fields.optionalString("episode"),
     episodeNumber = fields.optionalU32("episodeNumber"),
     episodeCount = fields.optionalU32("episodeCount"),
     partNumber = fields.optionalU32("partNumber"),
@@ -166,6 +168,8 @@ internal fun decodeDvrEntryUpdate(fields: Map<String, Any?>): HtspServerMessage 
     playCount = fields.optionalServerAliasU32(DVR_PLAY_COUNT_KEYS),
     playPositionSeconds = fields.optionalServerAliasU32(DVR_PLAY_POSITION_KEYS),
     seasonNumber = fields.optionalU32("seasonNumber"),
+    seasonCount = fields.optionalU32("seasonCount"),
+    episodeOnscreen = fields.optionalString("episode"),
     episodeNumber = fields.optionalU32("episodeNumber"),
     episodeCount = fields.optionalU32("episodeCount"),
     partNumber = fields.optionalU32("partNumber"),
@@ -277,6 +281,7 @@ internal fun decodeTimerecEntryAdd(fields: Map<String, Any?>): HtspServerMessage
         daysOfWeekMask = fields.optionalU32("daysOfWeek"),
         priority = fields.optionalU32("priority"),
         retentionDays = fields.optionalU32("retention"),
+        removalDays = fields.optionalU32("removal"),
         directory = fields.optionalString("directory"),
         owner = fields.optionalString("owner"),
         creator = fields.optionalString("creator"),
@@ -297,6 +302,7 @@ internal fun decodeTimerecEntryUpdate(fields: Map<String, Any?>): HtspServerMess
         daysOfWeekMask = fields.optionalU32("daysOfWeek"),
         priority = fields.optionalU32("priority"),
         retentionDays = fields.optionalU32("retention"),
+        removalDays = fields.optionalU32("removal"),
         directory = fields.optionalString("directory"),
         owner = fields.optionalString("owner"),
         creator = fields.optionalString("creator"),
@@ -354,6 +360,7 @@ internal fun decodeEventUpdate(fields: Map<String, Any?>): HtspServerMessage = H
     image = fields.optionalString("image"),
     dvrId = fields.optionalU32("dvrId"),
     nextEventId = fields.optionalU32("nextEventId"),
+    credits = decodeProgrammeCredits(fields, "credits") { throw HtspServerMessageMappingException() },
 )
 
 @JvmSynthetic
@@ -384,6 +391,14 @@ internal fun decodeMuxPacket(
             decodingTimeUs = fields.optionalS64("dts")?.let(clock::toMicroseconds),
             presentationTimeUs = fields.optionalS64("pts")?.let(clock::toMicroseconds),
             durationUs = clock.toMicroseconds(fields.requiredU32("duration")),
+            commercialAdvice = fields.optionalU32("com")?.let {
+                when (it) {
+                    0L -> HtspCommercialAdvice.UNKNOWN
+                    1L -> HtspCommercialAdvice.YES
+                    2L -> HtspCommercialAdvice.NO
+                    else -> HtspCommercialAdvice.UNRECOGNIZED
+                }
+            },
             payload = if (payload === ownedPayload) {
                 HtspBinary.takeOwnership(payload)
             } else {
@@ -518,6 +533,7 @@ private fun decodeServerChannelService(fields: Map<*, *>): HtspChannelService = 
         conditionalAccessId = optionalU32("caid"),
         conditionalAccessName = optionalString("caname"),
         providerName = optionalString("providername"),
+        hbbtv = decodeHbbtvApplications(fields) { throw HtspServerMessageMappingException() },
     )
 }
 
@@ -528,6 +544,30 @@ private fun decodeDvrRecordingFile(fields: Map<*, *>): HtspDvrRecordingFile = fi
         startEpochSeconds = optionalS64("start"),
         stopEpochSeconds = optionalS64("stop"),
         sizeBytes = optionalS64("size"),
+        info = if (contains("info")) {
+            val entries = value("info") as? List<*> ?: throw HtspServerMessageMappingException()
+            HtspDvrRecordingInfo(entries.map { entry ->
+                // DVR logs retain arbitrary legacy stream maps (src/dvr/dvr_db.c:1108; 3362–3367).
+                // Preserve positions even for non-map entries: position is the only stream identity.
+                decodeDvrRecordingStream(entry as? Map<*, *> ?: emptyMap<Any?, Any?>())
+            })
+        } else null,
+    )
+}
+
+private fun decodeDvrRecordingStream(fields: Map<*, *>): HtspDvrRecordingStream = fields.server().run {
+    HtspDvrRecordingStream(
+        type = observedString("type"),
+        language = observedString("language"),
+        audioType = observedU32("audio_type"),
+        audioVersion = observedU32("audio_version"),
+        width = observedU32("width"),
+        height = observedU32("height"),
+        frameDurationUs = observedU32("duration")?.let(HtspTimestampClock.NINETY_KHZ::toMicroseconds),
+        aspectNumerator = observedU32("aspect_num"),
+        aspectDenominator = observedU32("aspect_den"),
+        compositionId = observedU32("composition_id"),
+        ancillaryId = observedU32("ancillary_id"),
     )
 }
 
@@ -564,6 +604,7 @@ private fun decodeServerEvent(fields: Map<*, *>): HtspEvent = HtspEvent(
     image = fields.optionalString("image"),
     dvrId = fields.optionalU32("dvrId"),
     nextEventId = fields.optionalU32("nextEventId"),
+    credits = decodeProgrammeCredits(fields, "credits") { throw HtspServerMessageMappingException() },
 )
 
 private fun decodeSubscriptionStream(fields: Map<*, *>, clock: HtspTimestampClock): HtspSubscriptionStream = fields.server().run {

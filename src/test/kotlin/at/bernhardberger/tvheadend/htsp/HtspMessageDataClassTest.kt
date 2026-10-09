@@ -381,6 +381,9 @@ class HtspMessageDataClassTest {
         image = "33",
         dvrId = 34L,
         nextEventId = 35L,
+        credits = at.bernhardberger.tvheadend.htsp.requests.HtspProgrammeCredits(listOf(
+            at.bernhardberger.tvheadend.htsp.requests.HtspProgrammeCredit("Person", "actor"),
+        )),
     )
 
     private fun eventUpdateValues(message: HtspEventUpdateMessage): List<Any?> = listOf(
@@ -419,6 +422,7 @@ class HtspMessageDataClassTest {
         message.image,
         message.dvrId,
         message.nextEventId,
+        message.credits,
     )
 
     private fun completeDvrAdd(): HtspDvrEntryAddMessage = HtspDvrEntryAddMessage(
@@ -470,6 +474,8 @@ class HtspMessageDataClassTest {
         streamErrors = 46L,
         dataErrors = 47L,
         dataSizeBytes = -48L,
+        seasonCount = 49L,
+        episodeOnscreen = "S1E1",
     )
 
     private fun completeDvrUpdate(): HtspDvrEntryUpdateMessage = HtspDvrEntryUpdateMessage(
@@ -521,6 +527,8 @@ class HtspMessageDataClassTest {
         streamErrors = 146L,
         dataErrors = 147L,
         dataSizeBytes = -148L,
+        seasonCount = 149L,
+        episodeOnscreen = "S2E1",
     )
 
     private fun dvrAddValues(message: HtspDvrEntryAddMessage): List<Any?> = listOf(
@@ -536,6 +544,7 @@ class HtspMessageDataClassTest {
         message.files, message.path, message.dvrConfigUuid, message.duplicate, message.state,
         message.error, message.subscriptionError, message.streamErrors, message.dataErrors,
         message.dataSizeBytes,
+        message.seasonCount, message.episodeOnscreen,
     )
 
     private fun dvrUpdateValues(message: HtspDvrEntryUpdateMessage): List<Any?> = listOf(
@@ -551,6 +560,7 @@ class HtspMessageDataClassTest {
         message.files, message.path, message.dvrConfigUuid, message.duplicate, message.state,
         message.error, message.subscriptionError, message.streamErrors, message.dataErrors,
         message.dataSizeBytes,
+        message.seasonCount, message.episodeOnscreen,
     )
 
     private fun assertPublicComponents(message: Any, expected: List<Any?>) {

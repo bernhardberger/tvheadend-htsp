@@ -2,6 +2,22 @@
 
 ## [Unreleased]
 
+- **BREAKING:** server facts retain full u32 values as `Long?`; decoder outcomes
+  are internal. Explicit channel/time DVR creation requires a non-empty title
+  (whitespace-only titles are accepted),
+  timerec minutes are bounded to 0..1439, and socket buffers to 1..16 MiB.
+- **BREAKING:** added properties change constructor/copy signatures for
+  `HtspMuxPacketMessage`, `HtspChannelService`, `HtspDvrRecordingFile`,
+  `HtspEvent`, `HtspEpgBroadcastObject`, DVR add/update and event-update messages,
+  and `AddDvrEntryRequest`, plus the `addDvrEntry` convenience overloads.
+  Timerec add/update messages insert `removalDays` beside `retentionDays`, shifting
+  subsequent destructuring components as well as constructor/copy signatures.
+- Decode incoming message and reply data integer flags as zero/nonzero, retaining
+  strict types; envelope `success`, `noaccess`, and `connlimit` remain strict 0/1.
+- Add DVR creation policy options, timerec removal, DVR episode details,
+  immutable recording stream/HbbTV/credit metadata, and packet commercial advice.
+- Add direct `HtspBinary.copyInto(ByteBuffer)` without an intermediate array.
+
 **BREAKING (1.0.0-rc.1 API/ABI):** quantity names now expose their units;
 matching convenience parameters and data-class copy parameters follow them.
 HTSP field names and integer widths are unchanged. Full wire-field and pinned
@@ -23,7 +39,7 @@ source evidence is in [the units table](docs/htsp-protocol/README.md#units).
 
 **BREAKING (1.0.0-rc.1 API/ABI):** integer wire flags now use Boolean values,
 with null still meaning absent/omitted. Requests encode 0/1; message decoding
-rejects non-0/1 integer flags. Changed properties and matching convenience
+accepts zero/nonzero integer flags. Changed properties and matching convenience
 parameters (names and HTSP wire field names are unchanged):
 
 | Surface | Property | Old → new |

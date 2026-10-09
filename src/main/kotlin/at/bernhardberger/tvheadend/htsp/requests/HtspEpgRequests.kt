@@ -41,6 +41,8 @@ public data class HtspEvent(
     public val image: String?,
     public val dvrId: Long?,
     public val nextEventId: Long?,
+    /** Programme credits, HTSP `credits` (src/htsp_server.c:1373–1374). */
+    public val credits: HtspProgrammeCredits? = null,
 )
 /** Contains the complete EPG event selected by `getEvent`. */
 public data class GetEventResponse(public val event: HtspEvent)
@@ -76,7 +78,7 @@ public data class HtspEpgEpisodeNumber(
     public val text: String?,
 )
 
-/** Bounded detailed broadcast record with timing, channel and event identity, flags, ratings, localized text, numbering, genres, and links; opaque credentials are omitted. */
+/** Bounded detailed broadcast record with timing, identity, flags, ratings, localized text, numbering, genres, links, and programme credits. */
 public data class HtspEpgBroadcastObject(
     public val id: Long,
     /** HTSP `up`, last-update epoch seconds. */
@@ -101,6 +103,7 @@ public data class HtspEpgBroadcastObject(
     public val aspectRatio: Long?,
     public val starRating: Long?,
     public val ageRating: Long?,
+    /** Rating-label UUID, HTSP `ratlab` (src/epg.c:1740–1742). */
     public val ratingLabel: String?,
     public val image: String?,
     public val titles: Map<String, String>?,
@@ -116,6 +119,8 @@ public data class HtspEpgBroadcastObject(
     public val keywords: List<String>?,
     public val seriesLinkUri: String?,
     public val episodeLinkUri: String?,
+    /** Programme credits, HTSP `cred` (src/epg.c:1766–1768). */
+    public val credits: HtspProgrammeCredits? = null,
 )
 
 /** Contains the detailed broadcast selected by `getEpgObject`. */

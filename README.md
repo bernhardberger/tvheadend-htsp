@@ -23,6 +23,10 @@ The public API lives under `at.bernhardberger.tvheadend.htsp` in five packages:
 The artifact uses Kotlin's standard library and `kotlinx-coroutines-core` at
 runtime. It contains no Android, Media3, or decoder code.
 
+Programme credits, HbbTV applications, and recording-file stream metadata have
+immutable typed representations. Packet payloads support direct copying into a
+caller-owned `ByteBuffer` through `HtspBinary.copyInto`, without a temporary array.
+
 ## Requirements
 
 - A Java 17 or newer runtime. The artifact is compiled for JVM 17.

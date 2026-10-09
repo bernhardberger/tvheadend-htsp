@@ -11,6 +11,8 @@ public data class HtspChannelService(
     public val conditionalAccessId: Long?,
     public val conditionalAccessName: String?,
     public val providerName: String?,
+    /** HbbTV application sections, when sent (src/htsp_server.c:911–913). */
+    public val hbbtv: HtspHbbtvApplications? = null,
 )
 
 /** A complete channel reply with identity, numbering, display data, current and next event IDs, services, and tag IDs. */

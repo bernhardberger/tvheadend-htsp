@@ -16,6 +16,11 @@ public data class HtspMuxPacketMessage(
     public val presentationTimeUs: Long?,
     public val durationUs: Long,
     public val payload: HtspBinary,
+    /**
+     * HTSP `com`, decoded to a shared enum constant (src/streaming.h:59–63;
+     * src/htsp_server.c:4213–4214).
+     */
+    public val commercialAdvice: HtspCommercialAdvice? = null,
 ) : HtspServerMessage {
     init {
         requireU32("subscriptionId", subscriptionId)
@@ -28,6 +33,18 @@ public data class HtspMuxPacketMessage(
 }
 
 private val HTSP_MUX_FRAME_TYPES = setOf(-1L, 66L, 73L, 80L)
+
+/** Commercial advice for packet consumers. Future u32 codes map to [UNRECOGNIZED]. */
+public enum class HtspCommercialAdvice {
+    /** Server has no advice (`0`). */
+    UNKNOWN,
+    /** Commercial content (`1`). */
+    YES,
+    /** Non-commercial content (`2`). */
+    NO,
+    /** A future code, distinct from missing advice and explicit unknown. */
+    UNRECOGNIZED,
+}
 
 /** Queue counters for one subscription: queued packets and bytes, optional delay and data errors, and dropped B-, P-, and I-frame counts. */
 public data class HtspQueueStatusMessage(

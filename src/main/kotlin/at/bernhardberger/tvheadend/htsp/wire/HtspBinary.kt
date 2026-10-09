@@ -32,6 +32,17 @@ public class HtspBinary private constructor(bytes: ByteArray, copy: Boolean) {
         return copied
     }
 
+    /**
+     * Writes all content at [destination]'s position and advances it, without an intermediate array.
+     * @return the number of bytes copied
+     * @throws java.nio.BufferOverflowException if the remaining destination space is insufficient
+     * @throws java.nio.ReadOnlyBufferException if the destination is read-only
+     */
+    public fun copyInto(destination: java.nio.ByteBuffer): Int {
+        destination.put(content)
+        return content.size
+    }
+
     /** Returns a new copy on every access. */
     public fun toByteArray(): ByteArray = content.copyOf()
 

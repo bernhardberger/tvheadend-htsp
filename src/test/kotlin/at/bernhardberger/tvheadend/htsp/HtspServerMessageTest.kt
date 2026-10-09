@@ -83,7 +83,7 @@ class HtspServerMessageTest {
             val message = decodeMessage(fields(flag)) as HtspSubscriptionStartMessage
             assertEquals(expected, checkNotNull(message.streams).single().rdsUecp)
         }
-        listOf(null, -1L, 2L, 0xffff_ffffL, true, "1").forEach { malformed ->
+        listOf(null, true, "1").forEach { malformed ->
             assertMalformed(fields(mapOf("rds_uecp" to malformed)))
         }
     }
@@ -111,7 +111,7 @@ class HtspServerMessageTest {
             } else {
                 assertEquals(null, readFlag(decodeMessage(fixture - field)))
             }
-            listOf(null, -1L, 2L, 0xffff_ffffL, true, "1").forEach { malformed ->
+            listOf(null, true, "1").forEach { malformed ->
                 assertMalformed(fixture + (field to malformed))
             }
         }
@@ -295,7 +295,7 @@ class HtspServerMessageTest {
         assertEquals(360, add.startMinutesSinceMidnight)
         assertEquals(1_439, add.stopMinutesSinceMidnight)
         assertEquals(31L, add.daysOfWeekMask)
-        assertFalse(add.javaClass.declaredMethods.any { it.name.contains("removal", ignoreCase = true) })
+        assertEquals(9L, add.removalDays)
 
         val allChannel = decodeMessage(
             mapOf(
@@ -348,7 +348,7 @@ class HtspServerMessageTest {
         assertMalformed(minimalFixture("timerecEntryAdd") - "enabled")
         assertMalformed(minimalFixture("timerecEntryAdd") - "start")
         assertMalformed(minimalFixture("timerecEntryAdd") - "stop")
-        assertMalformed(minimalFixture("timerecEntryAdd") + ("enabled" to 2L))
+        assertMalformed(minimalFixture("timerecEntryAdd") + ("enabled" to "2"))
         assertMalformed(minimalFixture("timerecEntryAdd") + ("channel" to -1L))
         assertMalformed(minimalFixture("timerecEntryAdd") + ("channel" to 0x1_0000_0000L))
         assertMalformed(minimalFixture("timerecEntryAdd") + ("start" to -2L))
@@ -377,7 +377,7 @@ class HtspServerMessageTest {
         }
 
         listOf(
-            "enabled" to 2L,
+            "enabled" to "2",
             "name" to 7L,
             "title" to false,
             "channel" to -1L,
@@ -508,12 +508,12 @@ class HtspServerMessageTest {
         )
 
         listOf(
-            addFields + ("enabled" to 2L),
+            addFields + ("enabled" to "2"),
             addFields + ("maxDuration" to 0x1_0000_0000L),
             addFields + ("start" to (Int.MAX_VALUE.toLong() + 1L)),
             addFields + ("stopExtra" to 1),
             addFields + ("title" to null),
-            addFields + ("fulltext" to 2L),
+            addFields + ("fulltext" to "2"),
             addFields + ("comment" to listOf("bad")),
             addFields + ("name" to 1L),
             addFields + ("owner" to false),
@@ -523,7 +523,7 @@ class HtspServerMessageTest {
             mapOf("method" to "autorecEntryUpdate", "id" to "rule", "channel" to -1L),
             mapOf("method" to "autorecEntryUpdate", "id" to "rule", "startWindow" to Long.MIN_VALUE),
             mapOf("method" to "autorecEntryUpdate", "id" to "rule", "comment" to listOf("bad")),
-            mapOf("method" to "autorecEntryUpdate", "id" to "rule", "mergetext" to 2L),
+            mapOf("method" to "autorecEntryUpdate", "id" to "rule", "mergetext" to "2"),
             mapOf("method" to "autorecEntryDelete"),
             mapOf("method" to "autorecEntryDelete", "id" to 1L),
         ).forEach(::assertMalformed)

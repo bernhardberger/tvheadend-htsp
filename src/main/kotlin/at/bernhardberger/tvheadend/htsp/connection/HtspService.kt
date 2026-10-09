@@ -1835,7 +1835,7 @@ private fun HtspServerFacts.withHelloObservations(hello: HelloResponse): HtspSer
     webRoot = hello.webRoot,
     language = hello.language,
     serverCapabilities = hello.serverCapabilities,
-    apiVersion = hello.apiVersion.toExistingIntObservation(),
+    apiVersion = hello.apiVersion,
 )
 
 private fun HtspServerFacts.withAuthenticateObservations(
@@ -1846,10 +1846,10 @@ private fun HtspServerFacts.withAuthenticateObservations(
     dvr = auth.dvr,
     failedDvr = auth.failedDvr,
     anonymous = auth.anonymous,
-    limitAll = auth.limitAll.toExistingIntObservation(),
-    limitDvr = auth.limitDvr.toExistingIntObservation(),
-    limitStreaming = auth.limitStreaming.toExistingIntObservation(),
-    uiLevel = auth.uiLevel.toExistingIntObservation(),
+    limitAll = auth.limitAll,
+    limitDvr = auth.limitDvr,
+    limitStreaming = auth.limitStreaming,
+    uiLevel = auth.uiLevel,
     uiLanguage = auth.uiLanguage,
 )
 
@@ -1866,14 +1866,11 @@ private fun HtspServerFacts.withoutAuthenticateObservations(): HtspServerFacts =
     uiLanguage = null,
 )
 
-private fun Long?.toExistingIntObservation(): Int? =
-    this?.takeIf { it <= Int.MAX_VALUE.toLong() }?.toInt()
-
 /**
  * Strict hello/authenticate observation mapping for public [HtspServerFacts].
  *
  * Unlike the permissive [HtspWireMessage] helpers used elsewhere, newly published facts reject
- * string/floating-point coercion, truncation, and non-0/1 boolean synthesis. Missing or
+ * string/floating-point coercion and truncation. Integer flags use zero/nonzero. Missing or
  * malformed values stay unknown (`null`). Empty strings and empty capability lists are kept as
  * observed values. Capability lists are copied into an unmodifiable snapshot.
  */
@@ -1905,7 +1902,7 @@ private fun observedHtspString(message: HtspWireMessage, key: String): String? {
     return value as? String
 }
 
-private fun observedHtspU32(message: HtspWireMessage, key: String): Int? {
+private fun observedHtspU32(message: HtspWireMessage, key: String): Long? {
     val value = message.fields[key] ?: return null
     val integral = when (value) {
         is Byte -> value.toLong()
@@ -1914,7 +1911,7 @@ private fun observedHtspU32(message: HtspWireMessage, key: String): Int? {
         is Long -> value
         else -> return null
     }
-    return integral.takeIf { it in 0L..Int.MAX_VALUE.toLong() }?.toInt()
+    return integral.takeIf { it in 0L..0xffff_ffffL }
 }
 
 private fun observedHtspAccessFlag(message: HtspWireMessage, key: String): Boolean? {
@@ -1926,11 +1923,7 @@ private fun observedHtspAccessFlag(message: HtspWireMessage, key: String): Boole
         is Long -> value
         else -> return null
     }
-    return when (integral) {
-        0L -> false
-        1L -> true
-        else -> null
-    }
+    return integral != 0L
 }
 
 private fun observedHtspStringList(message: HtspWireMessage, key: String): List<String>? {

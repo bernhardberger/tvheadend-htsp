@@ -1,6 +1,7 @@
 package at.bernhardberger.tvheadend.htsp.messages
 
 import at.bernhardberger.tvheadend.htsp.requests.HtspEvent
+import at.bernhardberger.tvheadend.htsp.requests.HtspProgrammeCredits
 import at.bernhardberger.tvheadend.htsp.wire.immutableSnapshot
 import at.bernhardberger.tvheadend.htsp.wire.requireU32
 
@@ -108,6 +109,8 @@ public data class HtspEventUpdateMessage private constructor(
     public val image: String? = null,
     public val dvrId: Long? = null,
     public val nextEventId: Long? = null,
+    /** Programme credits, HTSP `credits` (src/htsp_server.c:1373–1374). */
+    public val credits: HtspProgrammeCredits? = null,
     private val immutableSnapshot: Unit,
 ) : HtspServerMessage {
     public constructor(
@@ -146,6 +149,7 @@ public data class HtspEventUpdateMessage private constructor(
         image: String? = null,
         dvrId: Long? = null,
         nextEventId: Long? = null,
+        credits: HtspProgrammeCredits? = null,
     ) : this(
         eventId = eventId,
         channelId = channelId,
@@ -182,6 +186,7 @@ public data class HtspEventUpdateMessage private constructor(
         image = image,
         dvrId = dvrId,
         nextEventId = nextEventId,
+        credits = credits,
         immutableSnapshot = Unit,
     )
 
@@ -222,6 +227,7 @@ public data class HtspEventUpdateMessage private constructor(
         image: String? = this.image,
         dvrId: Long? = this.dvrId,
         nextEventId: Long? = this.nextEventId,
+        credits: HtspProgrammeCredits? = this.credits,
     ): HtspEventUpdateMessage = HtspEventUpdateMessage(
         eventId = eventId,
         channelId = channelId,
@@ -258,6 +264,7 @@ public data class HtspEventUpdateMessage private constructor(
         image = image,
         dvrId = dvrId,
         nextEventId = nextEventId,
+        credits = credits,
     )
 
     override fun toString(): String = "HtspEventUpdateMessage(<redacted>)"

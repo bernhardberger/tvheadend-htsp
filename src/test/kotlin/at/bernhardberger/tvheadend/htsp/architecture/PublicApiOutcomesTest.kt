@@ -6,6 +6,17 @@ import org.junit.jupiter.api.Test
 
 class PublicApiOutcomesTest {
     @Test
+    fun `decoder outcome hierarchy is internal`() {
+        val scope = Konsist.scopeFromDirectory("src/main/kotlin")
+        scope.classes().filter { it.name == "HtspServerMessageDecoded" }
+            .assertTrue { it.hasInternalModifier }
+        scope.interfaces().filter { it.name == "HtspServerMessageDecodeResult" }
+            .assertTrue { it.hasInternalModifier }
+        scope.objects().filter { it.name in setOf("HtspServerMessageUnknownMethod", "HtspServerMessageMalformedKnownMessage") }
+            .assertTrue { it.hasInternalModifier }
+    }
+
+    @Test
     fun `raw server message decoder is not public`() {
         Konsist.scopeFromDirectory("src/main/kotlin")
             .functions()

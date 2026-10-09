@@ -114,7 +114,14 @@ public sealed interface AddDvrEntrySelector {
     }
 }
 
-/** Requests DVR scheduling from exactly one [selector] with optional configuration, language, programme text, and age rating. */
+/**
+ * Requests DVR scheduling from exactly one [selector]. Explicit channel/time adds require a
+ * non-empty [title] (whitespace is accepted). For event-based adds the server ignores [title], [subtitle], [summary],
+ * [description], and [ageRating] (pinned src/htsp_server.c:2082–2111).
+ * Creation policy options are copied by src/htsp_server.c:2057–2070.
+ * Older servers that predate a creation option silently ignore it and may still answer Ok.
+ * These options add no minimumProtocolVersion gate because their introduction versions are unknown.
+ */
 public data class AddDvrEntryRequest(
     public val selector: AddDvrEntrySelector,
     public val configName: String? = null,
@@ -124,6 +131,17 @@ public data class AddDvrEntryRequest(
     public val summary: String? = null,
     public val description: String? = null,
     public val ageRating: Long? = null,
+    public val enabled: Boolean? = null,
+    /** Padding minutes, HTSP `startExtra`. */
+    public val startExtraMinutes: Long? = null,
+    /** Padding minutes, HTSP `stopExtra`. */
+    public val stopExtraMinutes: Long? = null,
+    public val priority: Long? = null,
+    /** Days or server DVR retention-policy sentinel. */
+    public val retentionDays: Long? = null,
+    /** Days or server DVR removal-policy sentinel. */
+    public val removalDays: Long? = null,
+    public val comment: String? = null,
 ) : HtspRequest<AddDvrEntryResponse>(
     method = "addDvrEntry",
     access = HtspAccess.ACCESS_HTSP_RECORDER,
@@ -138,6 +156,12 @@ public data class AddDvrEntryRequest(
 ), HtspDvrMutationRequest {
     init {
         ageRating?.let { requireU32("ageRating", it) }
+        require(selector !is AddDvrEntrySelector.ExplicitChannelTime || !title.isNullOrEmpty()) {
+            "Explicit channel/time DVR scheduling requires a non-empty title"
+        }
+        priority?.let { requireU32("priority", it) }
+        retentionDays?.let { requireU32("retentionDays", it) }
+        removalDays?.let { requireU32("removalDays", it) }
     }
 }
 
@@ -272,6 +296,13 @@ public suspend fun HtspConnection.addDvrEntry(
     summary: String? = null,
     description: String? = null,
     ageRating: Long? = null,
+    enabled: Boolean? = null,
+    startExtraMinutes: Long? = null,
+    stopExtraMinutes: Long? = null,
+    priority: Long? = null,
+    retentionDays: Long? = null,
+    removalDays: Long? = null,
+    comment: String? = null,
     timeoutMs: Long = 5_000L,
     expectedGeneration: HtspConnectionGeneration? = null,
 ): HtspResult<AddDvrEntryResponse> =
@@ -285,6 +316,13 @@ public suspend fun HtspConnection.addDvrEntry(
             summary = summary,
             description = description,
             ageRating = ageRating,
+            enabled = enabled,
+            startExtraMinutes = startExtraMinutes,
+            stopExtraMinutes = stopExtraMinutes,
+            priority = priority,
+            retentionDays = retentionDays,
+            removalDays = removalDays,
+            comment = comment,
         ),
         timeoutMs = timeoutMs,
         expectedGeneration = expectedGeneration,
@@ -300,6 +338,13 @@ public suspend fun HtspConnection.addDvrEntry(
     summary: String? = null,
     description: String? = null,
     ageRating: Long? = null,
+    enabled: Boolean? = null,
+    startExtraMinutes: Long? = null,
+    stopExtraMinutes: Long? = null,
+    priority: Long? = null,
+    retentionDays: Long? = null,
+    removalDays: Long? = null,
+    comment: String? = null,
     timeoutMs: Long = 5_000L,
     expectedGeneration: HtspConnectionGeneration? = null,
 ): HtspResult<AddDvrEntryResponse> =
@@ -313,6 +358,13 @@ public suspend fun HtspConnection.addDvrEntry(
             summary = summary,
             description = description,
             ageRating = ageRating,
+            enabled = enabled,
+            startExtraMinutes = startExtraMinutes,
+            stopExtraMinutes = stopExtraMinutes,
+            priority = priority,
+            retentionDays = retentionDays,
+            removalDays = removalDays,
+            comment = comment,
         ),
         timeoutMs = timeoutMs,
         expectedGeneration = expectedGeneration,
@@ -330,6 +382,13 @@ public suspend fun HtspConnection.addDvrEntry(
     summary: String? = null,
     description: String? = null,
     ageRating: Long? = null,
+    enabled: Boolean? = null,
+    startExtraMinutes: Long? = null,
+    stopExtraMinutes: Long? = null,
+    priority: Long? = null,
+    retentionDays: Long? = null,
+    removalDays: Long? = null,
+    comment: String? = null,
     timeoutMs: Long = 5_000L,
     expectedGeneration: HtspConnectionGeneration? = null,
 ): HtspResult<AddDvrEntryResponse> =
@@ -343,6 +402,13 @@ public suspend fun HtspConnection.addDvrEntry(
             summary = summary,
             description = description,
             ageRating = ageRating,
+            enabled = enabled,
+            startExtraMinutes = startExtraMinutes,
+            stopExtraMinutes = stopExtraMinutes,
+            priority = priority,
+            retentionDays = retentionDays,
+            removalDays = removalDays,
+            comment = comment,
         ),
         timeoutMs = timeoutMs,
         expectedGeneration = expectedGeneration,

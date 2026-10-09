@@ -33,11 +33,7 @@ internal class `HtspFieldReader-internal`(
     internal fun optionalBoundedInt(name: String, range: IntRange): Int? =
         if (contains(name)) requiredBoundedInt(name, range) else null
 
-    internal fun requiredFlag(name: String): Boolean = when (requiredS64(name)) {
-        0L -> false
-        1L -> true
-        else -> fail()
-    }
+    internal fun requiredFlag(name: String): Boolean = requiredS64(name) != 0L
 
     internal fun optionalFlag(name: String): Boolean? =
         if (contains(name)) requiredFlag(name) else null
@@ -71,11 +67,7 @@ internal class `HtspFieldReader-internal`(
     internal fun observedU32(name: String): Long? =
         (fields[name] as? Long)?.takeIf { it in 0L..HTSP_U32_MAX }
 
-    internal fun observedFlag(name: String): Boolean? = when (fields[name]) {
-        0L -> false
-        1L -> true
-        else -> null
-    }
+    internal fun observedFlag(name: String): Boolean? = (fields[name] as? Long)?.let { it != 0L }
 
     internal fun observedStringList(name: String): List<String>? {
         val source = fields[name] as? List<*> ?: return null

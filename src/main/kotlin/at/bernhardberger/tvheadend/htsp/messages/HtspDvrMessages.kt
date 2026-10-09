@@ -3,6 +3,37 @@ package at.bernhardberger.tvheadend.htsp.messages
 import at.bernhardberger.tvheadend.htsp.wire.immutableSnapshot
 import at.bernhardberger.tvheadend.htsp.wire.requireU32
 
+/**
+ * Stream details in recording-file `info` (src/dvr/dvr_rec.c:1465–1513).
+ * Fields are optional because DVR logs are reloaded without schema validation
+ * (src/dvr/dvr_db.c:1108–1110). Missing, wrongly typed, or out-of-domain fields
+ * decode as null. Non-map stream elements become all-null placeholders so later
+ * streams retain their positions.
+ */
+public data class HtspDvrRecordingStream(
+    public val type: String? = null,
+    public val language: String? = null,
+    public val audioType: Long? = null,
+    public val audioVersion: Long? = null,
+    public val width: Long? = null,
+    public val height: Long? = null,
+    /** Wire `duration` in 90 kHz ticks, normalized to microseconds (src/parsers/parsers.c:1055). */
+    public val frameDurationUs: Long? = null,
+    public val aspectNumerator: Long? = null,
+    public val aspectDenominator: Long? = null,
+    public val compositionId: Long? = null,
+    public val ancillaryId: Long? = null,
+)
+
+/** Immutable recording-stream list available to recording-file consumers. */
+public class HtspDvrRecordingInfo(streams: List<HtspDvrRecordingStream>) {
+    /** Ordered snapshot from HTSP `info` (src/htsp_server.c:1133–1135). */
+    public val streams: List<HtspDvrRecordingStream> = streams.immutableSnapshot()
+    override fun equals(other: Any?): Boolean = other is HtspDvrRecordingInfo && streams == other.streams
+    override fun hashCode(): Int = streams.hashCode()
+    override fun toString(): String = "HtspDvrRecordingInfo(<redacted>)"
+}
+
 /** One bounded recording-file entry with optional file identity, path, time range, and byte size. */
 public data class HtspDvrRecordingFile(
     public val fileId: Long?,
@@ -12,6 +43,8 @@ public data class HtspDvrRecordingFile(
     /** HTSP `stop`, epoch seconds; null means absent (htsp_server.c:1138–1139). */
     public val stopEpochSeconds: Long?,
     public val sizeBytes: Long?,
+    /** Stream metadata, if present (src/htsp_server.c:1133–1135). */
+    public val info: HtspDvrRecordingInfo? = null,
 ) {
     init {
         fileId?.let { requireU32("fileId", it) }
@@ -73,6 +106,10 @@ public data class HtspDvrEntryAddMessage private constructor(
     public val streamErrors: Long? = null,
     public val dataErrors: Long? = null,
     public val dataSizeBytes: Long? = null,
+    /** Season total emitted by src/htsp_server.c:714–730,1105. */
+    public val seasonCount: Long? = null,
+    /** Episode display text, HTSP `episode` (src/htsp_server.c:730,1105). */
+    public val episodeOnscreen: String? = null,
     private val immutableSnapshot: Unit,
 ) : HtspServerMessage {
     public constructor(
@@ -124,6 +161,8 @@ public data class HtspDvrEntryAddMessage private constructor(
         streamErrors: Long? = null,
         dataErrors: Long? = null,
         dataSizeBytes: Long? = null,
+        seasonCount: Long? = null,
+        episodeOnscreen: String? = null,
     ) : this(
         entryId = entryId,
         entryUuid = entryUuid,
@@ -173,6 +212,8 @@ public data class HtspDvrEntryAddMessage private constructor(
         streamErrors = streamErrors,
         dataErrors = dataErrors,
         dataSizeBytes = dataSizeBytes,
+        seasonCount = seasonCount,
+        episodeOnscreen = episodeOnscreen,
         immutableSnapshot = Unit,
     )
 
@@ -226,6 +267,8 @@ public data class HtspDvrEntryAddMessage private constructor(
         streamErrors: Long? = this.streamErrors,
         dataErrors: Long? = this.dataErrors,
         dataSizeBytes: Long? = this.dataSizeBytes,
+        seasonCount: Long? = this.seasonCount,
+        episodeOnscreen: String? = this.episodeOnscreen,
     ): HtspDvrEntryAddMessage = HtspDvrEntryAddMessage(
         entryId = entryId,
         entryUuid = entryUuid,
@@ -275,6 +318,8 @@ public data class HtspDvrEntryAddMessage private constructor(
         streamErrors = streamErrors,
         dataErrors = dataErrors,
         dataSizeBytes = dataSizeBytes,
+        seasonCount = seasonCount,
+        episodeOnscreen = episodeOnscreen,
     )
 
     override fun toString(): String = "HtspDvrEntryAddMessage(<redacted>)"
@@ -291,6 +336,7 @@ public data class HtspDvrEntryAddMessage private constructor(
         playCount?.let { requireU32("playCount", it) }
         playPositionSeconds?.let { requireU32("playPositionSeconds", it) }
         seasonNumber?.let { requireU32("seasonNumber", it) }
+        seasonCount?.let { requireU32("seasonCount", it) }
         episodeNumber?.let { requireU32("episodeNumber", it) }
         episodeCount?.let { requireU32("episodeCount", it) }
         partNumber?.let { requireU32("partNumber", it) }
@@ -356,6 +402,10 @@ public data class HtspDvrEntryUpdateMessage private constructor(
     public val streamErrors: Long? = null,
     public val dataErrors: Long? = null,
     public val dataSizeBytes: Long? = null,
+    /** Season total emitted by src/htsp_server.c:714–730,1105. */
+    public val seasonCount: Long? = null,
+    /** Episode display text, HTSP `episode` (src/htsp_server.c:730,1105). */
+    public val episodeOnscreen: String? = null,
     private val immutableSnapshot: Unit,
 ) : HtspServerMessage {
     public constructor(
@@ -407,6 +457,8 @@ public data class HtspDvrEntryUpdateMessage private constructor(
         streamErrors: Long? = null,
         dataErrors: Long? = null,
         dataSizeBytes: Long? = null,
+        seasonCount: Long? = null,
+        episodeOnscreen: String? = null,
     ) : this(
         entryId = entryId,
         entryUuid = entryUuid,
@@ -456,6 +508,8 @@ public data class HtspDvrEntryUpdateMessage private constructor(
         streamErrors = streamErrors,
         dataErrors = dataErrors,
         dataSizeBytes = dataSizeBytes,
+        seasonCount = seasonCount,
+        episodeOnscreen = episodeOnscreen,
         immutableSnapshot = Unit,
     )
 
@@ -509,6 +563,8 @@ public data class HtspDvrEntryUpdateMessage private constructor(
         streamErrors: Long? = this.streamErrors,
         dataErrors: Long? = this.dataErrors,
         dataSizeBytes: Long? = this.dataSizeBytes,
+        seasonCount: Long? = this.seasonCount,
+        episodeOnscreen: String? = this.episodeOnscreen,
     ): HtspDvrEntryUpdateMessage = HtspDvrEntryUpdateMessage(
         entryId = entryId,
         entryUuid = entryUuid,
@@ -558,6 +614,8 @@ public data class HtspDvrEntryUpdateMessage private constructor(
         streamErrors = streamErrors,
         dataErrors = dataErrors,
         dataSizeBytes = dataSizeBytes,
+        seasonCount = seasonCount,
+        episodeOnscreen = episodeOnscreen,
     )
 
     override fun toString(): String = "HtspDvrEntryUpdateMessage(<redacted>)"
@@ -574,6 +632,7 @@ public data class HtspDvrEntryUpdateMessage private constructor(
         playCount?.let { requireU32("playCount", it) }
         playPositionSeconds?.let { requireU32("playPositionSeconds", it) }
         seasonNumber?.let { requireU32("seasonNumber", it) }
+        seasonCount?.let { requireU32("seasonCount", it) }
         episodeNumber?.let { requireU32("episodeNumber", it) }
         episodeCount?.let { requireU32("episodeCount", it) }
         partNumber?.let { requireU32("partNumber", it) }
@@ -704,6 +763,8 @@ public data class HtspTimerecEntryAddMessage(
     public val daysOfWeekMask: Long? = null,
     public val priority: Long? = null,
     public val retentionDays: Long? = null,
+    /** HTSP `removal`, days or removal-policy sentinel (src/htsp_server.c:1290). */
+    public val removalDays: Long? = null,
     public val directory: String? = null,
     public val owner: String? = null,
     public val creator: String? = null,
@@ -725,6 +786,7 @@ public data class HtspTimerecEntryAddMessage(
         daysOfWeekMask?.let { requireU32("daysOfWeekMask", it) }
         priority?.let { requireU32("priority", it) }
         retentionDays?.let { requireU32("retentionDays", it) }
+        removalDays?.let { requireU32("removalDays", it) }
     }
 
     override fun toString(): String = "HtspTimerecEntryAddMessage(<redacted>)"
@@ -745,6 +807,8 @@ public data class HtspTimerecEntryUpdateMessage(
     public val daysOfWeekMask: Long? = null,
     public val priority: Long? = null,
     public val retentionDays: Long? = null,
+    /** HTSP `removal`, days or removal-policy sentinel (src/htsp_server.c:1290). */
+    public val removalDays: Long? = null,
     public val directory: String? = null,
     public val owner: String? = null,
     public val creator: String? = null,
@@ -766,6 +830,7 @@ public data class HtspTimerecEntryUpdateMessage(
         daysOfWeekMask?.let { requireU32("daysOfWeekMask", it) }
         priority?.let { requireU32("priority", it) }
         retentionDays?.let { requireU32("retentionDays", it) }
+        removalDays?.let { requireU32("removalDays", it) }
     }
 
     override fun toString(): String = "HtspTimerecEntryUpdateMessage(<redacted>)"

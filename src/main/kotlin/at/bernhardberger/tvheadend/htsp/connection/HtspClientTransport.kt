@@ -39,7 +39,7 @@ public data class HtspConnectOptions(
         require(socketReadTimeoutMs in 1L..Int.MAX_VALUE.toLong()) {
             "socketReadTimeoutMs must be in 1..Int.MAX_VALUE for the socket API"
         }
-        require(socketBufferBytes > 0) { "socketBufferBytes must be positive" }
+        require(socketBufferBytes in 1..16 * 1024 * 1024) { "socketBufferBytes must be in 1..16777216" }
         require(requestedProtocolVersion > 0) { "requestedProtocolVersion must be positive" }
     }
 }

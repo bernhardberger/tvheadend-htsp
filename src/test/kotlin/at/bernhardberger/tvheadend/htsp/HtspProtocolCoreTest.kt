@@ -29,8 +29,8 @@ class HtspProtocolCoreTest {
             EnableAsyncMetadataRequest(lastUpdateEpochSeconds = 12L, epgMaxTimeEpochSeconds = 34L) to
                 mapOf("lastUpdate" to 12L, "epgMaxTime" to 34L),
             GetEventsRequest(maxTimeEpochSeconds = 56L) to mapOf("maxTime" to 56L),
-            AddDvrEntryRequest(AddDvrEntrySelector.ExplicitChannelTime(1L, 12L, 34L)) to
-                mapOf("channelId" to 1L, "start" to 12L, "stop" to 34L),
+            AddDvrEntryRequest(AddDvrEntrySelector.ExplicitChannelTime(1L, 12L, 34L), title = "title") to
+                mapOf("channelId" to 1L, "start" to 12L, "stop" to 34L, "title" to "title"),
             UpdateDvrEntryRequest(
                 1L, startEpochSeconds = 12L, stopEpochSeconds = 34L,
                 startExtraMinutes = 5L, stopExtraMinutes = 6L,
@@ -66,7 +66,7 @@ class HtspProtocolCoreTest {
             val result = classifyHtspReply(HtspWireReply(fields), request, 44) as HtspResult.Ok
             assertEquals(expected, result.value.event.isNew)
         }
-        listOf(null, -1L, 2L, 0xffff_ffffL, true, "1").forEach { malformed ->
+        listOf(null, true, "1").forEach { malformed ->
             assertEquals(
                 HtspResult.ServerError(),
                 classifyHtspReply(HtspWireReply(base + ("isNew" to malformed)), request, 44),
@@ -798,9 +798,9 @@ class HtspProtocolCoreTest {
                     noAccess = false,
                     admin = false,
                     streaming = true,
-                    dvr = null,
+                    dvr = true,
                     failedDvr = null,
-                    anonymous = null,
+                    anonymous = true,
                     limitAll = 0L,
                     limitDvr = 0xffff_ffffL,
                     limitStreaming = null,
@@ -1218,7 +1218,7 @@ class HtspProtocolCoreTest {
             linkedMapOf(
                 "title" to "timed",
                 "channelId" to -1L,
-                "start" to 0xffff_ffffL,
+                "start" to 1439L,
                 "stop" to 0L,
                 "enabled" to 1L,
                 "retention" to 0xffff_ffffL,
@@ -1234,7 +1234,7 @@ class HtspProtocolCoreTest {
                 AddTimerecEntryRequest(
                     title = "timed",
                     channel = HtspRecordingRuleChannel.Any,
-                    startMinutesSinceMidnight = 0xffff_ffffL,
+                    startMinutesSinceMidnight = 1439L,
                     stopMinutesSinceMidnight = 0L,
                     enabled = true,
                     retentionDays = 0xffff_ffffL,
@@ -1490,7 +1490,7 @@ class HtspProtocolCoreTest {
     }
 
     @Test
-    fun getEpgObjectDecodesTheCompleteFiniteBroadcastAndIgnoresOpaqueCredits() = runTest {
+    fun getEpgObjectDecodesTheCompleteFiniteBroadcastAndTypedCredits() = runTest {
         val transport = FakeProtocolTransport(version = 1)
         val connection = HtspTypedRequestCaller(transport)
         transport.reply = HtspWireReply(
@@ -1538,7 +1538,7 @@ class HtspProtocolCoreTest {
                 "key" to emptyList<String>(),
                 "slink" to "series-link",
                 "elink" to "episode-link",
-                "cred" to linkedMapOf("unbounded" to listOf(1L, "opaque")),
+                "cred" to linkedMapOf("Person" to "actor"),
             ),
         )
 
@@ -1588,6 +1588,7 @@ class HtspProtocolCoreTest {
                         keywords = emptyList(),
                         seriesLinkUri = "series-link",
                         episodeLinkUri = "episode-link",
+                        credits = HtspProgrammeCredits(listOf(HtspProgrammeCredit("Person", "actor"))),
                     ),
                 ),
             ),
@@ -1599,7 +1600,7 @@ class HtspProtocolCoreTest {
         transport.reply = HtspWireReply(
             validGetEpgObjectReply().apply { put("cred", listOf(null, 1L, "still opaque")) },
         )
-        assertTrue(connection.call(GetEpgObjectRequest(1L)) is HtspResult.Ok)
+        assertEquals(HtspResult.ServerError(), connection.call(GetEpgObjectRequest(1L)))
     }
 
     @Test
@@ -1619,8 +1620,8 @@ class HtspProtocolCoreTest {
             validGetEpgObjectReply().apply { remove("stop") },
             validGetEpgObjectReply().apply { put("gr", 1L) },
             validGetEpgObjectReply().apply { put("eid", -1L) },
-            validGetEpgObjectReply().apply { put("is_hd", 0L) },
-            validGetEpgObjectReply().apply { put("is_hd", 2L) },
+            validGetEpgObjectReply().apply { put("is_hd", "0") },
+            validGetEpgObjectReply().apply { put("is_hd", true) },
             validGetEpgObjectReply().apply { put("lines", 0x1_0000_0000L) },
             validGetEpgObjectReply().apply { put("tit", listOf("not-a-map")) },
             validGetEpgObjectReply().apply { put("tit", linkedMapOf(1L to "Title")) },
@@ -1933,13 +1934,14 @@ class HtspProtocolCoreTest {
             ).let(HtspRequestCodecs::encode),
         )
         assertEquals(
-            listOf("channelId", "start", "stop"),
+            listOf("channelId", "start", "stop", "title"),
             AddDvrEntryRequest(
                 selector = AddDvrEntrySelector.ExplicitChannelTime(
                     channelId = 0L,
                     startEpochSeconds = Long.MIN_VALUE,
                     stopEpochSeconds = Long.MAX_VALUE,
                 ),
+                title = "title",
             ).let(HtspRequestCodecs::encode).keys.toList(),
         )
         assertEquals(
@@ -2004,22 +2006,23 @@ class HtspProtocolCoreTest {
         assertIllegalArgument { GetChannelRequest(-1L) }
         assertIllegalArgument { GetChannelRequest(0x1_0000_0000L) }
 
-        val transport = FakeProtocolTransport(version = 5)
+        val transport = FakeProtocolTransport(version = 6)
         assertSame(
             HtspResult.NotSupported,
-            HtspTypedRequestCaller(transport).call(GetEventRequest(eventId = 1L, language = "")),
+            HtspTypedRequestCaller(transport).call(UpdateDvrEntryRequest(1L, comment = "")),
         )
         assertEquals(0, transport.dispatches)
         transport.reply = HtspWireReply(linkedMapOf("success" to 1L, "id" to 9L))
         val result = HtspTypedRequestCaller(transport).call(
             AddDvrEntryRequest(
                 selector = AddDvrEntrySelector.ExplicitChannelTime(1L, 2L, 3L),
+                title = "title",
             ),
         )
         assertEquals(HtspResult.Ok(AddDvrEntryResponse(9L)), result)
         assertEquals(1, transport.dispatches)
         assertEquals("addDvrEntry", transport.lastMethod)
-        assertEquals(linkedMapOf("channelId" to 1L, "start" to 2L, "stop" to 3L), transport.lastFields)
+        assertEquals(linkedMapOf("channelId" to 1L, "start" to 2L, "stop" to 3L, "title" to "title"), transport.lastFields)
     }
 
     @Test
@@ -2048,7 +2051,7 @@ class HtspProtocolCoreTest {
         assertEquals(true, (trueFlags as HtspResult.Ok).value.ninetyKhz)
         assertEquals(true, trueFlags.value.normalizedTimestamps)
 
-        listOf(2L, -1L, null, 1, true, "1").forEach { malformed ->
+        listOf(null, 1, true, "1").forEach { malformed ->
             assertEquals(
                 HtspResult.ServerError(),
                 classifyHtspReply(HtspWireReply(mapOf("90khz" to malformed)), request, 43),

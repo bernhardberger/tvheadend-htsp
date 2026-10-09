@@ -84,7 +84,10 @@ public data class AddAutorecEntryRequest(
     override fun toString(): String = "AddAutorecEntryRequest(<redacted>)"
 }
 
-/** Identifies an automatic recording rule and carries optional channel, matching, duration, schedule, count, retention, ownership, title, and configuration changes. */
+/**
+ * Identifies an automatic recording rule and carries optional matching and policy changes.
+ * Omitting [channel] clears the server channel restriction to any channel (src/htsp_server.c:700–703).
+ */
 public data class UpdateAutorecEntryRequest(
     public val id: String,
     public val channel: HtspRecordingRuleChannel? = null,
@@ -167,7 +170,10 @@ public data class AddTimerecEntryRequest(
     override fun toString(): String = "AddTimerecEntryRequest(<redacted>)"
 }
 
-/** Identifies a time-based recording rule and carries optional channel, daily interval, enablement, days, policy, ownership, title, and configuration changes. */
+/**
+ * Identifies a time-based recording rule and carries optional interval and policy changes.
+ * Omitting [channel] clears the server channel restriction to any channel (src/htsp_server.c:700–703).
+ */
 public data class UpdateTimerecEntryRequest(
     public val id: String,
     public val channel: HtspRecordingRuleChannel? = null,

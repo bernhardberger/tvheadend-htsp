@@ -222,8 +222,11 @@ rendering. Public construction and standalone map decoding take a defensive
 snapshot; typed mux decoding and private typed file reads transfer codec-owned
 payloads internally without another payload-sized array. Use `size` to
 allocate the final consumer buffer and `copyInto` to write directly into it.
-The bounded copy returns the number of bytes written and copies only the prefix
-that fits after the requested destination offset. `toByteArray()` remains
+The array copy returns the number of bytes written and copies only the prefix
+that fits after the requested destination offset. `copyInto(ByteBuffer)` instead
+writes all content at the current position and advances it, or throws
+`BufferOverflowException` without changing the buffer when remaining space is too
+small (all-or-nothing). `toByteArray()` remains
 available when a standalone defensive copy is more convenient. No borrowed
 mutable-array access is exposed.
 
@@ -240,7 +243,9 @@ paths, server errors, subscription identifiers, or payload content.
 
 ## Evolving data classes
 
-Public models, requests, responses, and messages are data classes. A data
+Public models, requests, responses, and messages generally are data classes.
+Immutable metadata aggregate wrappers instead provide explicit structural
+`equals`/`hashCode`, defensive snapshots, and redacted `toString`. A data
 class's constructor and generated `copy` change their JVM signatures when a
 property is added, so a compatible minor release adds a property this way:
 
@@ -283,7 +288,9 @@ Existing `componentN` functions keep their positions, and equality, hashing and
 ### Protocol field-domain mapping
 
 Wire flags use `Boolean` or `Boolean?`; null preserves absence. Integer flags
-encode as 0/1, and present incoming integer flags reject values other than 0/1.
+encode as 0/1. Incoming integer flags decode zero as false and any nonzero
+integer as true for message and reply data fields; non-integer types remain malformed.
+Reply envelope flags `success`, `noaccess`, and `connlimit` remain strict 0/1.
 This is separate from HTSP's native Boolean wire type, which remains in use where
 the server reads it (for example, `epgQuery.fullText` and `mergeText`).
 
