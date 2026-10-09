@@ -65,6 +65,8 @@ public enum class HtspTransportFailureKind {
     INCOMPATIBLE_SERVER,
     ZERO_CHANNELS,
     TRANSPORT_UNAVAILABLE,
+    /** A newer connection attempt, disconnect, or owner close superseded this attempt. */
+    SUPERSEDED,
     /** The server reports a protocol version below [MINIMUM_HTSP_PROTOCOL_VERSION]. */
     UNSUPPORTED_SERVER_VERSION,
 }
@@ -90,7 +92,10 @@ public sealed interface HtspConnectOutcome {
     public data class Failed(public val failure: HtspTransportFailure) : HtspConnectOutcome
 }
 
-/** Ordered typed observations from one admitted transport generation. */
+/**
+ * Ordered typed observations from one admitted transport generation.
+ * Minor releases may add subtypes; keep an `else` branch.
+ */
 public sealed interface HtspTransportEvent {
     public val generation: HtspConnectionGeneration?
 
@@ -106,11 +111,69 @@ public sealed interface HtspTransportEvent {
         }
     }
 
-    /** A bounded transport failure associated with its source generation when known. */
+    /** An unsolicited failure of an established live generation, never a failed connect attempt. */
     public data class ConnectionFailure(
         public val failure: HtspTransportFailure,
         override val generation: HtspConnectionGeneration?,
     ) : HtspTransportEvent
+
+    /**
+     * Metadata discarded for this collector; recover the consumer's state explicitly.
+     * [droppedCount] counts losses only for [generation]. Losses after reconnect start
+     * a separate marker; each generation has at most one pending marker.
+     */
+    public data class MetadataOverflow(
+        override val generation: HtspConnectionGeneration,
+        public val droppedCount: Long,
+    ) : HtspTransportEvent {
+        init {
+            require(droppedCount > 0L) { "droppedCount must be positive" }
+        }
+    }
+}
+
+/**
+ * Per-collector metadata and per-subscription queue budgets. Bytes account for retained
+ * server frame bodies, not exact heap usage. Subscription packets and controls share both
+ * budgets. Markers are outside the budgets. Defaults may change in minor releases; pass
+ * explicit values for fixed limits. There is no connection-wide cap or time ceiling.
+ */
+@ConsistentCopyVisibility
+public data class HtspEventBufferOptions private constructor(
+    public val metadataQueueBytes: Long,
+    public val metadataQueueEvents: Int,
+    public val subscriptionQueueBytes: Long,
+    public val subscriptionQueueEvents: Int,
+    private val evolution: Unit,
+) {
+    /** Creates validated queue budgets for a connection's event streams. */
+    public constructor(
+        metadataQueueBytes: Long = 8L * 1024 * 1024,
+        metadataQueueEvents: Int = 8192,
+        subscriptionQueueBytes: Long = 8L * 1024 * 1024,
+        subscriptionQueueEvents: Int = 8192,
+    ) : this(metadataQueueBytes, metadataQueueEvents, subscriptionQueueBytes, subscriptionQueueEvents, Unit)
+
+    /** Explicit no-argument bridge retained for future binary-compatible evolution. */
+    @Deprecated("Retained for binary compatibility", level = DeprecationLevel.HIDDEN)
+    public constructor() : this(8L * 1024 * 1024, 8192, 8L * 1024 * 1024, 8192, Unit)
+
+    init {
+        require(metadataQueueBytes in 1_048_576L..1_073_741_824L)
+        require(subscriptionQueueBytes in 1_048_576L..1_073_741_824L)
+        require(metadataQueueEvents in 256..1_048_576)
+        require(subscriptionQueueEvents in 256..1_048_576)
+    }
+
+    /** Replaces selected budgets, applying the same validation as construction. */
+    public fun copy(
+        metadataQueueBytes: Long = this.metadataQueueBytes,
+        metadataQueueEvents: Int = this.metadataQueueEvents,
+        subscriptionQueueBytes: Long = this.subscriptionQueueBytes,
+        subscriptionQueueEvents: Int = this.subscriptionQueueEvents,
+    ): HtspEventBufferOptions = HtspEventBufferOptions(
+        metadataQueueBytes, metadataQueueEvents, subscriptionQueueBytes, subscriptionQueueEvents,
+    )
 }
 
 /**
@@ -122,11 +185,13 @@ public fun createHtspConnection(
     clientIdentity: HtspClientIdentity = HtspClientIdentity.Default,
     logger: HtspLogger = HtspLogger.None,
     socketFactory: () -> Socket = ::Socket,
+    eventBufferOptions: HtspEventBufferOptions = HtspEventBufferOptions(),
 ): HtspConnection = HtspService(
     ioDispatcher = ioDispatcher,
     clientIdentity = clientIdentity,
     logger = logger,
     socketFactory = socketFactory,
+    eventBufferOptions = eventBufferOptions,
 )
 
 internal class HtspIncompatibleServerException : Exception()

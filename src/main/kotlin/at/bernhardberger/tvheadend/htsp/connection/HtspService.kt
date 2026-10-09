@@ -13,13 +13,11 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.cancelAndJoin
-import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.flow
@@ -43,6 +41,7 @@ import java.net.SocketTimeoutException
 import java.security.MessageDigest
 import java.util.Collections
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
@@ -52,8 +51,6 @@ import kotlin.text.Charsets.UTF_8
 @JvmSynthetic
 internal const val DVR_PLAY_COUNT_KEEP: Int = Int.MAX_VALUE - 1
 private const val HTSP_CHALLENGE_SIZE_BYTES: Int = 32
-internal const val METADATA_EVENT_BUFFER_CAPACITY: Int = 1024
-internal const val SUBSCRIPTION_EVENT_BUFFER_CAPACITY: Int = 8192
 
 internal class HtspTransportInputStream(
     private val delegate: InputStream,
@@ -162,32 +159,52 @@ internal open class `HtspService-internal`(
     private val beforeTypedRecapture: suspend (HtspRequest<*>) -> Unit = {},
     private val beforeTypedEventPublication: (HtspTransportEvent.ServerMessage) -> Unit = {},
     private val beforeFrameRead: () -> Unit = {},
-    private val metadataEventBufferCapacity: Int = METADATA_EVENT_BUFFER_CAPACITY,
-    private val subscriptionEventBufferCapacity: Int = SUBSCRIPTION_EVENT_BUFFER_CAPACITY,
+    private val afterPublicationCurrencyCheck: (HtspTransportEvent) -> Unit = {},
+    private val afterConnectedSnapshot: suspend () -> Unit = {},
+    private val afterAuthenticationAcknowledgement: suspend () -> Unit = {},
+    private val beforeLateReplyExpiry: suspend () -> Unit = {},
+    private val afterRequestFrameWritten: (String) -> Unit = {},
+    private val beforeStatePublication: (HtspConnectionState) -> Unit = {},
+    private val eventBufferOptions: HtspEventBufferOptions = HtspEventBufferOptions(),
+    private val metadataEventBufferCapacity: Int = eventBufferOptions.metadataQueueEvents,
+    private val subscriptionEventBufferCapacity: Int = eventBufferOptions.subscriptionQueueEvents,
     private val nanoTime: () -> Long = System::nanoTime,
+    private val requestNanoTime: () -> Long = System::nanoTime,
 ) : HtspRequestTransport, HtspConnection {
     private val _state = MutableStateFlow<HtspConnectionState>(HtspConnectionState.Disconnected)
     override val connectionState: StateFlow<HtspConnectionState> = _state.asStateFlow()
 
     private val _liveConnection = MutableStateFlow<HtspLiveConnection?>(null)
-    override val liveConnection: StateFlow<HtspLiveConnection?> = _liveConnection
+    override val liveConnection: StateFlow<HtspLiveConnection?> = _liveConnection.asStateFlow()
 
-    private val _events = MutableSharedFlow<HtspTransportEvent>(
-        replay = 0,
-        extraBufferCapacity = metadataEventBufferCapacity,
-        onBufferOverflow = BufferOverflow.SUSPEND,
-    )
-    override val events: SharedFlow<HtspTransportEvent> = _events
+    private val metadataCollectors = mutableSetOf<HtspMetadataEventBuffer>()
+    override val events: Flow<HtspTransportEvent> = flow {
+        val buffer = HtspMetadataEventBuffer(metadataEventBufferCapacity, eventBufferOptions.metadataQueueBytes, ::queueWakeup)
+        synchronized(connectionAttemptLock) { metadataCollectors.add(buffer) }
+        try {
+            while (true) {
+                currentCoroutineContext().ensureActive()
+                val event = synchronized(connectionAttemptLock) { buffer.poll() }
+                if (event == null) withContext(ioDispatcher) { buffer.eventsAvailable.receive() } else emit(event)
+            }
+        } finally {
+            synchronized(connectionAttemptLock) { metadataCollectors.remove(buffer) }
+        }
+    }
 
-    open fun currentConnectionState(): HtspConnectionState = connectionState.value
+    open fun currentConnectionState(): HtspConnectionState = synchronized(connectionAttemptLock) { stateLocked().state }
 
     private val serviceJob = SupervisorJob()
     private val scope = CoroutineScope(serviceJob + ioDispatcher)
-    private var directHelloFailurePublisher: Job? = null
     private val lifecycle = TerminalLifecycleGate("HTSP service is closed")
 
     private val pending = ConcurrentHashMap<Int, PendingReq>()
-    private val lateReplyObservers = ConcurrentHashMap<Int, (HtspWireMessage) -> Unit>()
+    private data class LateReplyObserver(
+        val observer: (HtspWireMessage) -> Unit,
+        val expiry: Job,
+        val deadlineNanos: Long,
+    )
+    private val lateReplyObservers = ConcurrentHashMap<Int, LateReplyObserver>()
 
     private data class PendingReq(
         val def: CompletableDeferred<HtspWireMessage>,
@@ -200,6 +217,86 @@ internal open class `HtspService-internal`(
     private val writeMutex = Mutex()
     private val connectMutex = Mutex()
     private val connectionAttemptLock = Any()
+    private val pendingWakeups = linkedSetOf<Channel<Unit>>()
+    private val pendingReplies = mutableListOf<Pair<CompletableDeferred<HtspWireMessage>, HtspWireMessage>>()
+    private data class StateSnapshot(val version: Long, val state: HtspConnectionState, val live: HtspLiveConnection?)
+    private var internalState = StateSnapshot(0L, HtspConnectionState.Disconnected, null)
+    private var pendingState: StateSnapshot? = null
+    private val statePublicationMonitor = Any()
+    private var publishedStateVersion = 0L
+
+    private fun stateLocked(): StateSnapshot {
+        check(Thread.holdsLock(connectionAttemptLock))
+        return internalState
+    }
+
+    private fun recordStateLocked(state: HtspConnectionState, live: HtspLiveConnection? = null) {
+        val previous = stateLocked()
+        check((state is HtspConnectionState.Connected) == (live != null))
+        if (previous.state == state && previous.live == live) return
+        internalState = StateSnapshot(previous.version + 1L, state, live)
+        pendingState = internalState
+    }
+
+    private fun applyState(snapshot: StateSnapshot) {
+        check(!Thread.holdsLock(connectionAttemptLock))
+        beforeStatePublication(snapshot.state)
+        kotlin.synchronized(statePublicationMonitor) {
+            if (snapshot.version <= publishedStateVersion) return
+            publishedStateVersion = snapshot.version
+            // Native StateFlows cannot be updated atomically as a pair. This ordering
+            // never exposes Connected with no live connection. A reentrant callback may
+            // publish a newer snapshot in either setter: never apply the older tail then.
+            if (snapshot.live == null) {
+                _state.value = snapshot.state
+                if (publishedStateVersion == snapshot.version) _liveConnection.value = null
+            } else {
+                _liveConnection.value = snapshot.live
+                if (publishedStateVersion == snapshot.version) _state.value = snapshot.state
+            }
+        }
+    }
+
+    private fun queueWakeup(channel: Channel<Unit>) {
+        check(Thread.holdsLock(connectionAttemptLock))
+        pendingWakeups.add(channel)
+    }
+
+    /** Snapshot every deferred effect at the outermost exit, including exceptional exits. */
+    private inline fun <T> synchronized(lock: Any, block: () -> T): T {
+        check(lock === connectionAttemptLock)
+        val outermost = !Thread.holdsLock(lock)
+        var wakeups: List<Channel<Unit>> = emptyList()
+        var replies: List<Pair<CompletableDeferred<HtspWireMessage>, HtspWireMessage>> = emptyList()
+        var state: StateSnapshot? = null
+        try {
+            return kotlin.synchronized(lock) {
+                try { block() } finally {
+                    if (outermost) {
+                        wakeups = pendingWakeups.toList()
+                        pendingWakeups.clear()
+                        replies = pendingReplies.toList()
+                        pendingReplies.clear()
+                        state = pendingState
+                        pendingState = null
+                    }
+                }
+            }
+        } finally {
+            // State first: a section that recorded state also holds back its replies and wakeups
+            // while publication waits for the publication monitor. Only failure and lifecycle
+            // sections record state, and their pending replies are failing anyway.
+            try {
+                state?.let(::applyState)
+            } finally {
+                try {
+                    replies.forEach { (reply, message) -> reply.complete(message) }
+                } finally {
+                    wakeups.forEach { it.trySend(Unit) }
+                }
+            }
+        }
+    }
     @Volatile
     private var connectionAttempt = 0L
 
@@ -237,9 +334,6 @@ internal open class `HtspService-internal`(
     @Volatile
     private var negotiatedHtspVersion: Int? = null
 
-    @Volatile
-    private var initialSyncDef: CompletableDeferred<Unit>? = null
-
     // ---- health ----
     @Volatile
     private var lastReadAtNanos: Long = 0L
@@ -270,15 +364,24 @@ internal open class `HtspService-internal`(
         socketBufferBytes: Int = 64 * 1024,
 
         forceReconnect: Boolean = false
-    ) {
+    ): HtspLiveConnection {
         val requestedIdentity = HtspConnectionIdentity(host, port, username, password)
-        val attemptId = lifecycle.admit {
-            beginConnectionAttemptUnlessReusable(requestedIdentity, forceReconnect)
-        } ?: return
+        val (admittedAttempt, reused) = synchronized(connectionAttemptLock) {
+            lifecycle.admit {
+                if (!forceReconnect && canReuseLiveConnectionLocked(requestedIdentity)) {
+                    null to checkNotNull(stateLocked().live)
+                } else {
+                    val attempt = admitReplacementGenerationLocked(HtspSubscriptionTermination.GENERATION_LOST)
+                    recordStateLocked(HtspConnectionState.Connecting(host, port))
+                    attempt to null
+                }
+            }
+        }
+        val attemptId = admittedAttempt ?: return checkNotNull(reused)
         try {
             afterConnectionAdmission()
             retireAdmissionTransport(attemptId)
-            connectMutex.withLock {
+            val connected = connectMutex.withLock {
                 ensureCurrentConnectionAttempt(attemptId)
                 publishConnectionState(
                     attemptId,
@@ -291,8 +394,8 @@ internal open class `HtspService-internal`(
                         val created = socketFactory().also(candidate::set)
                         try {
                             ensureActive()
-                            lifecycle.admit {
-                                synchronized(connectionAttemptLock) {
+                            synchronized(connectionAttemptLock) {
+                                lifecycle.admit {
                                     ensureCurrentConnectionAttempt(attemptId)
                                     connectingSocket = created
                                 }
@@ -388,6 +491,7 @@ internal open class `HtspService-internal`(
                         is HtspResult.Ok -> result.value
                         is HtspFailure -> throw HtspAuthenticationRejectedException()
                     }
+                    afterAuthenticationAcknowledgement()
                     // HTSP ≥ 26 includes ACCESS_HTSP_RECORDER as "dvr".
                     val dvrAccess =
                         if (negotiatedVersion > 25) {
@@ -399,8 +503,7 @@ internal open class `HtspService-internal`(
                         .withHelloObservations(hello)
                         .withAuthenticateObservations(auth)
 
-                    if (
-                        !publishConnectedState(
+                    publishConnectedState(
                             attemptId = attemptId,
                             state = HtspConnectionState.Connected(
                                 host = host,
@@ -410,10 +513,13 @@ internal open class `HtspService-internal`(
                             ),
                             serverFacts = serverFacts,
                             connectionIdentity = requestedIdentity,
-                        )
-                    ) {
-                        throw CancellationException("Superseded connection attempt")
-                    }
+                        ) ?: synchronized(connectionAttemptLock) {
+                            ensureCurrentConnectionAttempt(attemptId)
+                            throw RecordedConnectFailure(
+                                (stateLocked().state as? HtspConnectionState.Error)?.failure
+                                    ?: HtspTransportFailure(HtspTransportFailureKind.TRANSPORT_UNAVAILABLE),
+                            )
+                        }
 
                 } catch (cancelled: CancellationException) {
                     disconnectInternal(
@@ -435,16 +541,23 @@ internal open class `HtspService-internal`(
                         )
                         throw superseded
                     }
-                    publishConnectionState(attemptId, HtspConnectionState.Error(typedTransportFailure(t)))
                     disconnectInternal(
                         t = t,
                         attemptId = attemptId,
-                        publishState = true,
+                        publishState = false,
                         termination = HtspSubscriptionTermination.INTERNAL_FAILURE,
                     )
+                    withCurrentConnectionAttempt(attemptId) {
+                        if (stateLocked().state !is HtspConnectionState.Error) {
+                            val failure = typedTransportFailure(t)
+                            recordStateLocked(HtspConnectionState.Error(failure))
+                        }
+                    }
                     throw t
                 }
             }
+            afterConnectedSnapshot()
+            return connected
         } catch (cancelled: CancellationException) {
             retireAdmissionTransport(attemptId)
             publishConnectionState(attemptId, HtspConnectionState.Disconnected)
@@ -456,7 +569,7 @@ internal open class `HtspService-internal`(
         endpoint: HtspEndpoint,
         options: HtspConnectOptions,
     ): HtspConnectOutcome = try {
-        connect(
+        val connection = connect(
             host = endpoint.host,
             port = endpoint.port,
             username = endpoint.username,
@@ -468,52 +581,14 @@ internal open class `HtspService-internal`(
             socketBufferBytes = options.socketBufferBytes,
             forceReconnect = options.forceReconnect,
         )
-        val connection = liveConnection.value
-            ?: return HtspConnectOutcome.Failed(
-                HtspTransportFailure(HtspTransportFailureKind.TRANSPORT_UNAVAILABLE),
-            )
         HtspConnectOutcome.Connected(connection)
     } catch (cancelled: CancellationException) {
-        throw cancelled
+        currentCoroutineContext().ensureActive()
+        HtspConnectOutcome.Failed(HtspTransportFailure(HtspTransportFailureKind.SUPERSEDED))
+    } catch (error: RecordedConnectFailure) {
+        HtspConnectOutcome.Failed(error.failure)
     } catch (error: Exception) {
         HtspConnectOutcome.Failed(typedTransportFailure(error))
-    }
-
-    internal suspend fun enableAsyncMetadataAndWaitInitialSync(timeoutMs: Long = 30_000) {
-        checkOpen()
-        val def = CompletableDeferred<Unit>()
-        val metadataSocket = synchronized(connectionAttemptLock) {
-            if (!isConnectedUnsafe()) throw IllegalStateException("Not connected")
-            initialSyncDef = def
-            socket
-        }
-
-        try {
-            val completed = withTimeoutOrNull(timeoutMs) {
-                val reply = request(
-                    method = "enableAsyncMetadata",
-                    fields = emptyMap(),
-                    timeoutMs = timeoutMs,
-                    flush = true,
-                    disconnectOnTimeout = true
-                )
-                if (reply.int("noaccess") == 1 || reply.fields.containsKey("error")) {
-                    throw MetadataPermissionDeniedException()
-                }
-                def.await()
-                true
-            }
-            if (completed != true) {
-                markTransportGone(metadataSocket, HtspSubscriptionTermination.TIMEOUT)
-                throw SocketTimeoutException(
-                    "HTSP initial metadata sync timed out after ${timeoutMs}ms"
-                )
-            }
-        } finally {
-            synchronized(connectionAttemptLock) {
-                if (initialSyncDef === def) initialSyncDef = null
-            }
-        }
     }
 
     override suspend fun <R> execute(
@@ -523,9 +598,10 @@ internal open class `HtspService-internal`(
     ): HtspResult<R> {
         val result = typedRequestCaller.call(request, timeoutMs, expectedGeneration)
         currentCoroutineContext().ensureActive()
-        if (expectedGeneration != null) requireCurrentGeneration(expectedGeneration)
         return result
     }
+
+    private class RecordedConnectFailure(val failure: HtspTransportFailure) : IOException()
 
     override fun subscriptionEvents(
         subscriptionId: Long,
@@ -550,31 +626,36 @@ internal open class `HtspService-internal`(
             val collectorContext = currentCoroutineContext()
             collectorContext.ensureActive()
             val collectorJob = collectorContext[Job]
-            val (generation, stream) = synchronized(connectionAttemptLock) {
+            val registration = synchronized(connectionAttemptLock) {
                 val generation = protocolGeneration
-                    ?: error("No live HTSP connection generation")
+                    ?: return@synchronized null
                 if (expectedGeneration != null && generation.token !== expectedGeneration) {
-                    throw CancellationException("Stale HTSP connection generation")
+                    return@synchronized null
                 }
-                val live = _liveConnection.value
-                check(
+                val live = stateLocked().live
+                if (!(
                     live?.generation === generation.token &&
                         liveTransportAttempt == generation.attemptId &&
                         connectionAttempt == generation.attemptId &&
-                        _state.value is HtspConnectionState.Connected
-                ) {
-                    "No live HTSP connection generation"
-                }
+                        stateLocked().state is HtspConnectionState.Connected
+                )) return@synchronized null
                 check(generation.collectedSubscriptionIds.add(subscriptionId)) {
                     "HTSP subscription stream already collected in this generation"
                 }
                 val stream = HtspSubscriptionEventBuffer(
                     capacity = subscriptionEventBufferCapacity,
                     collectorJob = collectorJob,
+                    byteCapacity = eventBufferOptions.subscriptionQueueBytes,
+                    wakeup = ::queueWakeup,
                 )
                 generation.subscriptionStreams[subscriptionId] = stream
                 generation to stream
             }
+            if (registration == null) {
+                emit(HtspSubscriptionEvent.Terminated(HtspSubscriptionTermination.GENERATION_LOST))
+                return@flow
+            }
+            val (generation, stream) = registration
 
             try {
                 while (true) {
@@ -588,7 +669,7 @@ internal open class `HtspService-internal`(
                     when {
                         event != null -> emit(event)
                         complete -> return@flow
-                        else -> stream.eventsAvailable.receive()
+                        else -> withContext(ioDispatcher) { stream.eventsAvailable.receive() }
                     }
                 }
             } finally {
@@ -624,31 +705,6 @@ internal open class `HtspService-internal`(
         synchronized(connectionAttemptLock) {
             protocolGeneration?.token === generation
         }
-
-    override fun <T> commitIfCurrent(
-        generation: HtspConnectionGeneration,
-        block: () -> T,
-    ): T? = synchronized(connectionAttemptLock) {
-        if (protocolGeneration?.token !== generation) return@synchronized null
-        block()
-    }
-
-    override fun <T> commitIfLive(
-        generation: HtspConnectionGeneration,
-        block: (HtspLiveConnection) -> T,
-    ): T? = synchronized(connectionAttemptLock) {
-        val live = _liveConnection.value ?: return@synchronized null
-        val current = protocolGeneration ?: return@synchronized null
-        if (
-            current.token !== generation ||
-            live.generation !== generation ||
-            liveTransportAttempt != current.attemptId ||
-            connectionAttempt != current.attemptId
-        ) {
-            return@synchronized null
-        }
-        block(live)
-    }
 
     open suspend fun request(
         method: String,
@@ -717,11 +773,11 @@ internal open class `HtspService-internal`(
         isRequestAdmitted: (() -> Boolean)? = null,
         onReplyCommitted: ((HtspWireMessage) -> Unit)? = null,
     ): HtspWireMessage {
-        val startedAtNanos = System.nanoTime()
+        val startedAtNanos = requestNanoTime()
         val requestContext = currentCoroutineContext()
-        fun remainingMs(): Long = timeoutMs - (System.nanoTime() - startedAtNanos) / 1_000_000L
-        val admission = lifecycle.admit {
-            synchronized(connectionAttemptLock) {
+        fun remainingMs(): Long = timeoutMs - (requestNanoTime() - startedAtNanos) / 1_000_000L
+        val admission = synchronized(connectionAttemptLock) {
+            lifecycle.admit {
                 requestContext.ensureActive()
                 if (remainingMs() <= 0L) throw HtspRequestTimeoutException(method, timeoutMs)
                 val transport = if (expectedConnectionAttemptId == null) {
@@ -799,6 +855,7 @@ internal open class `HtspService-internal`(
                             HtspCodec.writeMessage(admission.output, method, msgFields)
                             if (flush) admission.output.flush()
                             frameComplete.set(true)
+                            afterRequestFrameWritten(method)
                             pending[s]?.sentAtNanos = nanoTime()
                         } catch (failure: IOException) {
                             // A failed write may have sent a prefix; never reuse this stream.
@@ -826,17 +883,28 @@ internal open class `HtspService-internal`(
             if (t is CancellationException && isHandshake && frameStarted.get()) {
                 markTransportGone(admission.socket, HtspSubscriptionTermination.LOCAL_RETIREMENT)
             }
-            if (frameComplete.get()) preserveLateReplyObserver(s, admission.socket) else pending.remove(s)
+            if (frameComplete.get() && remainingMs() > 0L) {
+                preserveLateReplyObserver(s, admission.socket, startedAtNanos + TimeUnit.MILLISECONDS.toNanos(timeoutMs))
+            } else {
+                pending.remove(s)
+            }
             throw t
         }
     }
 
-    private fun preserveLateReplyObserver(requestSequence: Int, requestSocket: Socket?) {
+    private fun preserveLateReplyObserver(requestSequence: Int, requestSocket: Socket?, deadlineNanos: Long) {
         synchronized(connectionAttemptLock) {
             val request = pending.remove(requestSequence) ?: return
             if (socket === requestSocket && liveTransportAttempt != null) {
                 request.onReplyCommitted?.let { observer ->
-                    lateReplyObservers[requestSequence] = observer
+                    val expiry = scope.launch(start = CoroutineStart.LAZY) {
+                        beforeLateReplyExpiry()
+                        val remainingNanos = deadlineNanos - requestNanoTime()
+                        if (remainingNanos > 0L) kotlinx.coroutines.delay((remainingNanos - 1L) / 1_000_000L + 1L)
+                        synchronized(connectionAttemptLock) { lateReplyObservers.remove(requestSequence) }
+                    }
+                    lateReplyObservers[requestSequence] = LateReplyObserver(observer, expiry, deadlineNanos)
+                    expiry.start()
                 }
             }
         }
@@ -869,43 +937,53 @@ internal open class `HtspService-internal`(
 
     override suspend fun disconnect(
         expectedGeneration: HtspConnectionGeneration?,
-    ) = withContext(NonCancellable) {
+    ): Boolean {
+      val changed = withContext(NonCancellable) {
         val attemptId = try {
-            lifecycle.admit { beginTeardownAttempt(expectedGeneration) }
-        } catch (closed: IllegalStateException) {
-            if (expectedGeneration == null) throw closed
-            throw CancellationException("Stale HTSP connection generation")
-        }
+            synchronized(connectionAttemptLock) { lifecycle.admit { beginTeardownAttempt(expectedGeneration) } }
+        } catch (_: IllegalStateException) { null }
+          catch (_: CancellationException) { null }
+        if (attemptId == null) return@withContext false
         afterTeardownAdmission()
-        connectMutex.withLock {
-            ensureCurrentConnectionAttempt(attemptId)
-            disconnectInternal(
-                t = CancellationException("Disconnected"),
-                attemptId = attemptId,
-                publishState = true,
-                termination = HtspSubscriptionTermination.LOCAL_RETIREMENT,
-            )
-        }
+        val retirement = synchronized(connectionAttemptLock) {
+            if (connectionAttempt != attemptId ||
+                (expectedGeneration != null && protocolGeneration?.token !== expectedGeneration) ||
+                (stateLocked().state is HtspConnectionState.Disconnected && socket == null &&
+                    connectingSocket == null && !admissionRetirements.containsKey(attemptId))) {
+                return@synchronized null
+            }
+            ++connectionAttempt
+            terminateSubscriptionStreamsLocked(protocolGeneration, HtspSubscriptionTermination.LOCAL_RETIREMENT)
+            recordStateLocked(HtspConnectionState.Disconnected)
+            captureCurrentTransportLocked(CancellationException("Disconnected"))
+        } ?: return@withContext false
+        retireAdmissionTransport(attemptId)
+        finishTransportRetirement(retirement)
+        true
+      }
+      currentCoroutineContext().ensureActive()
+      return changed
     }
 
-    override suspend fun close(expectedGeneration: HtspConnectionGeneration?) {
+    override suspend fun close(expectedGeneration: HtspConnectionGeneration?): Boolean {
         val attemptId = if (expectedGeneration == null) {
             beginClose()
         } else {
             try {
-                lifecycle.admit {
-                    requireCurrentGeneration(expectedGeneration)
-                    beginClose()
+                synchronized(connectionAttemptLock) {
+                    lifecycle.admit {
+                        if (protocolGeneration?.token === expectedGeneration) beginClose() else null
+                    }
                 }
-            } catch (_: IllegalStateException) {
-                throw CancellationException("Stale HTSP connection generation")
-            }
-        } ?: return
-        finishClose(attemptId)
+            } catch (_: IllegalStateException) { null }
+        }
+        if (attemptId != null) finishClose(attemptId)
+        currentCoroutineContext().ensureActive()
+        return attemptId != null
     }
 
-    internal fun beginClose(): Long? = lifecycle.close {
-        beginConnectionAttempt(HtspSubscriptionTermination.LOCAL_RETIREMENT)
+    internal fun beginClose(): Long? = synchronized(connectionAttemptLock) {
+        lifecycle.close { beginConnectionAttempt(HtspSubscriptionTermination.LOCAL_RETIREMENT) }
     }
 
     internal suspend fun finishClose(attemptId: Long) {
@@ -953,18 +1031,18 @@ internal open class `HtspService-internal`(
                         }
 
                         // Internal probe latch. SDK metadata workflow observes the typed event.
-                        if (msg.seq == null && msg.method == "initialSyncCompleted") {
-                            initialSyncDef?.complete(Unit)
-                        }
 
                         val seqNo = msg.seq
                         if (seqNo != null) {
                             val pr = pending.remove(seqNo)
                             if (pr != null) {
                                 pr.onReplyCommitted?.invoke(msg)
-                                pr.def.complete(msg)
+                                pendingReplies.add(pr.def to msg)
                             } else {
-                                lateReplyObservers.remove(seqNo)?.invoke(msg)
+                                lateReplyObservers.remove(seqNo)?.let {
+                                    it.expiry.cancel()
+                                    if (requestNanoTime() - it.deadlineNanos < 0L) it.observer(msg)
+                                }
                             }
                             // HTSP async messages never carry seq. A reply whose waiter
                             // already timed out or was cancelled must not enter event flows.
@@ -1000,7 +1078,9 @@ internal open class `HtspService-internal`(
                         }
                     } != null
                     if (!published) return
-                    typedEvent?.let { event -> publishTypedServerEvent(attemptId, event) }
+                    typedEvent?.let { event ->
+                        publishTypedServerEvent(attemptId, event, (framedInput.frameBytesRead() - 4).toLong())
+                    }
                 } catch (t: SocketTimeoutException) {
                     val now = nanoTime()
                     val silentMs = (now - lastReadAtNanos) / 1_000_000L
@@ -1070,7 +1150,6 @@ internal open class `HtspService-internal`(
         val callerJob = currentCoroutineContext()[Job]
         withContext(NonCancellable) {
             retirement.pending.forEach { it.def.completeExceptionally(retirement.cancellation) }
-            retirement.initialSync?.completeExceptionally(retirement.cancellation)
             val job = retirement.readerJob
             job?.takeIf { it !== callerJob }?.cancel()
 
@@ -1087,40 +1166,37 @@ internal open class `HtspService-internal`(
         termination: HtspSubscriptionTermination,
     ) {
         if (!isCurrentConnectionAttempt(attemptId)) return
-        var typedEvent: HtspTransportEvent.ConnectionFailure? = null
-        val published = connectMutex.withLock {
-            if (!isCurrentConnectionAttempt(attemptId)) return@withLock false
-            withCurrentConnectionAttempt(attemptId) {
+        val retirement = synchronized(connectionAttemptLock) {
+            if (!isCurrentConnectionAttempt(attemptId) || socket == null) return
+            var typedEvent: HtspTransportEvent.ConnectionFailure? = null
                 // A direct hello failure or disconnect may already own the detached transport.
-                if (socket == null) return@withCurrentConnectionAttempt
                 if (transportRetirement != HtspSubscriptionTermination.LOCAL_RETIREMENT) {
-                    val typedFailure = if (transportRetirement == HtspSubscriptionTermination.TIMEOUT) {
+                    val typedFailure = (stateLocked().state as? HtspConnectionState.Error)?.failure
+                        ?: if (transportRetirement == HtspSubscriptionTermination.TIMEOUT) {
                         HtspTransportFailure(HtspTransportFailureKind.CONNECTION_TIMEOUT)
                     } else {
                         typedTransportFailure(failure)
                     }
-                    _state.value = HtspConnectionState.Error(typedFailure)
-                    typedEvent = HtspTransportEvent.ConnectionFailure(
+                    recordStateLocked(HtspConnectionState.Error(typedFailure))
+                    if (protocolGeneration?.established == true) typedEvent = HtspTransportEvent.ConnectionFailure(
                         failure = typedFailure,
                         generation = protocolGeneration?.token,
                     )
                 }
-            } ?: return@withLock false
-            disconnectInternal(
-                t = failure,
-                attemptId = attemptId,
-                publishState = true,
-                termination = termination,
-            )
-            true
+            terminateSubscriptionStreamsLocked(protocolGeneration, termination)
+            captureCurrentTransportLocked(failure).also {
+                typedEvent?.let { event ->
+                    publishMetadataEvent(attemptId, event)
+                }
+            }
         }
-        if (!published) return
-        typedEvent?.let { publishMetadataEvent(attemptId, it) }
+        finishTransportRetirement(retirement)
     }
 
     private suspend fun publishTypedServerEvent(
         attemptId: Long,
         event: HtspTransportEvent.ServerMessage,
+        frameBodyBytes: Long,
     ) {
         try {
             beforeTypedEventPublication(event)
@@ -1130,30 +1206,32 @@ internal open class `HtspService-internal`(
         }
         val routed = event.message.toRoutedSubscriptionEvent()
         if (routed == null) {
-            publishMetadataEvent(attemptId, event)
+            publishMetadataEvent(attemptId, event, frameBodyBytes)
         } else {
-            publishSubscriptionEvent(attemptId, event.generation, routed)
+            publishSubscriptionEvent(attemptId, event.generation, routed, frameBodyBytes)
         }
     }
 
-    private suspend fun publishMetadataEvent(
+    private fun publishMetadataEvent(
         attemptId: Long,
         event: HtspTransportEvent,
+        frameBodyBytes: Long = 0L,
     ) {
-        val committed = synchronized(connectionAttemptLock) {
-            connectionAttempt == attemptId && event.matchesCurrentGenerationLocked()
+        synchronized(connectionAttemptLock) {
+            if (connectionAttempt == attemptId && event.matchesCurrentGenerationLocked()) {
+                afterPublicationCurrencyCheck(event)
+                metadataCollectors.forEach { it.offer(event, frameBodyBytes) }
+            }
         }
-        if (committed) _events.emit(event)
     }
 
-    private suspend fun publishSubscriptionEvent(
+    private fun publishSubscriptionEvent(
         attemptId: Long,
         generationToken: HtspConnectionGeneration,
         routed: RoutedSubscriptionEvent,
+        frameBodyBytes: Long,
     ) {
-        while (true) {
-            currentCoroutineContext().ensureActive()
-            val result = synchronized(connectionAttemptLock) {
+        synchronized(connectionAttemptLock) {
                 val generation = protocolGeneration
                 if (
                     connectionAttempt != attemptId ||
@@ -1163,25 +1241,7 @@ internal open class `HtspService-internal`(
                     return
                 }
                 val stream = generation.subscriptionStreams[routed.subscriptionId] ?: return
-                stream.offer(routed.event)
-            }
-            when (result) {
-                HtspSubscriptionEventBuffer.OfferResult.ACCEPTED,
-                HtspSubscriptionEventBuffer.OfferResult.IGNORED,
-                -> return
-                HtspSubscriptionEventBuffer.OfferResult.WAIT_FOR_SPACE -> {
-                    val stream = synchronized(connectionAttemptLock) {
-                        protocolGeneration
-                            ?.takeIf { generation ->
-                                generation.attemptId == attemptId &&
-                                    generation.token === generationToken
-                            }
-                            ?.subscriptionStreams
-                            ?.get(routed.subscriptionId)
-                    } ?: return
-                    stream.spaceAvailable.receive()
-                }
-            }
+                stream.offer(routed.event, frameBodyBytes)
         }
     }
 
@@ -1189,6 +1249,7 @@ internal open class `HtspService-internal`(
         is HtspTransportEvent.ServerMessage -> protocolGeneration?.token === generation
         is HtspTransportEvent.ConnectionFailure ->
             generation == null || protocolGeneration?.token === generation
+        else -> false
     }
 
     private fun ensureCurrentConnectionAttempt(attemptId: Long) {
@@ -1210,7 +1271,7 @@ internal open class `HtspService-internal`(
         if (
             liveTransportAttempt != generation.attemptId ||
             connectionAttempt != generation.attemptId ||
-            _state.value !is HtspConnectionState.Connected
+            stateLocked().state !is HtspConnectionState.Connected
         ) {
             return@synchronized null
         }
@@ -1369,8 +1430,7 @@ internal open class `HtspService-internal`(
             liveConnectionIdentity = null
             challenge = null
             negotiatedHtspVersion = null
-            _liveConnection.value = null
-            _state.value = HtspConnectionState.Disconnected
+            recordStateLocked(HtspConnectionState.Disconnected)
             target
         }
         closeSocket(target)
@@ -1383,24 +1443,25 @@ internal open class `HtspService-internal`(
     ) {
         beforeTypedRecapture(request)
         currentCoroutineContext().ensureActive()
+        if (request !is HelloRequest && request !is AuthenticateRequest) return
         var unsupportedFailure: HtspUnsupportedServerVersionException? = null
+        var unsupportedRetirement: AdmissionRetirement? = null
         synchronized(connectionAttemptLock) {
             val serviceGeneration = generation.transportKey as? ServiceProtocolGeneration
-                ?: throw CancellationException("Stale HTSP connection generation")
+                ?: return
             if (
                 protocolGeneration !== serviceGeneration ||
                 generation.token !== serviceGeneration.token ||
                 connectionAttempt != serviceGeneration.attemptId
             ) {
-                throw CancellationException("Stale HTSP connection generation")
+                return
             }
-            if (request !is HelloRequest && request !is AuthenticateRequest) return
-            val connectedState = _state.value as? HtspConnectionState.Connected
-                ?: throw IOException("HTSP transport unavailable")
-            val live = _liveConnection.value
-                ?: throw IOException("HTSP transport unavailable")
+            val connectedState = stateLocked().state as? HtspConnectionState.Connected
+                ?: return
+            val live = stateLocked().live
+                ?: return
             if (live.generation !== serviceGeneration.token || liveTransportAttempt != serviceGeneration.attemptId) {
-                throw IOException("HTSP transport unavailable")
+                return
             }
 
             when {
@@ -1412,22 +1473,10 @@ internal open class `HtspService-internal`(
                         val failure = HtspUnsupportedServerVersionException()
                         val typedFailure = typedTransportFailure(failure)
                         terminateSubscriptionStreamsLocked(protocolGeneration, HtspSubscriptionTermination.INTERNAL_FAILURE)
-                        _state.value = HtspConnectionState.Error(typedFailure)
+                        recordStateLocked(HtspConnectionState.Error(typedFailure))
                         val event = HtspTransportEvent.ConnectionFailure(typedFailure, serviceGeneration.token)
-                        val retirement = captureCurrentTransportLocked(failure)
-                        // Register under the retirement lock so replacement/disconnect cannot
-                        // miss this publisher. Cleanup starts non-cancellably before any emit.
-                        val publisher = scope.launch(start = CoroutineStart.UNDISPATCHED) {
-                            finishTransportRetirement(retirement)
-                            currentCoroutineContext().ensureActive()
-                            publishMetadataEvent(serviceGeneration.attemptId, event)
-                        }
-                        directHelloFailurePublisher = publisher
-                        publisher.invokeOnCompletion {
-                            synchronized(connectionAttemptLock) {
-                                if (directHelloFailurePublisher === publisher) directHelloFailurePublisher = null
-                            }
-                        }
+                        publishMetadataEvent(serviceGeneration.attemptId, event)
+                        unsupportedRetirement = captureCurrentTransportLocked(failure)
                         unsupportedFailure = failure
                         return@synchronized
                     }
@@ -1436,11 +1485,10 @@ internal open class `HtspService-internal`(
                     challenge = hello.challenge.toByteArray()
                     negotiatedHtspVersion = version
                     liveServerFacts = facts
-                    _liveConnection.value = live.copy(
-                        protocolVersion = version,
-                        serverFacts = facts,
+                    recordStateLocked(
+                        connectedState.copy(protocolVersion = version),
+                        live.copy(protocolVersion = version, serverFacts = facts),
                     )
-                    _state.value = connectedState.copy(protocolVersion = version)
                 }
                 request is AuthenticateRequest && result is HtspResult.Ok -> {
                     val auth = result.value as AuthenticateResponse
@@ -1448,20 +1496,19 @@ internal open class `HtspService-internal`(
                         .withAuthenticateObservations(auth)
                     val dvrAccess = if ((negotiatedHtspVersion ?: 0) > 25) auth.dvr else null
                     liveServerFacts = facts
-                    _liveConnection.value = live.copy(
-                        dvrAccess = dvrAccess,
-                        serverFacts = facts,
+                    recordStateLocked(
+                        connectedState.copy(dvrAccess = dvrAccess),
+                        live.copy(dvrAccess = dvrAccess, serverFacts = facts),
                     )
-                    _state.value = connectedState.copy(dvrAccess = dvrAccess)
                 }
                 request is AuthenticateRequest && result === HtspResult.AccessDenied -> {
                     val facts = (liveServerFacts ?: HtspServerFacts()).withoutAuthenticateObservations()
                     liveServerFacts = facts
-                    _liveConnection.value = live.copy(dvrAccess = null, serverFacts = facts)
-                    _state.value = connectedState.copy(dvrAccess = null)
+                    recordStateLocked(connectedState.copy(dvrAccess = null), live.copy(dvrAccess = null, serverFacts = facts))
                 }
             }
         }
+        unsupportedRetirement?.let { finishTransportRetirement(it) }
         unsupportedFailure?.let { throw it }
     }
 
@@ -1495,7 +1542,7 @@ internal open class `HtspService-internal`(
         attemptId: Long,
         state: HtspConnectionState,
     ): Boolean = withCurrentConnectionAttempt(attemptId) {
-        _state.value = state
+        recordStateLocked(state)
     } != null
 
     private fun publishConnectedState(
@@ -1503,24 +1550,25 @@ internal open class `HtspService-internal`(
         state: HtspConnectionState.Connected,
         serverFacts: HtspServerFacts,
         connectionIdentity: HtspConnectionIdentity,
-    ): Boolean = synchronized(connectionAttemptLock) {
+    ): HtspLiveConnection? = synchronized(connectionAttemptLock) {
         if (connectionAttempt != attemptId || liveTransportAttempt != attemptId) {
-            return@synchronized false
+            return@synchronized null
         }
         liveServerFacts = serverFacts
         liveConnectionIdentity = connectionIdentity
         val generation = checkNotNull(protocolGeneration)
-        _liveConnection.value = HtspLiveConnection(
+        generation.established = true
+        val live = HtspLiveConnection(
             generation = generation.token,
             protocolVersion = state.protocolVersion,
             dvrAccess = state.dvrAccess,
             serverFacts = serverFacts,
         )
-        _state.value = state
-        true
+        recordStateLocked(state, live)
+        live
     }
 
-    internal fun <T> commitIfCurrentConnectionAttempt(
+    private fun <T> withCurrentConnectionAttempt(
         attemptId: Long,
         block: () -> T,
     ): T? = synchronized(connectionAttemptLock) {
@@ -1528,21 +1576,6 @@ internal open class `HtspService-internal`(
         if (connectionAttempt != attemptId) return@synchronized null
         block()
     }
-
-    internal fun <T> commitIfLiveConnectionAttempt(
-        attemptId: Long,
-        block: () -> T,
-    ): T? = synchronized(connectionAttemptLock) {
-        if (connectionAttempt != attemptId || liveTransportAttempt != attemptId) {
-            return@synchronized null
-        }
-        block()
-    }
-
-    private fun <T> withCurrentConnectionAttempt(
-        attemptId: Long,
-        block: () -> T,
-    ): T? = commitIfCurrentConnectionAttempt(attemptId, block)
 
     private fun installTransport(
         attemptId: Long,
@@ -1578,8 +1611,16 @@ internal open class `HtspService-internal`(
                 liveTransportAttempt = null
                 liveServerFacts = null
                 liveConnectionIdentity = null
-                _liveConnection.value = null
-                _state.value = HtspConnectionState.Disconnected
+                val state = when (termination) {
+                    HtspSubscriptionTermination.LOCAL_RETIREMENT -> HtspConnectionState.Disconnected
+                    HtspSubscriptionTermination.TIMEOUT -> HtspConnectionState.Error(
+                        HtspTransportFailure(HtspTransportFailureKind.CONNECTION_TIMEOUT),
+                    )
+                    else -> HtspConnectionState.Error(
+                        HtspTransportFailure(HtspTransportFailureKind.TRANSPORT_UNAVAILABLE),
+                    )
+                }
+                recordStateLocked(state)
             }
         }
         closeSocket(target)
@@ -1590,38 +1631,20 @@ internal open class `HtspService-internal`(
     }
 
     private suspend fun retireAdmissionTransport(attemptId: Long) {
-        val retirement = synchronized(connectionAttemptLock) {
-            admissionRetirements.remove(attemptId)
-        } ?: return
-        val callerJob = currentCoroutineContext()[Job]
-        withContext(NonCancellable) {
-            retirement.pending.forEach { it.def.completeExceptionally(retirement.cancellation) }
-            retirement.initialSync?.completeExceptionally(retirement.cancellation)
-            retirement.readerJob?.takeIf { it !== callerJob }?.cancel()
-            closeTransportSnapshot(retirement.transport)
-            retirement.readerJob?.takeIf { it !== callerJob }?.join()
+        val retirements = synchronized(connectionAttemptLock) {
+            // An older admission may still be suspended before reclamation. Its detached
+            // socket must not strand a reader when a replacement or close overtakes it.
+            admissionRetirements.keys.filter { it <= attemptId }.mapNotNull { admissionRetirements.remove(it) }
         }
+        retirements.forEach { finishTransportRetirement(it) }
     }
-
-    private fun beginConnectionAttemptUnlessReusable(
-        requestedIdentity: HtspConnectionIdentity,
-        forceReconnect: Boolean,
-    ): Long? = synchronized(connectionAttemptLock) {
-        if (!forceReconnect && canReuseLiveConnectionLocked(requestedIdentity)) return@synchronized null
-        admitReplacementGenerationLocked(HtspSubscriptionTermination.GENERATION_LOST)
-    }
-
-    private fun canReuseLiveConnection(requestedIdentity: HtspConnectionIdentity): Boolean =
-        synchronized(connectionAttemptLock) {
-            canReuseLiveConnectionLocked(requestedIdentity)
-        }
 
     private fun canReuseLiveConnectionLocked(requestedIdentity: HtspConnectionIdentity): Boolean {
         val generation = protocolGeneration ?: return false
         return liveConnectionIdentity?.matches(requestedIdentity) == true &&
             liveTransportAttempt == generation.attemptId &&
             connectionAttempt == generation.attemptId &&
-            _state.value is HtspConnectionState.Connected &&
+            stateLocked().state is HtspConnectionState.Connected &&
             isConnectedUnsafe()
     }
 
@@ -1646,11 +1669,11 @@ internal open class `HtspService-internal`(
     private fun admitReplacementGenerationLocked(
         termination: HtspSubscriptionTermination,
     ): Long {
-        directHelloFailurePublisher?.cancel()
         val attemptId = ++connectionAttempt
         terminateSubscriptionStreamsLocked(protocolGeneration, termination)
         val cancellation = CancellationException("Superseded connection attempt")
         val retirement = captureCurrentTransportLocked(cancellation)
+        recordStateLocked(HtspConnectionState.Disconnected)
         protocolGeneration = ServiceProtocolGeneration(attemptId)
         admissionRetirements[attemptId] = retirement
         return attemptId
@@ -1671,13 +1694,12 @@ internal open class `HtspService-internal`(
         val retirement = AdmissionRetirement(
             cancellation = cancellation,
             pending = pending.values.toList(),
-            initialSync = initialSyncDef,
             readerJob = readerJob,
             transport = detachCurrentTransportLocked(),
         )
         pending.clear()
+        lateReplyObservers.values.forEach { it.expiry.cancel() }
         lateReplyObservers.clear()
-        initialSyncDef = null
         readerJob = null
         return retirement
     }
@@ -1696,8 +1718,9 @@ internal open class `HtspService-internal`(
         liveConnectionIdentity = null
         challenge = null
         negotiatedHtspVersion = null
-        _liveConnection.value = null
-        _state.value = HtspConnectionState.Disconnected
+        recordStateLocked(
+            stateLocked().state.takeUnless { it is HtspConnectionState.Connected } ?: HtspConnectionState.Disconnected,
+        )
         return snapshot
     }
 
@@ -1723,7 +1746,6 @@ internal open class `HtspService-internal`(
     private data class AdmissionRetirement(
         val cancellation: Throwable,
         val pending: List<PendingReq>,
-        val initialSync: CompletableDeferred<Unit>?,
         val readerJob: Job?,
         val transport: TransportSnapshot,
     )
@@ -1739,6 +1761,7 @@ internal open class `HtspService-internal`(
         val attemptId: Long,
         val token: HtspConnectionGeneration = HtspConnectionGeneration(),
     ) {
+        var established = false
         val collectedSubscriptionIds = mutableSetOf<Long>()
         val subscriptionStreams = mutableMapOf<Long, HtspSubscriptionEventBuffer>()
         val subscriptionTimestampClocks = mutableMapOf<Long, HtspTimestampClock>()

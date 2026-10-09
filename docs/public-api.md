@@ -82,8 +82,16 @@ has already changed; observe DVR metadata updates for that state.
 
 Cancelling the calling coroutine cancels the in-flight call, which propagates
 CancellationException like any other suspending Kotlin code. Cancellation never
-shows up disguised as a failure outcome or a transport-failure event. The same
-applies when a call is abandoned because its fenced connection generation went stale.
+shows up disguised as a failure outcome or a transport-failure event. A stale
+generation fence before request dispatch instead returns `HtspResult.TransportUnavailable`.
+`disconnect` and `close` return Boolean: true means this call changed state, false
+means a stale fence or nothing to do. Disconnect retires an attempt/transport or
+clears sticky Error to Disconnected; already disconnected or closed returns false.
+Close returns true only on the first actual close, including from Disconnected.
+Both decide atomically with transport retirement and leave replacements untouched.
+Cleanup completes even for an already-cancelled caller, then propagates caller cancellation.
+A connect superseded by another connect, disconnect, or owner close
+returns `HtspConnectOutcome.Failed` with `SUPERSEDED`, not cancellation.
 
 `execute` uses one timeout budget for generation capture, handshake serialization,
 request encoding/admission, write serialization, socket write/flush, and the reply
@@ -93,12 +101,14 @@ live. Aborting an incomplete write retires the exact socket because its frame ma
 be partial. A started direct handshake is retired on cancellation or timeout even
 after the frame is written, because its server-side state may have changed.
 An enclosing coroutine timeout is caller cancellation, not the request's owned
-timeout. A completed ordinary reply remains valid if its generation subsequently
-loses the transport; replacing the generation still cancels stale work.
-
-`commitIfCurrent` and `commitIfLive` run their blocks under the generation lock.
-Keep those blocks short and non-blocking: do not perform I/O or wait for another
-HTSP operation inside them, because admission and the reader need the same lock.
+timeout. A completed reply is returned unchanged even if its generation loses the
+transport or is replaced while the request is in flight. Fences apply before dispatch,
+not after a server-acknowledged mutation.
+Use generation identities to reject stale application work in consumer-owned
+serialization.
+To migrate from removed `commitIfCurrent`/`commitIfLive`, snapshot
+`liveConnection.value`, compare its `generation`, and tag application state with
+that generation under application-owned serialization.
 
 Socket creation, DNS resolution, connect, and writes run on the supplied I/O
 dispatcher; it must accommodate concurrent blocking reader and writer work, such
@@ -122,15 +132,52 @@ remain idle indefinitely.
 ## Metadata and subscription event streams
 
 `HtspConnection.connectionState` exposes the service-owned current lifecycle as
-a hot `StateFlow<HtspConnectionState>`. Its synchronous `value` is always
-available, and collectors receive subsequent state changes. StateFlow conflation
+a native hot `StateFlow<HtspConnectionState>`; `liveConnection` is also a native
+StateFlow, including `onSubscription` semantics. Synchronous `value` reads may
+briefly lag internal truth. Publication is eventual, never backwards: older
+snapshots cannot replace newer ones. The two flows are not an atomic read pair;
+publication orders them so `Connected` is never exposed with a null live connection
+at any single instant, but two separate reads (or `combine` on a multi-threaded
+dispatcher) can still observe `Connected` followed by a null live connection. Route
+requests through `liveConnection.value` and its `generation`; never `!!` it because
+`connectionState` read `Connected`.
+StateFlow conflation
 applies, so consumers should treat it as current state rather than an audit log
-of every short-lived transition.
+of every short-lived transition. After transport failure, `Error(failure)` stays
+until the next `connect`, `disconnect`, or `close`. The unbudgeted
+`ConnectionFailure` event reports unsolicited failures only of established live
+generations (including direct-hello rejection). Failed connect attempts report only
+their `HtspConnectOutcome.Failed` to the caller and sticky Error to state observers,
+not a ConnectionFailure event. Live failure events are authoritative, not a count of
+observed state transitions. Failure transitions directly to Error without an intermediate
+Disconnected. A failed reader exits promptly, including during a
+handshake; the connect result captures its own successful live snapshot atomically.
+
+The library never invokes consumer code under its lifecycle or queue locks.
+`Dispatchers.Unconfined` (or another immediate dispatcher) can run consumers on
+library threads, including the transport reader, and those consumers must not
+block. A blocking immediate consumer can delay delivery to others. State
+publication is serialized separately, so it can also delay another thread
+publishing state, and an immediate state consumer that blocks on another lifecycle
+operation (for example `runBlocking { close() }`) can deadlock. Prefer a real
+dispatcher for consumer code.
 
 `HtspConnection.events` has replay zero and carries metadata server messages and
-connection failures only. It has an exact 1024-event burst budget shared by
-independent collectors. An indefinitely stalled collector eventually
-backpressures this bounded, never-drop stream.
+connection failures and overflow markers. Every collector has its own bounded
+queue; immutable decoded events may be shared between queues. Queue saturation
+never blocks the reader. On overflow, newest metadata is dropped only for that
+collector. One pending `MetadataOverflow` marker per generation coalesces the count
+at the first loss position, after earlier queued events and before later admitted
+events. Losses after reconnect start a new marker for the new generation; the old
+marker stays in its original position. Delivery then continues. `ConnectionFailure`
+and `MetadataOverflow` are outside the budget and are never dropped.
+
+Pass `HtspEventBufferOptions` to `createHtspConnection`, not to `connect`.
+Defaults are 8 MiB and 8192 events per metadata collector and per subscription.
+Bytes count retained server frame bodies, not exact heap usage. Byte limits are
+1 MiB..1 GiB and event limits 256..1,048,576. Both limits apply independently;
+construction and `copy` validate them. There is no connection-wide cap or time
+ceiling. Defaults may change in minor releases; specify values for fixed budgets.
 
 High-rate subscription traffic is isolated by id through
 `HtspConnection.subscriptionEvents`. The returned flow is cold: collection
@@ -138,16 +185,41 @@ registers the unsigned-u32 id and must start before the matching `subscribe`
 request. An id may be collected once in a connection generation, even after the
 flow has completed. A subscribe call without an active registration is rejected
 before its wire write.
+Collecting when the generation is not live emits `Terminated(GENERATION_LOST)`
+and completes normally.
 
-Each stream can hold 8192 server-produced events. When it fills, the connection
+Each stream shares its byte and event budgets between packets and controls
+(at least 256 event slots). When it fills, the connection
 evicts packets only and inserts an eager `Dropped` marker where each packet was
-removed. Adjacent markers may be combined. Controls and drop markers are never
-discarded. If a full queue has no packet to evict, an incoming packet becomes an
-ordered `Dropped` marker, while an incoming control backpressures the reader
-until the collector makes room. A malformed packet with a trustworthy
+removed. Adjacent markers may be combined. Drop markers are unbudgeted. If a full
+queue has no packet to evict, an incoming packet becomes an ordered `Dropped`
+marker, while an incoming control ends only that subscription with
+`Terminated(CONSUMER_OVERFLOW)` after its queued events drain. The consumer must
+send `unsubscribe`; the library does not send it automatically. An oversized
+packet is admitted once all other packets have been evicted, subject to the
+event count limit. An oversized metadata event is dropped and counted instead.
+After `Dropped`, discard video until the next keyframe. A malformed packet with a trustworthy
 subscription id is reported in the same order with `Dropped`. A malformed
 subscription control or untrustworthy packet envelope closes the incompatible
 transport instead of disappearing.
+
+A single TCP stream still orders all traffic; these queues do not eliminate
+server-side or network head-of-line blocking. The server's `queueDepthBytes`
+subscription option is separate from client event budgets. Worst-case memory is
+approximately the sum of all budgets plus one maximum frame per subscription plus
+the largest metadata queue. This excludes heap and decoded-object overhead; it is
+not an exact heap guarantee. A legal HTSP frame body is at most 32 MiB.
+
+A full EPG sync can overflow a slow consumer: roughly 150 channels × 7–14 days
+can mean 26k–84k events and 15–100 MB on the wire. Use `epgMaxTimeEpochSeconds`,
+`epg = false` plus paged `getEvents`, or consumer-side batching. XMLTV imports
+also cause `eventUpdate` bursts. After `MetadataOverflow`, do not keep waiting
+for `initialSyncCompleted`: it is the last sync message and may have been dropped.
+A second `enableAsyncMetadata` on a live connection only resends EPG; full
+recovery requires consumer-owned reconnect plus full sync, with backoff. The
+library never reconnects or re-requests data automatically. Initial-sync wait
+helpers return `TransportUnavailable` promptly when their own generation's queue
+overflows: synchronization is incomplete even if the transport remains live.
 
 This includes queue-delay normalization overflow: an s64 `delay` that cannot
 fit in microseconds is a malformed subscription control, not a dropped packet.
@@ -163,7 +235,9 @@ the flow. When the server explicitly refuses `subscribe` with a string `error` o
 delivers events committed before the reply, then ends with
 `Terminated(SUBSCRIBE_REJECTED)`; the id remains used for that generation. A
 timeout or cancellation alone leaves the flow open, because the server may still
-have created the subscription; a refusal that arrives later still ends it. A
+have created the subscription. A refusal after caller cancellation is observed
+only until the original request deadline; timeout or generation retirement removes
+the late-reply observer. A
 reply that only fails local decoding without explicit rejection leaves the flow
 open; send `unsubscribe` to release it. Stream termination depends on the explicit
 rejection fields, not `serverMessage`: a null message does not imply an open
@@ -187,9 +261,13 @@ Use `enableAsyncMetadataAwaitingInitialSync` to enable metadata and wait for the
 unsequenced `initialSyncCompleted` marker. It installs its generation-scoped
 observer before sending the request, so a marker adjacent to or preceding the
 acknowledgement is retained. One timeout covers both phases and returns
-`HtspResult.Timeout`; caller cancellation and generation replacement remain
-cancellation. Because the marker has no request sequence, callers must serialize
+`HtspResult.Timeout`; caller cancellation remains
+cancellation; a stale generation returns `TransportUnavailable`. Because the marker has no request sequence, callers must serialize
 this orchestration within a connection generation.
+
+Autorec/timerec updates are not sparse patches for the channel: omitting `channel`
+clears it on the server (pinned `src/htsp_server.c`, lines 700–703). Send the channel
+when it must remain selected.
 
 Each subscription id may also be sent in only one `subscribe` request per
 connection generation; local reuse throws `IllegalStateException` without
@@ -302,8 +380,8 @@ uses `Long` for durations. Socket connect and read timeouts must be in
 are rejected, never truncated.
 
 Passing an invalid argument, such as a non-positive timeout, may throw
-`IllegalArgumentException`. Lifecycle calls such as `disconnect` and `close`
-return `Unit`.
+`IllegalArgumentException`. Lifecycle calls `disconnect` and `close` return
+Boolean: true when this call changes state, false for stale or no-op cleanup.
 
 ## Socket injection
 

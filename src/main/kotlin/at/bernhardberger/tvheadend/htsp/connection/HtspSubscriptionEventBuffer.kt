@@ -8,60 +8,65 @@ import java.util.ArrayDeque
 internal class HtspSubscriptionEventBuffer(
     private val capacity: Int,
     private val collectorJob: Job? = null,
+    private val byteCapacity: Long = 8L * 1024 * 1024,
+    private val wakeup: (Channel<Unit>) -> Unit = { it.trySend(Unit) },
 ) {
     internal enum class OfferResult {
         ACCEPTED,
         IGNORED,
-        WAIT_FOR_SPACE,
     }
 
     internal val eventsAvailable = Channel<Unit>(Channel.CONFLATED)
-    internal val spaceAvailable = Channel<Unit>(Channel.CONFLATED)
 
     private var head: Node? = null
     private var tail: Node? = null
     private val packetNodes = ArrayDeque<Node>()
     private var productionSize = 0
+    private var productionBytes = 0L
     private var terminal = false
     private var abandoned = false
 
     init {
         require(capacity > 0) { "capacity must be positive" }
+        require(byteCapacity > 0L) { "byteCapacity must be positive" }
     }
 
-    internal fun offer(event: HtspSubscriptionEvent): OfferResult {
+    internal fun offer(event: HtspSubscriptionEvent, frameBodyBytes: Long = 0L): OfferResult {
+        require(frameBodyBytes >= 0L)
         if (terminal || abandoned) return OfferResult.IGNORED
 
-        if (productionSize >= capacity) {
+        while (productionSize >= capacity || productionBytes + frameBodyBytes > byteCapacity) {
             val packet = oldestQueuedPacket()
             if (packet != null) {
                 replacePacketWithDropped(packet)
             } else if (event is HtspSubscriptionEvent.Packet) {
+                // A single oversized frame is admitted after all other packets are evicted.
+                if (productionSize < capacity && frameBodyBytes > byteCapacity) break
                 appendDroppedAtTail(1L)
-                eventsAvailable.trySend(Unit)
+                wakeup(eventsAvailable)
                 return OfferResult.ACCEPTED
             } else {
-                return OfferResult.WAIT_FOR_SPACE
+                terminate(HtspSubscriptionTermination.CONSUMER_OVERFLOW)
+                return OfferResult.IGNORED
             }
         }
 
-        append(event, isProduction = true)
-        eventsAvailable.trySend(Unit)
+        append(event, isProduction = true, frameBodyBytes = frameBodyBytes)
+        wakeup(eventsAvailable)
         return OfferResult.ACCEPTED
     }
 
     internal fun completeAfterAcknowledgement() {
         if (terminal || abandoned) return
         terminal = true
-        eventsAvailable.trySend(Unit)
-        spaceAvailable.trySend(Unit)
+        wakeup(eventsAvailable)
     }
 
     internal fun recordDropped(count: Long) {
         require(count > 0L) { "count must be positive" }
         if (terminal || abandoned) return
         appendDroppedAtTail(count)
-        eventsAvailable.trySend(Unit)
+        wakeup(eventsAvailable)
     }
 
     internal fun isAccepting(): Boolean =
@@ -71,8 +76,7 @@ internal class HtspSubscriptionEventBuffer(
         if (terminal || abandoned) return
         append(HtspSubscriptionEvent.Terminated(reason), isProduction = false)
         terminal = true
-        eventsAvailable.trySend(Unit)
-        spaceAvailable.trySend(Unit)
+        wakeup(eventsAvailable)
     }
 
     internal fun poll(): HtspSubscriptionEvent? {
@@ -81,7 +85,7 @@ internal class HtspSubscriptionEventBuffer(
         removeNode(node)
         if (node.isProduction) {
             productionSize--
-            spaceAvailable.trySend(Unit)
+            productionBytes -= node.frameBodyBytes
         }
         return node.event
     }
@@ -99,10 +103,10 @@ internal class HtspSubscriptionEventBuffer(
         tail = null
         packetNodes.clear()
         productionSize = 0
+        productionBytes = 0L
         terminal = true
         abandoned = true
-        eventsAvailable.trySend(Unit)
-        spaceAvailable.trySend(Unit)
+        wakeup(eventsAvailable)
     }
 
     private fun oldestQueuedPacket(): Node? {
@@ -127,6 +131,8 @@ internal class HtspSubscriptionEventBuffer(
         node.event = HtspSubscriptionEvent.Dropped(1L)
         node.isProduction = false
         productionSize--
+        productionBytes -= node.frameBodyBytes
+        node.frameBodyBytes = 0L
 
         var marker = node
         val previous = marker.previous
@@ -162,11 +168,12 @@ internal class HtspSubscriptionEventBuffer(
         }
     }
 
-    private fun append(event: HtspSubscriptionEvent, isProduction: Boolean) {
+    private fun append(event: HtspSubscriptionEvent, isProduction: Boolean, frameBodyBytes: Long = 0L) {
         val node = Node(
             event = event,
             isProduction = isProduction,
             previous = tail,
+            frameBodyBytes = frameBodyBytes,
         )
         val currentTail = tail
         if (currentTail == null) {
@@ -177,6 +184,7 @@ internal class HtspSubscriptionEventBuffer(
         tail = node
         if (isProduction) {
             productionSize++
+            productionBytes += frameBodyBytes
             if (event is HtspSubscriptionEvent.Packet) packetNodes.addLast(node)
         }
     }
@@ -197,5 +205,6 @@ internal class HtspSubscriptionEventBuffer(
         var previous: Node? = null,
         var next: Node? = null,
         var queued: Boolean = true,
+        var frameBodyBytes: Long = 0L,
     )
 }

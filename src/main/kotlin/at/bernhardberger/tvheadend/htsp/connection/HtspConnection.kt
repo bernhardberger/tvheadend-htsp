@@ -23,27 +23,42 @@ public class HtspConnectionGeneration {
  * that delegates with Kotlin `by` uses that default, not the delegate, until recompiled.
  */
 public interface HtspConnection {
-    /** Current connection lifecycle state, available synchronously and as a hot stream. */
+    /**
+     * Current lifecycle state; StateFlow may conflate transitions. A transport Error stays
+     * until connect/disconnect/close. A failed connect reports through its outcome and
+     * this state only; [HtspTransportEvent.ConnectionFailure] is the authoritative signal
+     * for unsolicited failures of live generations.
+     */
     public val connectionState: StateFlow<HtspConnectionState>
 
     public val liveConnection: StateFlow<HtspLiveConnection?>
 
     /**
-     * Metadata and connection failures with replay zero and a 1024-event burst budget.
-     * Every normal collector receives the same ordered events independently within that
-     * budget. An indefinitely stalled collector eventually backpressures the bounded,
-     * never-drop metadata stream.
+     * Metadata and connection failures with replay zero and one bounded queue per collector.
+     * Queue saturation never blocks the reader; consumers on an immediate dispatcher such as
+     * `Dispatchers.Unconfined` may run on library threads and must not block. Immutable
+     * decoded events may be shared across queues. A full queue drops newest metadata and reports [HtspTransportEvent.MetadataOverflow]
+     * before later admitted events; connection failures and overflow markers are unbudgeted.
+     * At most one pending overflow marker per generation coalesces only that generation's losses.
+     * Budget defaults may change; pass [HtspEventBufferOptions] for fixed limits.
+     * Recovery (including reconnect and full sync with backoff) belongs to the consumer.
      */
     public val events: Flow<HtspTransportEvent>
 
     /**
      * Returns a cold ordered stream for one client-selected unsigned-u32 subscription id.
-     * Collection registers the id and must start before `subscribe` is executed. Exactly one
+     * Collection registers the id and must start before `subscribe` is executed (for example,
+     * launch with CoroutineStart.UNDISPATCHED). A nonlive generation emits
+     * Terminated(GENERATION_LOST) and completes. Exactly one
      * collection is allowed for the id in the current connection generation, including after
-     * terminal completion. The stream buffers 8192 server-produced events. Pressure and
+     * terminal completion. Packets and controls share the configured byte and event budgets.
+     * On control overflow, queued events drain before
+     * [HtspSubscriptionTermination.CONSUMER_OVERFLOW]; the consumer must send unsubscribe.
+     * Queue saturation never blocks the reader. Pressure and
      * malformed packets whose subscription id remains trustworthy are reported by an ordered
      * [HtspSubscriptionEvent.Dropped]; an untrustworthy packet envelope closes the incompatible
-     * transport. Subscribe is rejected before its wire write when no active collection has
+     * transport. After a drop, discard video until the next keyframe.
+     * Subscribe is rejected before its wire write when no active collection has
      * registered the id. Server [HtspSubscriptionEvent.Stopped] events do not complete the flow:
      * the same subscription may restart with replacement stream metadata. A successful unsubscribe
      * acknowledgement drains committed events then completes; transport or local retirement adds
@@ -53,8 +68,8 @@ public interface HtspConnection {
 
     /**
      * Returns the ordered stream for [subscriptionId] only if [expectedGeneration] is still the
-     * live connection when collection registers the id. A stale generation propagates
-     * [CancellationException] without consuming the id in the replacement generation.
+     * live connection when collection registers the id. A stale or nonlive generation emits
+     * Terminated(GENERATION_LOST) and completes without consuming the replacement's id.
      */
     public fun subscriptionEvents(
         subscriptionId: Long,
@@ -63,7 +78,9 @@ public interface HtspConnection {
 
     /**
      * Executes one typed request. [timeoutMs] covers handshake/write serialization,
-     * dispatch, socket write/flush, and the reply wait. Caller cancellation propagates.
+     * dispatch, socket write/flush, and the reply wait. Caller cancellation propagates;
+     * a stale [expectedGeneration] before dispatch returns [HtspResult.TransportUnavailable].
+     * A completed reply is returned unchanged even after generation replacement.
      */
     public suspend fun <R> execute(
         request: HtspRequest<R>,
@@ -71,7 +88,11 @@ public interface HtspConnection {
         expectedGeneration: HtspConnectionGeneration? = null,
     ): HtspResult<R>
 
-    /** Starts or reuses a connection according to [endpoint] identity and [options]. */
+    /**
+     * Starts or reuses a connection according to [endpoint] identity and [options].
+     * Returns its own successful snapshot, or Failed(SUPERSEDED) if superseded before success.
+     * Only cancellation of the calling coroutine propagates as cancellation.
+     */
     public suspend fun connect(
         endpoint: HtspEndpoint,
         options: HtspConnectOptions = HtspConnectOptions(),
@@ -81,36 +102,24 @@ public interface HtspConnection {
     public fun isCurrent(generation: HtspConnectionGeneration): Boolean
 
     /**
-     * Runs [block] only while [generation] is the current live-or-gone identity.
-     * The block holds the generation lock and must be short and non-blocking.
-     */
-    public fun <T> commitIfCurrent(
-        generation: HtspConnectionGeneration,
-        block: () -> T,
-    ): T?
-
-    /**
-     * Runs [block] with the exact live snapshot only while [generation] is current and live.
-     * The block holds the generation lock and must be short and non-blocking.
-     */
-    public fun <T> commitIfLive(
-        generation: HtspConnectionGeneration,
-        block: (HtspLiveConnection) -> T,
-    ): T?
-
-    /**
      * Disconnects the expected current generation, or performs owner-global cleanup when null.
-     * A current generation remains eligible after transport loss. A stale non-null generation
-     * propagates [CancellationException] without mutating transport state.
+     * Returns true when this call retires an attempt or transport, or clears sticky Error to
+     * Disconnected. Returns false for a stale generation, an already disconnected service, or
+     * an already closed service, leaving any replacement untouched. A current generation remains
+     * eligible after transport loss. Cleanup completes even for a cancelled caller; only caller
+     * cancellation may then throw CancellationException.
      */
-    public suspend fun disconnect(expectedGeneration: HtspConnectionGeneration? = null)
+    public suspend fun disconnect(expectedGeneration: HtspConnectionGeneration? = null): Boolean
 
     /**
      * Terminally closes the expected current generation, or performs owner-global close when null.
-     * A current generation remains eligible after transport loss. A stale non-null generation
-     * propagates [CancellationException] without closing the owner.
+     * Returns true only when this call closes the service, including an already disconnected
+     * service. Returns false if already closed or if the expected generation is stale, leaving
+     * any replacement untouched. A current generation remains eligible after transport loss.
+     * Cleanup completes even for a cancelled caller; only caller cancellation may then throw
+     * CancellationException.
      */
-    public suspend fun close(expectedGeneration: HtspConnectionGeneration? = null)
+    public suspend fun close(expectedGeneration: HtspConnectionGeneration? = null): Boolean
 }
 
 /** ABI-hidden owner of the preserved typed request primitive. */
@@ -126,6 +135,17 @@ internal class `HtspTypedRequestCaller-internal`(
         request: HtspRequest<R>,
         timeoutMs: Long = 5_000L,
         expectedGeneration: HtspConnectionGeneration? = null,
+    ): HtspResult<R> = try {
+        callCurrent(request, timeoutMs, expectedGeneration)
+    } catch (cancelled: CancellationException) {
+        currentCoroutineContext().ensureActive()
+        HtspResult.TransportUnavailable
+    }
+
+    private suspend fun <R> callCurrent(
+        request: HtspRequest<R>,
+        timeoutMs: Long,
+        expectedGeneration: HtspConnectionGeneration?,
     ): HtspResult<R> {
         require(timeoutMs > 0L) { "timeoutMs must be positive" }
         currentCoroutineContext().ensureActive()
@@ -183,7 +203,7 @@ internal class `HtspTypedRequestCaller-internal`(
                 timeoutMs = remainingMs,
             )
             replyReceived = true
-            ensureActiveGeneration(generation)
+            currentCoroutineContext().ensureActive()
             classifyHtspReply(reply, request, protocolVersion ?: 0).also { result ->
                 transport.recapture(generation, request, result)
                 if (request is HelloRequest && result !is HtspResult.Ok) {

@@ -70,12 +70,17 @@ exact `toString` format, internal declarations, and undocumented behavior.
   binary-compatible.
 - New subtypes or entries of the open types below. Their KDoc says so; keep an
   `else` branch when matching them:
-  `HtspServerMessage`, `HtspSubscriptionEvent`, `HtspSubscriptionTermination`,
+  `HtspServerMessage`, `HtspTransportEvent`, `HtspSubscriptionEvent`, `HtspSubscriptionTermination`,
   `HtspTransportFailureKind`, `HtspEpgObjectType`, `HtspLogLevel`, `HtspAccess`,
   `HtspDvrMutationRequest`, and `HtspDvrMutationResponse`.
+  `HtspTransportEvent` remains Kotlin-sealed, like `HtspServerMessage`; "open"
+  describes its evolution policy, not permission for consumer-defined implementations.
 - A higher default requested HTSP version when a release extends the typed
   protocol coverage to it; servers still negotiate down.
 - Lowering the minimum supported HTSP server protocol version.
+- Default queue budgets may change in minor releases. Pass explicit
+  `HtspEventBufferOptions` when fixed numbers are required. The documented overflow
+  behavior remains covered by the compatibility policy.
 - New `HtspConnection` members, always with a default implementation, so
   custom implementations such as test fakes keep compiling and linking.
 - A higher minimum Kotlin or `kotlinx-coroutines` version, stated in the
@@ -83,7 +88,7 @@ exact `toString` format, internal declarations, and undocumented behavior.
 
 All other sealed hierarchies and enums are closed for the 1.x line and safe to
 match exhaustively, including `HtspResult`, `HtspFailure`,
-`HtspConnectOutcome`, `HtspTransportEvent`, `HtspConnectionState`, and the
+`HtspConnectOutcome`, `HtspConnectionState`, and the
 request selector types. A new kind of server failure is reported through an
 existing category, such as `ServerError`, until the next major version.
 Match that data class with `is HtspResult.ServerError`; its optional

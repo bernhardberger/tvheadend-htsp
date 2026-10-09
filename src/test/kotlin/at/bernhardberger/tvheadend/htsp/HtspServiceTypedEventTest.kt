@@ -591,7 +591,12 @@ internal class HtspServiceTypedEventTest : HtspServiceLifecycleFixture() {
                         while (service.currentConnectionAttemptId() == firstAttempt) delay(1L)
                     }
 
-                    firstServer.sendServerMessage("channelAdd", mapOf("channelId" to 55L))
+                    try {
+                        firstServer.sendServerMessage("channelAdd", mapOf("channelId" to 55L))
+                    } catch (_: java.net.SocketException) {
+                        // Replacement closes this peer: either the kernel accepts the stale write
+                        // or rejects it with a socket error. Neither path may publish the event.
+                    }
                     delay(50L)
                     assertTrue(
                         events.none { event ->

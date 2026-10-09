@@ -67,8 +67,6 @@ public final class at/bernhardberger/tvheadend/htsp/connection/HtspConnectOutcom
 public abstract interface class at/bernhardberger/tvheadend/htsp/connection/HtspConnection {
 	public abstract fun close (Lat/bernhardberger/tvheadend/htsp/connection/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public static synthetic fun close$default (Lat/bernhardberger/tvheadend/htsp/connection/HtspConnection;Lat/bernhardberger/tvheadend/htsp/connection/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
-	public abstract fun commitIfCurrent (Lat/bernhardberger/tvheadend/htsp/connection/HtspConnectionGeneration;Lkotlin/jvm/functions/Function0;)Ljava/lang/Object;
-	public abstract fun commitIfLive (Lat/bernhardberger/tvheadend/htsp/connection/HtspConnectionGeneration;Lkotlin/jvm/functions/Function1;)Ljava/lang/Object;
 	public abstract fun connect (Lat/bernhardberger/tvheadend/htsp/connection/HtspEndpoint;Lat/bernhardberger/tvheadend/htsp/connection/HtspConnectOptions;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public static synthetic fun connect$default (Lat/bernhardberger/tvheadend/htsp/connection/HtspConnection;Lat/bernhardberger/tvheadend/htsp/connection/HtspEndpoint;Lat/bernhardberger/tvheadend/htsp/connection/HtspConnectOptions;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
 	public abstract fun disconnect (Lat/bernhardberger/tvheadend/htsp/connection/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
@@ -92,8 +90,8 @@ public final class at/bernhardberger/tvheadend/htsp/connection/HtspConnection$De
 
 public final class at/bernhardberger/tvheadend/htsp/connection/HtspConnectionFactoryKt {
 	public static final field MINIMUM_HTSP_PROTOCOL_VERSION I
-	public static final fun createHtspConnection (Lkotlinx/coroutines/CoroutineDispatcher;Lat/bernhardberger/tvheadend/htsp/connection/HtspClientIdentity;Lat/bernhardberger/tvheadend/htsp/connection/HtspLogger;Lkotlin/jvm/functions/Function0;)Lat/bernhardberger/tvheadend/htsp/connection/HtspConnection;
-	public static synthetic fun createHtspConnection$default (Lkotlinx/coroutines/CoroutineDispatcher;Lat/bernhardberger/tvheadend/htsp/connection/HtspClientIdentity;Lat/bernhardberger/tvheadend/htsp/connection/HtspLogger;Lkotlin/jvm/functions/Function0;ILjava/lang/Object;)Lat/bernhardberger/tvheadend/htsp/connection/HtspConnection;
+	public static final fun createHtspConnection (Lkotlinx/coroutines/CoroutineDispatcher;Lat/bernhardberger/tvheadend/htsp/connection/HtspClientIdentity;Lat/bernhardberger/tvheadend/htsp/connection/HtspLogger;Lkotlin/jvm/functions/Function0;Lat/bernhardberger/tvheadend/htsp/connection/HtspEventBufferOptions;)Lat/bernhardberger/tvheadend/htsp/connection/HtspConnection;
+	public static synthetic fun createHtspConnection$default (Lkotlinx/coroutines/CoroutineDispatcher;Lat/bernhardberger/tvheadend/htsp/connection/HtspClientIdentity;Lat/bernhardberger/tvheadend/htsp/connection/HtspLogger;Lkotlin/jvm/functions/Function0;Lat/bernhardberger/tvheadend/htsp/connection/HtspEventBufferOptions;ILjava/lang/Object;)Lat/bernhardberger/tvheadend/htsp/connection/HtspConnection;
 }
 
 public final class at/bernhardberger/tvheadend/htsp/connection/HtspConnectionGeneration {
@@ -160,6 +158,25 @@ public final class at/bernhardberger/tvheadend/htsp/connection/HtspEndpoint {
 	public final fun getPassword ()Ljava/lang/String;
 	public final fun getPort ()I
 	public final fun getUsername ()Ljava/lang/String;
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class at/bernhardberger/tvheadend/htsp/connection/HtspEventBufferOptions {
+	public synthetic fun <init> ()V
+	public fun <init> (JIJI)V
+	public synthetic fun <init> (JIJIILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()J
+	public final fun component2 ()I
+	public final fun component3 ()J
+	public final fun component4 ()I
+	public final fun copy (JIJI)Lat/bernhardberger/tvheadend/htsp/connection/HtspEventBufferOptions;
+	public static synthetic fun copy$default (Lat/bernhardberger/tvheadend/htsp/connection/HtspEventBufferOptions;JIJIILjava/lang/Object;)Lat/bernhardberger/tvheadend/htsp/connection/HtspEventBufferOptions;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getMetadataQueueBytes ()J
+	public final fun getMetadataQueueEvents ()I
+	public final fun getSubscriptionQueueBytes ()J
+	public final fun getSubscriptionQueueEvents ()I
+	public fun hashCode ()I
 	public fun toString ()Ljava/lang/String;
 }
 
@@ -460,6 +477,7 @@ public final class at/bernhardberger/tvheadend/htsp/connection/HtspSubscriptionE
 }
 
 public final class at/bernhardberger/tvheadend/htsp/connection/HtspSubscriptionTermination : java/lang/Enum {
+	public static final field CONSUMER_OVERFLOW Lat/bernhardberger/tvheadend/htsp/connection/HtspSubscriptionTermination;
 	public static final field FRAMING_FAILURE Lat/bernhardberger/tvheadend/htsp/connection/HtspSubscriptionTermination;
 	public static final field GENERATION_LOST Lat/bernhardberger/tvheadend/htsp/connection/HtspSubscriptionTermination;
 	public static final field INTERNAL_FAILURE Lat/bernhardberger/tvheadend/htsp/connection/HtspSubscriptionTermination;
@@ -487,6 +505,19 @@ public final class at/bernhardberger/tvheadend/htsp/connection/HtspTransportEven
 	public static synthetic fun copy$default (Lat/bernhardberger/tvheadend/htsp/connection/HtspTransportEvent$ConnectionFailure;Lat/bernhardberger/tvheadend/htsp/connection/HtspTransportFailure;Lat/bernhardberger/tvheadend/htsp/connection/HtspConnectionGeneration;ILjava/lang/Object;)Lat/bernhardberger/tvheadend/htsp/connection/HtspTransportEvent$ConnectionFailure;
 	public fun equals (Ljava/lang/Object;)Z
 	public final fun getFailure ()Lat/bernhardberger/tvheadend/htsp/connection/HtspTransportFailure;
+	public fun getGeneration ()Lat/bernhardberger/tvheadend/htsp/connection/HtspConnectionGeneration;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class at/bernhardberger/tvheadend/htsp/connection/HtspTransportEvent$MetadataOverflow : at/bernhardberger/tvheadend/htsp/connection/HtspTransportEvent {
+	public fun <init> (Lat/bernhardberger/tvheadend/htsp/connection/HtspConnectionGeneration;J)V
+	public final fun component1 ()Lat/bernhardberger/tvheadend/htsp/connection/HtspConnectionGeneration;
+	public final fun component2 ()J
+	public final fun copy (Lat/bernhardberger/tvheadend/htsp/connection/HtspConnectionGeneration;J)Lat/bernhardberger/tvheadend/htsp/connection/HtspTransportEvent$MetadataOverflow;
+	public static synthetic fun copy$default (Lat/bernhardberger/tvheadend/htsp/connection/HtspTransportEvent$MetadataOverflow;Lat/bernhardberger/tvheadend/htsp/connection/HtspConnectionGeneration;JILjava/lang/Object;)Lat/bernhardberger/tvheadend/htsp/connection/HtspTransportEvent$MetadataOverflow;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getDroppedCount ()J
 	public fun getGeneration ()Lat/bernhardberger/tvheadend/htsp/connection/HtspConnectionGeneration;
 	public fun hashCode ()I
 	public fun toString ()Ljava/lang/String;
@@ -526,6 +557,7 @@ public final class at/bernhardberger/tvheadend/htsp/connection/HtspTransportFail
 	public static final field INCOMPATIBLE_SERVER Lat/bernhardberger/tvheadend/htsp/connection/HtspTransportFailureKind;
 	public static final field NETWORK_UNREACHABLE Lat/bernhardberger/tvheadend/htsp/connection/HtspTransportFailureKind;
 	public static final field PERMISSION_DENIED Lat/bernhardberger/tvheadend/htsp/connection/HtspTransportFailureKind;
+	public static final field SUPERSEDED Lat/bernhardberger/tvheadend/htsp/connection/HtspTransportFailureKind;
 	public static final field TRANSPORT_UNAVAILABLE Lat/bernhardberger/tvheadend/htsp/connection/HtspTransportFailureKind;
 	public static final field UNSUPPORTED_SERVER_VERSION Lat/bernhardberger/tvheadend/htsp/connection/HtspTransportFailureKind;
 	public static final field ZERO_CHANNELS Lat/bernhardberger/tvheadend/htsp/connection/HtspTransportFailureKind;

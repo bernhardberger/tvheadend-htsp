@@ -1,5 +1,7 @@
 package at.bernhardberger.tvheadend.htsp
 
+import org.junit.jupiter.api.Assertions.assertFalse
+
 import at.bernhardberger.tvheadend.htsp.connection.*
 import at.bernhardberger.tvheadend.htsp.jsonapi.*
 import at.bernhardberger.tvheadend.htsp.messages.*
@@ -43,8 +45,7 @@ internal class HtspServiceGenerationLifecycleTest : HtspServiceLifecycleFixture(
                         HtspEndpoint("127.0.0.1", replacementServer.port),
                     ) as HtspConnectOutcome.Connected).connection.generation
 
-                    val failure = runCatching { service.disconnect(stale) }.exceptionOrNull()
-                    assertTrue(failure is CancellationException)
+                    assertFalse(service.disconnect(stale))
                     assertSame(current, service.liveConnection.value?.generation)
                     assertEquals(
                         replacementServer.port,
@@ -82,7 +83,7 @@ internal class HtspServiceGenerationLifecycleTest : HtspServiceLifecycleFixture(
                         HtspEndpoint("127.0.0.1", firstServer.port),
                     ) as HtspConnectOutcome.Connected).connection.generation
                     val disconnect = async(Dispatchers.IO) {
-                        runCatching { service.disconnect(stale) }.exceptionOrNull()
+                        service.disconnect(stale)
                     }
                     withTimeout(1_000L) { teardownAdmitted.await() }
 
@@ -103,7 +104,7 @@ internal class HtspServiceGenerationLifecycleTest : HtspServiceLifecycleFixture(
                     resumeTeardown.complete(Unit)
                     val failure = withTimeout(1_000L) { disconnect.await() }
 
-                    assertTrue(failure is CancellationException)
+                    assertFalse(failure)
                     assertSame(replacement, service.liveConnection.value?.generation)
                     assertEquals(
                         replacementServer.port,
@@ -149,8 +150,7 @@ internal class HtspServiceGenerationLifecycleTest : HtspServiceLifecycleFixture(
                         HtspEndpoint("127.0.0.1", replacementServer.port),
                     ) as HtspConnectOutcome.Connected).connection.generation
 
-                    val failure = runCatching { service.close(stale) }.exceptionOrNull()
-                    assertTrue(failure is CancellationException)
+                    assertFalse(service.close(stale))
                     assertSame(current, service.liveConnection.value?.generation)
                     assertTrue(service.connect(HtspEndpoint("127.0.0.1", replacementServer.port)) is HtspConnectOutcome.Connected)
 
@@ -181,10 +181,10 @@ internal class HtspServiceGenerationLifecycleTest : HtspServiceLifecycleFixture(
                         HtspEndpoint("127.0.0.1", firstServer.port),
                     ) as HtspConnectOutcome.Connected).connection
                     val generation = first.generation
-                    val liveSnapshot = service.commitIfLive(generation) { live -> live }
+                    val liveSnapshot = service.liveConnection.value
                     assertSame(first, liveSnapshot)
                     assertTrue(service.isCurrent(generation))
-                    assertEquals("live", service.commitIfCurrent(generation) { "live" })
+                    assertTrue(service.isCurrent(generation))
 
                     firstServer.closeClientTransport()
                     withTimeout(1_000L) {
@@ -193,19 +193,18 @@ internal class HtspServiceGenerationLifecycleTest : HtspServiceLifecycleFixture(
 
                     assertNull(service.liveConnection.value)
                     assertTrue(service.isCurrent(generation))
-                    assertEquals("gone", service.commitIfCurrent(generation) { "gone" })
-                    assertNull(service.commitIfLive(generation) { it })
+                    assertTrue(service.isCurrent(generation))
+                    assertNull(service.liveConnection.value)
 
                     val replacement = (service.connect(
                         HtspEndpoint("127.0.0.1", replacementServer.port),
                     ) as HtspConnectOutcome.Connected).connection
                     assertTrue(!service.isCurrent(generation))
-                    assertNull(service.commitIfCurrent(generation) { "replaced" })
-                    assertNull(service.commitIfLive(generation) { it })
+                    assertTrue(!service.isCurrent(generation))
                     assertTrue(service.isCurrent(replacement.generation))
                     assertSame(
                         replacement,
-                        service.commitIfLive(replacement.generation) { live -> live },
+                        service.liveConnection.value,
                     )
                     service.disconnect()
                 }
@@ -225,20 +224,19 @@ internal class HtspServiceGenerationLifecycleTest : HtspServiceLifecycleFixture(
                 service.disconnect(generation)
                 assertNull(service.liveConnection.value)
                 assertTrue(service.isCurrent(generation))
-                assertEquals("gone", service.commitIfCurrent(generation) { "gone" })
-                assertNull(service.commitIfLive(generation) { it })
+                assertTrue(service.isCurrent(generation))
+                assertNull(service.liveConnection.value)
 
                 val replacement = (service.connect(
                     HtspEndpoint("127.0.0.1", server.port),
                 ) as HtspConnectOutcome.Connected).connection
                 assertTrue(!service.isCurrent(generation))
-                assertNull(service.commitIfCurrent(generation) { "replaced" })
-                assertNull(service.commitIfLive(generation) { it })
+                assertTrue(!service.isCurrent(generation))
                 assertNotSame(generation, replacement.generation)
                 assertTrue(service.isCurrent(replacement.generation))
                 assertSame(
                     replacement,
-                    service.commitIfLive(replacement.generation) { live -> live },
+                    service.liveConnection.value,
                 )
                 service.disconnect()
             }
@@ -262,13 +260,11 @@ internal class HtspServiceGenerationLifecycleTest : HtspServiceLifecycleFixture(
                 assertTrue(failed is HtspConnectOutcome.Failed)
                 assertNull(service.liveConnection.value)
                 assertTrue(!service.isCurrent(first))
-                assertNull(service.commitIfCurrent(first) { "revived" })
-                assertNull(service.commitIfLive(first) { it })
-                val staleRequest = runCatching { service.getProfiles(expectedGeneration = first) }.exceptionOrNull()
-                assertTrue(staleRequest is CancellationException)
+                assertTrue(!service.isCurrent(first))
+                assertNull(service.liveConnection.value)
+                assertSame(HtspResult.TransportUnavailable, service.getProfiles(expectedGeneration = first))
                 assertSame(HtspResult.TransportUnavailable, service.getProfiles())
-                val staleDisconnect = runCatching { service.disconnect(first) }.exceptionOrNull()
-                assertTrue(staleDisconnect is CancellationException)
+                assertFalse(service.disconnect(first))
                 assertNull(service.liveConnection.value)
 
                 service.disconnect()
@@ -281,14 +277,14 @@ internal class HtspServiceGenerationLifecycleTest : HtspServiceLifecycleFixture(
                 assertTrue(!service.isCurrent(first))
                 assertNotSame(first, later.generation)
                 assertTrue(service.isCurrent(later.generation))
-                assertSame(later, service.commitIfLive(later.generation) { live -> live })
+                assertSame(later, service.liveConnection.value)
                 service.disconnect()
             }
         }
     }
 
     @Test
-    fun concurrentLossAndReplacementLinearizeWithoutStaleLiveCommit() {
+    fun concurrentLossAndReplacementExposeOnlyOwnedSnapshots() {
         FakeHtspServer(respondToHello = true).use { firstServer ->
             FakeHtspServer(respondToHello = true).use { replacementServer ->
                 val service = service()
@@ -296,16 +292,15 @@ internal class HtspServiceGenerationLifecycleTest : HtspServiceLifecycleFixture(
                     val first = (service.connect(
                         HtspEndpoint("127.0.0.1", firstServer.port),
                     ) as HtspConnectOutcome.Connected).connection.generation
-                    val staleSnapshots = CopyOnWriteArrayList<HtspLiveConnection>()
+                    val firstConnection = service.liveConnection.value
+                    val snapshots = CopyOnWriteArrayList<HtspLiveConnection>()
                     val stopProbing = CountDownLatch(1)
                     val probeStarted = CountDownLatch(1)
                     val probe = thread(name = "generation-live-probe") {
                         probeStarted.countDown()
                         while (!stopProbing.await(0, TimeUnit.MILLISECONDS)) {
-                            service.commitIfLive(first) { live ->
-                                if (live.generation !== first) {
-                                    staleSnapshots += live
-                                }
+                            service.liveConnection.value?.let { live ->
+                                snapshots.addIfAbsent(live)
                             }
                         }
                     }
@@ -318,12 +313,12 @@ internal class HtspServiceGenerationLifecycleTest : HtspServiceLifecycleFixture(
                     stopProbing.countDown()
                     probe.join(1_000L)
 
-                    assertTrue(staleSnapshots.isEmpty())
+                    assertTrue(snapshots.all { it === firstConnection || it === replacement })
                     assertTrue(!service.isCurrent(first))
-                    assertNull(service.commitIfLive(first) { it })
+                    assertTrue(service.liveConnection.value?.generation !== first)
                     assertSame(
                         replacement,
-                        service.commitIfLive(replacement.generation) { live -> live },
+                        service.liveConnection.value,
                     )
                     service.disconnect()
                 }
@@ -332,7 +327,7 @@ internal class HtspServiceGenerationLifecycleTest : HtspServiceLifecycleFixture(
     }
 
     @Test
-    fun staleTeardownCancelsAndCurrentGoneGenerationRemainsEligible() {
+    fun staleTeardownReturnsFalseAndCurrentGoneGenerationRemainsEligible() {
         FakeHtspServer(respondToHello = true).use { firstServer ->
             FakeHtspServer(respondToHello = true, expectedConnections = 2).use { replacementServer ->
                 val service = service()
@@ -344,19 +339,17 @@ internal class HtspServiceGenerationLifecycleTest : HtspServiceLifecycleFixture(
                         HtspEndpoint("127.0.0.1", replacementServer.port),
                     ) as HtspConnectOutcome.Connected).connection.generation
 
-                    val staleDisconnect = runCatching { service.disconnect(stale) }.exceptionOrNull()
-                    assertTrue(staleDisconnect is CancellationException)
+                    assertFalse(service.disconnect(stale))
                     assertSame(current, service.liveConnection.value?.generation)
 
-                    val staleClose = runCatching { service.close(stale) }.exceptionOrNull()
-                    assertTrue(staleClose is CancellationException)
+                    assertFalse(service.close(stale))
                     assertSame(current, service.liveConnection.value?.generation)
 
                     service.disconnect(current)
                     assertNull(service.liveConnection.value)
                     assertTrue(service.isCurrent(current))
-                    assertEquals("gone", service.commitIfCurrent(current) { "gone" })
-                    assertNull(service.commitIfLive(current) { it })
+                    assertTrue(service.isCurrent(current))
+                    assertNull(service.liveConnection.value)
 
                     service.disconnect(current)
                     assertNull(service.liveConnection.value)
@@ -374,7 +367,7 @@ internal class HtspServiceGenerationLifecycleTest : HtspServiceLifecycleFixture(
     }
 
     @Test
-    fun commitIfLiveSuppliesExactSnapshotAndRejectsStaleGeneration() {
+    fun liveConnectionSuppliesExactSnapshotAndCurrencyRejectsForeignGeneration() {
         FakeHtspServer(respondToHello = true).use { server ->
             val service = service()
             runBlocking {
@@ -383,23 +376,18 @@ internal class HtspServiceGenerationLifecycleTest : HtspServiceLifecycleFixture(
                 ) as HtspConnectOutcome.Connected
                 val live = requireNotNull(service.liveConnection.value)
                 assertSame(connected.connection, live)
-                assertSame(live, service.commitIfLive(live.generation) { snapshot -> snapshot })
+                assertSame(live, service.liveConnection.value)
                 assertSame(
                     live.generation,
-                    service.commitIfLive(live.generation) { snapshot -> snapshot.generation },
+                    service.liveConnection.value?.generation,
                 )
                 assertTrue(service.isCurrent(live.generation))
-                assertSame(
-                    live.generation,
-                    service.commitIfCurrent(live.generation) { live.generation },
-                )
 
                 val foreign = HtspConnectionGeneration()
                 assertTrue(!service.isCurrent(foreign))
-                assertNull(service.commitIfCurrent(foreign) { "foreign" })
-                assertNull(service.commitIfLive(foreign) { it })
+                assertTrue(service.liveConnection.value?.generation !== foreign)
                 service.disconnect(live.generation)
-                assertNull(service.commitIfLive(live.generation) { it })
+                assertNull(service.liveConnection.value)
                 assertTrue(service.isCurrent(live.generation))
             }
         }

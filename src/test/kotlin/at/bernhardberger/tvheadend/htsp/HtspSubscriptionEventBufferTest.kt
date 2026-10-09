@@ -38,14 +38,14 @@ internal class HtspSubscriptionEventBufferTest {
         buffer.recordDropped(1L)
         buffer.recordDropped(1L)
         assertEquals(
-            HtspSubscriptionEventBuffer.OfferResult.WAIT_FOR_SPACE,
+            HtspSubscriptionEventBuffer.OfferResult.IGNORED,
             buffer.offer(second),
         )
 
         assertEquals(first, buffer.poll())
-        assertAccepted(buffer.offer(second))
         assertEquals(HtspSubscriptionEvent.Dropped(2L), buffer.poll())
-        assertEquals(second, buffer.poll())
+        assertEquals(HtspSubscriptionEvent.Terminated(HtspSubscriptionTermination.CONSUMER_OVERFLOW), buffer.poll())
+        assertTrue(buffer.isComplete())
     }
 
     @Test
@@ -59,7 +59,7 @@ internal class HtspSubscriptionEventBufferTest {
     }
 
     @Test
-    fun fullControlQueueDropsIncomingPacketsButBackpressuresIncomingControl() {
+    fun fullControlQueueDropsIncomingPacketsAndTerminatesOnIncomingControl() {
         val buffer = HtspSubscriptionEventBuffer(capacity = 2)
         val first = status("first")
         val second = status("second")
@@ -75,17 +75,16 @@ internal class HtspSubscriptionEventBufferTest {
         assertAccepted(buffer.offer(second))
         assertAccepted(buffer.offer(packet(1)))
         assertEquals(
-            HtspSubscriptionEventBuffer.OfferResult.WAIT_FOR_SPACE,
+            HtspSubscriptionEventBuffer.OfferResult.IGNORED,
             buffer.offer(stopped),
         )
         assertEquals(first, buffer.poll())
-        assertAccepted(buffer.offer(stopped))
 
         assertEquals(second, buffer.poll())
         assertEquals(HtspSubscriptionEvent.Dropped(1L), buffer.poll())
-        assertEquals(stopped, buffer.poll())
-        assertFalse(buffer.isComplete())
-        assertTrue(buffer.isAccepting())
+        assertEquals(HtspSubscriptionEvent.Terminated(HtspSubscriptionTermination.CONSUMER_OVERFLOW), buffer.poll())
+        assertTrue(buffer.isComplete())
+        assertFalse(buffer.isAccepting())
         assertNull(buffer.poll())
     }
 
@@ -151,6 +150,21 @@ internal class HtspSubscriptionEventBufferTest {
             .apply { isAccessible = true }
         val packetNodes = packetNodesField.get(buffer) as java.util.ArrayDeque<*>
         assertEquals(0, packetNodes.size)
+    }
+
+    @Test
+    fun byteBudgetEvictsOldestAndOversizedPacketIsAdmittedAlone() {
+        val buffer = HtspSubscriptionEventBuffer(capacity = 10, byteCapacity = 10L)
+        assertAccepted(buffer.offer(packet(1), 6L))
+        assertAccepted(buffer.offer(packet(2), 6L))
+        assertEquals(HtspSubscriptionEvent.Dropped(1L), buffer.poll())
+        assertAccepted(buffer.offer(packet(3), 11L))
+        assertEquals(HtspSubscriptionEvent.Dropped(1L), buffer.poll())
+        assertEquals(packet(3), buffer.poll())
+        assertAccepted(buffer.offer(status("first"), 6L))
+        assertEquals(HtspSubscriptionEventBuffer.OfferResult.IGNORED, buffer.offer(status("second"), 6L))
+        assertEquals(status("first"), buffer.poll())
+        assertEquals(HtspSubscriptionEvent.Terminated(HtspSubscriptionTermination.CONSUMER_OVERFLOW), buffer.poll())
     }
 
     private fun packet(marker: Int): HtspSubscriptionEvent.Packet =

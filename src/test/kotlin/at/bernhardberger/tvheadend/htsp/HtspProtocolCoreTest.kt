@@ -151,8 +151,8 @@ class HtspProtocolCoreTest {
             val staleGeneration = HtspConnectionGeneration()
             val staleFailure = runCatching {
                 connection.execute(GetEventRequest(7L), expectedGeneration = staleGeneration)
-            }.exceptionOrNull()
-            assertTrue(staleFailure is CancellationException)
+            }.getOrThrow()
+            assertSame(HtspResult.TransportUnavailable, staleFailure)
             assertEquals(1, transport.dispatches)
         } finally {
             owner.close()
@@ -418,13 +418,12 @@ class HtspProtocolCoreTest {
         transport.replace()
         val staleFailure = runCatching {
             connection.call(FileCloseRequest(0L), expectedGeneration = staleGeneration)
-        }.exceptionOrNull()
-        assertTrue(staleFailure is CancellationException)
+        }.getOrThrow()
+        assertSame(HtspResult.TransportUnavailable, staleFailure)
 
         val cancellation = CancellationException("synthetic file operation cancellation")
         transport.failure = cancellation
-        val cancellationFailure = runCatching { connection.call(FileCloseRequest(0L)) }.exceptionOrNull()
-        assertSame(cancellation, cancellationFailure)
+        assertSame(HtspResult.TransportUnavailable, connection.call(FileCloseRequest(0L)))
     }
 
     @Test
@@ -535,14 +534,13 @@ class HtspProtocolCoreTest {
         val dispatchesBeforeStaleCall = transport.dispatches
         val staleFailure = runCatching {
             connection.call(request, expectedGeneration = staleGeneration)
-        }.exceptionOrNull()
-        assertTrue(staleFailure is CancellationException)
+        }.getOrThrow()
+        assertSame(HtspResult.TransportUnavailable, staleFailure)
         assertEquals(dispatchesBeforeStaleCall, transport.dispatches)
 
         val cancellation = CancellationException("synthetic subscriptionSkip cancellation")
         transport.failure = cancellation
-        val cancellationFailure = runCatching { connection.call(request) }.exceptionOrNull()
-        assertSame(cancellation, cancellationFailure)
+        assertSame(HtspResult.TransportUnavailable, connection.call(request))
     }
 
     @Test
@@ -603,14 +601,13 @@ class HtspProtocolCoreTest {
         val dispatchesBeforeStaleCall = transport.dispatches
         val staleFailure = runCatching {
             connection.call(request, expectedGeneration = staleGeneration)
-        }.exceptionOrNull()
-        assertTrue(staleFailure is CancellationException)
+        }.getOrThrow()
+        assertSame(HtspResult.TransportUnavailable, staleFailure)
         assertEquals(dispatchesBeforeStaleCall, transport.dispatches)
 
         val cancellation = CancellationException("synthetic fileStat cancellation")
         transport.failure = cancellation
-        val cancellationFailure = runCatching { connection.call(request) }.exceptionOrNull()
-        assertSame(cancellation, cancellationFailure)
+        assertSame(HtspResult.TransportUnavailable, connection.call(request))
     }
 
     @Test
@@ -1779,7 +1776,7 @@ class HtspProtocolCoreTest {
     }
 
     @Test
-    fun primitivePreservesCancellationIdentityAndOpaqueGeneration() = runTest {
+    fun primitiveMapsTransportCancellationAndPreservesOpaqueGeneration() = runTest {
         val transport = FakeProtocolTransport(version = 44)
         val connection = HtspTypedRequestCaller(transport)
         val firstGeneration = connection.generation
@@ -1789,8 +1786,8 @@ class HtspProtocolCoreTest {
         transport.failure = cancellation
         val failure = runCatching {
             connection.call(GetProfilesRequest())
-        }.exceptionOrNull()
-        assertSame(cancellation, failure)
+        }.getOrThrow()
+        assertSame(HtspResult.TransportUnavailable, failure)
 
         transport.failure = null
         transport.replace()
@@ -1823,16 +1820,16 @@ class HtspProtocolCoreTest {
     }
 
     @Test
-    fun primitiveRejectsAReplacedGenerationAsCancellation() = runTest {
+    fun primitiveReturnsCompletedReplyAfterGenerationReplacement() = runTest {
         val transport = FakeProtocolTransport(version = 44)
         val connection = HtspTypedRequestCaller(transport)
         transport.replaceAfterDispatch = true
 
         val failure = runCatching {
             connection.call(GetProfilesRequest())
-        }.exceptionOrNull()
+        }.getOrThrow()
 
-        assertTrue(failure is CancellationException)
+        assertEquals(HtspResult.Ok(GetProfilesResponse(emptyList())), failure)
         assertEquals(1, transport.dispatches)
     }
 
@@ -1845,9 +1842,9 @@ class HtspProtocolCoreTest {
 
         val failure = runCatching {
             HtspTypedRequestCaller(transport).call(GetProfilesRequest())
-        }.exceptionOrNull()
+        }.getOrThrow()
 
-        assertTrue(failure is CancellationException)
+        assertSame(HtspResult.TransportUnavailable, failure)
         assertEquals(1, transport.dispatches)
     }
 
@@ -1860,9 +1857,9 @@ class HtspProtocolCoreTest {
 
         val failure = runCatching {
             HtspTypedRequestCaller(transport).call(GetProfilesRequest())
-        }.exceptionOrNull()
+        }.getOrThrow()
 
-        assertTrue(failure is CancellationException)
+        assertSame(HtspResult.TransportUnavailable, failure)
         assertEquals(1, transport.dispatches)
     }
 
@@ -1875,9 +1872,9 @@ class HtspProtocolCoreTest {
 
         val failure = runCatching {
             HtspTypedRequestCaller(transport).call(GetProfilesRequest())
-        }.exceptionOrNull()
+        }.getOrThrow()
 
-        assertTrue(failure is CancellationException)
+        assertSame(HtspResult.TransportUnavailable, failure)
         assertEquals(1, transport.dispatches)
     }
 

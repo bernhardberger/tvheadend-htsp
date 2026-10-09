@@ -286,7 +286,7 @@ class HtspConnectionSocketFactoryTest {
     }
 
     @Test
-    fun throwingPublicSocketFactoryReturnsFailureAndRestoresDisconnectedState() = runBlocking {
+    fun throwingPublicSocketFactoryReturnsFailureAndKeepsErrorState() = runBlocking {
         val factoryCalls = AtomicInteger()
         val connection = createHtspConnection(
             ioDispatcher = Dispatchers.IO,
@@ -303,7 +303,7 @@ class HtspConnectionSocketFactoryTest {
                 ),
                 connection.connect(HtspEndpoint("127.0.0.1", 9_982)),
             )
-            assertSame(HtspConnectionState.Disconnected, connection.connectionState.value)
+            assertTrue(connection.connectionState.value is HtspConnectionState.Error)
             assertEquals(1, factoryCalls.get())
         } finally {
             connection.close()
@@ -423,6 +423,9 @@ class HtspConnectionSocketFactoryTest {
                         assertTrue(states.none { it is HtspConnectionState.Error })
                         assertTrue(events.none { it is HtspTransportEvent.ConnectionFailure })
                     } else {
+                        withTimeout(1_000L) {
+                            while (events.none { it is HtspTransportEvent.ConnectionFailure }) delay(1L)
+                        }
                         assertEquals(
                             HtspTransportFailureKind.CONNECTION_TIMEOUT,
                             events.filterIsInstance<HtspTransportEvent.ConnectionFailure>().single().failure.kind,
@@ -523,7 +526,8 @@ class HtspConnectionSocketFactoryTest {
                 }
                 assertTrue(workerQueued.await(1, TimeUnit.SECONDS))
                 val holder = thread(name = "hold-htsp-worker-admission") {
-                    connection.commitIfCurrent(generation) {
+                    synchronized(HtspService::class.java.getDeclaredField("connectionAttemptLock")
+                        .apply { isAccessible = true }.get(connection)) {
                         lockHeld.countDown()
                         check(releaseLock.await(3, TimeUnit.SECONDS))
                     }
@@ -610,7 +614,8 @@ class HtspConnectionSocketFactoryTest {
                 val generation = requireNotNull(connection.liveConnection.value).generation
                 val holder = thread(name = "hold-htsp-admission") {
                     check(dispatchReached.await(3, TimeUnit.SECONDS))
-                    connection.commitIfCurrent(generation) {
+                    synchronized(HtspService::class.java.getDeclaredField("connectionAttemptLock")
+                        .apply { isAccessible = true }.get(connection)) {
                         lockHeld.countDown()
                         check(release.await(3, TimeUnit.SECONDS))
                     }
@@ -699,7 +704,8 @@ class HtspConnectionSocketFactoryTest {
                     connection.connect(HtspEndpoint("127.0.0.1", 9_982), HtspConnectOptions(forceReconnect = true))
                 } is HtspConnectOutcome.Connected,
             )
-            assertTrue(runCatching { oldCall.await() }.exceptionOrNull() is CancellationException)
+            assertEquals(HtspConnectOutcome.Failed(HtspTransportFailure(HtspTransportFailureKind.SUPERSEDED)),
+                oldCall.await())
             assertTrue(first.isClosed)
             assertTrue(!replacement.isClosed)
             assertTrue(connection.getSysTime() is HtspResult.Ok)

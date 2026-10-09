@@ -24,7 +24,7 @@ class PublicApiOutcomesTest {
             .assertTrue { it.hasInternalModifier || it.hasPrivateModifier }
     }
 
-    // Public suspending server round trips return typed outcomes; lifecycle commands may return Unit.
+    // Server round trips return typed outcomes; conditional lifecycle teardown returns Boolean.
     @Test
     fun `public suspending calls return typed outcomes`() {
         val acceptedReturnTypes = setOf("HtspConnectOutcome", "HtspResult", "Unit")
@@ -36,7 +36,8 @@ class PublicApiOutcomesTest {
                 function.hasPublicModifier && function.hasSuspendModifier
             }
             .assertTrue { function ->
-                function.returnType?.bareSourceType.orEmpty().ifEmpty { "Unit" } in acceptedReturnTypes
+                val type = function.returnType?.bareSourceType.orEmpty().ifEmpty { "Unit" }
+                type in acceptedReturnTypes || (type == "Boolean" && function.name in setOf("disconnect", "close"))
             }
     }
 }

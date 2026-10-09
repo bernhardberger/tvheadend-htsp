@@ -107,7 +107,7 @@ internal class HtspInitialSyncOrchestrationTest {
     }
 
     @Test
-    fun replacementCancelsTheWaitAndReplacementMarkerCannotSatisfyIt() = runTest {
+    fun replacementReturnsUnavailableAndReplacementMarkerCannotSatisfyTheWait() = runTest {
         val generation = HtspConnectionGeneration()
         val connection = ScriptedConnection(generation)
         val markerSent = CompletableDeferred<Unit>()
@@ -126,15 +126,10 @@ internal class HtspInitialSyncOrchestrationTest {
         val replacement = HtspConnectionGeneration()
         connection.replaceWithDelayedObservation(replacement)
         acknowledgement.complete(Unit)
-        val failure = try {
-            result.await()
-            null
-        } catch (cancelled: CancellationException) {
-            cancelled
-        }
+        val failure = result.await()
         connection.emitInitialSync(replacement)
 
-        assertTrue(failure is CancellationException)
+        assertSame(HtspResult.TransportUnavailable, failure)
         assertEquals(0, connection.eventSource.subscriptionCount.value)
     }
 
@@ -263,24 +258,19 @@ internal class HtspInitialSyncOrchestrationTest {
         override fun isCurrent(generation: HtspConnectionGeneration): Boolean =
             currentGeneration === generation
 
-        override fun <T> commitIfCurrent(
-            generation: HtspConnectionGeneration,
-            block: () -> T,
-        ): T? = if (currentGeneration === generation) block() else null
-
-        override fun <T> commitIfLive(
-            generation: HtspConnectionGeneration,
-            block: (HtspLiveConnection) -> T,
-        ): T? = currentLive
-            ?.takeIf { connection -> connection.generation === generation }
-            ?.let(block)
-
-        override suspend fun disconnect(expectedGeneration: HtspConnectionGeneration?) {
+        override suspend fun disconnect(expectedGeneration: HtspConnectionGeneration?): Boolean {
+            if ((expectedGeneration != null && expectedGeneration !== currentGeneration) || liveConnection.value == null) return false
             updateLive(null)
+            return true
         }
 
-        override suspend fun close(expectedGeneration: HtspConnectionGeneration?) {
+        private var closed = false
+
+        override suspend fun close(expectedGeneration: HtspConnectionGeneration?): Boolean {
+            if (closed || (expectedGeneration != null && expectedGeneration !== currentGeneration)) return false
+            closed = true
             updateLive(null)
+            return true
         }
 
         suspend fun emitInitialSync(generation: HtspConnectionGeneration) {

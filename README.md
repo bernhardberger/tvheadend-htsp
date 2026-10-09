@@ -129,7 +129,6 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.collect
-import kotlinx.coroutines.flow.filterIsInstance
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -162,12 +161,16 @@ suspend fun runProtocolQuickStart(
     epgLanguage: String?,
     options: HtspConnectOptions = HtspConnectOptions(),
     onMetadataMessage: suspend (HtspServerMessage) -> Unit,
+    onTransportNotice: suspend (HtspTransportEvent) -> Unit,
 ): ProtocolQuickStartOutcome = coroutineScope {
     val connection = createHtspConnection(ioDispatcher = ioDispatcher)
     val eventCollector = launch(start = CoroutineStart.UNDISPATCHED) {
-        connection.events
-            .filterIsInstance<HtspTransportEvent.ServerMessage>()
-            .collect { event -> onMetadataMessage(event.message) }
+        connection.events.collect { event ->
+            when (event) {
+                is HtspTransportEvent.ServerMessage -> onMetadataMessage(event.message)
+                else -> onTransportNotice(event)
+            }
+        }
     }
 
     try {
@@ -243,13 +246,69 @@ private fun policyFor(failure: HtspFailure): ProtocolFailurePolicy = when (failu
 for display, not a stable error code; `toString()` never renders it. Locally
 detected failures have no server message. DVR refusals return `ServerError`;
 an `Ok` DVR mutation acknowledges the request, not a completed state change.
+Autorec/timerec updates that omit `channel` clear the server's channel selection.
 
-The global `events` flow contains metadata and connection failures only. For a
-live subscription, start collecting `connection.subscriptionEvents(id)` before
-sending `subscribe` with that id. Each id can be collected once per connection
-generation. A subscribe without an active collector is rejected before it
+Requests stale before dispatch return `TransportUnavailable`; completed replies
+are returned unchanged even if their generation was replaced in flight.
+`disconnect`/`close` return Boolean: true means this call changed state, false
+means stale or no-op. Disconnect after close returns false; cleanup still completes
+for cancelled callers. Connects superseded by another connect, disconnect, or owner close return
+`Failed(SUPERSEDED)`. Only caller cancellation propagates as cancellation.
+After failure, lifecycle `Error` remains until connect/disconnect/close, but
+StateFlow may conflate transitions. Failed connects return their outcome to the
+caller and sticky Error to observers, with no failure event. `ConnectionFailure`
+reports only unsolicited failures of live generations and is authoritative.
+
+The state properties are native StateFlows: synchronous `value` reads may briefly
+lag internal state, but publication is eventual and older snapshots never replace
+newer ones. The library never invokes consumer code under its lifecycle or queue
+locks. `Dispatchers.Unconfined` (or another immediate dispatcher) can run consumers
+on library threads, including the transport reader: do not block them. A blocking
+immediate consumer can delay delivery to others, including another thread publishing
+state; blocking on another lifecycle operation from an immediate state consumer can
+deadlock. Use a real dispatcher for consumers. `connectionState` and `liveConnection`
+are not an atomic read pair: route requests through `liveConnection.value` and its
+`generation`, and never `!!` it because `connectionState` read `Connected`.
+
+The `events` flow has an independent bounded queue per collector. Immutable
+decoded messages may be shared; queue saturation never blocks the reader,
+RPC replies, or other collectors. `HtspEventBufferOptions` on
+`createHtspConnection` defaults to 8 MiB/8192 events per metadata collector and
+per subscription; pass explicit budgets if their numbers must stay fixed.
+Bytes count retained frame bodies, not exact heap. The queues drop newest
+metadata and report a coalesced `MetadataOverflow`; failure and overflow markers
+are unbudgeted and never dropped. Counts coalesce only within a generation:
+losses after reconnect start a new marker, leaving the old marker in order.
+Handle these in `onTransportNotice`, rather
+than filtering them away. The library never reconnects or re-requests data.
+
+A full EPG sync (roughly 150 channels × 7–14 days: 26k–84k events, 15–100 MB)
+can overflow a slow consumer; XMLTV imports also produce `eventUpdate` bursts.
+Consider `epgMaxTimeEpochSeconds`, `epg = false` plus paged `getEvents`, and
+consumer-side batching. After overflow, do not wait for `initialSyncCompleted`,
+which is the last sync message and may be dropped. A second `enableAsyncMetadata`
+only resends EPG. Full recovery is consumer-owned reconnect and full sync with
+backoff. The initial-sync helper returns `TransportUnavailable` promptly for its
+own generation's overflow: the transport may still be live, but this sync is incomplete.
+
+One TCP stream still imposes head-of-line ordering. Server `queueDepthBytes` is
+separate from the client queues. Approximate worst-case memory is the sum of
+all budgets plus one maximum frame (up to 32 MiB) per subscription plus the
+largest metadata queue. This excludes heap and decoded-object overhead, not an
+exact heap cap. There is no connection-wide cap or time ceiling.
+
+For a live subscription, start collecting `connection.subscriptionEvents(id)` before
+sending `subscribe` with that id, using `launch(start = CoroutineStart.UNDISPATCHED)`
+so registration has run. Each id can be collected once per connection
+generation; a nonlive collection instead terminates with `GENERATION_LOST`.
+A subscribe without an active collector is rejected before it
 reaches the server. The ordered stream reports packet pressure or a rejected
-malformed packet with a trustworthy subscription id as `Dropped`. An untrustworthy
+malformed packet with a trustworthy subscription id as `Dropped`; discard video
+until the next keyframe after a drop. Packets and controls share the budgets.
+An oversized packet is admitted after evicting other packets; oversized metadata
+is dropped. Control overflow drains the queue then delivers
+`Terminated(CONSUMER_OVERFLOW)`, affecting only that subscription. The consumer
+must send `unsubscribe`; the library never does so automatically. An untrustworthy
 packet envelope closes the incompatible transport. `Stopped` is an interruption:
 keep collecting because the same stream can receive another `Started`. A successful
 unsubscribe acknowledgement drains and completes the stream; a server refusal of

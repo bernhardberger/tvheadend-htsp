@@ -24,7 +24,6 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.collect
-import kotlinx.coroutines.flow.filterIsInstance
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -57,12 +56,16 @@ suspend fun runProtocolQuickStart(
     epgLanguage: String?,
     options: HtspConnectOptions = HtspConnectOptions(),
     onMetadataMessage: suspend (HtspServerMessage) -> Unit,
+    onTransportNotice: suspend (HtspTransportEvent) -> Unit,
 ): ProtocolQuickStartOutcome = coroutineScope {
     val connection = createHtspConnection(ioDispatcher = ioDispatcher)
     val eventCollector = launch(start = CoroutineStart.UNDISPATCHED) {
-        connection.events
-            .filterIsInstance<HtspTransportEvent.ServerMessage>()
-            .collect { event -> onMetadataMessage(event.message) }
+        connection.events.collect { event ->
+            when (event) {
+                is HtspTransportEvent.ServerMessage -> onMetadataMessage(event.message)
+                else -> onTransportNotice(event)
+            }
+        }
     }
 
     try {

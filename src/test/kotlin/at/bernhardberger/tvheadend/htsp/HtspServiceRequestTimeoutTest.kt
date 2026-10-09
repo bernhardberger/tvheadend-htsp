@@ -400,7 +400,7 @@ internal class HtspServiceRequestTimeoutTest : HtspServiceLifecycleFixture() {
                     withTimeout(1_000L) { subscription.await() },
                 )
                 withTimeout(1_000L) {
-                    service.connectionState.first { state -> state is HtspConnectionState.Disconnected }
+                    service.connectionState.first { state -> state is HtspConnectionState.Error }
                 }
                 assertNull(service.liveConnection.value)
             }
@@ -476,7 +476,7 @@ internal class HtspServiceRequestTimeoutTest : HtspServiceLifecycleFixture() {
     }
 
     @Test
-    fun missingInitialSyncMarkerIsTransportTimeoutNotCallerCancellation() {
+    fun missingInitialSyncMarkerReturnsTypedTimeoutWithoutRetiringTransport() {
         FakeHtspServer(
             respondToHello = true,
             captureOnePostHandshakeRequest = true,
@@ -490,35 +490,15 @@ internal class HtspServiceRequestTimeoutTest : HtspServiceLifecycleFixture() {
                     responseTimeoutMs = 1_000,
                     soTimeoutMs = 50,
                 )
-                val subscription = async(start = CoroutineStart.UNDISPATCHED) {
-                    service.subscriptionEvents(40L).toList()
-                }
-
                 val sync = async(Dispatchers.IO) {
-                    try {
-                        service.enableAsyncMetadataAndWaitInitialSync(timeoutMs = 250L)
-                        null
-                    } catch (failure: Throwable) {
-                        failure
-                    }
+                    service.enableAsyncMetadataAwaitingInitialSync(timeoutMs = 250L)
                 }
                 assertTrue(server.postHandshakeRequestReceived.await(1, TimeUnit.SECONDS))
                 server.replyToCapturedPostHandshakeRequest()
 
-                val failure = sync.await()
-                assertTrue(failure is SocketTimeoutException)
-                assertTrue(failure !is TimeoutCancellationException)
-                assertEquals(
-                    listOf(
-                        HtspSubscriptionEvent.Terminated(
-                            HtspSubscriptionTermination.TIMEOUT,
-                        ),
-                    ),
-                    withTimeout(1_000L) { subscription.await() },
-                )
-                withTimeout(1_000L) {
-                    service.connectionState.first { it is HtspConnectionState.Disconnected }
-                }
+                assertSame(HtspResult.Timeout, sync.await())
+                assertTrue(service.connectionState.value is HtspConnectionState.Connected)
+                service.disconnect()
             }
         }
     }
@@ -542,7 +522,7 @@ internal class HtspServiceRequestTimeoutTest : HtspServiceLifecycleFixture() {
                 val sync = async(Dispatchers.IO) {
                     try {
                         withTimeout(250L) {
-                            service.enableAsyncMetadataAndWaitInitialSync(timeoutMs = 5_000L)
+                            service.enableAsyncMetadataAwaitingInitialSync(timeoutMs = 5_000L)
                         }
                         null
                     } catch (failure: Throwable) {
@@ -591,7 +571,7 @@ internal class HtspServiceRequestTimeoutTest : HtspServiceLifecycleFixture() {
                 assertEquals(attemptId, service.currentConnectionAttemptId())
                 service.disconnect()
                 assertNull(service.liveConnection.value)
-                assertEquals(attemptId, service.currentConnectionAttemptId())
+                assertEquals(attemptId + 1L, service.currentConnectionAttemptId())
             }
         }
     }

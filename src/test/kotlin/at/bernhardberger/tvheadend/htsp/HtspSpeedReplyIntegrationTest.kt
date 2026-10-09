@@ -331,6 +331,7 @@ internal class HtspSpeedReplyIntegrationTest {
 
         fun accept(event: HtspTransportEvent) {
             when (event) {
+                is HtspTransportEvent.MetadataOverflow -> Unit
                 is HtspTransportEvent.ServerMessage -> {
                     if (event.generation !== generation) return
                     synchronized(lock) {

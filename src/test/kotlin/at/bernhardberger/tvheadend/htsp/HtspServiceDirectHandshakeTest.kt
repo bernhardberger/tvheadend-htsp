@@ -30,17 +30,17 @@ import kotlin.concurrent.thread
 internal class HtspServiceDirectHandshakeTest : HtspServiceLifecycleFixture() {
 
     @Test
-    fun reconnectCancelsBlockedDirectHelloFailurePublisher() {
+    fun reconnectDoesNotLeaveDirectHelloFailureWorkBehindStalledCollector() {
         assertBlockedDirectHelloPublisherReclaimed(reconnect = true)
     }
 
     @Test
-    fun closeCancelsBlockedDirectHelloFailurePublisher() {
+    fun closeDoesNotLeaveDirectHelloFailureWorkBehindStalledCollector() {
         assertBlockedDirectHelloPublisherReclaimed(reconnect = false)
     }
 
     @Test
-    fun disconnectPreservesBlockedDirectHelloFailurePublication() {
+    fun disconnectPreservesQueuedDirectHelloFailureWithoutPublisherJob() {
         FakeHtspServer(
             respondToHello = true,
             captureOnePostHandshakeRequest = true,
@@ -67,20 +67,19 @@ internal class HtspServiceDirectHandshakeTest : HtspServiceLifecycleFixture() {
                 server.sendServerMessage("channelAdd", mapOf("channelId" to 1L))
                 withTimeout(1_000) { blocked.await() }
                 server.sendServerMessage("channelAdd", mapOf("channelId" to 2L))
+                val reader = requireNotNull(readerJob(service))
                 assertSame(HtspResult.TransportUnavailable, withTimeout(1_000) {
                     service.execute(HelloRequest(36L, "floor-client"), timeoutMs = 1_000)
                 })
-                val publisher = requireNotNull(directHelloPublisher(service))
                 withTimeout(1_000) { service.disconnect() }
-                assertTrue(publisher.isActive)
+                assertTrue(reader.isCompleted)
                 assertTrue(failures.isEmpty())
                 assertEquals(HtspConnectionState.Disconnected, service.connectionState.value)
                 release.complete(Unit)
                 withTimeout(1_000) {
                     failureReceived.await()
-                    publisher.join()
                 }
-                assertNull(directHelloPublisher(service))
+                assertNull(readerJob(service))
                 service.close()
                 collector.cancel()
                 collector.join()
@@ -103,6 +102,7 @@ internal class HtspServiceDirectHandshakeTest : HtspServiceLifecycleFixture() {
                     val release = CompletableDeferred<Unit>()
                     val drained = CompletableDeferred<Unit>()
                     val failures = mutableListOf<HtspTransportEvent.ConnectionFailure>()
+                    val failureReceived = CompletableDeferred<Unit>()
                     val collector = launch(start = CoroutineStart.UNDISPATCHED) {
                         service.events.collect { event ->
                             if (event is HtspTransportEvent.ServerMessage) {
@@ -111,17 +111,18 @@ internal class HtspServiceDirectHandshakeTest : HtspServiceLifecycleFixture() {
                                 if (event.message is HtspInitialSyncCompletedMessage) drained.complete(Unit)
                             } else if (event is HtspTransportEvent.ConnectionFailure) {
                                 failures.add(event)
+                                failureReceived.complete(Unit)
                             }
                         }
                     }
                     server.sendServerMessage("channelAdd", mapOf("channelId" to 1L))
                     withTimeout(1_000) { blocked.await() }
                     server.sendServerMessage("channelAdd", mapOf("channelId" to 2L))
+                    val reader = requireNotNull(readerJob(service))
                     assertSame(HtspResult.TransportUnavailable, withTimeout(1_000) {
                         service.execute(HelloRequest(36L, "floor-client"), timeoutMs = 1_000)
                     })
-                    val publisher = requireNotNull(directHelloPublisher(service))
-                    assertTrue(publisher.isActive)
+                    assertTrue(reader.isCompleted)
                     if (reconnect) {
                         withTimeout(1_000) {
                             service.connect(host = "127.0.0.1", port = replacement.port, responseTimeoutMs = 1_000)
@@ -130,10 +131,9 @@ internal class HtspServiceDirectHandshakeTest : HtspServiceLifecycleFixture() {
                     } else {
                         withTimeout(1_000) { service.close() }
                     }
-                    withTimeout(1_000) { publisher.join() }
-                    assertTrue(publisher.isCancelled)
-                    assertNull(directHelloPublisher(service))
+                    assertTrue(reader.isCompleted)
                     release.complete(Unit)
+                    withTimeout(1_000) { failureReceived.await() }
                     if (reconnect) {
                         replacement.sendServerMessage("initialSyncCompleted")
                         withTimeout(1_000) { drained.await() }
@@ -141,17 +141,17 @@ internal class HtspServiceDirectHandshakeTest : HtspServiceLifecycleFixture() {
                     }
                     collector.cancel()
                     collector.join()
-                    assertTrue(failures.isEmpty())
+                    assertEquals(1, failures.size)
                 }
             }
         }
     }
 
-    private fun directHelloPublisher(service: HtspService): kotlinx.coroutines.Job? {
+    private fun readerJob(service: HtspService): kotlinx.coroutines.Job? {
         val lock = HtspService::class.java.getDeclaredField("connectionAttemptLock")
             .apply { isAccessible = true }.get(service)
         return synchronized(lock) {
-            HtspService::class.java.getDeclaredField("directHelloFailurePublisher")
+            HtspService::class.java.getDeclaredField("readerJob")
                 .apply { isAccessible = true }.get(service) as kotlinx.coroutines.Job?
         }
     }
@@ -189,7 +189,7 @@ internal class HtspServiceDirectHandshakeTest : HtspServiceLifecycleFixture() {
                 )
                 val failure = HtspTransportFailure(HtspTransportFailureKind.UNSUPPORTED_SERVER_VERSION)
                 assertEquals(HtspConnectionState.Error(failure), withTimeout(1_000) { errorState.await() })
-                assertEquals(HtspConnectionState.Disconnected, service.connectionState.value)
+                assertEquals(HtspConnectionState.Error(failure), service.connectionState.value)
                 assertNull(service.liveConnection.value)
                 assertEquals(failure, withTimeout(1_000) { failureEvent.await() }.failure)
                 service.disconnect()
@@ -231,7 +231,7 @@ internal class HtspServiceDirectHandshakeTest : HtspServiceLifecycleFixture() {
                     withTimeout(1_000) { service.execute(HelloRequest(36L, "floor-client"), timeoutMs = 1_000) },
                 )
                 assertNull(service.liveConnection.value)
-                assertEquals(HtspConnectionState.Disconnected, service.connectionState.value)
+                assertTrue(service.connectionState.value is HtspConnectionState.Error)
                 assertTrue(failures.isEmpty())
                 // A second handshake is not trapped behind the first call's handshake mutex.
                 assertSame(HtspResult.TransportUnavailable, withTimeout(1_000) {
@@ -275,7 +275,7 @@ internal class HtspServiceDirectHandshakeTest : HtspServiceLifecycleFixture() {
                 withTimeout(1_000) { replyDecoded.await() }
                 service.disconnect()
                 resumeRecapture.complete(Unit)
-                assertSame(HtspResult.TransportUnavailable, withTimeout(1_000) { call.await() })
+                assertTrue(withTimeout(1_000) { call.await() } is HtspResult.Ok)
                 service.close()
                 assertTrue(states.none { it is HtspConnectionState.Error })
                 assertEquals(HtspConnectionState.Disconnected, states.last())
@@ -767,7 +767,8 @@ internal class HtspServiceDirectHandshakeTest : HtspServiceLifecycleFixture() {
                 val captureStarted = CountDownLatch(1)
                 val releaseLock = CountDownLatch(1)
                 val holder = thread(name = "hold-htsp-generation-capture") {
-                    service.commitIfCurrent(generation) {
+                    synchronized(HtspService::class.java.getDeclaredField("connectionAttemptLock")
+                        .apply { isAccessible = true }.get(service)) {
                         lockHeld.countDown()
                         check(releaseLock.await(3, TimeUnit.SECONDS))
                     }
@@ -823,7 +824,7 @@ internal class HtspServiceDirectHandshakeTest : HtspServiceLifecycleFixture() {
                 assertTrue(server.awaitPostHandshakeRequestCount(1, 1_000L))
                 assertTrue(service.isCurrent(generation))
                 assertNull(service.liveConnection.value)
-                assertNull(service.commitIfLive(generation) { it })
+                assertNull(service.liveConnection.value)
                 assertSame(HtspResult.TransportUnavailable, service.getProfiles())
                 assertEquals(
                     listOf(
@@ -835,7 +836,7 @@ internal class HtspServiceDirectHandshakeTest : HtspServiceLifecycleFixture() {
                 )
                 assertEquals(1, server.postHandshakeMethods().size)
                 withTimeout(1_000L) {
-                    service.connectionState.first { state -> state is HtspConnectionState.Disconnected }
+                    service.connectionState.first { state -> state is HtspConnectionState.Error }
                 }
             }
         }
@@ -873,7 +874,7 @@ internal class HtspServiceDirectHandshakeTest : HtspServiceLifecycleFixture() {
                 assertTrue(withTimeout(1_000L) { observedCancellation.await() } is CancellationException)
                 assertTrue(service.isCurrent(generation))
                 assertNull(service.liveConnection.value)
-                assertNull(service.commitIfLive(generation) { it })
+                assertNull(service.liveConnection.value)
                 assertSame(HtspResult.TransportUnavailable, service.getProfiles())
                 assertEquals(1, server.postHandshakeMethods().size)
                 withTimeout(1_000L) {
@@ -908,7 +909,7 @@ internal class HtspServiceDirectHandshakeTest : HtspServiceLifecycleFixture() {
                 assertEquals(HtspResult.ServerError(), service.hello(44L, "malformed-client", 1_000L, generation))
                 assertTrue(service.isCurrent(generation))
                 assertNull(service.liveConnection.value)
-                assertNull(service.commitIfLive(generation) { it })
+                assertNull(service.liveConnection.value)
                 assertSame(HtspResult.TransportUnavailable, service.getProfiles())
                 assertEquals(
                     listOf(
@@ -1011,7 +1012,7 @@ internal class HtspServiceDirectHandshakeTest : HtspServiceLifecycleFixture() {
                     val staleHello = async(Dispatchers.IO) {
                         runCatching {
                             service.hello(36L, "stale-client", 1_000L, staleGeneration)
-                        }.exceptionOrNull()
+                        }.getOrThrow()
                     }
                     withTimeout(1_000L) { recaptureReached.await() }
 
@@ -1025,7 +1026,7 @@ internal class HtspServiceDirectHandshakeTest : HtspServiceLifecycleFixture() {
                     val replacement = requireNotNull(service.liveConnection.value)
                     resumeRecapture.complete(Unit)
 
-                    assertTrue(withTimeout(1_000L) { staleHello.await() } is CancellationException)
+                    assertTrue(withTimeout(1_000L) { staleHello.await() } is HtspResult.Ok)
                     val current = requireNotNull(service.liveConnection.value)
                     assertSame(replacement.generation, current.generation)
                     assertEquals(43, current.protocolVersion)

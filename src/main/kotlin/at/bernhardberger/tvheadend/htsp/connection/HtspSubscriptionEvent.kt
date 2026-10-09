@@ -85,6 +85,8 @@ public sealed interface HtspSubscriptionEvent {
  * Minor releases may add entries; keep an `else` branch when matching.
  */
 public enum class HtspSubscriptionTermination {
+    /** The consumer's control queue overflowed; the consumer must send unsubscribe. */
+    CONSUMER_OVERFLOW,
     /** A newer connection generation replaced the stream's generation. */
     GENERATION_LOST,
 

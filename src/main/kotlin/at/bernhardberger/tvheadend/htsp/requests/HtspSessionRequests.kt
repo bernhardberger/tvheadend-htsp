@@ -232,6 +232,8 @@ public suspend fun HtspConnection.enableAsyncMetadata(
  * Enables asynchronous metadata after installing an initial-sync observer for the
  * current generation. Callers must serialize this unsequenced orchestration per generation.
  * [timeoutMs] is one deadline covering both the acknowledgement and sync marker.
+ * Overflow of this observer's generation returns [HtspResult.TransportUnavailable]
+ * promptly: the sync is incomplete even though the transport may remain live.
  * @param lastUpdateEpochSeconds HTSP `lastUpdate`, epoch seconds; 0 means never synchronized, so the server sends all eligible metadata; null omits it.
  * @param epgMaxTimeEpochSeconds HTSP `epgMaxTime`, epoch seconds; zero means unlimited, null omits it.
  * See [EnableAsyncMetadataRequest] for pinned source evidence.
@@ -249,7 +251,7 @@ public suspend fun HtspConnection.enableAsyncMetadataAwaitingInitialSync(
     val generation = liveConnection.value?.generation
         ?: return HtspResult.TransportUnavailable
     if (expectedGeneration != null && expectedGeneration !== generation) {
-        throw CancellationException("Stale HTSP connection generation")
+        return HtspResult.TransportUnavailable
     }
 
     return withTimeoutOrNull(timeoutMs) {
@@ -272,18 +274,16 @@ public suspend fun HtspConnection.enableAsyncMetadataAwaitingInitialSync(
                                 terminal.complete(HtspResult.TransportUnavailable)
                             }
                         }
+                        is HtspTransportEvent.MetadataOverflow -> {
+                            if (event.generation === generation) terminal.complete(HtspResult.TransportUnavailable)
+                        }
+                        else -> Unit
                     }
                 }
             }
             val generationObserver = launch(start = CoroutineStart.UNDISPATCHED) {
                 liveConnection.first { connection -> connection?.generation !== generation }
-                if (isCurrent(generation)) {
-                    terminal.complete(HtspResult.TransportUnavailable)
-                } else {
-                    terminal.completeExceptionally(
-                        CancellationException("Stale HTSP connection generation"),
-                    )
-                }
+                terminal.complete(HtspResult.TransportUnavailable)
             }
             val acknowledgement = async(start = CoroutineStart.UNDISPATCHED) {
                 enableAsyncMetadata(
@@ -313,13 +313,7 @@ public suspend fun HtspConnection.enableAsyncMetadataAwaitingInitialSync(
                             if (terminalBeforeMarker) {
                                 terminal.await()
                             } else if (liveConnection.value?.generation !== generation) {
-                                if (isCurrent(generation)) {
-                                    HtspResult.TransportUnavailable
-                                } else {
-                                    throw CancellationException(
-                                        "Stale HTSP connection generation",
-                                    )
-                                }
+                                HtspResult.TransportUnavailable
                             } else if (terminal.isCompleted) {
                                 terminal.await()
                             } else {

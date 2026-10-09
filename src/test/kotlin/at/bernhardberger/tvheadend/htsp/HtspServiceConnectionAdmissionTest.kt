@@ -74,7 +74,7 @@ internal class HtspServiceConnectionAdmissionTest : HtspServiceLifecycleFixture(
                     val stale = async(Dispatchers.IO) {
                         runCatching {
                             service.connect(HtspEndpoint("127.0.0.1", firstServer.port))
-                        }.exceptionOrNull()
+                        }.getOrThrow()
                     }
                     withTimeout(1_000L) { firstTransportInstalled.await() }
 
@@ -87,7 +87,8 @@ internal class HtspServiceConnectionAdmissionTest : HtspServiceLifecycleFixture(
                     }
                     resumeFirst.complete(Unit)
 
-                    assertTrue(withTimeout(1_000L) { stale.await() } is CancellationException)
+                    assertEquals(HtspConnectOutcome.Failed(HtspTransportFailure(HtspTransportFailureKind.SUPERSEDED)),
+                        withTimeout(1_000L) { stale.await() })
                     val connected = withTimeout(1_000L) { replacement.await() }
                         as HtspConnectOutcome.Connected
                     assertSame(connected.connection, service.liveConnection.value)
@@ -140,23 +141,24 @@ internal class HtspServiceConnectionAdmissionTest : HtspServiceLifecycleFixture(
                     val replacement = async(Dispatchers.IO) {
                         runCatching {
                             service.connect(HtspEndpoint("127.0.0.1", queuedServer.port))
-                        }.exceptionOrNull()
+                        }.getOrThrow()
                     }
                     withTimeout(1_000L) { replacementAdmitted.await() }
 
                     assertNull(service.liveConnection.value)
                     assertTrue(!service.isCurrent(old))
-                    assertNull(service.commitIfCurrent(old) { "revived" })
-                    assertNull(service.commitIfLive(old) { it })
+                    assertTrue(!service.isCurrent(old))
+                    assertNull(service.liveConnection.value)
 
                     val newest = service.connect(HtspEndpoint("127.0.0.1", firstServer.port))
                         as HtspConnectOutcome.Connected
                     assertTrue(!service.isCurrent(old))
-                    assertNull(service.commitIfCurrent(old) { "revived" })
+                    assertTrue(!service.isCurrent(old))
                     assertSame(newest.connection, service.liveConnection.value)
 
                     resumeReplacement.complete(Unit)
-                    assertTrue(withTimeout(1_000L) { replacement.await() } is CancellationException)
+                    assertEquals(HtspConnectOutcome.Failed(HtspTransportFailure(HtspTransportFailureKind.SUPERSEDED)),
+                        withTimeout(1_000L) { replacement.await() })
                     assertSame(newest.connection, service.liveConnection.value)
                     service.disconnect(newest.connection.generation)
                 }
@@ -191,7 +193,7 @@ internal class HtspServiceConnectionAdmissionTest : HtspServiceLifecycleFixture(
                                     HtspEndpoint("127.0.0.1", forcedServer.port),
                                     HtspConnectOptions(forceReconnect = true),
                                 )
-                            }.exceptionOrNull()
+                            }.getOrThrow()
                         }
                         withTimeout(1_000L) { forcedAdmitted.await() }
 
@@ -207,7 +209,8 @@ internal class HtspServiceConnectionAdmissionTest : HtspServiceLifecycleFixture(
                         assertTrue(newestServer.postHandshakeRequestReceived.await(1, TimeUnit.SECONDS))
 
                         resumeForced.complete(Unit)
-                        assertTrue(withTimeout(1_000L) { forced.await() } is CancellationException)
+                        assertEquals(HtspConnectOutcome.Failed(HtspTransportFailure(HtspTransportFailureKind.SUPERSEDED)),
+                            withTimeout(1_000L) { forced.await() })
                         assertSame(newest.connection, service.liveConnection.value)
                         newestServer.replyToCapturedPostHandshakeRequest()
                         assertEquals(

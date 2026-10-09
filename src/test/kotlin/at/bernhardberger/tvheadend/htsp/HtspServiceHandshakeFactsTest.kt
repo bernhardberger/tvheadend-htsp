@@ -63,7 +63,7 @@ internal class HtspServiceHandshakeFactsTest : HtspServiceLifecycleFixture() {
                     ),
                     withTimeout(1_000) { rejectionState.await() },
                 )
-                assertEquals(HtspConnectionState.Disconnected, service.connectionState.value)
+                assertTrue(service.connectionState.value is HtspConnectionState.Error)
                 // Join the fixture reader after transport closure, before inspecting captured requests.
                 server.close()
                 assertEquals(listOf("hello"), server.handshakeMethods)

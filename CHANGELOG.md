@@ -2,6 +2,24 @@
 
 ## [Unreleased]
 
+- **BREAKING:** metadata delivery now uses independent bounded collector queues,
+  drops newest metadata on overflow and reports `MetadataOverflow`. Queue saturation
+  never blocks the reader. `HtspTransportEvent` stays sealed but is open for evolution;
+  keep an `else` branch.
+  Added `HtspEventBufferOptions` to `createHtspConnection` (changing its ABI).
+  Subscription control overflow now drains then ends with `CONSUMER_OVERFLOW`
+  instead of blocking the reader; the consumer must unsubscribe.
+  Stale fenced calls now return `TransportUnavailable`; `disconnect` and `close`
+  return Boolean (changed state versus stale/no-op). Connects superseded by another
+  connect, disconnect, or owner close return `Failed(SUPERSEDED)`.
+  `ConnectionFailure` is emitted only for live generations, not failed connects.
+  A subscribe refusal after the request deadline no longer ends its stream: late
+  observers expire at the original deadline.
+  Removed `commitIfCurrent` and `commitIfLive`: snapshot `liveConnection.value`,
+  compare `generation`, and tag application state with the generation instead.
+  Transport `Error` is sticky until
+  explicit lifecycle action, and nonlive subscription collection terminates normally.
+
 - **BREAKING:** require HTSP 36 or newer servers and reject requested protocol
   versions below 36 in `HtspConnectOptions` and public `HelloRequest`, including
   their `copy` methods. `HelloRequest` retains the unsigned-u32 upper bound. Added
