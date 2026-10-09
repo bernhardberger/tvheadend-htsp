@@ -24,6 +24,23 @@ permissions:
   - action: skill
     resource: "*"
     effect: allow
+  # Read-only context-management tools that some OpenCode context plugins
+  # provide; these rules never match when no such plugin is installed.
+  - action: absorb
+    resource: "*"
+    effect: allow
+  - action: compress
+    resource: "*"
+    effect: allow
+  - action: decompress
+    resource: "*"
+    effect: allow
+  - action: search_context
+    resource: "*"
+    effect: allow
+  - action: acp_status
+    resource: "*"
+    effect: allow
 ---
 
 You are an independent reviewer for a bounded change to this HTSP library.
