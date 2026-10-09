@@ -2,14 +2,67 @@ package at.bernhardberger.tvheadend.htsp
 
 import at.bernhardberger.tvheadend.htsp.connection.*
 import at.bernhardberger.tvheadend.htsp.requests.*
+import at.bernhardberger.tvheadend.htsp.wire.HtspCodec
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
+import java.net.Socket
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 
 internal class HtspReviewDeliveryRegressionTest : HtspServiceLifecycleFixture() {
+    @Test
+    fun fakeServerSerializesAutomaticRepliesAndNotifications(): Unit = runBlocking {
+        // Preserve a decoding failure if closing the socket also fails a writer during cleanup.
+        supervisorScope {
+            val count = 200
+            FakeHtspServer(respondToHello = true, postHandshakeReplyPlan = List(count) { emptyMap() }).use { server ->
+                Socket("127.0.0.1", server.port).use { client ->
+                    client.soTimeout = 2_000
+                    val input = client.getInputStream()
+                    val output = client.getOutputStream()
+                    for ((sequence, method) in listOf("hello", "authenticate").withIndex()) {
+                        HtspCodec.writeMessage(output, method, mapOf("seq" to sequence))
+                        assertEquals(sequence, HtspCodec.readMessage(input).seq)
+                    }
+                    val start = CompletableDeferred<Unit>()
+                    val requests = async(Dispatchers.IO) {
+                        start.await()
+                        repeat(count) { sequence ->
+                            HtspCodec.writeMessage(output, "getProfiles", mapOf("seq" to sequence + 2))
+                        }
+                    }
+                    val notifications = async(Dispatchers.IO) {
+                        start.await()
+                        repeat(count) { id -> server.sendServerMessage("channelAdd", mapOf("channelId" to id)) }
+                    }
+                    try {
+                        start.complete(Unit)
+                        val replies = mutableListOf<Int?>()
+                        val channelIds = mutableListOf<Any?>()
+                        repeat(count * 2) {
+                            val frame = HtspCodec.readMessage(input)
+                            when (frame.method) {
+                                "getProfiles" -> replies += frame.seq
+                                "channelAdd" -> channelIds += frame.fields["channelId"]
+                                else -> fail("Unexpected fixture frame: ${frame.method}")
+                            }
+                        }
+                        requests.await()
+                        notifications.await()
+                        assertEquals((2 until count + 2).toList(), replies)
+                        assertEquals((0L until count.toLong()).toList(), channelIds)
+                    } finally {
+                        client.close()
+                        requests.cancelAndJoin()
+                        notifications.cancelAndJoin()
+                    }
+                }
+            }
+        }
+    }
+
     @Test
     fun nativeStateFlowsRunOnSubscriptionBeforeReplay(): Unit = runBlocking {
         val service = service()
@@ -421,13 +474,17 @@ internal class HtspReviewDeliveryRegressionTest : HtspServiceLifecycleFixture() 
             val service = service(metadataEventBufferCapacity = 1, afterPublicationCurrencyCheck = { queued.countDown() })
             service.connect(HtspEndpoint("127.0.0.1", server.port))
             val sync = async(start = CoroutineStart.UNDISPATCHED) { service.enableAsyncMetadataAwaitingInitialSync(timeoutMs = 30_000L) }
-            // Keep the collector's dispatcher blocked until the final publication starts.
-            repeat(3) { server.sendServerMessage("channelAdd", mapOf("channelId" to it.toLong())) }
-            assertTrue(queued.await(2, TimeUnit.SECONDS))
-            // Polling the queue takes the lock, so collection waits for that publication to finish.
-            assertSame(HtspResult.TransportUnavailable, withTimeout(2_000L) { sync.await() })
-            assertNotNull(service.liveConnection.value)
-            service.close()
+            try {
+                // Keep the collector's dispatcher blocked until the final publication starts.
+                repeat(3) { server.sendServerMessage("channelAdd", mapOf("channelId" to it.toLong())) }
+                assertTrue(queued.await(2, TimeUnit.SECONDS))
+                // Polling the queue takes the lock, so collection waits for that publication to finish.
+                assertSame(HtspResult.TransportUnavailable, withTimeout(2_000L) { sync.await() })
+                assertNotNull(service.liveConnection.value)
+            } finally {
+                sync.cancelAndJoin()
+                service.close()
+            }
         }
     }
 }

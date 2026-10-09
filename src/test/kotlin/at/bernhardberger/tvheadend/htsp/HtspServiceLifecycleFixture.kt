@@ -9,6 +9,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CoroutineDispatcher
 import java.io.ByteArrayOutputStream
 import java.io.Closeable
+import java.io.OutputStream
 import java.net.ServerSocket
 import java.net.Socket
 import java.nio.ByteBuffer
@@ -101,6 +102,9 @@ internal abstract class HtspServiceLifecycleFixture {
     ) : Closeable {
         private val serverSocket = ServerSocket(0)
         private val stop = CountDownLatch(1)
+        // The server thread's replies and the test thread's notifications share a socket.
+        // Serialize whole frames, not individual OutputStream writes (including raw replies).
+        private val writeLock = Any()
         @Volatile
         private var clientSocket: Socket? = null
         private val clientSockets = CopyOnWriteArrayList<Socket>()
@@ -142,12 +146,11 @@ internal abstract class HtspServiceLifecycleFixture {
                             } else {
                                 fields += helloReplyFields
                             }
-                            HtspCodec.writeMessage(
+                            writeFrame(
                                 output = client.getOutputStream(),
                                 method = method,
                                 fields = fields,
                             )
-                            client.getOutputStream().flush()
                         }
                         if (postHandshakeReplyPlan != null) {
                             postHandshakeReplyPlan.forEach { replyFields ->
@@ -177,18 +180,19 @@ internal abstract class HtspServiceLifecycleFixture {
 
         fun sendServerMessage(method: String, fields: Map<String, Any?> = emptyMap()) {
             val output = checkNotNull(clientSocket).getOutputStream()
-            HtspCodec.writeMessage(
+            writeFrame(
                 output = output,
                 method = method,
                 fields = fields,
             )
-            output.flush()
         }
 
         fun sendRaw(bytes: ByteArray) {
-            val output = checkNotNull(clientSocket).getOutputStream()
-            output.write(bytes)
-            output.flush()
+            synchronized(writeLock) {
+                val output = checkNotNull(clientSocket).getOutputStream()
+                output.write(bytes)
+                output.flush()
+            }
         }
 
         fun replyToCapturedPostHandshakeRequest(
@@ -220,9 +224,7 @@ internal abstract class HtspServiceLifecycleFixture {
 
         fun replyToPostHandshakeRequestWithoutMethod(index: Int) {
             val request = postHandshakeRequests[index]
-            val output = checkNotNull(clientSocket).getOutputStream()
-            output.write(sequenceOnlyReply(requireNotNull(request.seq)))
-            output.flush()
+            sendRaw(sequenceOnlyReply(requireNotNull(request.seq)))
         }
 
         private fun replyToPostHandshakeRequest(
@@ -230,12 +232,18 @@ internal abstract class HtspServiceLifecycleFixture {
             replyFields: Map<String, Any?>,
         ) {
             val output = checkNotNull(clientSocket).getOutputStream()
-            HtspCodec.writeMessage(
+            writeFrame(
                 output = output,
                 method = requireNotNull(request.method),
                 fields = mapOf("seq" to requireNotNull(request.seq)) + replyFields,
             )
-            output.flush()
+        }
+
+        private fun writeFrame(output: OutputStream, method: String, fields: Map<String, Any?>) {
+            synchronized(writeLock) {
+                HtspCodec.writeMessage(output, method, fields)
+                output.flush()
+            }
         }
 
         private fun sequenceOnlyReply(sequence: Int): ByteArray {
