@@ -120,6 +120,7 @@ internal open class `HtspService-internal`(
 
     private var transportRetirement: HtspSubscriptionTermination? = null
 
+    @Volatile
     private var protocolGeneration: ServiceProtocolGeneration? = null
 
     private val typedRequestCaller = HtspTypedRequestCaller(this)
@@ -492,7 +493,7 @@ internal open class `HtspService-internal`(
                     stream.abandon()
                     if (generation.subscriptionStreams[subscriptionId] === stream) {
                         generation.subscriptionStreams.remove(subscriptionId)
-                        generation.subscriptionTimestampClocks.remove(subscriptionId)
+                        generation.subscriptionTimestampClocks -= subscriptionId
                     }
                 }
             }
@@ -834,20 +835,36 @@ internal open class `HtspService-internal`(
                     beforeFrameRead()
                     val msg = HtspCodec.readMessage(framedInput)
                     val currentMessageSequence = ++messageSequence
-                    var typedEvent: HtspTransportEvent.ServerMessage? = null
-                    val published = withCurrentConnectionAttempt(attemptId) {
-                        lastReadAtNanos = nanoTime()
+                    // Sample frame-read completion before decode, outside the monitor (formerly
+                    // inside it). Commit this timestamp below only while the attempt is current.
+                    val readAtNanos = nanoTime()
+                    // Decode and beforeTypedEventPublication (a test hook) precede the currency
+                    // check: a stale reader can observe the replacement's token/clock snapshot.
+                    // The attempt check below discards its result even if that snapshot is current.
+                    val currentGeneration = protocolGeneration
+                    val clocks = currentGeneration?.subscriptionTimestampClocks
+                    val seqNo = msg.seq
+                    val malformedEnvelope = "seq" in msg.fields &&
+                        (seqNo == null || msg.method in ASYNCHRONOUS_SERVER_METHODS)
+                    val decoded = if (seqNo == null && !malformedEnvelope) {
+                        decodeHtspServerMessage(msg) { subscriptionId ->
+                            clocks?.get(subscriptionId) ?: HtspTimestampClock.MICROSECONDS
+                        }
+                    } else null
+                    val typedEvent = if (decoded is HtspServerMessageDecoded && currentGeneration != null) {
+                        HtspTransportEvent.ServerMessage(decoded.message, currentGeneration.token, currentMessageSequence)
+                    } else null
+                    val routed = typedEvent?.let { prepareSubscriptionEvent(it) }
+                    val published = attemptMonitor.withAttemptLock {
+                        if (attemptId != 0L && connectionAttempt != attemptId) return@withAttemptLock false
+                        lastReadAtNanos = readAtNanos
 
-                        if (
-                            "seq" in msg.fields &&
-                            (msg.seq == null || msg.method in ASYNCHRONOUS_SERVER_METHODS)
-                        ) {
+                        if (malformedEnvelope) {
                             throw HtspIncompatibleServerException()
                         }
 
                         // Internal probe latch. SDK metadata workflow observes the typed event.
 
-                        val seqNo = msg.seq
                         if (seqNo != null) {
                             val pr = pending.remove(seqNo)
                             if (pr != null) {
@@ -861,22 +878,22 @@ internal open class `HtspService-internal`(
                             }
                             // HTSP async messages never carry seq. A reply whose waiter
                             // already timed out or was cancelled must not enter event flows.
-                            return@withCurrentConnectionAttempt
+                            return@withAttemptLock true
                         }
 
-                        val currentGeneration = protocolGeneration
-                        val decoded = decodeHtspServerMessage(msg) { subscriptionId ->
-                            currentGeneration?.subscriptionTimestampClocks?.get(subscriptionId)
-                                ?: HtspTimestampClock.MICROSECONDS
-                        }
-                        if (currentGeneration != null) {
+                        // Decode may overlap retirement. Currency and synchronous enqueue stay
+                        // atomic, and only this section touches mutable queues or reply state.
+                        if (currentGeneration != null && protocolGeneration === currentGeneration) {
                             when (decoded) {
                                 is HtspServerMessageDecoded -> {
-                                    typedEvent = HtspTransportEvent.ServerMessage(
-                                        message = decoded.message,
-                                        generation = currentGeneration.token,
-                                        messageSequence = currentMessageSequence,
-                                    )
+                                    val frameBodyBytes = (framedInput.frameBytesRead() - 4).toLong()
+                                    if (routed != null) {
+                                        currentGeneration.subscriptionStreams[routed.subscriptionId]
+                                            ?.offer(routed.event, frameBodyBytes)
+                                    } else if (typedEvent != null) {
+                                        afterPublicationCurrencyCheck(typedEvent)
+                                        metadataCollectors.forEach { it.offer(typedEvent, frameBodyBytes) }
+                                    }
                                 }
                                 HtspServerMessageMalformedKnownMessage -> {
                                     when (val malformed = msg.fields.malformedSubscriptionMessage()) {
@@ -889,13 +906,12 @@ internal open class `HtspService-internal`(
                                     }
                                 }
                                 HtspServerMessageUnknownMethod -> Unit
+                                null -> Unit
                             }
                         }
-                    } != null
-                    if (!published) return
-                    typedEvent?.let { event ->
-                        publishTypedServerEvent(attemptId, event, (framedInput.frameBytesRead() - 4).toLong())
+                        true
                     }
+                    if (!published) return
                 } catch (t: SocketTimeoutException) {
                     val now = nanoTime()
                     val silentMs = (now - lastReadAtNanos) / 1_000_000L
@@ -1008,23 +1024,16 @@ internal open class `HtspService-internal`(
         finishTransportRetirement(retirement)
     }
 
-    private suspend fun publishTypedServerEvent(
-        attemptId: Long,
+    private suspend fun prepareSubscriptionEvent(
         event: HtspTransportEvent.ServerMessage,
-        frameBodyBytes: Long,
-    ) {
+    ): RoutedSubscriptionEvent? {
         try {
             beforeTypedEventPublication(event)
         } catch (_: Throwable) {
             currentCoroutineContext().ensureActive()
             throw HtspEventPublicationException()
         }
-        val routed = event.message.toRoutedSubscriptionEvent()
-        if (routed == null) {
-            publishMetadataEvent(attemptId, event, frameBodyBytes)
-        } else {
-            publishSubscriptionEvent(attemptId, event.generation, routed, frameBodyBytes)
-        }
+        return event.message.toRoutedSubscriptionEvent()
     }
 
     private fun publishMetadataEvent(
@@ -1037,26 +1046,6 @@ internal open class `HtspService-internal`(
                 afterPublicationCurrencyCheck(event)
                 metadataCollectors.forEach { it.offer(event, frameBodyBytes) }
             }
-        }
-    }
-
-    private fun publishSubscriptionEvent(
-        attemptId: Long,
-        generationToken: HtspConnectionGeneration,
-        routed: RoutedSubscriptionEvent,
-        frameBodyBytes: Long,
-    ) {
-        attemptMonitor.withAttemptLock {
-                val generation = protocolGeneration
-                if (
-                    connectionAttempt != attemptId ||
-                    generation?.attemptId != attemptId ||
-                    generation.token !== generationToken
-                ) {
-                    return
-                }
-                val stream = generation.subscriptionStreams[routed.subscriptionId] ?: return
-                stream.offer(routed.event, frameBodyBytes)
         }
     }
 
@@ -1201,7 +1190,7 @@ internal open class `HtspService-internal`(
                 "Subscription ID already used in current connection generation",
             )
         }
-        generation.subscriptionTimestampClocks[request.subscriptionId] =
+        generation.subscriptionTimestampClocks += request.subscriptionId to
             if (request.ninetyKhz == true) {
                 HtspTimestampClock.NINETY_KHZ
             } else {
@@ -1568,7 +1557,11 @@ internal open class `HtspService-internal`(
         var established = false
         val collectedSubscriptionIds = mutableSetOf<Long>()
         val subscriptionStreams = mutableMapOf<Long, HtspSubscriptionEventBuffer>()
-        val subscriptionTimestampClocks = mutableMapOf<Long, HtspTimestampClock>()
+        // Writers hold the attempt lock and replace, never mutate, this map. Volatile
+        // publication (also of protocolGeneration) lets the reader capture immutable
+        // clock state without a lock; it still rechecks the generation before enqueue.
+        @Volatile
+        var subscriptionTimestampClocks: Map<Long, HtspTimestampClock> = emptyMap()
     }
 
     private class HtspConnectionIdentity(

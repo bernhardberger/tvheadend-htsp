@@ -3,6 +3,7 @@ package at.bernhardberger.tvheadend.htsp
 import at.bernhardberger.tvheadend.htsp.connection.*
 import at.bernhardberger.tvheadend.htsp.messages.*
 import at.bernhardberger.tvheadend.htsp.requests.*
+import at.bernhardberger.tvheadend.htsp.wire.HtspCodec
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
@@ -23,12 +24,325 @@ import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.RepeatedTest
+import java.io.ByteArrayOutputStream
+import java.io.InputStream
 import java.io.IOException
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicReference
+import kotlin.coroutines.Continuation
+import kotlin.coroutines.intrinsics.suspendCoroutineUninterceptedOrReturn
 
 internal class HtspServiceSubscriptionEventTest : HtspServiceLifecycleFixture() {
+
+    @RepeatedTest(10)
+    fun unlockedPacketDecodeRetainsOldClockSnapshotAcrossReplacement() {
+        FakeHtspServer(respondToHello = true, captureOnePostHandshakeRequest = true,
+            postHandshakeReplyFields = mapOf("90khz" to 1L)).use { original ->
+            FakeHtspServer(respondToHello = true).use { replacement ->
+                val admissions = AtomicInteger()
+                val replacementAdmitted = CountDownLatch(1)
+                val service = service(afterConnectionAdmission = {
+                    if (admissions.incrementAndGet() == 2) replacementAdmitted.countDown()
+                })
+                runBlocking {
+                    var gate: DecodeClockGate? = null
+                    try {
+                        service.connect(HtspEndpoint("127.0.0.1", original.port))
+                        val oldEvents = async(start = CoroutineStart.UNDISPATCHED) {
+                            service.subscriptionEvents(1L).toList()
+                        }
+                        assertTrue(service.subscribe(1L, 1L, ninetyKhz = true) is HtspResult.Ok)
+                        gate = pauseNextClockLookup(service)
+                        original.sendServerMessage("muxpkt", muxPacketFields(1, presentationTimestamp = 90_000L))
+                        assertTrue(gate.entered.await(5, TimeUnit.SECONDS))
+                        val reconnect = async(Dispatchers.IO) {
+                            service.connect(HtspEndpoint("127.0.0.1", replacement.port))
+                        }
+                        assertTrue(replacementAdmitted.await(5, TimeUnit.SECONDS))
+                        assertEquals(listOf(HtspSubscriptionEvent.Terminated(HtspSubscriptionTermination.GENERATION_LOST)),
+                            withTimeout(5_000) { oldEvents.await() })
+                        gate.release.countDown()
+                        withTimeout(5_000) { reconnect.await() }
+                        assertEquals(HtspTimestampClock.NINETY_KHZ, gate.observed.get())
+                        val newEvent = async(start = CoroutineStart.UNDISPATCHED) {
+                            service.subscriptionEvents(1L).first()
+                        }
+                        replacement.sendServerMessage("muxpkt", muxPacketFields(2, presentationTimestamp = 90_000L))
+                        val packet = (withTimeout(5_000) { newEvent.await() } as HtspSubscriptionEvent.Packet).packet
+                        assertEquals(2.toByte(), packet.payload.toByteArray().single())
+                        assertEquals(90_000L, packet.presentationTimeUs)
+                    } finally {
+                        gate?.release?.countDown()
+                        service.close()
+                    }
+                }
+            }
+        }
+    }
+
+    @RepeatedTest(10)
+    fun packetDecodeSnapshotSurvivesCollectorCancellation() {
+        FakeHtspServer(respondToHello = true, captureOnePostHandshakeRequest = true,
+            postHandshakeReplyFields = mapOf("90khz" to 1L)).use { server ->
+            val service = service()
+            runBlocking {
+                var gate: DecodeClockGate? = null
+                try {
+                    service.connect(HtspEndpoint("127.0.0.1", server.port))
+                    val events = CopyOnWriteArrayList<HtspSubscriptionEvent>()
+                    val collector = launch(start = CoroutineStart.UNDISPATCHED) {
+                        service.subscriptionEvents(1L).collect { events += it }
+                    }
+                    assertTrue(service.subscribe(1L, 1L, ninetyKhz = true) is HtspResult.Ok)
+                    gate = pauseNextClockLookup(service)
+                    server.sendServerMessage("muxpkt", muxPacketFields(1, presentationTimestamp = 90_000L))
+                    assertTrue(gate.entered.await(5, TimeUnit.SECONDS))
+                    withTimeout(5_000) { collector.cancelAndJoin() }
+                    val barrier = async(start = CoroutineStart.UNDISPATCHED) { service.events.first() }
+                    gate.release.countDown()
+                    server.sendServerMessage("initialSyncCompleted")
+                    assertTrue(withTimeout(5_000) { barrier.await() } is HtspTransportEvent.ServerMessage)
+                    assertEquals(HtspTimestampClock.NINETY_KHZ, gate.observed.get())
+                    assertTrue(events.isEmpty())
+                    assertEquals(SubscriptionResources(0, 0, 1), subscriptionResources(service))
+                    assertTrue(service.currentConnectionState() is HtspConnectionState.Connected)
+                } finally {
+                    gate?.release?.countDown()
+                    service.close()
+                }
+            }
+        }
+    }
+
+    @RepeatedTest(10)
+    fun stopAndUnsubscribeQueuedDuringDecodePreserveReaderOrder() {
+        FakeHtspServer(respondToHello = true,
+            postHandshakeReplyPlan = listOf(mapOf("90khz" to 1L), null)).use { server ->
+            val service = service()
+            runBlocking {
+                var gate: DecodeClockGate? = null
+                try {
+                    service.connect(HtspEndpoint("127.0.0.1", server.port))
+                    val started = CompletableDeferred<Unit>()
+                    val events = mutableListOf<HtspSubscriptionEvent>()
+                    val collector = launch(start = CoroutineStart.UNDISPATCHED) {
+                        service.subscriptionEvents(1L).collect {
+                            events += it
+                            if (it is HtspSubscriptionEvent.Started) started.complete(Unit)
+                        }
+                    }
+                    assertTrue(service.subscribe(1L, 1L, ninetyKhz = true) is HtspResult.Ok)
+                    server.sendServerMessage("subscriptionStart", mapOf("subscriptionId" to 1L,
+                        "streams" to listOf(mapOf("index" to 0L, "type" to "H264", "duration" to 9_000L))))
+                    withTimeout(5_000) { started.await() }
+                    gate = pauseNextClockLookup(service)
+                    server.sendServerMessage("muxpkt", muxPacketFields(1, presentationTimestamp = 90_000L, duration = 9_000L))
+                    assertTrue(gate.entered.await(5, TimeUnit.SECONDS))
+                    val unsubscribe = async(Dispatchers.IO) { service.unsubscribe(1L) }
+                    assertTrue(server.awaitPostHandshakeRequestCount(2, 5_000L))
+                    server.sendServerMessage("subscriptionStop", statusFields(1L, "stopped"))
+                    server.replyToPostHandshakeRequest(1)
+                    server.sendServerMessage("muxpkt", muxPacketFields(2))
+                    val barrier = async(start = CoroutineStart.UNDISPATCHED) { service.events.first() }
+                    server.sendServerMessage("initialSyncCompleted")
+                    gate.release.countDown()
+                    assertTrue(withTimeout(5_000) { unsubscribe.await() } is HtspResult.Ok)
+                    withTimeout(5_000) { collector.join(); barrier.await() }
+                    assertEquals(listOf(HtspSubscriptionEvent.Started::class, HtspSubscriptionEvent.Packet::class,
+                        HtspSubscriptionEvent.Stopped::class), events.map { it::class })
+                    assertEquals(100_000L, (events[0] as HtspSubscriptionEvent.Started).message.streams!!.single().frameDurationUs)
+                    val packet = (events[1] as HtspSubscriptionEvent.Packet).packet
+                    assertEquals(1_000_000L, packet.presentationTimeUs)
+                    assertEquals(100_000L, packet.durationUs)
+                    assertTrue(service.currentConnectionState() is HtspConnectionState.Connected)
+                } finally {
+                    gate?.release?.countDown()
+                    service.close()
+                }
+            }
+        }
+    }
+
+    @RepeatedTest(10)
+    fun staleReaderCannotPublishMetadataUsingReplacementSnapshot() {
+        verifyMetadataPublicationFence(pauseBeforeSnapshot = true)
+    }
+
+    @RepeatedTest(10)
+    fun capturedGenerationMustStillMatchBeforeMetadataEnqueue() {
+        verifyMetadataPublicationFence(pauseBeforeSnapshot = false)
+    }
+
+    private fun verifyMetadataPublicationFence(pauseBeforeSnapshot: Boolean) = runBlocking {
+        val entered = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val armed = AtomicBoolean(true)
+        val observedToken = AtomicReference<HtspConnectionGeneration?>()
+        fun pauseOnce() {
+            if (armed.compareAndSet(true, false)) {
+                entered.countDown()
+                check(release.await(5, TimeUnit.SECONDS))
+            }
+        }
+        val service = service(ioDispatcher = Dispatchers.Unconfined,
+            beforeFrameRead = { if (pauseBeforeSnapshot) pauseOnce() },
+            beforeTypedEventPublication = {
+                observedToken.compareAndSet(null, it.generation)
+                if (!pauseBeforeSnapshot) pauseOnce()
+            })
+        val events = CopyOnWriteArrayList<HtspTransportEvent>()
+        val collector = launch(start = CoroutineStart.UNDISPATCHED, context = Dispatchers.Unconfined) {
+            service.events.collect { events += it }
+        }
+        try {
+            val oldAttempt = admitReaderAttempt(service)
+            val oldToken = readerGenerationToken(service)
+            // The zero-attempt sentinel bypasses only the attempt fence, isolating the
+            // generation-identity fence. Normal reconnects change both identities together.
+            val readerAttempt = if (pauseBeforeSnapshot) oldAttempt else 0L
+            val reader = async(Dispatchers.IO) {
+                readTestFrame(service, readerAttempt, "channelAdd", mapOf("channelId" to 1L))
+            }
+            assertTrue(entered.await(5, TimeUnit.SECONDS))
+            val replacementAttempt = admitReaderAttempt(service)
+            val replacementToken = readerGenerationToken(service)
+            release.countDown()
+            withTimeout(5_000) { reader.await() }
+            assertSame(if (pauseBeforeSnapshot) replacementToken else oldToken, observedToken.get())
+
+            // This collector spans replacement: a stale enqueue remains observable rather
+            // than disappearing with the retired subscription buffer. A fresh marker proves
+            // the collector is working and drains everything preceding it in FIFO order.
+            readTestFrame(service, replacementAttempt, "channelAdd", mapOf("channelId" to 2L))
+            assertEquals(1, events.size, "Only replacement metadata may reach the spanning collector")
+            val event = events.single() as HtspTransportEvent.ServerMessage
+            assertEquals(2L, (event.message as HtspChannelAddMessage).channelId)
+            assertSame(replacementToken, event.generation)
+        } finally {
+            release.countDown()
+            collector.cancelAndJoin()
+            service.close()
+        }
+    }
+
+    @RepeatedTest(10)
+    fun malformedDecodeOnStaleReaderCannotAffectConnectedReplacement() {
+        FakeHtspServer(respondToHello = true).use { original ->
+            FakeHtspServer(respondToHello = true).use { replacement ->
+                val service = service()
+                runBlocking {
+                    var gate: DecodeClockGate? = null
+                    val metadata = CopyOnWriteArrayList<HtspTransportEvent>()
+                    val marker = CompletableDeferred<Unit>()
+                    val collector = launch(start = CoroutineStart.UNDISPATCHED) {
+                        service.events.collect {
+                            metadata += it
+                            if ((it as? HtspTransportEvent.ServerMessage)?.message is HtspChannelAddMessage) {
+                                marker.complete(Unit)
+                            }
+                        }
+                    }
+                    try {
+                        service.connect(HtspEndpoint("127.0.0.1", original.port))
+                        val oldAttempt = service.currentConnectionAttemptId()
+                        gate = pauseNextClockLookup(service)
+                        // Missing Bdrops is rejected after delay's clock lookup resumes.
+                        val malformed = mapOf("subscriptionId" to 1L, "packets" to 0L,
+                            "bytes" to 0L, "delay" to 90_000L, "Pdrops" to 0L, "Idrops" to 0L)
+                        assertSame(HtspServerMessageMalformedKnownMessage,
+                            decodeHtspServerMessage(malformed + ("method" to "queueStatus")))
+                        // Run the actual reader independently of transport cancellation so
+                        // reconnect can finish and cancellation cannot mask stale handling.
+                        val reader = async(Dispatchers.IO) {
+                            readTestFrame(service, oldAttempt, "queueStatus", malformed)
+                        }
+                        assertTrue(gate.entered.await(5, TimeUnit.SECONDS))
+                        val connected = service.connect(HtspEndpoint("127.0.0.1", replacement.port))
+                        assertTrue(reader.isActive)
+                        val subscription = CopyOnWriteArrayList<HtspSubscriptionEvent>()
+                        val packet = CompletableDeferred<Unit>()
+                        val packets = launch(start = CoroutineStart.UNDISPATCHED) {
+                            service.subscriptionEvents(1L).collect {
+                                subscription += it
+                                packet.complete(Unit)
+                            }
+                        }
+                        try {
+                            gate.release.countDown()
+                            withTimeout(5_000) { reader.await() }
+                            replacement.sendServerMessage("channelAdd", mapOf("channelId" to 2L))
+                            replacement.sendServerMessage("muxpkt", muxPacketFields(2))
+                            withTimeout(5_000) { marker.await(); packet.await() }
+                            val event = metadata.single() as HtspTransportEvent.ServerMessage
+                            assertSame((connected as HtspConnectOutcome.Connected).connection.generation, event.generation)
+                            assertEquals(2L, (event.message as HtspChannelAddMessage).channelId)
+                            assertTrue(subscription.single() is HtspSubscriptionEvent.Packet)
+                            assertTrue(service.currentConnectionState() is HtspConnectionState.Connected)
+                        } finally {
+                            packets.cancelAndJoin()
+                        }
+                    } finally {
+                        gate?.release?.countDown()
+                        collector.cancelAndJoin()
+                        service.close()
+                    }
+                }
+            }
+        }
+    }
+
+    private fun admitReaderAttempt(service: HtspService): Long = service.javaClass
+        .getDeclaredMethod("beginConnectionAttempt", HtspSubscriptionTermination::class.java)
+        .apply { isAccessible = true }.invoke(service, HtspSubscriptionTermination.GENERATION_LOST) as Long
+
+    private fun readerGenerationToken(service: HtspService): HtspConnectionGeneration {
+        val generation = service.javaClass.getDeclaredField("protocolGeneration").apply { isAccessible = true }.get(service)
+        return generation.javaClass.getDeclaredField("token").apply { isAccessible = true }
+            .get(generation) as HtspConnectionGeneration
+    }
+
+    private suspend fun readTestFrame(service: HtspService, attempt: Long, method: String, fields: Map<String, Any?>) {
+        val bytes = ByteArrayOutputStream().apply { HtspCodec.writeMessage(this, method, fields) }.toByteArray()
+        val reader = service.javaClass.getDeclaredMethod("readerLoop", InputStream::class.java,
+            Long::class.javaPrimitiveType, Long::class.javaPrimitiveType, Continuation::class.java)
+            .apply { isAccessible = true }
+        suspendCoroutineUninterceptedOrReturn<Unit> { continuation ->
+            reader.invoke(service, bytes.inputStream(), 5_000L, attempt, continuation)
+        }
+    }
+
+    private class DecodeClockGate {
+        val entered = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val observed = AtomicReference<HtspTimestampClock?>()
+    }
+
+    private fun pauseNextClockLookup(service: HtspService): DecodeClockGate {
+        val monitor = service.javaClass.getDeclaredField("attemptMonitor").apply { isAccessible = true }
+            .get(service) as HtspAttemptMonitor
+        val lock = monitor.javaClass.getDeclaredField("connectionAttemptLock").apply { isAccessible = true }.get(monitor)
+        val gate = DecodeClockGate()
+        monitor.withAttemptLock {
+            val generation = service.javaClass.getDeclaredField("protocolGeneration").apply { isAccessible = true }.get(service)
+            val clocks = generation.javaClass.getDeclaredField("subscriptionTimestampClocks").apply { isAccessible = true }
+            @Suppress("UNCHECKED_CAST")
+            val snapshot = (clocks.get(generation) as Map<Long, HtspTimestampClock>).toMutableMap()
+            clocks.set(generation, object : MutableMap<Long, HtspTimestampClock> by snapshot {
+                override fun get(key: Long): HtspTimestampClock? {
+                    assertFalse(Thread.holdsLock(lock), "Typed decode must not hold the attempt lock")
+                    gate.entered.countDown()
+                    check(gate.release.await(5, TimeUnit.SECONDS))
+                    return snapshot[key].also { gate.observed.set(it) }
+                }
+            })
+        }
+        return gate
+    }
 
     @Test
     fun queueAndStreamDurationsUseProvisionalAndAcknowledgedSubscriptionClock() {
