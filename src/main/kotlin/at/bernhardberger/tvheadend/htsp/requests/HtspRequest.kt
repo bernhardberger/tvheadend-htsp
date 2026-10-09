@@ -1,6 +1,10 @@
 package at.bernhardberger.tvheadend.htsp.requests
 
-/** Pinned server-dispatch access metadata. The server remains authoritative. */
+/**
+ * Pinned server-dispatch access metadata. The server remains authoritative.
+ *
+ * Minor releases may add entries; keep an `else` branch when matching.
+ */
 public enum class HtspAccess {
     ACCESS_HTSP_STREAMING,
     ACCESS_HTSP_RECORDER,

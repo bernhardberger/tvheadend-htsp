@@ -18,10 +18,18 @@ public data class HtspDvrCutpoint(
 /** Contains the optional ordered DVR-configuration list visible to the caller. */
 public data class GetDvrConfigsResponse(public val configurations: List<HtspDvrConfig>?)
 
-/** Closed request marker implemented by add, update, stop, cancel, and delete DVR entry requests. */
+/**
+ * Request marker implemented by add, update, stop, cancel, and delete DVR entry requests.
+ *
+ * Minor releases may add subtypes; keep an `else` branch when matching.
+ */
 public sealed interface HtspDvrMutationRequest
 
-/** Shared DVR mutation fields: optional success code, untrusted server error text, and an optional entry identifier where applicable. */
+/**
+ * Shared DVR mutation fields: optional success code, untrusted server error text, and an optional entry identifier where applicable.
+ *
+ * Minor releases may add subtypes; keep an `else` branch when matching.
+ */
 public sealed interface HtspDvrMutationResponse {
     public val success: Long?
     public val error: String?

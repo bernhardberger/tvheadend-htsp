@@ -2,7 +2,11 @@ package at.bernhardberger.tvheadend.htsp.connection
 
 import at.bernhardberger.tvheadend.htsp.messages.*
 
-/** Ordered control and packet events for one registered HTSP subscription. */
+/**
+ * Ordered control and packet events for one registered HTSP subscription.
+ *
+ * Minor releases may add subtypes; keep an `else` branch when matching.
+ */
 public sealed interface HtspSubscriptionEvent {
     /** Reports initial or replacement stream metadata for the same subscription. */
     public data class Started(
@@ -75,7 +79,11 @@ public sealed interface HtspSubscriptionEvent {
     ) : HtspSubscriptionEvent
 }
 
-/** Payload-free reason why a subscription stream ended through transport or local retirement. */
+/**
+ * Payload-free reason why a subscription stream ended through transport or local retirement.
+ *
+ * Minor releases may add entries; keep an `else` branch when matching.
+ */
 public enum class HtspSubscriptionTermination {
     /** A newer connection generation replaced the stream's generation. */
     GENERATION_LOST,

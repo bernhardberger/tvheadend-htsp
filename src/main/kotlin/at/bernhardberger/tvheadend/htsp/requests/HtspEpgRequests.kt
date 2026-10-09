@@ -52,7 +52,11 @@ public sealed interface EpgQueryResponse {
     public data class Events(public val events: List<HtspEvent>) : EpgQueryResponse
 }
 
-/** Finite object selector encoded by `getEpgObject`; [BROADCAST] selects a broadcast record. */
+/**
+ * Object selector encoded by `getEpgObject`; [BROADCAST] selects a broadcast record.
+ *
+ * Minor releases may add entries; keep an `else` branch when matching.
+ */
 public enum class HtspEpgObjectType {
     BROADCAST,
 }
@@ -174,7 +178,7 @@ public data class EpgQueryRequest(
     }
 }
 
-/** Selects a detailed EPG object by unsigned [id] and optional finite [objectType]. */
+/** Selects a detailed EPG object by unsigned [id] and optional [objectType]. */
 public data class GetEpgObjectRequest(
     public val id: Long,
     public val objectType: HtspEpgObjectType? = HtspEpgObjectType.BROADCAST,

@@ -34,10 +34,61 @@ Read the `0.10.0` release notes before using it as a baseline. Local checks and
 candidate CI do not establish publication, availability, distribution, Java 17
 runtime support, or release readiness.
 
-## Pre-releases and stable releases
+## Pre-releases
 
 Pre-release versions (`X.Y.Z-alpha.N`, `-beta.N`, `-rc.N`) are previews of
 `X.Y.Z` and promise no compatibility with each other or with the final release.
-From `1.0.0`, stable releases follow Semantic Versioning: incompatible changes
-require a new major version. The exact compatibility scope for the 1.x line is
-defined here before `1.0.0` is released.
+
+## Stable 1.x policy
+
+From `1.0.0`, stable releases follow Semantic Versioning. A patch release fixes
+bugs compatibly, a minor release adds functionality compatibly, and any
+incompatible change requires a new major version.
+
+### What is covered
+
+- JVM binary compatibility of the public API recorded in `api/htsp.api`,
+  including overloads that a later release keeps only for binary compatibility.
+- Kotlin source compatibility of that API, except inferred callable references
+  such as `::HtspChannelAddMessage` or `message::copy`, whose arity changes when
+  a parameter is added.
+- The behavior documented in [`public-api.md`](public-api.md), KDoc, and the
+  protocol notes: typed outcomes, cancellation, stream ordering and buffering
+  contracts, and redaction of secrets, paths and identifiers in `toString`.
+- Java 17 as the minimum supported runtime.
+
+Not covered: Java source compatibility, the opt-in `@HtspJsonApi` bridge, the
+exact `toString` format, internal declarations, and undocumented behavior.
+
+### Compatible changes in minor releases
+
+- New request types, server messages, properties, functions, and optional
+  parameters. Data classes evolve as described in
+  [`public-api.md`](public-api.md#evolving-data-classes): new properties are
+  appended with a default, and the previous constructor and `copy` remain
+  binary-compatible.
+- New subtypes or entries of the open types below. Their KDoc says so; keep an
+  `else` branch when matching them:
+  `HtspServerMessage`, `HtspSubscriptionEvent`, `HtspSubscriptionTermination`,
+  `HtspTransportFailureKind`, `HtspEpgObjectType`, `HtspLogLevel`, `HtspAccess`,
+  `HtspDvrMutationRequest`, and `HtspDvrMutationResponse`.
+- A higher default requested HTSP version when a release extends the typed
+  protocol coverage to it; servers still negotiate down.
+- New `HtspConnection` members, always with a default implementation, so
+  custom implementations such as test fakes keep compiling and linking.
+- A higher minimum Kotlin or `kotlinx-coroutines` version, stated in the
+  release notes.
+
+All other sealed hierarchies and enums are closed for the 1.x line and safe to
+match exhaustively, including `HtspResult`, `HtspFailure`,
+`HtspConnectOutcome`, `HtspTransportEvent`, `HtspConnectionState`, and the
+request selector types. A new kind of server failure is reported through an
+existing category, such as `ServerError`, until the next major version.
+
+### Incompatible changes
+
+Removing, renaming, or changing the signature of a public declaration;
+reordering data-class properties; adding a subtype or entry to a closed type;
+adding an `HtspConnection` member without a default; changing documented
+behavior; and raising the minimum Java runtime above 17 all require a new
+major version.

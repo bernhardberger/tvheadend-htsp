@@ -17,6 +17,10 @@ public class HtspConnectionGeneration {
 /**
  * Small typed connection seam. Raw maps, wire messages, sequences, numeric attempt IDs,
  * decoder outcomes, and implementation exceptions are intentionally absent.
+ *
+ * Custom implementations, such as test fakes or interceptors, are supported. Members
+ * added in minor releases always come with a default implementation. An implementation
+ * that delegates with Kotlin `by` uses that default, not the delegate, until recompiled.
  */
 public interface HtspConnection {
     /** Current connection lifecycle state, available synchronously and as a hot stream. */

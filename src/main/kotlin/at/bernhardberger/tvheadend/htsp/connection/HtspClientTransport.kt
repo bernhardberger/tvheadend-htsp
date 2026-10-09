@@ -40,7 +40,11 @@ public data class HtspConnectOptions(
     }
 }
 
-/** Stable failure categories; implementation exceptions never cross the transport seam. */
+/**
+ * Stable failure categories; implementation exceptions never cross the transport seam.
+ *
+ * Minor releases may add entries; keep an `else` branch when matching.
+ */
 public enum class HtspTransportFailureKind {
     AUTHENTICATION_REJECTED,
     PERMISSION_DENIED,

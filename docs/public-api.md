@@ -189,6 +189,46 @@ metadata participates through `HtspBinary` content equality rather than raw
 array identity. Message `toString()` output remains redacted and does not expose
 paths, server errors, subscription identifiers, or payload content.
 
+## Evolving data classes
+
+Public models, requests, responses, and messages are data classes. A data
+class's constructor and generated `copy` change their JVM signatures when a
+property is added, so a compatible minor release adds a property this way:
+
+```kotlin
+@ConsistentCopyVisibility
+public data class Example private constructor(
+    public val id: Long,
+    public val added: Long?,
+    private val evolution: Unit,
+) {
+    public constructor(id: Long, added: Long? = null) : this(id, added, Unit)
+
+    @Deprecated("Retained for binary compatibility", level = DeprecationLevel.HIDDEN)
+    public constructor(id: Long) : this(id, null, Unit)
+
+    public fun copy(id: Long = this.id, added: Long? = this.added): Example = Example(id, added)
+
+    @Deprecated("Retained for binary compatibility", level = DeprecationLevel.HIDDEN)
+    public fun copy(id: Long = this.id): Example = copy(id, added)
+}
+```
+
+- Append the new property after the existing public ones, nullable or with a
+  default; never reorder or remove properties.
+- Make the primary constructor private with `@ConsistentCopyVisibility` (the
+  mergeable messages above already do) and expose a public constructor and
+  `copy` with the full parameter list.
+- Keep each previous public constructor and `copy` as a hidden deprecated
+  overload with exactly its previous parameters and default values, so the
+  generated default-argument bridges survive. If every previous constructor
+  parameter had a default, also keep a hidden no-argument constructor.
+- In `api/htsp.api` the old signatures become `synthetic`, so existing
+  binaries still link; the diff must contain no removed declarations.
+
+Existing `componentN` functions keep their positions, and equality, hashing and
+`copy` include the new property.
+
 ## Argument validation and lifecycle calls
 
 Passing an invalid argument, such as a non-positive timeout, may throw

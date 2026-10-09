@@ -17,7 +17,11 @@ public data class HtspClientIdentity(
     }
 }
 
-/** Finite severity vocabulary accepted by [HtspLogger]. */
+/**
+ * Severity vocabulary accepted by [HtspLogger].
+ *
+ * Minor releases may add entries; keep an `else` branch when matching.
+ */
 public enum class HtspLogLevel {
     WARNING,
     ERROR,

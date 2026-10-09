@@ -54,7 +54,10 @@ official TVHeadend software or as wholly original work.
 - The public ABI is tracked in `api/htsp.api` by Kotlin Gradle plugin ABI
   validation. `checkKotlinAbi` runs in `check`; after an intentional public API
   change, regenerate the dump with `./gradlew updateKotlinAbi` and never edit it
-  by hand.
+  by hand. From 1.0.0, a dump diff that removes or changes a declaration (other
+  than an old overload becoming `synthetic`) requires a new major version; follow
+  the compatibility rules in `docs/versioning.md` and the data-class recipe in
+  `docs/public-api.md`.
 
 ## Build and verify
 
