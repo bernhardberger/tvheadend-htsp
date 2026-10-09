@@ -1,7 +1,7 @@
 ---
 description: Read-only independent review of a bounded HTSP library change against the repository invariants
 mode: subagent
-steps: 24
+steps: 80
 permissions:
   - action: "*"
     resource: "*"
