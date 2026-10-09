@@ -33,3 +33,11 @@ version. Patch versions are reserved for backward-compatible fixes.
 Read the `0.10.0` release notes before using it as a baseline. Local checks and
 candidate CI do not establish publication, availability, distribution, Java 17
 runtime support, or release readiness.
+
+## Pre-releases and stable releases
+
+Pre-release versions (`X.Y.Z-alpha.N`, `-beta.N`, `-rc.N`) are previews of
+`X.Y.Z` and promise no compatibility with each other or with the final release.
+From `1.0.0`, stable releases follow Semantic Versioning: incompatible changes
+require a new major version. The exact compatibility scope for the 1.x line is
+defined here before `1.0.0` is released.

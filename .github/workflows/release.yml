@@ -48,7 +48,7 @@ jobs:
           MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_GPG_PASSPHRASE }}
           CENTRAL_PORTAL_TOKEN: ${{ secrets.CENTRAL_PORTAL_TOKEN }}
         run: ./tools/publish-central-release --publish
-      - name: Finalize GitHub prerelease from verified outputs
+      - name: Finalize GitHub release from verified outputs
         env:
           GH_TOKEN: ${{ github.token }}
         run: ./tools/publish-central-release --finalize-github-release

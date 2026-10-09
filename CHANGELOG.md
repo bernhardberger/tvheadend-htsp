@@ -5,6 +5,10 @@
 The `api` dependency `kotlinx-coroutines-core` moves from 1.10.2 to 1.11.0, so
 consumers resolve 1.11.0 transitively. The build now uses Gradle 9.8.1.
 
+The release workflow accepts stable `X.Y.Z` versions and `-alpha.N`, `-beta.N`
+and `-rc.N` pre-releases. Pre-releases and major-zero releases remain GitHub
+prereleases; stable releases from 1.0.0 are full releases marked latest.
+
 ## [0.10.0]
 
 **BREAKING (JVM ABI):** `HtspQueueStatusMessage` gains trailing nullable

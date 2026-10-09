@@ -32,10 +32,11 @@ val allowedPublicationVersions = setOf(
     releaseVersion,
 )
 check(
-    Regex("0\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)").matches(releaseVersion) &&
+    Regex("(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-(alpha|beta|rc)\\.[1-9][0-9]*)?")
+        .matches(releaseVersion) &&
         version.toString() in allowedPublicationVersions,
 ) {
-    "Publication version must be a strict major-zero release or snapshot: $version"
+    "Publication version must be X.Y.Z or X.Y.Z-(alpha|beta|rc).N, optionally -SNAPSHOT: $version"
 }
 
 kotlin {

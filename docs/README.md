@@ -9,7 +9,7 @@ Guides for people using the library, and references for people working on it.
 - [`versioning.md`](versioning.md): the current version, its provisional compatibility status,
   and what compatibility you can expect.
 - [`releasing.md`](releasing.md): one-time GitHub Environment setup and the
-  exact-tag automatic Central and GitHub prerelease path.
+  exact-tag automatic Central and GitHub release path, including pre-releases.
 - [`CHANGELOG.md`](../CHANGELOG.md): released and upcoming changes.
 - [`licensing.md`](licensing.md): GPLv3 obligations, attribution, and project
   lineage.

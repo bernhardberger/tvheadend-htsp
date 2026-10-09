@@ -42,7 +42,7 @@ SECRET_NAMES = (
     "CENTRAL_PORTAL_TOKEN",
 )
 STAGING_CHECKSUM_SUFFIXES = (".md5", ".sha1", ".sha256", ".sha512")
-SEMVER = re.compile(r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)")
+SEMVER = re.compile(r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-(alpha|beta|rc)\.([1-9][0-9]*))?")
 UUID = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}")
 MAX_ORIGINAL = 64 * 1024 * 1024
 POLL_SECONDS = 10
@@ -65,6 +65,7 @@ class ReleaseIdentity:
     version: str
     tag: str
     coordinate: str
+    prerelease: bool
 
 
 @dataclass(frozen=True)
@@ -118,13 +119,14 @@ def configured_identity(build_text: str, tag: str | None = None) -> ReleaseIdent
     version = versions[0]
     match = SEMVER.fullmatch(version)
     if match is None:
-        raise ReleaseError("configured release version must be strict SemVer without snapshot, prerelease, or build metadata")
-    if match.group(1) != "0":
-        raise ReleaseError("the current release lane accepts only major-zero versions")
+        raise ReleaseError(
+            "configured release version must be X.Y.Z or X.Y.Z-(alpha|beta|rc).N without snapshot or build metadata"
+        )
+    prerelease = match.group(1) == "0" or match.group(4) is not None
     expected_tag = f"v{version}"
     if tag is not None and tag != expected_tag:
         raise ReleaseError(f"release tag must be exactly {expected_tag}")
-    return ReleaseIdentity(version, expected_tag, f"{GROUP}:{ARTIFACT}:{version}")
+    return ReleaseIdentity(version, expected_tag, f"{GROUP}:{ARTIFACT}:{version}", prerelease)
 
 
 def original_names(identity: ReleaseIdentity) -> tuple[str, ...]:
@@ -871,7 +873,7 @@ def github_release_metadata(release: dict[str, object], identity: ReleaseIdentit
         "tag_name": identity.tag,
         "name": identity.tag,
         "body": notes,
-        "prerelease": True,
+        "prerelease": identity.prerelease,
     }
     for key, value in expected.items():
         if release.get(key) != value:
@@ -880,6 +882,11 @@ def github_release_metadata(release: dict[str, object], identity: ReleaseIdentit
         raise ReleaseError("existing GitHub release has malformed draft metadata")
     if type(release.get("id")) is not int:
         raise ReleaseError("existing GitHub release has malformed id metadata")
+
+
+def github_make_latest(identity: ReleaseIdentity) -> str:
+    """Only publishing a stable release from 1.0.0 on marks it as the repository's latest release."""
+    return "false" if identity.prerelease else "true"
 
 
 def github_releases(token: str, client: HttpClient) -> list[dict[str, object]]:
@@ -977,7 +984,7 @@ def finalize_github_release_state(
             "name": identity.tag,
             "body": notes,
             "draft": True,
-            "prerelease": True,
+            "prerelease": identity.prerelease,
             "make_latest": "false",
         }).encode("utf-8")
         response = client(
@@ -1045,8 +1052,8 @@ def finalize_github_release_state(
         "name": identity.tag,
         "body": notes,
         "draft": False,
-        "prerelease": True,
-        "make_latest": "false",
+        "prerelease": identity.prerelease,
+        "make_latest": github_make_latest(identity),
     }).encode("utf-8")
     response = client(
         "PATCH",
@@ -1058,7 +1065,7 @@ def finalize_github_release_state(
     release = github_refetch_release(release_id, token, client)
     github_release_metadata(release, identity, notes)
     if release.get("draft") is not False:
-        raise ReleaseError("GitHub release did not become a published prerelease")
+        raise ReleaseError("GitHub release did not leave the draft state")
     verify_github_assets(release_id, expected, token, client)
 
 
@@ -1124,7 +1131,7 @@ def setup_errors(root: Path = ROOT) -> list[str]:
         for name in SECRET_NAMES
     }
     publish_step = workflow_step(release, "Sign, publish, and verify Central")
-    release_step = workflow_step(release, "Finalize GitHub prerelease from verified outputs")
+    release_step = workflow_step(release, "Finalize GitHub release from verified outputs")
     actual_refs = set(re.findall(r"(?m)^\s{10}([A-Z0-9_]+): \$\{\{ secrets\.([A-Z0-9_]+) \}\}$", publish_step))
     actual_ref_lines = {f"{left}: ${{{{ secrets.{right} }}}}" for left, right in actual_refs}
     if actual_ref_lines != expected_refs or len(actual_refs) != 3:
@@ -1215,6 +1222,7 @@ class FakeGitHub:
         self.fail_after_stored_upload = False
         self.failed_once = False
         self.published_transitions = 0
+        self.make_latest_values: list[object] = []
 
     def add_release(
         self,
@@ -1224,7 +1232,7 @@ class FakeGitHub:
         draft: bool,
         name: str | None = None,
         tag: str | None = None,
-        prerelease: bool = True,
+        prerelease: bool | None = None,
     ) -> dict[str, object]:
         release_id = self.next_release_id
         self.next_release_id += 1
@@ -1234,7 +1242,7 @@ class FakeGitHub:
             "name": identity.tag if name is None else name,
             "body": notes,
             "draft": draft,
-            "prerelease": prerelease,
+            "prerelease": identity.prerelease if prerelease is None else prerelease,
             "upload_url": f"https://uploads.github.test/repos/{REPOSITORY}/releases/{release_id}/assets{{?name,label}}",
         }
         self.releases.append(release)
@@ -1264,7 +1272,8 @@ class FakeGitHub:
             return HttpResponse(200, json.dumps(self.releases if page == "1" else []).encode())
         if method == "POST" and path == releases_path:
             model = json.loads((body or b"").decode())
-            identity = ReleaseIdentity(model["tag_name"][1:], model["tag_name"], "unused")
+            self.make_latest_values.append(model.get("make_latest"))
+            identity = ReleaseIdentity(model["tag_name"][1:], model["tag_name"], "unused", model["prerelease"])
             release = self.add_release(
                 identity,
                 model["body"],
@@ -1283,6 +1292,7 @@ class FakeGitHub:
                 return HttpResponse(200, json.dumps(release).encode())
             if method == "PATCH":
                 model = json.loads((body or b"").decode())
+                self.make_latest_values.append(model.get("make_latest"))
                 if release["draft"] and model.get("draft") is False:
                     self.published_transitions += 1
                 release.update({key: value for key, value in model.items() if key != "make_latest"})
@@ -1328,6 +1338,9 @@ def github_finalizer_regression_tests(
         errors.append("absent GitHub release did not converge through a draft to publication")
     if set(item["name"] for item in absent.assets[1]) != set(expected) or absent.published_transitions != 1:
         errors.append("absent GitHub release did not upload exactly two assets before one publish transition")
+    expected_latest = "false" if identity.prerelease else "true"
+    if absent.releases[0]["prerelease"] is not identity.prerelease or absent.make_latest_values != ["false", expected_latest]:
+        errors.append(f"GitHub release type or latest marker is wrong for {identity.version}")
 
     interrupted = FakeGitHub()
     interrupted.fail_after_stored_upload = True
@@ -1379,7 +1392,7 @@ def github_finalizer_regression_tests(
         published.add_asset(exact_release, name, data)
     finalize(identity, commit, expected, notes, "synthetic-github-token", published.client)
     if published.published_transitions:
-        errors.append("exact published GitHub prerelease rerun was not idempotent")
+        errors.append("exact published GitHub release rerun was not idempotent")
 
     def rejected(label: str, mutate: Callable[[FakeGitHub, dict[str, object]], None]) -> None:
         fixture = FakeGitHub()
@@ -1397,7 +1410,7 @@ def github_finalizer_regression_tests(
     rejected("wrong published GitHub notes", lambda _fixture, release: release.update(body="wrong"))
     rejected("wrong published GitHub tag", lambda _fixture, release: release.update(tag_name="v9.9.9"))
     rejected("wrong published GitHub title", lambda _fixture, release: release.update(name="wrong"))
-    rejected("wrong published GitHub type", lambda _fixture, release: release.update(prerelease=False))
+    rejected("wrong published GitHub type", lambda _fixture, release: release.update(prerelease=not identity.prerelease))
 
     duplicate = FakeGitHub()
     duplicate.add_release(identity, notes, draft=True)
@@ -1499,6 +1512,32 @@ def self_test() -> list[str]:
     expect_error(errors, "snapshot version", lambda: configured_identity(valid_build.replace("0.1.0", "0.1.0-SNAPSHOT")))
     expect_error(errors, "wrong tag", lambda: configured_identity(valid_build, "v0.1.1"))
     expect_error(errors, "wrong GAV", lambda: configured_identity(valid_build.replace(GROUP, "example.invalid")))
+    if not identity.prerelease:
+        errors.append("self-test treated a major-zero release as stable")
+    for version, prerelease in (
+        ("1.0.0", False),
+        ("12.3.40", False),
+        ("1.0.0-alpha.1", True),
+        ("1.0.0-beta.2", True),
+        ("1.0.0-rc.10", True),
+        ("0.11.0-rc.1", True),
+    ):
+        candidate = configured_identity(valid_build.replace("0.1.0", version), f"v{version}")
+        if candidate.prerelease is not prerelease or candidate.tag != f"v{version}":
+            errors.append(f"self-test misclassified release version {version}")
+    for version in (
+        "1.0.0-rc.0",
+        "1.0.0-rc1",
+        "1.0.0-RC.1",
+        "1.0.0-dev.1",
+        "1.0.0-rc.01",
+        "1.0.0-rc.1-SNAPSHOT",
+        "1.0.0+build.1",
+        "01.0.0",
+        "1.0",
+    ):
+        expect_error(errors, f"invalid release version {version}", lambda version=version: configured_identity(valid_build.replace("0.1.0", version)))
+    expect_error(errors, "stable tag for a release candidate", lambda: configured_identity(valid_build.replace("0.1.0", "1.0.0-rc.1"), "v1.0.0"))
     with tempfile.TemporaryDirectory() as temporary:
         root = Path(temporary)
         version_directory = root / "maven"
@@ -1735,7 +1774,30 @@ def self_test() -> list[str]:
             terminate_gpg_agents(cleanup_root, failing_cleanup_runner)
         except Exception:
             errors.append("best-effort gpg-agent cleanup masked the primary result")
+    errors.extend(release_type_regression_tests(valid_build))
     errors.extend(setup_regression_tests())
+    return errors
+
+
+def release_type_regression_tests(valid_build: str) -> list[str]:
+    errors: list[str] = []
+    for version in ("1.0.0", "1.0.0-rc.1"):
+        identity = configured_identity(valid_build.replace("0.1.0", version), f"v{version}")
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            version_directory = root / "maven"
+            version_directory.mkdir()
+            for index, name in enumerate(original_names(identity)):
+                data = f"synthetic-{version}-{index}".encode("ascii")
+                (version_directory / name).write_bytes(data)
+                (version_directory / (name + ".sha256")).write_text(sha256(data) + "\n", encoding="ascii")
+            originals = staged_originals(version_directory, identity)
+            manifest = release_manifest(identity, "b" * 40, originals)
+            signatures = {item.name: b"sig:" + item.data for item in originals}
+            assets = asset_map(originals, signatures, sidecars(originals))
+            output = root / "release"
+            write_outputs(output, identity, assets, zip_bytes(identity, assets), manifest_bytes(manifest), f"## [{version}]\n\nNotes.\n")
+            errors.extend(github_finalizer_regression_tests(identity, output, "b" * 40, originals))
     return errors
 
 
@@ -1806,7 +1868,8 @@ def finalize_github_release() -> None:
     originals = staged_originals(version_directory, identity)
     expected, notes = github_release_inputs(ROOT / "build/release", identity, commit, originals)
     finalize_github_release_state(identity, commit, expected, notes, token, stdlib_http)
-    print(f"GitHub prerelease finalized for {identity.tag} with two exact assets")
+    kind = "prerelease" if identity.prerelease else "release"
+    print(f"GitHub {kind} finalized for {identity.tag} with two exact assets")
 
 
 def main() -> int:

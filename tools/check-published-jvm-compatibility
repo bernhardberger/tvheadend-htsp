@@ -21,7 +21,9 @@ ROOT = Path(__file__).resolve().parents[1]
 REPOSITORY = ROOT / "build/local-maven"
 GROUP = "at.bernhardberger.tvheadend"
 ARTIFACT = "htsp"
-STRICT_RELEASE_VERSION = re.compile(r"0\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)")
+STRICT_RELEASE_VERSION = re.compile(
+    r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)(?:-(?:alpha|beta|rc)\.[1-9][0-9]*)?"
+)
 
 
 def configured_version() -> str:
@@ -588,8 +590,46 @@ def fixture_verify(repository: Path, version: str = FIXTURE_SNAPSHOT_VERSION) ->
         RELEASE_BASE = original_release_base
 
 
-def self_test() -> list[str]:
+VALID_RELEASE_VERSIONS = ("0.10.0", "1.0.0", "12.3.40", "1.0.0-alpha.1", "1.0.0-beta.2", "1.0.0-rc.10")
+INVALID_RELEASE_VERSIONS = (
+    "1.0.0-rc.0",
+    "1.0.0-rc1",
+    "1.0.0-RC.1",
+    "1.0.0-dev.1",
+    "1.0.0-rc.01",
+    "1.0.0-SNAPSHOT",
+    "1.0.0+build.1",
+    "01.0.0",
+    "1.0",
+)
+
+
+def gradle_release_version_pattern() -> re.Pattern[str] | None:
+    try:
+        text = (ROOT / "build.gradle.kts").read_text(encoding="utf-8")
+    except (OSError, UnicodeError):
+        return None
+    matches = re.findall(r'Regex\("((?:[^"\\]|\\.)*)"\)\s*\.matches\(releaseVersion\)', text)
+    return re.compile(matches[0].replace("\\\\", "\\")) if len(matches) == 1 else None
+
+
+def version_grammar_errors() -> list[str]:
     errors: list[str] = []
+    gradle = gradle_release_version_pattern()
+    if gradle is None:
+        return ["self-test could not find exactly one Gradle release version pattern"]
+    for label, pattern in (("checker", STRICT_RELEASE_VERSION), ("Gradle", gradle)):
+        for version in VALID_RELEASE_VERSIONS:
+            if not pattern.fullmatch(version):
+                errors.append(f"{label} release version guard rejected {version}")
+        for version in INVALID_RELEASE_VERSIONS:
+            if pattern.fullmatch(version):
+                errors.append(f"{label} release version guard accepted {version}")
+    return errors
+
+
+def self_test() -> list[str]:
+    errors: list[str] = version_grammar_errors()
     expected_versions = {RELEASE_BASE, FIXTURE_SNAPSHOT_VERSION}
     if ALLOWED_VERSIONS != expected_versions:
         errors.append("self-test publication version allowlist mismatch")
@@ -606,12 +646,12 @@ def self_test() -> list[str]:
         if not any("publication version must be exactly" in error for error in unsupported_errors):
             errors.append(f"self-test accepted unsupported publication version: {unsupported_errors}")
 
-        legacy_release = "0.1.0-" + "alpha.1"
-        for legacy_version in (legacy_release, legacy_release + "-SNAPSHOT"):
-            legacy_repository = create_fixture(root / legacy_version, legacy_version)
-            legacy_errors, _ = fixture_verify(legacy_repository, legacy_version)
-            if not any("publication version must be exactly" in error for error in legacy_errors):
-                errors.append(f"self-test accepted legacy alpha publication version or filenames: {legacy_errors}")
+        other_release = "999.0.0-alpha.1"
+        for other_version in (other_release, other_release + "-SNAPSHOT"):
+            other_repository = create_fixture(root / other_version, other_version)
+            other_errors, _ = fixture_verify(other_repository, other_version)
+            if not any("publication version must be exactly" in error for error in other_errors):
+                errors.append(f"self-test accepted a pre-release coordinate other than the configured version: {other_errors}")
 
         create_fixture(root, FIXTURE_SNAPSHOT_VERSION)
 
