@@ -16,10 +16,9 @@ Guides for people using the library, and references for people working on it.
 
 ## Repository internals
 
-- [`ai-engineering-harness.md`](ai-engineering-harness.md): local instruction
-  maintenance, fresh-loading checks and authorized outcome delivery.
-- [`review-routing.md`](review-routing.md): child packets, independent review,
-  Opus preflight/fallback and primary adjudication.
+- [`../AGENTS.md`](../AGENTS.md): engineering rules and invariants for
+  contributors and coding agents; `.opencode/` holds an optional reviewer agent
+  and Kotlin skills.
 - [`htsp-protocol/README.md`](htsp-protocol/README.md): the upstream pin,
   wire-level reference, and maintenance notes for the hand-maintained typed
   catalog.
