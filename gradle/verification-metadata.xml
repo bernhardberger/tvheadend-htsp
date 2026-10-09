@@ -10,7 +10,6 @@
          <ignored-key id="1939A2520BAB1D90" reason="Key couldn't be downloaded from any key server"/>
          <ignored-key id="379CE192D401AB61" reason="Key couldn't be downloaded from any key server"/>
          <ignored-key id="3967D4EDA591B991" reason="Key couldn't be downloaded from any key server"/>
-         <ignored-key id="3D5839A2262CBBFB" reason="Key couldn't be downloaded from any key server"/>
          <ignored-key id="8D5059F2B1927A9A" reason="Key couldn't be downloaded from any key server"/>
          <ignored-key id="9A259C7EE636C5ED" reason="Key couldn't be downloaded from any key server"/>
          <ignored-key id="B0F3710FA64900E7" reason="Key couldn't be downloaded from any key server"/>
@@ -36,9 +35,11 @@
          <trusted-key id="6F538074CCEBF35F28AF9B066A0975F8B1127B83" group="org.jetbrains.kotlin"/>
          <trusted-key id="8569C95CADC508B09FE90F3002216ED811210DAA" group="io.github.detekt.sarif4k"/>
          <trusted-key id="8756C4F765C9AC3CB6B85D62379CE192D401AB61" group="org.jetbrains.intellij.deps" name="trove4j" version="1.0.20200330"/>
+         <trusted-key id="8E3A02905A1AE67E7B0F9ACD3967D4EDA591B991" group="org.jetbrains.kotlinx" name="kotlinx-html-jvm"/>
          <trusted-key id="98465301A4939C0279F2E847D89D05374952262B" group="org.jetbrains.dokka"/>
          <trusted-key id="C7BE5BCC9FEC15518CFDA882B0F3710FA64900E7" group="com.google.code.gson"/>
          <trusted-key id="CFBE6E7934FB211224EE1C2B0C0A9468268C79AE" group="org.jetbrains"/>
+         <trusted-key id="E77417AC194160A3FABD04969A259C7EE636C5ED" group="com.google.errorprone"/>
          <trusted-key id="E7DC75FC24FB3C8DFE8086AD3D5839A2262CBBFB" group="org.jetbrains.kotlinx"/>
          <trusted-key id="EE0CA873074092F806F59B65D364ABAA39A47320" group="com.google.errorprone"/>
          <trusted-key id="F3184BCD55F4D016E30D4C9BF42E87F9665015C9" group="org.jsoup" name="jsoup" version="1.16.1"/>

@@ -286,7 +286,7 @@ tasks.register("verifyProductionDependencyGraph") {
             .toSortedSet()
         val expectedDirect = sortedSetOf(
             "org.jetbrains.kotlin:kotlin-stdlib:2.4.10",
-            "org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2",
+            "org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0",
         )
         check(direct == expectedDirect) {
             "Unexpected direct production dependencies: $direct"
@@ -297,9 +297,9 @@ tasks.register("verifyProductionDependencyGraph") {
         val allowed = setOf(
             "org.jetbrains:annotations:23.0.0",
             "org.jetbrains.kotlin:kotlin-stdlib:2.4.10",
-            "org.jetbrains.kotlinx:kotlinx-coroutines-bom:1.10.2",
-            "org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2",
-            "org.jetbrains.kotlinx:kotlinx-coroutines-core-jvm:1.10.2",
+            "org.jetbrains.kotlinx:kotlinx-coroutines-bom:1.11.0",
+            "org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0",
+            "org.jetbrains.kotlinx:kotlinx-coroutines-core-jvm:1.11.0",
         )
         check(resolved == allowed) { "Unexpected production resolution graph: $resolved" }
     }

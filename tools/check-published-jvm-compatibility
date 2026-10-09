@@ -58,11 +58,11 @@ PROPERTIES = {
 }
 POM_DEPENDENCIES = {
     ("org.jetbrains.kotlin", "kotlin-stdlib", "2.4.10"),
-    ("org.jetbrains.kotlinx", "kotlinx-coroutines-core-jvm", "1.10.2"),
+    ("org.jetbrains.kotlinx", "kotlinx-coroutines-core-jvm", "1.11.0"),
 }
 MODULE_DEPENDENCIES = {
     ("org.jetbrains.kotlin", "kotlin-stdlib", "2.4.10"),
-    ("org.jetbrains.kotlinx", "kotlinx-coroutines-core", "1.10.2"),
+    ("org.jetbrains.kotlinx", "kotlinx-coroutines-core", "1.11.0"),
 }
 FORBIDDEN_TEXT = re.compile(r"android|media3|decoder|\.aar\b|\.so\b|com\.android", re.IGNORECASE)
 KINDS = {
