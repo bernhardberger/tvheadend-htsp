@@ -22,6 +22,9 @@ public class HtspEndpoint(
         "HtspEndpoint(host=$host, port=$port, username=<redacted>, password=<redacted>)"
 }
 
+/** Minimum supported server protocol version. Raising it requires a major release; lowering it is compatible. */
+public const val MINIMUM_HTSP_PROTOCOL_VERSION: Int = 36
+
 /** Connection timeouts and socket bounds, all durations in milliseconds. */
 public data class HtspConnectOptions(
     public val connectTimeoutMs: Long = 10_000L,
@@ -40,7 +43,9 @@ public data class HtspConnectOptions(
             "socketReadTimeoutMs must be in 1..Int.MAX_VALUE for the socket API"
         }
         require(socketBufferBytes in 1..16 * 1024 * 1024) { "socketBufferBytes must be in 1..16777216" }
-        require(requestedProtocolVersion > 0) { "requestedProtocolVersion must be positive" }
+        require(requestedProtocolVersion >= MINIMUM_HTSP_PROTOCOL_VERSION) {
+            "requestedProtocolVersion must be at least $MINIMUM_HTSP_PROTOCOL_VERSION"
+        }
     }
 }
 
@@ -56,9 +61,12 @@ public enum class HtspTransportFailureKind {
     CONNECTION_REFUSED,
     CONNECTION_TIMEOUT,
     NETWORK_UNREACHABLE,
+    /** The server violated the supported protocol, rather than merely reporting an older version. */
     INCOMPATIBLE_SERVER,
     ZERO_CHANNELS,
     TRANSPORT_UNAVAILABLE,
+    /** The server reports a protocol version below [MINIMUM_HTSP_PROTOCOL_VERSION]. */
+    UNSUPPORTED_SERVER_VERSION,
 }
 
 /** Bounded transport-failure classification with no implementation exception payload. */
@@ -123,6 +131,8 @@ public fun createHtspConnection(
 
 internal class HtspIncompatibleServerException : Exception()
 
+internal class HtspUnsupportedServerVersionException : Exception()
+
 internal class HtspAuthenticationRejectedException : Exception()
 
 internal fun typedTransportFailure(error: Throwable): HtspTransportFailure {
@@ -134,6 +144,8 @@ internal fun typedTransportFailure(error: Throwable): HtspTransportFailure {
         chain.any { it is NoRouteToHostException } -> HtspTransportFailureKind.NETWORK_UNREACHABLE
         chain.any { it is HtspIncompatibleServerException } ->
             HtspTransportFailureKind.INCOMPATIBLE_SERVER
+        chain.any { it is HtspUnsupportedServerVersionException } ->
+            HtspTransportFailureKind.UNSUPPORTED_SERVER_VERSION
         chain.any { it is SocketTimeoutException || it is HtspRequestTimeoutException } ->
             HtspTransportFailureKind.CONNECTION_TIMEOUT
         chain.any { it is ConnectException } -> HtspTransportFailureKind.CONNECTION_REFUSED

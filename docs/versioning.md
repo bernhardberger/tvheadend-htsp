@@ -56,6 +56,7 @@ incompatible change requires a new major version.
   protocol notes: typed outcomes, cancellation, stream ordering and buffering
   contracts, and redaction of secrets, paths and identifiers in `toString`.
 - Java 17 as the minimum supported runtime.
+- HTSP 36 as the minimum supported server protocol version.
 
 Not covered: Java source compatibility, the opt-in `@HtspJsonApi` bridge, the
 exact `toString` format, internal declarations, and undocumented behavior.
@@ -74,6 +75,7 @@ exact `toString` format, internal declarations, and undocumented behavior.
   `HtspDvrMutationRequest`, and `HtspDvrMutationResponse`.
 - A higher default requested HTSP version when a release extends the typed
   protocol coverage to it; servers still negotiate down.
+- Lowering the minimum supported HTSP server protocol version.
 - New `HtspConnection` members, always with a default implementation, so
   custom implementations such as test fakes keep compiling and linking.
 - A higher minimum Kotlin or `kotlinx-coroutines` version, stated in the
@@ -93,5 +95,6 @@ in equality without being rendered by `toString()`.
 Removing, renaming, or changing the signature of a public declaration;
 reordering data-class properties; adding a subtype or entry to a closed type;
 adding an `HtspConnection` member without a default; changing documented
-behavior; and raising the minimum Java runtime above 17 all require a new
+behavior; raising the minimum supported HTSP server protocol version; and
+raising the minimum Java runtime above 17 all require a new
 major version.

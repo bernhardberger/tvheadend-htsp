@@ -6,15 +6,95 @@ import at.bernhardberger.tvheadend.htsp.messages.*
 import at.bernhardberger.tvheadend.htsp.requests.*
 import at.bernhardberger.tvheadend.htsp.wire.*
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.async
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeout
 import org.junit.jupiter.api.Assertions.assertArrayEquals
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Test
 import java.security.MessageDigest
 
 internal class HtspServiceHandshakeFactsTest : HtspServiceLifecycleFixture() {
+
+    @Test
+    fun requestedProtocolVersionHonorsFloorOnConstructionAndCopy() {
+        assertEquals(36, MINIMUM_HTSP_PROTOCOL_VERSION)
+        assertThrows(IllegalArgumentException::class.java) {
+            HtspConnectOptions(requestedProtocolVersion = 35)
+        }
+        val options = HtspConnectOptions(requestedProtocolVersion = 36)
+        assertEquals(36, options.requestedProtocolVersion)
+        assertEquals(options, HtspConnectOptions().copy(requestedProtocolVersion = 36))
+        assertThrows(IllegalArgumentException::class.java) {
+            options.copy(requestedProtocolVersion = 35)
+        }
+    }
+
+    @Test
+    fun v35ServerIsRejectedBeforeSendingCredentials() {
+        FakeHtspServer(
+            respondToHello = true,
+            helloReplyFields = mapOf("htspversion" to 35L, "challenge" to ByteArray(32)),
+        ).use { server ->
+            val service = service()
+            runBlocking {
+                val rejectionState = async(Dispatchers.Unconfined, start = CoroutineStart.UNDISPATCHED) {
+                    service.connectionState.first { it is HtspConnectionState.Error }
+                }
+                val outcome = service.connect(
+                    HtspEndpoint("127.0.0.1", server.port, "viewer", "secret"),
+                    HtspConnectOptions(responseTimeoutMs = 1_000),
+                )
+                assertEquals(
+                    HtspConnectOutcome.Failed(
+                        HtspTransportFailure(HtspTransportFailureKind.UNSUPPORTED_SERVER_VERSION),
+                    ),
+                    outcome,
+                )
+                assertEquals(
+                    HtspConnectionState.Error(
+                        HtspTransportFailure(HtspTransportFailureKind.UNSUPPORTED_SERVER_VERSION),
+                    ),
+                    withTimeout(1_000) { rejectionState.await() },
+                )
+                assertEquals(HtspConnectionState.Disconnected, service.connectionState.value)
+                // Join the fixture reader after transport closure, before inspecting captured requests.
+                server.close()
+                assertEquals(listOf("hello"), server.handshakeMethods)
+                assertEquals(1L, server.authenticateRequestReceived.count)
+                assertTrue(server.handshakeFields.values.none { "username" in it || "digest" in it })
+                assertNull(service.liveConnection.value)
+                service.disconnect()
+            }
+        }
+    }
+
+    @Test
+    fun v36ServerConnectsWithCredentials() {
+        FakeHtspServer(
+            respondToHello = true,
+            helloReplyFields = mapOf("htspversion" to 36L, "challenge" to ByteArray(32)),
+        ).use { server ->
+            val service = service()
+            runBlocking {
+                val outcome = service.connect(
+                    HtspEndpoint("127.0.0.1", server.port, "viewer", "secret"),
+                    HtspConnectOptions(responseTimeoutMs = 1_000),
+                ) as HtspConnectOutcome.Connected
+                assertEquals(36, outcome.connection.protocolVersion)
+                assertEquals(listOf("hello", "authenticate"), server.handshakeMethods)
+                assertEquals("viewer", server.handshakeFields["authenticate"]?.get("username"))
+                assertNotNull(server.handshakeFields["authenticate"]?.get("digest"))
+                service.disconnect()
+            }
+        }
+    }
 
     @Test
     fun helloWithoutServerVersionIsRejectedBeforeAuthentication() {

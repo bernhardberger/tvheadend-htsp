@@ -12,6 +12,7 @@ import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -27,6 +28,263 @@ import java.util.concurrent.atomic.AtomicInteger
 import kotlin.concurrent.thread
 
 internal class HtspServiceDirectHandshakeTest : HtspServiceLifecycleFixture() {
+
+    @Test
+    fun reconnectCancelsBlockedDirectHelloFailurePublisher() {
+        assertBlockedDirectHelloPublisherReclaimed(reconnect = true)
+    }
+
+    @Test
+    fun closeCancelsBlockedDirectHelloFailurePublisher() {
+        assertBlockedDirectHelloPublisherReclaimed(reconnect = false)
+    }
+
+    @Test
+    fun disconnectPreservesBlockedDirectHelloFailurePublication() {
+        FakeHtspServer(
+            respondToHello = true,
+            captureOnePostHandshakeRequest = true,
+            postHandshakeReplyFields = mapOf("htspversion" to 35L, "challenge" to ByteArray(32)),
+        ).use { server ->
+            val service = service(metadataEventBufferCapacity = 1)
+            runBlocking {
+                service.connect(host = "127.0.0.1", port = server.port, responseTimeoutMs = 1_000)
+                val blocked = CompletableDeferred<Unit>()
+                val release = CompletableDeferred<Unit>()
+                val failureReceived = CompletableDeferred<Unit>()
+                val failures = mutableListOf<HtspTransportEvent.ConnectionFailure>()
+                val collector = launch(start = CoroutineStart.UNDISPATCHED) {
+                    service.events.collect { event ->
+                        if (event is HtspTransportEvent.ServerMessage) {
+                            blocked.complete(Unit)
+                            release.await()
+                        } else if (event is HtspTransportEvent.ConnectionFailure) {
+                            failures.add(event)
+                            failureReceived.complete(Unit)
+                        }
+                    }
+                }
+                server.sendServerMessage("channelAdd", mapOf("channelId" to 1L))
+                withTimeout(1_000) { blocked.await() }
+                server.sendServerMessage("channelAdd", mapOf("channelId" to 2L))
+                assertSame(HtspResult.TransportUnavailable, withTimeout(1_000) {
+                    service.execute(HelloRequest(36L, "floor-client"), timeoutMs = 1_000)
+                })
+                val publisher = requireNotNull(directHelloPublisher(service))
+                withTimeout(1_000) { service.disconnect() }
+                assertTrue(publisher.isActive)
+                assertTrue(failures.isEmpty())
+                assertEquals(HtspConnectionState.Disconnected, service.connectionState.value)
+                release.complete(Unit)
+                withTimeout(1_000) {
+                    failureReceived.await()
+                    publisher.join()
+                }
+                assertNull(directHelloPublisher(service))
+                service.close()
+                collector.cancel()
+                collector.join()
+                assertEquals(listOf(HtspTransportFailureKind.UNSUPPORTED_SERVER_VERSION), failures.map { it.failure.kind })
+            }
+        }
+    }
+
+    private fun assertBlockedDirectHelloPublisherReclaimed(reconnect: Boolean) {
+        FakeHtspServer(
+            respondToHello = true,
+            captureOnePostHandshakeRequest = true,
+            postHandshakeReplyFields = mapOf("htspversion" to 35L, "challenge" to ByteArray(32)),
+        ).use { server ->
+            FakeHtspServer(respondToHello = true).use { replacement ->
+                val service = service(metadataEventBufferCapacity = 1)
+                runBlocking {
+                    service.connect(host = "127.0.0.1", port = server.port, responseTimeoutMs = 1_000)
+                    val blocked = CompletableDeferred<Unit>()
+                    val release = CompletableDeferred<Unit>()
+                    val drained = CompletableDeferred<Unit>()
+                    val failures = mutableListOf<HtspTransportEvent.ConnectionFailure>()
+                    val collector = launch(start = CoroutineStart.UNDISPATCHED) {
+                        service.events.collect { event ->
+                            if (event is HtspTransportEvent.ServerMessage) {
+                                blocked.complete(Unit)
+                                release.await()
+                                if (event.message is HtspInitialSyncCompletedMessage) drained.complete(Unit)
+                            } else if (event is HtspTransportEvent.ConnectionFailure) {
+                                failures.add(event)
+                            }
+                        }
+                    }
+                    server.sendServerMessage("channelAdd", mapOf("channelId" to 1L))
+                    withTimeout(1_000) { blocked.await() }
+                    server.sendServerMessage("channelAdd", mapOf("channelId" to 2L))
+                    assertSame(HtspResult.TransportUnavailable, withTimeout(1_000) {
+                        service.execute(HelloRequest(36L, "floor-client"), timeoutMs = 1_000)
+                    })
+                    val publisher = requireNotNull(directHelloPublisher(service))
+                    assertTrue(publisher.isActive)
+                    if (reconnect) {
+                        withTimeout(1_000) {
+                            service.connect(host = "127.0.0.1", port = replacement.port, responseTimeoutMs = 1_000)
+                        }
+                        assertTrue(service.connectionState.value is HtspConnectionState.Connected)
+                    } else {
+                        withTimeout(1_000) { service.close() }
+                    }
+                    withTimeout(1_000) { publisher.join() }
+                    assertTrue(publisher.isCancelled)
+                    assertNull(directHelloPublisher(service))
+                    release.complete(Unit)
+                    if (reconnect) {
+                        replacement.sendServerMessage("initialSyncCompleted")
+                        withTimeout(1_000) { drained.await() }
+                        service.close()
+                    }
+                    collector.cancel()
+                    collector.join()
+                    assertTrue(failures.isEmpty())
+                }
+            }
+        }
+    }
+
+    private fun directHelloPublisher(service: HtspService): kotlinx.coroutines.Job? {
+        val lock = HtspService::class.java.getDeclaredField("connectionAttemptLock")
+            .apply { isAccessible = true }.get(service)
+        return synchronized(lock) {
+            HtspService::class.java.getDeclaredField("directHelloFailurePublisher")
+                .apply { isAccessible = true }.get(service) as kotlinx.coroutines.Job?
+        }
+    }
+
+    @Test
+    fun belowFloorDirectHelloRetiresTransportWithoutRecapturingState() {
+        FakeHtspServer(
+            respondToHello = true,
+            captureOnePostHandshakeRequest = true,
+            postHandshakeReplyFields = mapOf(
+                "htspversion" to 35L,
+                "challenge" to ByteArray(32) { 1 },
+                "servername" to "unsupported-server",
+            ),
+        ).use { server ->
+            val service = service()
+            runBlocking {
+                service.connect(
+                    host = "127.0.0.1",
+                    port = server.port,
+                    connectTimeoutMs = 1_000,
+                    responseTimeoutMs = 1_000,
+                    soTimeoutMs = 50,
+                )
+                val failureEvent = async(start = CoroutineStart.UNDISPATCHED) {
+                    service.events.first { it is HtspTransportEvent.ConnectionFailure }
+                        as HtspTransportEvent.ConnectionFailure
+                }
+                val errorState = async(Dispatchers.Unconfined, start = CoroutineStart.UNDISPATCHED) {
+                    service.connectionState.first { it is HtspConnectionState.Error }
+                }
+                assertSame(
+                    HtspResult.TransportUnavailable,
+                    service.execute(HelloRequest(36L, "floor-client"), timeoutMs = 1_000),
+                )
+                val failure = HtspTransportFailure(HtspTransportFailureKind.UNSUPPORTED_SERVER_VERSION)
+                assertEquals(HtspConnectionState.Error(failure), withTimeout(1_000) { errorState.await() })
+                assertEquals(HtspConnectionState.Disconnected, service.connectionState.value)
+                assertNull(service.liveConnection.value)
+                assertEquals(failure, withTimeout(1_000) { failureEvent.await() }.failure)
+                service.disconnect()
+            }
+        }
+    }
+
+    @Test
+    fun belowFloorHelloReturnsWhileMetadataCollectorIsBlocked() {
+        FakeHtspServer(
+            respondToHello = true,
+            captureOnePostHandshakeRequest = true,
+            postHandshakeReplyFields = mapOf("htspversion" to 35L, "challenge" to ByteArray(32)),
+        ).use { server ->
+            val service = service(metadataEventBufferCapacity = 1)
+            runBlocking {
+                service.connect(host = "127.0.0.1", port = server.port, responseTimeoutMs = 1_000)
+                val blocked = CompletableDeferred<Unit>()
+                val release = CompletableDeferred<Unit>()
+                val failureReceived = CompletableDeferred<Unit>()
+                val failures = mutableListOf<HtspTransportEvent.ConnectionFailure>()
+                val collector = launch(start = CoroutineStart.UNDISPATCHED) {
+                    service.events.collect { event ->
+                        if (event is HtspTransportEvent.ServerMessage) {
+                            blocked.complete(Unit)
+                            release.await()
+                        } else if (event is HtspTransportEvent.ConnectionFailure) {
+                            failures.add(event)
+                            failureReceived.complete(Unit)
+                        }
+                    }
+                }
+                server.sendServerMessage("channelAdd", mapOf("channelId" to 1L))
+                withTimeout(1_000) { blocked.await() }
+                server.sendServerMessage("channelAdd", mapOf("channelId" to 2L))
+                // The reader must pass the second metadata frame before it can read the hello reply.
+                assertSame(
+                    HtspResult.TransportUnavailable,
+                    withTimeout(1_000) { service.execute(HelloRequest(36L, "floor-client"), timeoutMs = 1_000) },
+                )
+                assertNull(service.liveConnection.value)
+                assertEquals(HtspConnectionState.Disconnected, service.connectionState.value)
+                assertTrue(failures.isEmpty())
+                // A second handshake is not trapped behind the first call's handshake mutex.
+                assertSame(HtspResult.TransportUnavailable, withTimeout(1_000) {
+                    service.execute(HelloRequest(36L, "second-client"), timeoutMs = 1_000)
+                })
+                release.complete(Unit)
+                withTimeout(1_000) { failureReceived.await() }
+                service.close()
+                assertEquals(listOf(HtspTransportFailureKind.UNSUPPORTED_SERVER_VERSION), failures.map { it.failure.kind })
+                collector.cancel()
+            }
+        }
+    }
+
+    @Test
+    fun disconnectAfterHelloReplyBeforeRecaptureDoesNotPublishFailure() {
+        val replyDecoded = CompletableDeferred<Unit>()
+        val resumeRecapture = CompletableDeferred<Unit>()
+        FakeHtspServer(
+            respondToHello = true,
+            captureOnePostHandshakeRequest = true,
+            postHandshakeReplyFields = mapOf("htspversion" to 35L, "challenge" to ByteArray(32)),
+        ).use { server ->
+            val service = service(beforeTypedRecapture = {
+                if (it is HelloRequest) {
+                    replyDecoded.complete(Unit)
+                    resumeRecapture.await()
+                }
+            })
+            runBlocking {
+                service.connect(host = "127.0.0.1", port = server.port, responseTimeoutMs = 1_000)
+                val states = mutableListOf<HtspConnectionState>()
+                val failures = mutableListOf<HtspTransportEvent.ConnectionFailure>()
+                val stateCollector = launch(Dispatchers.Unconfined, start = CoroutineStart.UNDISPATCHED) {
+                    service.connectionState.collect { states.add(it) }
+                }
+                val eventCollector = launch(start = CoroutineStart.UNDISPATCHED) {
+                    service.events.collect { if (it is HtspTransportEvent.ConnectionFailure) failures.add(it) }
+                }
+                val call = async { service.execute(HelloRequest(36L, "floor-client"), timeoutMs = 1_000) }
+                withTimeout(1_000) { replyDecoded.await() }
+                service.disconnect()
+                resumeRecapture.complete(Unit)
+                assertSame(HtspResult.TransportUnavailable, withTimeout(1_000) { call.await() })
+                service.close()
+                assertTrue(states.none { it is HtspConnectionState.Error })
+                assertEquals(HtspConnectionState.Disconnected, states.last())
+                assertTrue(failures.isEmpty())
+                stateCollector.cancel()
+                eventCollector.cancel()
+            }
+        }
+    }
 
     @Test
     fun executingHelloRecapturesCurrentGenerationWithoutDisturbingAccessOrFutureVersionGates() {
@@ -66,7 +324,7 @@ internal class HtspServiceDirectHandshakeTest : HtspServiceLifecycleFixture() {
                     ),
                     service.execute(
                         request = HelloRequest(
-                            protocolVersion = 2L,
+                            protocolVersion = 36L,
                             clientName = "recapture-client",
                         ),
                         timeoutMs = 1_000L,
@@ -75,21 +333,27 @@ internal class HtspServiceDirectHandshakeTest : HtspServiceLifecycleFixture() {
                 )
 
                 assertEquals(
-                    mapOf("htspversion" to 2L, "clientname" to "recapture-client"),
+                    mapOf("htspversion" to 36L, "clientname" to "recapture-client"),
                     server.capturedPostHandshakeRequest().fields.filterKeys { key ->
                         key != "method" && key != "seq"
                     },
                 )
                 val live = requireNotNull(service.liveConnection.value)
                 assertSame(generation, live.generation)
-                assertEquals(2, live.protocolVersion)
+                assertEquals(36, live.protocolVersion)
                 assertEquals("recaptured-server", live.serverFacts.serverName)
                 assertEquals(true, live.serverFacts.dvr)
                 assertEquals(true, live.dvrAccess)
                 val state = service.connectionState.value as HtspConnectionState.Connected
-                assertEquals(2, state.protocolVersion)
+                assertEquals(36, state.protocolVersion)
                 assertEquals(true, state.dvrAccess)
-                assertSame(HtspResult.NotSupported, service.getSysTime(expectedGeneration = generation))
+                assertSame(
+                    HtspResult.NotSupported,
+                    service.execute(
+                        AddAutorecEntryRequest("rule", broadcastType = 0L),
+                        expectedGeneration = generation,
+                    ),
+                )
                 service.disconnect()
             }
         }
@@ -309,13 +573,13 @@ internal class HtspServiceDirectHandshakeTest : HtspServiceLifecycleFixture() {
             respondToHello = true,
             postHandshakeReplyPlan = listOf(
                 mapOf(
-                    "htspversion" to 2L,
+                    "htspversion" to 36L,
                     "challenge" to ByteArray(32) { 1 },
                     "servername" to "first-direct-hello",
                 ),
                 null,
                 mapOf(
-                    "htspversion" to 3L,
+                    "htspversion" to 37L,
                     "challenge" to ByteArray(32) { 2 },
                     "servername" to "second-direct-hello",
                 ),
@@ -339,7 +603,7 @@ internal class HtspServiceDirectHandshakeTest : HtspServiceLifecycleFixture() {
                 )
                 val generation = requireNotNull(service.liveConnection.value).generation
                 val first = async(Dispatchers.IO) {
-                    service.hello(2L, "first-client", 5_000L, generation)
+                    service.hello(36L, "first-client", 5_000L, generation)
                 }
                 withTimeout(1_000L) { firstRecaptureReached.await() }
 
@@ -349,7 +613,7 @@ internal class HtspServiceDirectHandshakeTest : HtspServiceLifecycleFixture() {
                 assertTrue(server.awaitPostHandshakeRequestCount(2, 1_000L))
                 assertEquals("getProfiles", server.postHandshakeRequest(1).method)
                 val second = async(Dispatchers.IO, start = CoroutineStart.UNDISPATCHED) {
-                    service.hello(3L, "second-client", 5_000L, generation)
+                    service.hello(37L, "second-client", 5_000L, generation)
                 }
                 assertTrue(!server.awaitPostHandshakeRequestCount(3, 150L))
                 assertTrue(!ordinary.isCompleted)
@@ -366,7 +630,7 @@ internal class HtspServiceDirectHandshakeTest : HtspServiceLifecycleFixture() {
 
                 val live = requireNotNull(service.liveConnection.value)
                 assertSame(generation, live.generation)
-                assertEquals(3, live.protocolVersion)
+                assertEquals(37, live.protocolVersion)
                 assertEquals("second-direct-hello", live.serverFacts.serverName)
                 assertTrue(!ordinary.isCompleted)
                 server.replyToPostHandshakeRequest(1)
@@ -714,7 +978,7 @@ internal class HtspServiceDirectHandshakeTest : HtspServiceLifecycleFixture() {
             respondToHello = true,
             captureOnePostHandshakeRequest = true,
             postHandshakeReplyFields = mapOf(
-                "htspversion" to 2L,
+                "htspversion" to 36L,
                 "challenge" to ByteArray(32),
                 "servername" to "stale-server",
             ),
@@ -746,7 +1010,7 @@ internal class HtspServiceDirectHandshakeTest : HtspServiceLifecycleFixture() {
                     val staleGeneration = requireNotNull(service.liveConnection.value).generation
                     val staleHello = async(Dispatchers.IO) {
                         runCatching {
-                            service.hello(2L, "stale-client", 1_000L, staleGeneration)
+                            service.hello(36L, "stale-client", 1_000L, staleGeneration)
                         }.exceptionOrNull()
                     }
                     withTimeout(1_000L) { recaptureReached.await() }

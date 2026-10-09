@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+- **BREAKING:** require HTSP 36 or newer servers and reject requested protocol
+  versions below 36 in `HtspConnectOptions` and public `HelloRequest`, including
+  their `copy` methods. `HelloRequest` retains the unsigned-u32 upper bound. Added
+  `MINIMUM_HTSP_PROTOCOL_VERSION` and `UNSUPPORTED_SERVER_VERSION`; servers below
+  the floor are rejected before authentication; a below-floor direct hello
+  reply retires the transport without installing its state. `INCOMPATIBLE_SERVER` remains
+  the protocol-violation category.
+- **BREAKING:** autorec-add `broadcastType` is now nullable (sent by HTSP 39+
+  servers), changing its constructor/copy/getter ABI so v36–v38 metadata sync
+  can succeed. Absence is not converted to zero.
 - **BREAKING:** server facts retain full u32 values as `Long?`; decoder outcomes
   are internal. Explicit channel/time DVR creation requires a non-empty title
   (whitespace-only titles are accepted),

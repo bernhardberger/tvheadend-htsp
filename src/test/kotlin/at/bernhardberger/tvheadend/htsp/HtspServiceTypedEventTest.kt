@@ -125,8 +125,13 @@ internal class HtspServiceTypedEventTest : HtspServiceLifecycleFixture() {
     }
 
     @Test
-    fun autorecAddWithoutNullableServerStringsRemainsCompatible() {
-        FakeHtspServer(respondToHello = true).use { server ->
+    fun v36AutorecAddWithoutBroadcastTypeSurvivesAsyncMetadataSync() {
+        FakeHtspServer(
+            respondToHello = true,
+            helloReplyFields = mapOf("htspversion" to 36L, "challenge" to ByteArray(32)),
+            captureOnePostHandshakeRequest = true,
+            postHandshakeReplyFields = emptyMap(),
+        ).use { server ->
             val service = service()
             runBlocking {
                 service.connect(HtspEndpoint("127.0.0.1", server.port))
@@ -137,6 +142,7 @@ internal class HtspServiceTypedEventTest : HtspServiceLifecycleFixture() {
                     }
                 }
 
+                assertTrue(service.execute(EnableAsyncMetadataRequest()) is HtspResult.Ok)
                 server.sendServerMessage(
                     "autorecEntryAdd",
                     mapOf(
@@ -155,20 +161,22 @@ internal class HtspServiceTypedEventTest : HtspServiceLifecycleFixture() {
                         "stopExtra" to 0L,
                         "dupDetect" to 0L,
                         "maxCount" to 0L,
-                        "broadcastType" to 0L,
                     ),
                 )
                 server.sendServerMessage("channelAdd", mapOf("channelId" to 74L))
+                server.sendServerMessage("initialSyncCompleted")
 
                 withTimeout(1_000L) {
-                    while (events.size < 2) delay(1L)
+                    while (events.size < 3) delay(1L)
                 }
                 val autorec = events.first().message as HtspAutorecEntryAddMessage
+                assertNull(autorec.broadcastType)
                 assertNull(autorec.comment)
                 assertNull(autorec.name)
                 assertNull(autorec.owner)
                 assertNull(autorec.creator)
-                assertTrue(events.last().message is HtspChannelAddMessage)
+                assertTrue(events[1].message is HtspChannelAddMessage)
+                assertTrue(events.last().message is HtspInitialSyncCompletedMessage)
                 assertTrue(service.liveConnection.value != null)
 
                 collector.cancelAndJoin()

@@ -463,11 +463,15 @@ class HtspServerMessageTest {
         val requiredAddFields = listOf(
             "id", "enabled", "maxDuration", "minDuration", "retention", "removal",
             "daysOfWeek", "approxTime", "start", "startWindow", "priority",
-            "startExtra", "stopExtra", "dupDetect", "maxCount", "broadcastType",
+            "startExtra", "stopExtra", "dupDetect", "maxCount",
         )
         requiredAddFields.forEach { requiredName ->
             assertMalformed(addFields - requiredName)
         }
+
+        val v36Add = decodeMessage(addFields - "broadcastType") as HtspAutorecEntryAddMessage
+        assertEquals(null, v36Add.broadcastType)
+        assertMalformed(addFields + ("broadcastType" to "invalid"))
 
         val addWithoutNullableStrings = decodeMessage(
             addFields - setOf("comment", "name", "owner", "creator"),

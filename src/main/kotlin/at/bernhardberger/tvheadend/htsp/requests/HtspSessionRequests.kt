@@ -105,7 +105,7 @@ public data class GetSysTimeResponse(
 
 /** Carries the requested unsigned HTSP version and exact client name for the `hello` exchange. */
 public data class HelloRequest(
-    /** HTSP `htspversion`, unitless requested protocol version (htsp_server.c:1474). */
+    /** HTSP `htspversion`, unitless requested protocol version; at least [MINIMUM_HTSP_PROTOCOL_VERSION] (htsp_server.c:1474). */
     public val protocolVersion: Long,
     public val clientName: String,
 ) : HtspRequest<HelloResponse>(
@@ -115,6 +115,9 @@ public data class HelloRequest(
 ) {
     init {
         requireU32("protocolVersion", protocolVersion)
+        require(protocolVersion >= MINIMUM_HTSP_PROTOCOL_VERSION) {
+            "protocolVersion must be at least $MINIMUM_HTSP_PROTOCOL_VERSION"
+        }
     }
 }
 

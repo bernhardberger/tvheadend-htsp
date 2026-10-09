@@ -692,6 +692,17 @@ class HtspProtocolCoreTest {
     }
 
     @Test
+    fun helloRequestedVersionHonorsFloorOnConstructionAndCopy() {
+        assertIllegalArgument { HelloRequest(35L, "client") }
+        val request = HelloRequest(36L, "client")
+        assertEquals(36L, request.protocolVersion)
+        assertEquals(request, HelloRequest(44L, "client").copy(protocolVersion = 36L))
+        assertIllegalArgument { request.copy(protocolVersion = 35L) }
+        assertIllegalArgument { request.copy(protocolVersion = 0x1_0000_0000L) }
+        assertEquals(0xffff_ffffL, request.copy(protocolVersion = 0xffff_ffffL).protocolVersion)
+    }
+
+    @Test
     fun typedHandshakeRequestsPreserveFiniteWireDecodingAndGlobalOutcomes() = runTest {
         val helloRequest = HelloRequest(0xffff_ffffL, "")
         val authenticateRequest = AuthenticateRequest()
@@ -913,7 +924,7 @@ class HtspProtocolCoreTest {
             FileStatRequest(0L),
             FileSeekRequest(0L, 0L),
             ApiRequest(""),
-            HelloRequest(0L, ""),
+            HelloRequest(36L, ""),
             AuthenticateRequest(),
         )
         assertEquals(

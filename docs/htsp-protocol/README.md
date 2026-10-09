@@ -16,8 +16,13 @@ The upstream source bodies are not vendored here.
 ## Version posture
 
 The client requests HTSP v44 by default, and servers clamp the negotiated
-version with `MIN(server, requested)`. Callers may explicitly request another
-version. The typed surface's coverage ceiling is TVHeadend master at
+version with `MIN(server, requested)`. The minimum supported server version is
+HTSP 36, first introduced upstream in 2021-08 (revision `81403634`). Servers
+reporting a lower version are rejected before authentication with
+`UNSUPPORTED_SERVER_VERSION`, not `INCOMPATIBLE_SERVER` (a protocol violation).
+Callers may explicitly request another version at or above 36. Servers at
+v36–v43 omit newer fields; these observations remain nullable rather than being
+invented by the client. The typed surface's coverage ceiling is TVHeadend master at
 `f082b430`, which reports HTSP v44. v44 adds only `feAbsoluteSNR` and
 `feAbsoluteSignal` on `signalStatus`; both are decoded as optional fields.
 The server emits them according to the frontend's signal scale, not the
@@ -342,9 +347,14 @@ silently ignore it and may still answer Ok.
   `channelAdd`, `tagId` for `tagAdd`, `entryId` for `dvrEntryAdd`, and
   `eventId`/`start`/`stop` for `eventAdd`; optional names and event channel stay
   strict when present. DVR files choose the first `filename`/`path` alias in
-  that order. The `htsp_build_autorecentry` autorec add requires every
-  unconditional emitter. Its `comment`, `name`, `owner`, and `creator` values
-  use TVHeadend's nullable `htsmsg_add_str2` emitter and are therefore nullable;
+  that order. The autorec add requires the unconditional fields emitted by
+  the HTSP 36 `htsp_build_autorecentry` builder. `broadcastType` is nullable:
+  it was introduced in HTSP 39 (`fc5a1672`, 2024-08-25), and is absent on
+  v36–v38 servers. The autorec add's `comment` is nullable: v36
+  `htsp_build_autorecentry` does not send it at all
+  (upstream revision `81403634`, `src/htsp_server.c`, `htsp_build_autorecentry`).
+  Its `name`, `owner`, and `creator` values use TVHeadend's nullable
+  `htsmsg_add_str2` emitter and are therefore nullable;
   other source-conditional observations remain nullable. Update requires string
   `id` and makes all other fields nullable; delete requires string `id`.
   The shared `htsp_build_timerecentry` add/update shape conditionally omits

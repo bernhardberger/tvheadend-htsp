@@ -218,7 +218,7 @@ internal fun decodeAutorecEntryAdd(fields: Map<String, Any?>): HtspServerMessage
         stopExtraMinutes = fields.requiredS64("stopExtra"),
         duplicateDetection = fields.requiredU32("dupDetect"),
         maximumRecordingCount = fields.requiredU32("maxCount"),
-        broadcastType = fields.requiredU32("broadcastType"),
+        broadcastType = fields.optionalU32("broadcastType"),
         comment = fields.optionalString("comment"),
         title = fields.optionalString("title"),
         fullText = fields.optionalFlag("fulltext"),

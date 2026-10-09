@@ -183,6 +183,7 @@ internal open class `HtspService-internal`(
 
     private val serviceJob = SupervisorJob()
     private val scope = CoroutineScope(serviceJob + ioDispatcher)
+    private var directHelloFailurePublisher: Job? = null
     private val lifecycle = TerminalLifecycleGate("HTSP service is closed")
 
     private val pending = ConcurrentHashMap<Int, PendingReq>()
@@ -345,6 +346,9 @@ internal open class `HtspService-internal`(
                     ) {
                         is HtspResult.Ok -> result.value
                         is HtspFailure -> throw IllegalStateException("HTSP hello failed")
+                    }
+                    if (hello.protocolVersion < MINIMUM_HTSP_PROTOCOL_VERSION) {
+                        throw HtspUnsupportedServerVersionException()
                     }
                     val negotiatedVersion = checkNotNull(
                         negotiatedHtspVersion(
@@ -1048,7 +1052,6 @@ internal open class `HtspService-internal`(
         publishState: Boolean,
         termination: HtspSubscriptionTermination,
     ) {
-        val callerJob = currentCoroutineContext()[Job]
         val retirement = synchronized(connectionAttemptLock) {
             if (connectionAttempt != attemptId) return
             terminateSubscriptionStreamsLocked(
@@ -1057,9 +1060,17 @@ internal open class `HtspService-internal`(
             )
             captureCurrentTransportLocked(t)
         }
+        finishTransportRetirement(retirement)
+        if (publishState && isCurrentConnectionAttempt(attemptId)) {
+            publishConnectionState(attemptId, HtspConnectionState.Disconnected)
+        }
+    }
+
+    private suspend fun finishTransportRetirement(retirement: AdmissionRetirement) {
+        val callerJob = currentCoroutineContext()[Job]
         withContext(NonCancellable) {
-            retirement.pending.forEach { it.def.completeExceptionally(t) }
-            retirement.initialSync?.completeExceptionally(t)
+            retirement.pending.forEach { it.def.completeExceptionally(retirement.cancellation) }
+            retirement.initialSync?.completeExceptionally(retirement.cancellation)
             val job = retirement.readerJob
             job?.takeIf { it !== callerJob }?.cancel()
 
@@ -1067,9 +1078,6 @@ internal open class `HtspService-internal`(
             // cancelled reader observable; joining first can wait forever.
             closeTransportSnapshot(retirement.transport)
             job?.takeIf { it !== callerJob }?.join()
-            if (publishState && isCurrentConnectionAttempt(attemptId)) {
-                publishConnectionState(attemptId, HtspConnectionState.Disconnected)
-            }
         }
     }
 
@@ -1083,6 +1091,8 @@ internal open class `HtspService-internal`(
         val published = connectMutex.withLock {
             if (!isCurrentConnectionAttempt(attemptId)) return@withLock false
             withCurrentConnectionAttempt(attemptId) {
+                // A direct hello failure or disconnect may already own the detached transport.
+                if (socket == null) return@withCurrentConnectionAttempt
                 if (transportRetirement != HtspSubscriptionTermination.LOCAL_RETIREMENT) {
                     val typedFailure = if (transportRetirement == HtspSubscriptionTermination.TIMEOUT) {
                         HtspTransportFailure(HtspTransportFailureKind.CONNECTION_TIMEOUT)
@@ -1373,6 +1383,7 @@ internal open class `HtspService-internal`(
     ) {
         beforeTypedRecapture(request)
         currentCoroutineContext().ensureActive()
+        var unsupportedFailure: HtspUnsupportedServerVersionException? = null
         synchronized(connectionAttemptLock) {
             val serviceGeneration = generation.transportKey as? ServiceProtocolGeneration
                 ?: throw CancellationException("Stale HTSP connection generation")
@@ -1395,6 +1406,31 @@ internal open class `HtspService-internal`(
             when {
                 request is HelloRequest && result is HtspResult.Ok -> {
                     val hello = result.value as HelloResponse
+                    if (hello.protocolVersion < MINIMUM_HTSP_PROTOCOL_VERSION) {
+                        // Claim while the live-generation checks above still hold. No teardown
+                        // can intervene between detecting the reply and detaching this transport.
+                        val failure = HtspUnsupportedServerVersionException()
+                        val typedFailure = typedTransportFailure(failure)
+                        terminateSubscriptionStreamsLocked(protocolGeneration, HtspSubscriptionTermination.INTERNAL_FAILURE)
+                        _state.value = HtspConnectionState.Error(typedFailure)
+                        val event = HtspTransportEvent.ConnectionFailure(typedFailure, serviceGeneration.token)
+                        val retirement = captureCurrentTransportLocked(failure)
+                        // Register under the retirement lock so replacement/disconnect cannot
+                        // miss this publisher. Cleanup starts non-cancellably before any emit.
+                        val publisher = scope.launch(start = CoroutineStart.UNDISPATCHED) {
+                            finishTransportRetirement(retirement)
+                            currentCoroutineContext().ensureActive()
+                            publishMetadataEvent(serviceGeneration.attemptId, event)
+                        }
+                        directHelloFailurePublisher = publisher
+                        publisher.invokeOnCompletion {
+                            synchronized(connectionAttemptLock) {
+                                if (directHelloFailurePublisher === publisher) directHelloFailurePublisher = null
+                            }
+                        }
+                        unsupportedFailure = failure
+                        return@synchronized
+                    }
                     val version = negotiatedHtspVersion(request.protocolVersion, hello.protocolVersion)
                     val facts = (liveServerFacts ?: HtspServerFacts()).withHelloObservations(hello)
                     challenge = hello.challenge.toByteArray()
@@ -1426,6 +1462,7 @@ internal open class `HtspService-internal`(
                 }
             }
         }
+        unsupportedFailure?.let { throw it }
     }
 
     internal open fun serverFactsForLiveConnectionAttempt(
@@ -1609,6 +1646,7 @@ internal open class `HtspService-internal`(
     private fun admitReplacementGenerationLocked(
         termination: HtspSubscriptionTermination,
     ): Long {
+        directHelloFailurePublisher?.cancel()
         val attemptId = ++connectionAttempt
         terminateSubscriptionStreamsLocked(protocolGeneration, termination)
         val cancellation = CancellationException("Superseded connection attempt")

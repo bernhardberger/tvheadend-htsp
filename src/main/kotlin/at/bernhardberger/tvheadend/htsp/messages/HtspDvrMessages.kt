@@ -669,7 +669,8 @@ public data class HtspAutorecEntryAddMessage(
     public val stopExtraMinutes: Long,
     public val duplicateDetection: Long,
     public val maximumRecordingCount: Long,
-    public val broadcastType: Long,
+    /** Sent by HTSP 39+ servers; null when absent. */
+    public val broadcastType: Long? = null,
     public val comment: String? = null,
     public val title: String? = null,
     public val fullText: Boolean? = null,
@@ -691,7 +692,7 @@ public data class HtspAutorecEntryAddMessage(
         requireU32("priority", priority)
         requireU32("duplicateDetection", duplicateDetection)
         requireU32("maximumRecordingCount", maximumRecordingCount)
-        requireU32("broadcastType", broadcastType)
+        broadcastType?.let { requireU32("broadcastType", it) }
         channelId?.let { requireU32("channelId", it) }
     }
 
@@ -715,6 +716,7 @@ public data class HtspAutorecEntryUpdateMessage(
     public val stopExtraMinutes: Long? = null,
     public val duplicateDetection: Long? = null,
     public val maximumRecordingCount: Long? = null,
+    /** Sent by HTSP 39+ servers; null when absent. */
     public val broadcastType: Long? = null,
     public val comment: String? = null,
     public val title: String? = null,

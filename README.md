@@ -30,7 +30,11 @@ caller-owned `ByteBuffer` through `HtspBinary.copyInto`, without a temporary arr
 ## Requirements
 
 - A Java 17 or newer runtime. The artifact is compiled for JVM 17.
-- A TVHeadend server. The typed catalog covers HTSP methods through protocol
+- A TVHeadend server reporting HTSP 36 or newer (HTSP 36 first appeared upstream
+  in 2021-08). Older servers are rejected before authentication with
+  `UNSUPPORTED_SERVER_VERSION`. Requested versions must also be at least 36.
+  Servers at v36–v43 omit newer fields, which are nullable in the typed API.
+  The typed catalog covers HTSP methods through protocol
   v44; the client requests protocol v44 by default and the server negotiates
   downward during the handshake.
 
