@@ -14,6 +14,8 @@ plugins {
     `java-library`
     `maven-publish`
     alias(libs.plugins.kotlin.jvm)
+    alias(libs.plugins.kotlin.allopen)
+    alias(libs.plugins.kotlinx.benchmark)
     alias(libs.plugins.detekt)
     alias(libs.plugins.dokka)
 }
@@ -61,12 +63,89 @@ java {
     withJavadocJar()
 }
 
+val benchmarkSourceSet = sourceSets.create("benchmark")
+kotlin.target.compilations.getByName("benchmark").associateWith(kotlin.target.compilations.getByName("main"))
+
+allOpen {
+    annotation("org.openjdk.jmh.annotations.State")
+}
+
+benchmark {
+    targets.register("benchmark")
+    configurations {
+        named("main") {
+            warmups = 5
+            iterations = 5
+            iterationTime = 1
+            iterationTimeUnit = "s"
+            outputTimeUnit = "ns"
+            advanced("jvmForks", 1)
+        }
+        register("smoke") {
+            warmups = 1
+            iterations = 1
+            iterationTime = 100
+            iterationTimeUnit = "ms"
+            outputTimeUnit = "ns"
+            advanced("jvmForks", 1)
+        }
+    }
+}
+
+// kotlinx-benchmark 0.5.0 has no profiler option. Keep its generated JMH harness,
+// but use JMH's standard CLI to enable GC profiling and fail on benchmark errors.
+// The plugin registers these tasks after evaluation. Configure them afterwards,
+// before configuration-cache snapshots the JavaExec specification (not in doFirst).
+afterEvaluate {
+    benchmark.configurations.forEach { configuration ->
+        val configurationName = configuration.name
+        // Match kotlinx-benchmark's createJvmBenchmarkExecTask naming exactly.
+        val taskName = "benchmark${configuration.capitalizedName()}Benchmark"
+        val unsupported = buildList {
+            if (configuration.includes.isNotEmpty()) add("includes")
+            if (configuration.excludes.isNotEmpty()) add("excludes")
+            if (configuration.params.isNotEmpty()) add("params")
+            if (configuration.mode != null) add("mode")
+            if (configuration.reportFormat != null) add("reportFormat")
+            if (configuration.customEngine != null) add("customEngine")
+            addAll(configuration.advanced.keys.filter { it != "jvmForks" }.map { "advanced.$it" })
+        }
+        check(unsupported.isEmpty()) {
+            "JMH GC-profiler CLI override cannot translate '$configurationName' settings: $unsupported"
+        }
+        check(listOf(configuration.warmups, configuration.iterations, configuration.iterationTime,
+            configuration.iterationTimeUnit, configuration.outputTimeUnit, configuration.advanced["jvmForks"])
+            .all { it != null }) {
+            "JMH GC-profiler CLI override requires explicit warmups, iterations, iterationTime, " +
+                "iterationTimeUnit, outputTimeUnit and advanced.jvmForks for '$configurationName'"
+        }
+        val iterationDuration = "${configuration.iterationTime}${configuration.iterationTimeUnit}"
+        tasks.named<JavaExec>(taskName) {
+            val report = layout.buildDirectory.file("reports/benchmarks/$configurationName/benchmark.json")
+            outputs.file(report)
+            outputs.upToDateWhen { false }
+            outputs.doNotCacheIf("Benchmark measurements must run on the current machine") { true }
+            mainClass.set("org.openjdk.jmh.Main")
+            setArgs(listOf(
+                "-wi", configuration.warmups.toString(), "-i", configuration.iterations.toString(),
+                "-w", iterationDuration, "-r", iterationDuration,
+                "-f", configuration.advanced.getValue("jvmForks").toString(),
+                "-tu", configuration.outputTimeUnit, "-prof", "gc", "-foe", "true",
+                "-rf", "json", "-rff", report.get().asFile.absolutePath,
+                "-jvmArgs", "-Xms256m -Xmx512m",
+            ))
+            doFirst { report.get().asFile.parentFile.mkdirs() }
+        }
+    }
+}
+
 dependencies {
     api(libs.kotlinx.coroutines.core)
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.konsist)
     testRuntimeOnly(libs.junit.platform.launcher)
+    add(benchmarkSourceSet.implementationConfigurationName, libs.kotlinx.benchmark.runtime)
 }
 
 detekt {
@@ -311,4 +390,5 @@ tasks.register("verifyProductionDependencyGraph") {
 
 tasks.named("check") {
     dependsOn("checkKotlinAbi", "verifyClassMajor61", "verifyProductionDependencyGraph")
+    dependsOn(benchmarkSourceSet.classesTaskName)
 }

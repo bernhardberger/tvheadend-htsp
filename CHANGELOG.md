@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Add an isolated kotlinx-benchmark/JMH harness for codec, buffer, and loopback baselines.
+
 - **BREAKING:** metadata delivery now uses independent bounded collector queues,
   drops newest metadata on overflow and reports `MetadataOverflow`. Queue saturation
   never blocks the reader. `HtspTransportEvent` stays sealed but is open for evolution;

@@ -31,6 +31,41 @@ Guides for people using the library, and references for people working on it.
 - [`../release/openpgp/README.md`](../release/openpgp/README.md): the dedicated
   release-key trust model, tracked public key, and exact primary fingerprint.
 
+## Benchmarks
+
+Run on JDK 21 with `./gradlew --no-daemon benchmark`, or use
+`./gradlew --no-daemon smokeBenchmark` for a quick fixture/harness check.
+The dedicated `src/benchmark/kotlin` source set uses kotlinx-benchmark and JMH;
+`check` compiles it but never runs benchmarks. It is not published with the library.
+
+The main configuration uses one fork, five 1-second warmups and five 1-second
+measurements; smoke uses one 100-ms warmup and measurement. Both report average
+nanoseconds per operation and GC allocation metrics in
+`build/reports/benchmarks/{main,smoke}/benchmark.json`. Since kotlinx-benchmark
+0.5.0 has no profiler option, the generated harness runs via JMH's standard CLI
+with `-prof gc` (and a fixed 256–512 MiB heap).
+
+Fixtures are built in setup using the library encoder. Measurements cover wire
+and typed decoding, request encoding, and bounded queues. Wire/mux cases compare
+`bytes` with `transport`: the latter uses the production 64-KiB buffered stream
+and `HtspTransportInputStream`, including `beginFrame()` on each frame. Both reuse
+their stream stack, resetting the fully consumed byte fixture between frames.
+Loopback measurements use only an in-process fake server on `127.0.0.1`, excluding handshake/setup;
+32-packet bursts are normalized to **ns/packet**. Per-invocation `runBlocking`,
+`withTimeout` and socket-closing watchdog costs are amortized over those 32 packets:
+use this for before/after comparisons, not an absolute dispatch cost. The optional
+competing coroutine
+makes real system-time RPCs with a 1-ms pause between replies; it is a modest
+contention workload, not a lock-only microbenchmark. Its allocation metrics also
+include allocations from the competing coroutine's RPCs. It exercises the private
+reader dispatch/connection lock through the public API without changing production
+visibility. Buffer results are per offer/drain batch, not per event.
+
+Results are machine-specific, not a CI performance gate. Compare runs on the same
+idle machine/JDK; retain the JSON and note the commit and machine. Local baselines
+may be copied to `build/review/benchmarks/baseline-<commit>/` (untracked), but copy
+baselines you want to retain outside `build/` so they survive `clean`.
+
 Current repository code and tests override any generic guidance in these
 documents. Nothing here authorizes publication, signing, release, or other
 release-stage operations.
