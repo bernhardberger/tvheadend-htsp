@@ -72,8 +72,8 @@ private fun decodeHtspServerMessage(
         "muxpkt" -> decodeKnownServerMessage {
             decodeMuxPacket(fields, timestampClockForSubscription, ownedMuxPayload)
         }
-        "queueStatus" -> decodeKnownServerMessage { decodeQueueStatus(fields) }
-        "subscriptionStart" -> decodeKnownServerMessage { decodeSubscriptionStart(fields) }
+        "queueStatus" -> decodeKnownServerMessage { decodeQueueStatus(fields, timestampClockForSubscription) }
+        "subscriptionStart" -> decodeKnownServerMessage { decodeSubscriptionStart(fields, timestampClockForSubscription) }
         "subscriptionStop" -> decodeKnownServerMessage { decodeSubscriptionStop(fields) }
         "subscriptionGrace" -> decodeKnownServerMessage { decodeSubscriptionGrace(fields) }
         "subscriptionStatus" -> decodeKnownServerMessage { decodeSubscriptionStatus(fields) }

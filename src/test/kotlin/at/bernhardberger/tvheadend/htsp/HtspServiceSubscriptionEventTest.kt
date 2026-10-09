@@ -30,6 +30,56 @@ import java.util.concurrent.atomic.AtomicBoolean
 internal class HtspServiceSubscriptionEventTest : HtspServiceLifecycleFixture() {
 
     @Test
+    fun queueAndStreamDurationsUseProvisionalAndAcknowledgedSubscriptionClock() {
+        FakeHtspServer(respondToHello = true, postHandshakeReplyPlan = listOf(null)).use { server ->
+            val service = service()
+            runBlocking {
+                try {
+                    service.connect(HtspEndpoint("127.0.0.1", server.port))
+                    val firstPair = CompletableDeferred<Unit>()
+                    val events = mutableListOf<HtspSubscriptionEvent>()
+                    val collector = launch(start = CoroutineStart.UNDISPATCHED) {
+                        service.subscriptionEvents(23L).take(4).collect {
+                            events += it
+                            if (events.size == 2) firstPair.complete(Unit)
+                        }
+                    }
+                    val subscribe = async(Dispatchers.IO) {
+                        service.subscribe(23L, 1L, ninetyKhz = true, timeoutMs = 5_000L)
+                    }
+                    assertTrue(server.awaitPostHandshakeRequestCount(1, 1_000L))
+                    fun sendPair() {
+                        server.sendServerMessage("queueStatus", mapOf(
+                            "subscriptionId" to 23L, "packets" to 0L, "bytes" to 0L,
+                            "Bdrops" to 0L, "Pdrops" to 0L, "Idrops" to 0L, "delay" to 90_000L,
+                        ))
+                        server.sendServerMessage("subscriptionStart", mapOf(
+                            "subscriptionId" to 23L, "streams" to listOf(
+                                mapOf("index" to 0L, "type" to "H264", "duration" to 9_000L),
+                            ),
+                        ))
+                    }
+                    sendPair()
+                    withTimeout(1_000L) { firstPair.await() }
+                    assertFalse(subscribe.isCompleted)
+                    server.replyToPostHandshakeRequest(0, mapOf("90khz" to 1L))
+                    assertTrue(withTimeout(1_000L) { subscribe.await() } is HtspResult.Ok)
+                    sendPair()
+                    withTimeout(1_000L) { collector.join() }
+                    assertEquals(listOf(1_000_000L, 1_000_000L),
+                        events.filterIsInstance<HtspSubscriptionEvent.Queue>().map { it.message.delayUs })
+                    assertEquals(listOf(100_000L, 100_000L),
+                        events.filterIsInstance<HtspSubscriptionEvent.Started>().map {
+                            it.message.streams!!.single().frameDurationUs
+                        })
+                } finally {
+                    service.close()
+                }
+            }
+        }
+    }
+
+    @Test
     fun subscriptionEnvelopeClassificationCoversEveryRoutedType() {
         assertEquals(
             setOf(
@@ -163,7 +213,7 @@ internal class HtspServiceSubscriptionEventTest : HtspServiceLifecycleFixture() 
                 val collector = launch(start = CoroutineStart.UNDISPATCHED) {
                     service.subscriptionEvents(41L).collect { events += it }
                 }
-                assertTrue(service.subscribe(41L, channelId = 1L, ninetyKhz = 1L) is HtspResult.Ok)
+                assertTrue(service.subscribe(41L, channelId = 1L, ninetyKhz = true) is HtspResult.Ok)
 
                 listOf("MPEG2VIDEO", "H264", "HEVC").forEachIndexed { index, codec ->
                     server.sendServerMessage(
@@ -556,7 +606,7 @@ internal class HtspServiceSubscriptionEventTest : HtspServiceLifecycleFixture() 
                 }
 
                 val nativeSubscribe = async(Dispatchers.IO) {
-                    service.subscribe(subscriptionId = 21L, channelId = 1L, ninetyKhz = 0L)
+                    service.subscribe(subscriptionId = 21L, channelId = 1L, ninetyKhz = false)
                 }
                 assertTrue(server.awaitPostHandshakeRequestCount(1, 1_000L))
                 assertEquals(0L, server.postHandshakeRequest(0).fields["90khz"])
@@ -578,7 +628,7 @@ internal class HtspServiceSubscriptionEventTest : HtspServiceLifecycleFixture() 
                     service.subscribe(
                         subscriptionId = 22L,
                         channelId = 1L,
-                        ninetyKhz = 7L,
+                        ninetyKhz = true,
                     )
                 }
                 assertTrue(server.awaitPostHandshakeRequestCount(2, 1_000L))
@@ -649,7 +699,7 @@ internal class HtspServiceSubscriptionEventTest : HtspServiceLifecycleFixture() 
                         service.subscriptionEvents(25L).take(2).toList()
                     }
                     val replacementSubscribe = async(Dispatchers.IO) {
-                        service.subscribe(25L, 1L, ninetyKhz = 1L)
+                        service.subscribe(25L, 1L, ninetyKhz = true)
                     }
                     assertTrue(replacementServer.postHandshakeRequestReceived.await(1, TimeUnit.SECONDS))
                     replacementServer.sendServerMessage(
@@ -1136,7 +1186,7 @@ internal class HtspServiceSubscriptionEventTest : HtspServiceLifecycleFixture() 
                     service.subscriptionSkipNearLive(
                         status = HtspTimeshiftStatusMessage(
                             subscriptionId = 37L,
-                            full = 0L,
+                            full = false,
                             shift = 5_000_000L,
                             start = 10_000_000L,
                             end = 20_000_000L,
@@ -1343,7 +1393,7 @@ internal class HtspServiceSubscriptionEventTest : HtspServiceLifecycleFixture() 
                     service.subscriptionEvents(23L).take(2).toList()
                 }
                 val timedOut = async(Dispatchers.IO) {
-                    service.subscribe(23L, 1L, ninetyKhz = 1L, timeoutMs = 100L)
+                    service.subscribe(23L, 1L, ninetyKhz = true, timeoutMs = 100L)
                 }
                 assertTrue(server.awaitPostHandshakeRequestCount(1, 1_000L))
                 assertSameResult(HtspResult.Timeout, withTimeout(1_000L) { timedOut.await() })
@@ -1362,7 +1412,7 @@ internal class HtspServiceSubscriptionEventTest : HtspServiceLifecycleFixture() 
                     service.subscriptionEvents(24L).take(2).toList()
                 }
                 val cancelled = async(Dispatchers.IO) {
-                    service.subscribe(24L, 1L, ninetyKhz = 1L, timeoutMs = 5_000L)
+                    service.subscribe(24L, 1L, ninetyKhz = true, timeoutMs = 5_000L)
                 }
                 assertTrue(server.awaitPostHandshakeRequestCount(2, 1_000L))
                 cancelled.cancel()

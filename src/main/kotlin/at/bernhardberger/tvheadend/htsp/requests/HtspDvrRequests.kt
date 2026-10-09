@@ -9,10 +9,12 @@ public data class HtspDvrConfig(
     public val name: String,
     public val comment: String,
 )
-/** One DVR cutpoint from [start] through [end] with its unsigned action [type]. */
+/** One DVR cutpoint from [startMs] through [endMs] with its unsigned action [type]. */
 public data class HtspDvrCutpoint(
-    public val start: Long,
-    public val end: Long,
+    /** HTSP `start`, milliseconds (pinned htsp_server.c:2562, `dc_start_ms`). */
+    public val startMs: Long,
+    /** HTSP `end`, milliseconds (pinned htsp_server.c:2563, `dc_end_ms`). */
+    public val endMs: Long,
     public val type: Long,
 )
 /** Contains the optional ordered DVR-configuration list visible to the caller. */
@@ -98,11 +100,13 @@ public sealed interface AddDvrEntrySelector {
         }
     }
 
-    /** Selects a complete unsigned [channelId] and signed [start] and [stop] coordinates for DVR scheduling. */
+    /** Selects a channel and epoch-second boundaries for DVR scheduling. */
     public data class ExplicitChannelTime(
         public val channelId: Long,
-        public val start: Long,
-        public val stop: Long,
+        /** HTSP `start`, epoch seconds (pinned htsp_server.c:2085–2095). */
+        public val startEpochSeconds: Long,
+        /** HTSP `stop`, epoch seconds (pinned htsp_server.c:2085–2095). */
+        public val stopEpochSeconds: Long,
     ) : AddDvrEntrySelector {
         init {
             requireU32("channelId", channelId)
@@ -149,14 +153,22 @@ public data class UpdateDvrEntryRequest(
     public val language: String? = null,
     public val comment: String? = null,
     public val playCount: Long? = null,
-    public val playPosition: Long? = null,
-    public val enabled: Long? = null,
-    public val start: Long? = null,
-    public val stop: Long? = null,
-    public val startExtra: Long? = null,
-    public val stopExtra: Long? = null,
-    public val retention: Long? = null,
-    public val removal: Long? = null,
+    /** HTSP `playposition`, whole playback seconds; null omits it (htsp_server.c:2235). */
+    public val playPositionSeconds: Long? = null,
+    /** HTSP `enabled`: nullable 0/1 enablement flag (pinned htsp_server.c:2196); null omits it. */
+    public val enabled: Boolean? = null,
+    /** HTSP `start`, epoch seconds; null omits it (htsp_server.c:2198). */
+    public val startEpochSeconds: Long? = null,
+    /** HTSP `stop`, epoch seconds; null omits it (htsp_server.c:2199). */
+    public val stopEpochSeconds: Long? = null,
+    /** HTSP `startExtra`, padding minutes; null omits it (htsp_server.c:998,2200). */
+    public val startExtraMinutes: Long? = null,
+    /** HTSP `stopExtra`, padding minutes; null omits it (htsp_server.c:999,2201). */
+    public val stopExtraMinutes: Long? = null,
+    /** HTSP `retention`, days or server DVR retention-policy sentinel; null omits it (htsp_server.c:1002–1005,2202). */
+    public val retentionDays: Long? = null,
+    /** HTSP `removal`, days or server DVR removal-policy sentinel; null omits it (htsp_server.c:1007,2203). */
+    public val removalDays: Long? = null,
     public val priority: Long? = null,
     public val ageRating: Long? = null,
 ) : HtspRequest<UpdateDvrEntryResponse>(
@@ -168,10 +180,10 @@ public data class UpdateDvrEntryRequest(
             21.takeIf { subtitle != null },
             6.takeIf { description != null },
             42.takeIf { comment != null },
-            27.takeIf { playCount != null || playPosition != null },
+            27.takeIf { playCount != null || playPositionSeconds != null },
             23.takeIf { enabled != null },
-            6.takeIf { startExtra != null || stopExtra != null },
-            13.takeIf { retention != null || priority != null },
+            6.takeIf { startExtraMinutes != null || stopExtraMinutes != null },
+            13.takeIf { retentionDays != null || priority != null },
             36.takeIf { ageRating != null },
         ),
 ), HtspDvrMutationRequest {
@@ -179,9 +191,9 @@ public data class UpdateDvrEntryRequest(
         requireU32("id", entryId)
         channelId?.let { requireU32("channelId", it) }
         playCount?.let { requireU32("playCount", it) }
-        playPosition?.let { requireU32("playPosition", it) }
-        retention?.let { requireU32("retention", it) }
-        removal?.let { requireU32("removal", it) }
+        playPositionSeconds?.let { requireU32("playPositionSeconds", it) }
+        retentionDays?.let { requireU32("retentionDays", it) }
+        removalDays?.let { requireU32("removalDays", it) }
         priority?.let { requireU32("priority", it) }
         ageRating?.let { requireU32("ageRating", it) }
     }
@@ -306,11 +318,11 @@ public suspend fun HtspConnection.addDvrEntry(
         expectedGeneration = expectedGeneration,
     )
 
-/** Adapts channel, start, and stop to [AddDvrEntrySelector.ExplicitChannelTime] before sending a typed DVR-add request. */
+/** Adapts channel and HTSP `start`/`stop` epoch seconds to [AddDvrEntrySelector.ExplicitChannelTime]. */
 public suspend fun HtspConnection.addDvrEntry(
     channelId: Long,
-    start: Long,
-    stop: Long,
+    startEpochSeconds: Long,
+    stopEpochSeconds: Long,
     configName: String? = null,
     language: String? = null,
     title: String? = null,
@@ -323,7 +335,7 @@ public suspend fun HtspConnection.addDvrEntry(
 ): HtspResult<AddDvrEntryResponse> =
     execute(
         request = AddDvrEntryRequest(
-            selector = AddDvrEntrySelector.ExplicitChannelTime(channelId, start, stop),
+            selector = AddDvrEntrySelector.ExplicitChannelTime(channelId, startEpochSeconds, stopEpochSeconds),
             configName = configName,
             language = language,
             title = title,
@@ -336,7 +348,17 @@ public suspend fun HtspConnection.addDvrEntry(
         expectedGeneration = expectedGeneration,
     )
 
-/** Requests a DVR-entry change carrying the supplied partial metadata, timing, progress, and policy fields. */
+/**
+ * Requests a DVR-entry change carrying partial metadata, timing, progress, and policy fields.
+ * @param startEpochSeconds HTSP `start`, epoch seconds; null omits it.
+ * @param stopEpochSeconds HTSP `stop`, epoch seconds; null omits it.
+ * @param startExtraMinutes HTSP `startExtra`, padding minutes; null omits it.
+ * @param stopExtraMinutes HTSP `stopExtra`, padding minutes; null omits it.
+ * @param retentionDays HTSP `retention`, days or DVR retention-policy sentinel; null omits it.
+ * @param removalDays HTSP `removal`, days or DVR removal-policy sentinel; null omits it.
+ * @param playPositionSeconds HTSP `playposition`, whole playback seconds; null omits it.
+ * See [UpdateDvrEntryRequest] for pinned source evidence.
+ */
 public suspend fun HtspConnection.updateDvrEntry(
     entryId: Long,
     channelId: Long? = null,
@@ -348,14 +370,14 @@ public suspend fun HtspConnection.updateDvrEntry(
     language: String? = null,
     comment: String? = null,
     playCount: Long? = null,
-    playPosition: Long? = null,
-    enabled: Long? = null,
-    start: Long? = null,
-    stop: Long? = null,
-    startExtra: Long? = null,
-    stopExtra: Long? = null,
-    retention: Long? = null,
-    removal: Long? = null,
+    playPositionSeconds: Long? = null,
+    enabled: Boolean? = null,
+    startEpochSeconds: Long? = null,
+    stopEpochSeconds: Long? = null,
+    startExtraMinutes: Long? = null,
+    stopExtraMinutes: Long? = null,
+    retentionDays: Long? = null,
+    removalDays: Long? = null,
     priority: Long? = null,
     ageRating: Long? = null,
     timeoutMs: Long = 5_000L,
@@ -373,14 +395,14 @@ public suspend fun HtspConnection.updateDvrEntry(
             language = language,
             comment = comment,
             playCount = playCount,
-            playPosition = playPosition,
+            playPositionSeconds = playPositionSeconds,
             enabled = enabled,
-            start = start,
-            stop = stop,
-            startExtra = startExtra,
-            stopExtra = stopExtra,
-            retention = retention,
-            removal = removal,
+            startEpochSeconds = startEpochSeconds,
+            stopEpochSeconds = stopEpochSeconds,
+            startExtraMinutes = startExtraMinutes,
+            stopExtraMinutes = stopExtraMinutes,
+            retentionDays = retentionDays,
+            removalDays = removalDays,
             priority = priority,
             ageRating = ageRating,
         ),

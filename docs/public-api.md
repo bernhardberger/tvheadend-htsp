@@ -3,6 +3,33 @@
 How the public API reports success and failure, and what you can rely on when
 writing against it.
 
+## Naming conventions
+
+Fixed-unit time quantities end in `Ms`, `Us`, `Seconds`, `Minutes`, or `Days`.
+Absolute wall-clock values use `EpochSeconds`; times of day use
+`MinutesSinceMidnight`. Byte quantities use `Bytes`, except names already
+expressing bytes such as `byteCount`. Container sizes and stdlib-mirroring
+parameters keep their stdlib names: `HtspBinary.size` and
+`copyInto(destination, destinationOffset)`. Sibling types use the same concept name:
+`protocolVersion`, `retentionDays`, `removalDays`, `startExtraMinutes`,
+`stopExtraMinutes`, and `playPositionSeconds`.
+
+KDoc records differing HTSP field names, units, and sentinel values. Names do
+not change integer widths; the protocol field-domain mapping below still applies.
+`configName` (name) and `configId` (UUID) are distinct concepts, and
+`HtspSubscriptionEvent.Packet.packet` remains unchanged.
+
+Queue `delayUs` and stream `frameDurationUs` use the existing subscription-clock
+lookup to normalize to microseconds, like mux packets. Seek/skip `time` and
+timeshift bounds retain the negotiated clock, because near-live commands need
+the exact original coordinates rather than a lossy conversion round trip.
+`ecmTime` has no established unit in the pinned sender and is not guessed.
+The [units table](htsp-protocol/README.md#units) records the wire fields and
+source lines. `PublicQuantityNamingTest` enforces time-unit suffixes on public
+properties and constructor/function parameters; byte suffixes remain a documented
+convention. The test uses a small
+commented exception list for those coordinates and non-time concepts.
+
 ## Type naming
 
 Whether a public type carries the `Htsp` prefix is decided by what it is, so you
@@ -122,6 +149,11 @@ subscription id is reported in the same order with `Dropped`. A malformed
 subscription control or untrustworthy packet envelope closes the incompatible
 transport instead of disappearing.
 
+This includes queue-delay normalization overflow: an s64 `delay` that cannot
+fit in microseconds is a malformed subscription control, not a dropped packet.
+The connection reports `INCOMPATIBLE_SERVER`, terminates registered subscription
+streams with `MALFORMED_MESSAGE`, and makes pending requests transport-unavailable.
+
 `Stopped` is an ordered stream interruption, not subscription retirement. Keep
 collecting: the same id may receive another `Started` with replacement stream and
 source metadata, then more packets. Do not infer retirement from status text.
@@ -161,8 +193,8 @@ this orchestration within a connection generation.
 
 Each subscription id may also be sent in only one `subscribe` request per
 connection generation; local reuse throws `IllegalStateException` without
-retiring the connection. The request's numeric `ninetyKhz` field selects the
-packet clock: absent or zero is native microseconds and any nonzero value is 90
+retiring the connection. The request's nullable Boolean `ninetyKhz` field selects the
+packet clock: absent or false is native microseconds and true is 90
 kHz. `HtspMuxPacketMessage` always exposes `decodingTimeUs`,
 `presentationTimeUs`, and non-null `durationUs` in microseconds. Missing PTS or
 DTS remains `null`; frame type is ASCII I/P/B or the unknown sentinel `-1`.
@@ -249,6 +281,11 @@ Existing `componentN` functions keep their positions, and equality, hashing and
 ## Argument validation and lifecycle calls
 
 ### Protocol field-domain mapping
+
+Wire flags use `Boolean` or `Boolean?`; null preserves absence. Integer flags
+encode as 0/1, and present incoming integer flags reject values other than 0/1.
+This is separate from HTSP's native Boolean wire type, which remains in use where
+the server reads it (for example, `epgQuery.fullText` and `mergeText`).
 
 Each wire field's documented domain decides its Kotlin type: u32 → `Long`
 because 0..4294967295 does not fit `Int`; s32 → `Int`; s64 → `Long`. This rule

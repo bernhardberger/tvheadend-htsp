@@ -54,7 +54,7 @@ class StagedExecuteRuntimeTest {
     fun convenienceRequestUsesFakeExecuteMember(): Unit = runBlocking {
         val owner = createHtspConnection(Dispatchers.Unconfined)
         val expected = GetSysTimeResponse(
-            unixTimeSeconds = 1_723_456_789L,
+            timeEpochSeconds = 1_723_456_789L,
             legacyTimezoneHoursWestOfGmt = -2,
             gmtOffsetMinutes = 120,
         )
@@ -94,7 +94,7 @@ class StagedExecuteRuntimeTest {
                     SubscriptionSkipRequest(
                         subscriptionId = 9L,
                         position = SubscriptionSeekPosition.Time(17_000_000L),
-                        absolute = 1L,
+                        absolute = true,
                     ),
                     request,
                 )
@@ -110,7 +110,7 @@ class StagedExecuteRuntimeTest {
                 connection.subscriptionSkipNearLive(
                     status = HtspTimeshiftStatusMessage(
                         subscriptionId = 9L,
-                        full = 0L,
+                        full = false,
                         shift = 5_000_000L,
                         start = 10_000_000L,
                         end = 20_000_000L,

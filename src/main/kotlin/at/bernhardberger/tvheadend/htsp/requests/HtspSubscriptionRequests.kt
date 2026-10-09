@@ -25,7 +25,7 @@ public sealed interface SubscribeChannel {
 }
 
 /**
- * Requests [subscriptionId] for exactly one [channel]; any nonzero [ninetyKhz]
+ * Requests [subscriptionId] for exactly one [channel]; true [ninetyKhz]
  * selects the 90 kHz packet clock. Collection of
  * `HtspConnection.subscriptionEvents(subscriptionId)` must already be active.
  * Missing collection or id reuse in one connection generation throws
@@ -36,25 +36,26 @@ public data class SubscribeRequest(
     public val channel: SubscribeChannel,
     public val profile: String? = null,
     public val weight: Long? = null,
-    public val ninetyKhz: Long? = null,
+    /** HTSP `90khz`: 0/1 clock flag; null selects microseconds (pinned htsp_server.c:2658). */
+    public val ninetyKhz: Boolean? = null,
     public val timeshiftPeriodSeconds: Long? = null,
-    public val queueDepth: Long? = null,
+    /** HTSP `queueDepth`, payload bytes before frame dropping; null uses the server default (htsp_server.c:2676–2677,4191–4197). */
+    public val queueDepthBytes: Long? = null,
 ) : HtspRequest<SubscribeResponse>(
     method = "subscribe",
     access = HtspAccess.ACCESS_HTSP_STREAMING,
     minimumProtocolVersion = maxVersion(
             null,
             16.takeIf { profile != null },
-            7.takeIf { ninetyKhz != null || queueDepth != null },
+            7.takeIf { ninetyKhz != null || queueDepthBytes != null },
             9.takeIf { timeshiftPeriodSeconds != null },
         ),
 ) {
     init {
         requireU32("subscriptionId", subscriptionId)
         weight?.let { requireU32("weight", it) }
-        ninetyKhz?.let { requireU32("90khz", it) }
         timeshiftPeriodSeconds?.let { requireU32("timeshiftPeriod", it) }
-        queueDepth?.let { requireU32("queueDepth", it) }
+        queueDepthBytes?.let { requireU32("queueDepthBytes", it) }
     }
 }
 
@@ -88,10 +89,10 @@ public data class SubscriptionChangeWeightRequest(
 
 /** Closed signed subscription coordinate: media time or byte size. */
 public sealed interface SubscriptionSeekPosition {
-    /** Carries a signed media [time] coordinate for seek or skip. */
+    /** HTSP `time`, signed ticks in the subscription's negotiated 90 kHz or microsecond clock (htsp_server.c:2827–2831). */
     public data class Time(public val time: Long) : SubscriptionSeekPosition
-    /** Carries a signed byte [size] coordinate for seek or skip. */
-    public data class Size(public val size: Long) : SubscriptionSeekPosition
+    /** HTSP `size`, signed byte coordinate for seek or skip (htsp_server.c:2832–2835). */
+    public data class Size(public val sizeBytes: Long) : SubscriptionSeekPosition
 }
 
 /** Timestamp clock selected by the matching subscribe request for timeshift-status coordinates. */
@@ -100,11 +101,12 @@ public enum class SubscriptionTimestampClock {
     NINETY_KHZ,
 }
 
-/** Selects a subscription, one signed [position], and an optional unsigned [absolute] flag for seeking. */
+/** Selects a subscription, one signed [position], and an optional [absolute] flag for seeking. */
 public data class SubscriptionSeekRequest(
     public val subscriptionId: Long,
     public val position: SubscriptionSeekPosition,
-    public val absolute: Long? = null,
+    /** HTSP `absolute`: 0/1 seek flag; null means relative (pinned htsp_server.c:2824-2834). */
+    public val absolute: Boolean? = null,
 ) : HtspRequest<HtspEmptyResponse>(
     method = "subscriptionSeek",
     access = HtspAccess.ACCESS_HTSP_STREAMING,
@@ -112,15 +114,15 @@ public data class SubscriptionSeekRequest(
 ) {
     init {
         requireU32("subscriptionId", subscriptionId)
-        absolute?.let { requireU32("absolute", it) }
     }
 }
 
-/** Selects a subscription, one signed [position], and an optional unsigned [absolute] flag for skipping. */
+/** Selects a subscription, one signed [position], and an optional [absolute] flag for skipping. */
 public data class SubscriptionSkipRequest(
     public val subscriptionId: Long,
     public val position: SubscriptionSeekPosition,
-    public val absolute: Long? = null,
+    /** HTSP `absolute`: 0/1 skip flag; null means relative (pinned htsp_server.c:2824-2834). */
+    public val absolute: Boolean? = null,
 ) : HtspRequest<HtspEmptyResponse>(
     method = "subscriptionSkip",
     access = HtspAccess.ACCESS_HTSP_STREAMING,
@@ -128,7 +130,6 @@ public data class SubscriptionSkipRequest(
 ) {
     init {
         requireU32("subscriptionId", subscriptionId)
-        absolute?.let { requireU32("absolute", it) }
     }
 }
 
@@ -179,15 +180,19 @@ public class SubscriptionFilterStreamRequest(
     }
 }
 
-/** Requests a subscription for exactly one channel selector with profile, weight, timestamp, timeshift, and queue options. */
+/**
+ * Requests a subscription for exactly one channel selector with profile, weight, timestamp, timeshift, and queue options.
+ * @param queueDepthBytes HTSP `queueDepth`, payload bytes before dropping; null uses the server default.
+ * See [SubscribeRequest] for pinned source evidence.
+ */
 public suspend fun HtspConnection.subscribe(
     subscriptionId: Long,
     channel: SubscribeChannel,
     profile: String? = null,
     weight: Long? = null,
-    ninetyKhz: Long? = null,
+    ninetyKhz: Boolean? = null,
     timeshiftPeriodSeconds: Long? = null,
-    queueDepth: Long? = null,
+    queueDepthBytes: Long? = null,
     timeoutMs: Long = 5_000L,
     expectedGeneration: HtspConnectionGeneration? = null,
 ): HtspResult<SubscribeResponse> =
@@ -199,21 +204,25 @@ public suspend fun HtspConnection.subscribe(
             weight = weight,
             ninetyKhz = ninetyKhz,
             timeshiftPeriodSeconds = timeshiftPeriodSeconds,
-            queueDepth = queueDepth,
+            queueDepthBytes = queueDepthBytes,
         ),
         timeoutMs = timeoutMs,
         expectedGeneration = expectedGeneration,
     )
 
-/** Wraps [channelId] as [SubscribeChannel.Id] before sending the typed subscription request. */
+/**
+ * Wraps [channelId] as [SubscribeChannel.Id] before sending the typed subscription request.
+ * @param queueDepthBytes HTSP `queueDepth`, payload bytes before dropping; null uses the server default.
+ * See [SubscribeRequest] for pinned source evidence.
+ */
 public suspend fun HtspConnection.subscribe(
     subscriptionId: Long,
     channelId: Long,
     profile: String? = null,
     weight: Long? = null,
-    ninetyKhz: Long? = null,
+    ninetyKhz: Boolean? = null,
     timeshiftPeriodSeconds: Long? = null,
-    queueDepth: Long? = null,
+    queueDepthBytes: Long? = null,
     timeoutMs: Long = 5_000L,
     expectedGeneration: HtspConnectionGeneration? = null,
 ): HtspResult<SubscribeResponse> =
@@ -225,21 +234,25 @@ public suspend fun HtspConnection.subscribe(
             weight = weight,
             ninetyKhz = ninetyKhz,
             timeshiftPeriodSeconds = timeshiftPeriodSeconds,
-            queueDepth = queueDepth,
+            queueDepthBytes = queueDepthBytes,
         ),
         timeoutMs = timeoutMs,
         expectedGeneration = expectedGeneration,
     )
 
-/** Wraps [channelName] as [SubscribeChannel.Name] before sending the typed subscription request. */
+/**
+ * Wraps [channelName] as [SubscribeChannel.Name] before sending the typed subscription request.
+ * @param queueDepthBytes HTSP `queueDepth`, payload bytes before dropping; null uses the server default.
+ * See [SubscribeRequest] for pinned source evidence.
+ */
 public suspend fun HtspConnection.subscribe(
     subscriptionId: Long,
     channelName: String,
     profile: String? = null,
     weight: Long? = null,
-    ninetyKhz: Long? = null,
+    ninetyKhz: Boolean? = null,
     timeshiftPeriodSeconds: Long? = null,
-    queueDepth: Long? = null,
+    queueDepthBytes: Long? = null,
     timeoutMs: Long = 5_000L,
     expectedGeneration: HtspConnectionGeneration? = null,
 ): HtspResult<SubscribeResponse> =
@@ -251,7 +264,7 @@ public suspend fun HtspConnection.subscribe(
             weight = weight,
             ninetyKhz = ninetyKhz,
             timeshiftPeriodSeconds = timeshiftPeriodSeconds,
-            queueDepth = queueDepth,
+            queueDepthBytes = queueDepthBytes,
         ),
         timeoutMs = timeoutMs,
         expectedGeneration = expectedGeneration,
@@ -291,7 +304,7 @@ public suspend fun HtspConnection.subscriptionChangeWeight(
 public suspend fun HtspConnection.subscriptionSeek(
     subscriptionId: Long,
     position: SubscriptionSeekPosition,
-    absolute: Long? = null,
+    absolute: Boolean? = null,
     timeoutMs: Long = 5_000L,
     expectedGeneration: HtspConnectionGeneration? = null,
 ): HtspResult<HtspEmptyResponse> =
@@ -309,7 +322,7 @@ public suspend fun HtspConnection.subscriptionSeek(
 public suspend fun HtspConnection.subscriptionSkip(
     subscriptionId: Long,
     position: SubscriptionSeekPosition,
-    absolute: Long? = null,
+    absolute: Boolean? = null,
     timeoutMs: Long = 5_000L,
     expectedGeneration: HtspConnectionGeneration? = null,
 ): HtspResult<HtspEmptyResponse> =
@@ -368,7 +381,7 @@ public suspend fun HtspConnection.subscriptionSkipNearLive(
     return subscriptionSkip(
         subscriptionId = status.subscriptionId,
         position = SubscriptionSeekPosition.Time(target),
-        absolute = 1L,
+        absolute = true,
         timeoutMs = timeoutMs,
         expectedGeneration = expectedGeneration,
     )

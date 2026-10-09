@@ -54,7 +54,7 @@ internal class HtspServiceDirectHandshakeTest : HtspServiceLifecycleFixture() {
                 assertEquals(
                     HtspResult.Ok(
                         HelloResponse(
-                            htspVersion = 44L,
+                            protocolVersion = 44L,
                             serverName = "recaptured-server",
                             serverVersion = null,
                             challenge = HtspBinary(ByteArray(32) { index -> (index + 1).toByte() }),
@@ -66,7 +66,7 @@ internal class HtspServiceDirectHandshakeTest : HtspServiceLifecycleFixture() {
                     ),
                     service.execute(
                         request = HelloRequest(
-                            htspVersion = 2L,
+                            protocolVersion = 2L,
                             clientName = "recapture-client",
                         ),
                         timeoutMs = 1_000L,
@@ -87,7 +87,7 @@ internal class HtspServiceDirectHandshakeTest : HtspServiceLifecycleFixture() {
                 assertEquals(true, live.serverFacts.dvr)
                 assertEquals(true, live.dvrAccess)
                 val state = service.connectionState.value as HtspConnectionState.Connected
-                assertEquals(2, state.htspVersion)
+                assertEquals(2, state.protocolVersion)
                 assertEquals(true, state.dvrAccess)
                 assertSame(HtspResult.NotSupported, service.getSysTime(expectedGeneration = generation))
                 service.disconnect()
@@ -686,19 +686,19 @@ internal class HtspServiceDirectHandshakeTest : HtspServiceLifecycleFixture() {
                 val generation = requireNotNull(service.liveConnection.value).generation
 
                 val result = service.hello(
-                    htspVersion = 0xffff_ffffL,
+                    protocolVersion = 0xffff_ffffL,
                     clientName = "u32-client",
                     timeoutMs = 1_000L,
                     expectedGeneration = generation,
                 )
                 assertTrue(result is HtspResult.Ok)
-                assertEquals(0xffff_ffffL, (result as HtspResult.Ok).value.htspVersion)
+                assertEquals(0xffff_ffffL, (result as HtspResult.Ok).value.protocolVersion)
                 assertEquals(HtspBinary(recapturedChallenge), result.value.challenge)
                 val live = requireNotNull(service.liveConnection.value)
                 assertSame(generation, live.generation)
                 assertNull(live.protocolVersion)
                 assertEquals("u32-server", live.serverFacts.serverName)
-                assertNull((service.connectionState.value as HtspConnectionState.Connected).htspVersion)
+                assertNull((service.connectionState.value as HtspConnectionState.Connected).protocolVersion)
                 assertSame(HtspResult.NotSupported, service.getSysTime(expectedGeneration = generation))
                 assertEquals(listOf("hello"), server.postHandshakeMethods())
                 service.disconnect()

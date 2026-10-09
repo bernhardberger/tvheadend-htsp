@@ -14,7 +14,7 @@ public class HtspBinary private constructor(bytes: ByteArray, copy: Boolean) {
         get() = content.size
 
     /**
-     * Copies the content prefix that fits at [destinationOffset].
+     * Copies the content prefix that fits at byte index [destinationOffset].
      *
      * @return the number of bytes copied
      * @throws IndexOutOfBoundsException when [destinationOffset] is outside [destination]

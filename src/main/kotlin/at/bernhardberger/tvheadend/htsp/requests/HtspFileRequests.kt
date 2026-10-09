@@ -7,7 +7,8 @@ import at.bernhardberger.tvheadend.htsp.wire.*
 public data class FileOpenResponse(
     public val id: Long,
     public val sizeBytes: Long?,
-    public val modifiedAtUnixSeconds: Long?,
+    /** HTSP `mtime`, epoch seconds from POSIX `st_mtime`; null means unavailable (htsp_server.c:800). */
+    public val modifiedAtEpochSeconds: Long?,
 )
 
 /** Contains one owned immutable bounded payload; an empty payload is a valid successful read. */
@@ -19,11 +20,15 @@ public data object FileCloseResponse
 /** Optional size and modification time for an open file handle; the pair is absent together when unavailable. */
 public data class FileStatResponse(
     public val sizeBytes: Long?,
-    public val modifiedAtUnixSeconds: Long?,
+    /** HTSP `mtime`, epoch seconds from POSIX `st_mtime`; null means unavailable (htsp_server.c:3100). */
+    public val modifiedAtEpochSeconds: Long?,
 )
 
 /** Contains the successful absolute non-negative file offset after a seek. */
-public data class FileSeekResponse(public val offset: Long)
+public data class FileSeekResponse(
+    /** HTSP `offset`, absolute byte offset (htsp_server.c:3147). */
+    public val offsetBytes: Long,
+)
 
 /** Finite file-seek origin vocabulary: start, current position, or end; a null request value omits the field. */
 public enum class FileSeekWhence {
@@ -40,11 +45,13 @@ public data class FileOpenRequest(public val file: String) : HtspRequest<FileOpe
     override fun toString(): String = "FileOpenRequest(file=<redacted>)"
 }
 
-/** Selects an open file [id], bounded byte [size], and optional signed [offset] for one read. */
+/** Selects an open file [id], bounded [sizeBytes], and optional signed [offsetBytes] for one read. */
 public data class FileReadRequest(
     public val id: Long,
-    public val size: Long,
-    public val offset: Long? = null,
+    /** HTSP `size`, bytes to read (htsp_server.c:3007–3030). */
+    public val sizeBytes: Long,
+    /** HTSP `offset`, absolute byte offset; null keeps the current file position (htsp_server.c:3015–3016). */
+    public val offsetBytes: Long? = null,
 ) : HtspRequest<FileReadResponse>(
     method = "fileRead",
     access = HtspAccess.ACCESS_HTSP_RECORDER,
@@ -52,7 +59,7 @@ public data class FileReadRequest(
 ) {
     init {
         requireU32("id", id)
-        require(size in 0L..MAX_FILE_READ_SIZE_BYTES) {
+        require(sizeBytes in 0L..MAX_FILE_READ_SIZE_BYTES) {
                     "size must be between zero and 16 MiB"
                 }
     }
@@ -86,10 +93,11 @@ public data class FileStatRequest(public val id: Long) : HtspRequest<FileStatRes
     }
 }
 
-/** Selects an open file [id], signed [offset], and optional finite [whence] origin. */
+/** Selects an open file [id], signed [offsetBytes], and optional finite [whence] origin. */
 public data class FileSeekRequest(
     public val id: Long,
-    public val offset: Long,
+    /** HTSP `offset`, signed bytes relative to [whence] (htsp_server.c:3122–3147). */
+    public val offsetBytes: Long,
     public val whence: FileSeekWhence? = null,
 ) : HtspRequest<FileSeekResponse>(
     method = "fileSeek",
@@ -115,19 +123,24 @@ public suspend fun HtspConnection.fileOpen(
         expectedGeneration = expectedGeneration,
     )
 
-/** Reads a bounded byte range from an open protocol file handle through typed execution. */
+/**
+ * Reads a bounded byte range from an open protocol file handle through typed execution.
+ * @param sizeBytes HTSP `size`, maximum bytes to read.
+ * @param offsetBytes HTSP `offset`, absolute byte offset; null keeps the current position.
+ * See [FileReadRequest] for pinned source evidence.
+ */
 public suspend fun HtspConnection.fileRead(
     id: Long,
-    size: Long,
-    offset: Long? = null,
+    sizeBytes: Long,
+    offsetBytes: Long? = null,
     timeoutMs: Long = 5_000L,
     expectedGeneration: HtspConnectionGeneration? = null,
 ): HtspResult<FileReadResponse> =
     execute(
         request = FileReadRequest(
             id = id,
-            size = size,
-            offset = offset,
+            sizeBytes = sizeBytes,
+            offsetBytes = offsetBytes,
         ),
         timeoutMs = timeoutMs,
         expectedGeneration = expectedGeneration,
@@ -165,10 +178,14 @@ public suspend fun HtspConnection.fileStat(
         expectedGeneration = expectedGeneration,
     )
 
-/** Requests a signed seek from the optional origin and decodes the server-reported absolute file offset. */
+/**
+ * Requests a signed seek and decodes the server-reported absolute file offset.
+ * @param offsetBytes HTSP `offset`, signed bytes relative to [whence].
+ * See [FileSeekRequest] for pinned source evidence.
+ */
 public suspend fun HtspConnection.fileSeek(
     id: Long,
-    offset: Long,
+    offsetBytes: Long,
     whence: FileSeekWhence? = null,
     timeoutMs: Long = 5_000L,
     expectedGeneration: HtspConnectionGeneration? = null,
@@ -176,7 +193,7 @@ public suspend fun HtspConnection.fileSeek(
     execute(
         request = FileSeekRequest(
             id = id,
-            offset = offset,
+            offsetBytes = offsetBytes,
             whence = whence,
         ),
         timeoutMs = timeoutMs,

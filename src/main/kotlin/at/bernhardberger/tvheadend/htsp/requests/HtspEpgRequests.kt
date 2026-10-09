@@ -7,8 +7,10 @@ import at.bernhardberger.tvheadend.htsp.wire.*
 public data class HtspEvent(
     public val eventId: Long,
     public val channelId: Long?,
-    public val start: Long,
-    public val stop: Long,
+    /** HTSP `start`, epoch seconds (pinned htsp_server.c:1342). */
+    public val startEpochSeconds: Long,
+    /** HTSP `stop`, epoch seconds (pinned htsp_server.c:1343). */
+    public val stopEpochSeconds: Long,
     public val title: String?,
     public val subtitle: String?,
     public val summary: String?,
@@ -25,8 +27,10 @@ public data class HtspEvent(
     public val ratingCountry: String?,
     public val starRating: Long?,
     public val copyrightYear: Long?,
-    public val firstAired: Long?,
-    public val isNew: Long?,
+    /** HTSP `firstAired`, first-air epoch seconds; null means absent (htsp_server.c:1435). */
+    public val firstAiredEpochSeconds: Long?,
+    /** HTSP `isNew`: optional new-broadcast flag (pinned htsp_server.c:1437). */
+    public val isNew: Boolean?,
     public val seasonNumber: Long?,
     public val seasonCount: Long?,
     public val episodeNumber: Long?,
@@ -75,9 +79,12 @@ public data class HtspEpgEpisodeNumber(
 /** Bounded detailed broadcast record with timing, channel and event identity, flags, ratings, localized text, numbering, genres, and links; opaque credentials are omitted. */
 public data class HtspEpgBroadcastObject(
     public val id: Long,
-    public val updatedUnixSeconds: Long,
-    public val startUnixSeconds: Long,
-    public val stopUnixSeconds: Long,
+    /** HTSP `up`, last-update epoch seconds. */
+    public val updatedEpochSeconds: Long,
+    /** HTSP `start`, broadcast-start epoch seconds. */
+    public val startEpochSeconds: Long,
+    /** HTSP `stop`, broadcast-stop epoch seconds. */
+    public val stopEpochSeconds: Long,
     public val grabber: String?,
     public val channelUuid: String?,
     public val eventId: Long?,
@@ -103,7 +110,8 @@ public data class HtspEpgBroadcastObject(
     public val episodeNumber: HtspEpgEpisodeNumber?,
     public val genres: List<Long>?,
     public val copyrightYear: Long?,
-    public val firstAiredUnixSeconds: Long?,
+    /** HTSP `fair`, first-air epoch seconds; null means absent. */
+    public val firstAiredEpochSeconds: Long?,
     public val categories: List<String>?,
     public val keywords: List<String>?,
     public val seriesLinkUri: String?,
@@ -132,12 +140,13 @@ public data class GetEventsRequest(
     public val eventId: Long? = null,
     public val language: String? = null,
     public val numFollowing: Long? = null,
-    public val maxTime: Long? = null,
+    /** HTSP `maxTime`, latest broadcast-start epoch seconds; zero is unlimited, null omits it (htsp_server.c:1813–1828). */
+    public val maxTimeEpochSeconds: Long? = null,
 ) : HtspRequest<GetEventsResponse>(
     method = "getEvents",
     access = HtspAccess.ACCESS_HTSP_STREAMING,
     minimumProtocolVersion = if (
-            channelId != null || eventId != null || language != null || numFollowing != null || maxTime != null
+            channelId != null || eventId != null || language != null || numFollowing != null || maxTimeEpochSeconds != null
         ) 6 else 4,
 ) {
     init {
@@ -156,7 +165,8 @@ public data class EpgQueryRequest(
     public val language: String? = null,
     public val fullText: Boolean? = null,
     public val mergeText: Boolean? = null,
-    public val full: Long? = null,
+    /** HTSP `full`: 0/1 full-event response flag; null omits it (pinned htsp_server.c:1915). */
+    public val full: Boolean? = null,
     public val minDurationSeconds: Long? = null,
     public val maxDurationSeconds: Long? = null,
 ) : HtspRequest<EpgQueryResponse>(
@@ -172,7 +182,6 @@ public data class EpgQueryRequest(
         channelId?.let { requireU32("channelId", it) }
         tagId?.let { requireU32("tagId", it) }
         contentType?.let { requireU32("contentType", it) }
-        full?.let { requireU32("full", it) }
         minDurationSeconds?.let { requireU32("minduration", it) }
         maxDurationSeconds?.let { requireU32("maxduration", it) }
     }
@@ -208,13 +217,17 @@ public suspend fun HtspConnection.getEvent(
         expectedGeneration = expectedGeneration,
     )
 
-/** Fetches an event window selected by channel, event, language, following count, or maximum time through typed execution. */
+/**
+ * Fetches an event window through typed execution.
+ * @param maxTimeEpochSeconds HTSP `maxTime`, epoch seconds; zero is unlimited, null omits it.
+ * See [GetEventsRequest] for pinned source evidence.
+ */
 public suspend fun HtspConnection.getEvents(
     channelId: Long? = null,
     eventId: Long? = null,
     language: String? = null,
     numFollowing: Long? = null,
-    maxTime: Long? = null,
+    maxTimeEpochSeconds: Long? = null,
     timeoutMs: Long = 5_000L,
     expectedGeneration: HtspConnectionGeneration? = null,
 ): HtspResult<GetEventsResponse> =
@@ -224,7 +237,7 @@ public suspend fun HtspConnection.getEvents(
             eventId = eventId,
             language = language,
             numFollowing = numFollowing,
-            maxTime = maxTime,
+            maxTimeEpochSeconds = maxTimeEpochSeconds,
         ),
         timeoutMs = timeoutMs,
         expectedGeneration = expectedGeneration,
@@ -239,7 +252,7 @@ public suspend fun HtspConnection.epgQuery(
     language: String? = null,
     fullText: Boolean? = null,
     mergeText: Boolean? = null,
-    full: Long? = null,
+    full: Boolean? = null,
     minDurationSeconds: Long? = null,
     maxDurationSeconds: Long? = null,
     timeoutMs: Long = 5_000L,

@@ -22,6 +22,86 @@ import java.lang.reflect.Modifier
 
 class HtspProtocolCoreTest {
     @Test
+    fun renamedQuantitiesKeepTheirWireNamesAndValues() {
+        val cases = listOf(
+            HelloRequest(protocolVersion = 44L, clientName = "test") to
+                mapOf("htspversion" to 44L, "clientname" to "test"),
+            EnableAsyncMetadataRequest(lastUpdateEpochSeconds = 12L, epgMaxTimeEpochSeconds = 34L) to
+                mapOf("lastUpdate" to 12L, "epgMaxTime" to 34L),
+            GetEventsRequest(maxTimeEpochSeconds = 56L) to mapOf("maxTime" to 56L),
+            AddDvrEntryRequest(AddDvrEntrySelector.ExplicitChannelTime(1L, 12L, 34L)) to
+                mapOf("channelId" to 1L, "start" to 12L, "stop" to 34L),
+            UpdateDvrEntryRequest(
+                1L, startEpochSeconds = 12L, stopEpochSeconds = 34L,
+                startExtraMinutes = 5L, stopExtraMinutes = 6L,
+                retentionDays = 7L, removalDays = 8L, playPositionSeconds = 9L,
+            ) to mapOf(
+                "id" to 1L, "start" to 12L, "stop" to 34L, "startExtra" to 5L,
+                "stopExtra" to 6L, "retention" to 7L, "removal" to 8L, "playposition" to 9L,
+            ),
+            FileReadRequest(1L, sizeBytes = 2L, offsetBytes = 3L) to
+                mapOf("id" to 1L, "size" to 2L, "offset" to 3L),
+            FileSeekRequest(1L, offsetBytes = 4L) to mapOf("id" to 1L, "offset" to 4L),
+            SubscribeRequest(1L, SubscribeChannel.Id(2L), queueDepthBytes = 3L) to
+                mapOf("subscriptionId" to 1L, "channelId" to 2L, "queueDepth" to 3L),
+            SubscriptionSeekRequest(1L, SubscriptionSeekPosition.Size(sizeBytes = 4L)) to
+                mapOf("subscriptionId" to 1L, "size" to 4L),
+        )
+        cases.forEach { (request, expected) ->
+            val encoded = HtspRequestCodecs.encode(request)
+            assertEquals(expected, encoded, request.method)
+            val output = java.io.ByteArrayOutputStream()
+            HtspCodec.writeMessage(output, request.method, encoded)
+            assertEquals(expected + ("method" to request.method),
+                HtspCodec.readMessage(output.toByteArray().inputStream()).fields)
+        }
+    }
+
+    @Test
+    fun eventReplyNewFlagPreservesAbsenceAndRejectsMalformedValues() {
+        val request = GetEventRequest(1L)
+        val base = mapOf("eventId" to 1L, "start" to 2L, "stop" to 3L)
+        listOf(null, false, true).forEach { expected ->
+            val fields = expected?.let { base + ("isNew" to if (it) 1L else 0L) } ?: base
+            val result = classifyHtspReply(HtspWireReply(fields), request, 44) as HtspResult.Ok
+            assertEquals(expected, result.value.event.isNew)
+        }
+        listOf(null, -1L, 2L, 0xffff_ffffL, true, "1").forEach { malformed ->
+            assertEquals(
+                HtspResult.ServerError(),
+                classifyHtspReply(HtspWireReply(base + ("isNew" to malformed)), request, 44),
+            )
+        }
+    }
+
+    @Test
+    fun booleanRequestFlagsPreserveIntegerWireFieldsAndAbsence() {
+        listOf<Boolean?>(null, false, true).forEach { flag ->
+            val cases = listOf(
+                UpdateDvrEntryRequest(1L, enabled = flag) to listOf("enabled"),
+                AddAutorecEntryRequest("title", fullText = flag, mergeText = flag) to listOf("fulltext", "mergetext"),
+                UpdateAutorecEntryRequest("id", fullText = flag, mergeText = flag) to listOf("fulltext", "mergetext"),
+                EpgQueryRequest("query", full = flag) to listOf("full"),
+                EnableAsyncMetadataRequest(epg = flag) to listOf("epg"),
+                SubscribeRequest(1L, SubscribeChannel.Id(2L), ninetyKhz = flag) to listOf("90khz"),
+                SubscriptionSeekRequest(1L, SubscriptionSeekPosition.Time(2L), absolute = flag) to listOf("absolute"),
+                SubscriptionSkipRequest(1L, SubscriptionSeekPosition.Size(2L), absolute = flag) to listOf("absolute"),
+            )
+            cases.forEach { (request, fields) ->
+                val encoded = HtspRequestCodecs.encode(request)
+                fields.forEach { field ->
+                    assertEquals(flag != null, encoded.containsKey(field))
+                    assertEquals(flag?.let { if (it) 1L else 0L }, encoded[field])
+                }
+                val output = java.io.ByteArrayOutputStream()
+                HtspCodec.writeMessage(output, request.method, encoded)
+                val decoded = HtspCodec.readMessage(output.toByteArray().inputStream()).fields
+                fields.forEach { field -> assertEquals(encoded[field], decoded[field]) }
+            }
+        }
+    }
+
+    @Test
     fun factoryConnectionExposesTheOwnedLifecycleState() = runTest {
         val connection: HtspConnection = createHtspConnection(Dispatchers.Unconfined)
         try {
@@ -84,7 +164,7 @@ class HtspProtocolCoreTest {
         val disconnected = createHtspConnection(Dispatchers.Unconfined)
         try {
             assertSame(HtspResult.TransportUnavailable, disconnected.fileOpen(file = ""))
-            assertSame(HtspResult.TransportUnavailable, disconnected.fileRead(id = 0L, size = 0L))
+            assertSame(HtspResult.TransportUnavailable, disconnected.fileRead(id = 0L, sizeBytes = 0L))
             assertSame(HtspResult.TransportUnavailable, disconnected.fileClose(id = 0L))
             assertTrue(
                 runCatching { disconnected.fileClose(0L, timeoutMs = 0L) }.exceptionOrNull() is
@@ -98,7 +178,7 @@ class HtspProtocolCoreTest {
                     playCount = null,
                 ),
             )
-            assertSame(HtspResult.TransportUnavailable, disconnected.fileSeek(id = 0L, offset = 0L))
+            assertSame(HtspResult.TransportUnavailable, disconnected.fileSeek(id = 0L, offsetBytes = 0L))
         } finally {
             disconnected.close()
         }
@@ -153,11 +233,11 @@ class HtspProtocolCoreTest {
         )
         assertEquals(
             linkedMapOf("id" to 0xffff_ffffL, "size" to 0L),
-            HtspRequestCodecs.encode(FileReadRequest(0xffff_ffffL, size = 0L)),
+            HtspRequestCodecs.encode(FileReadRequest(0xffff_ffffL, sizeBytes = 0L)),
         )
         assertEquals(
             linkedMapOf("id" to 0L, "size" to 16_777_216L, "offset" to Long.MIN_VALUE),
-            HtspRequestCodecs.encode(FileReadRequest(0L, size = 16_777_216L, offset = Long.MIN_VALUE)),
+            HtspRequestCodecs.encode(FileReadRequest(0L, sizeBytes = 16_777_216L, offsetBytes = Long.MIN_VALUE)),
         )
         assertEquals(
             linkedMapOf("id" to 0xffff_ffffL),
@@ -190,7 +270,7 @@ class HtspProtocolCoreTest {
         assertEquals(27, FileCloseRequest(0L, playCount = 0L).minimumProtocolVersion)
         assertEquals(
             linkedMapOf("id" to 0L, "offset" to Long.MIN_VALUE),
-            HtspRequestCodecs.encode(FileSeekRequest(0L, offset = Long.MIN_VALUE)),
+            HtspRequestCodecs.encode(FileSeekRequest(0L, offsetBytes = Long.MIN_VALUE)),
         )
         assertEquals(
             listOf("SEEK_SET", "SEEK_CUR", "SEEK_END"),
@@ -231,7 +311,7 @@ class HtspProtocolCoreTest {
                 FileOpenResponse(
                     id = 0xffff_ffffL,
                     sizeBytes = 123L,
-                    modifiedAtUnixSeconds = Long.MIN_VALUE,
+                    modifiedAtEpochSeconds = Long.MIN_VALUE,
                 ),
             ),
             connection.call(FileOpenRequest("//dvrfile/1")),
@@ -241,7 +321,7 @@ class HtspProtocolCoreTest {
 
         transport.reply = HtspWireReply(linkedMapOf("id" to 0L))
         assertEquals(
-            HtspResult.Ok(FileOpenResponse(id = 0L, sizeBytes = null, modifiedAtUnixSeconds = null)),
+            HtspResult.Ok(FileOpenResponse(id = 0L, sizeBytes = null, modifiedAtEpochSeconds = null)),
             connection.call(FileOpenRequest("")),
         )
 
@@ -259,7 +339,7 @@ class HtspProtocolCoreTest {
 
         val mutableData = byteArrayOf(1, 2, 3)
         transport.reply = HtspWireReply(linkedMapOf("data" to mutableData))
-        val read = connection.call(FileReadRequest(0L, 3L, offset = 0L))
+        val read = connection.call(FileReadRequest(0L, 3L, offsetBytes = 0L))
         assertEquals(HtspResult.Ok(FileReadResponse(HtspBinary(byteArrayOf(1, 2, 3)))), read)
         mutableData[0] = 9
         val readData = ((read as HtspResult.Ok).value.data).toByteArray()
@@ -312,7 +392,7 @@ class HtspProtocolCoreTest {
 
         transport.reply = HtspWireReply(linkedMapOf("offset" to Long.MAX_VALUE))
         assertEquals(
-            HtspResult.Ok(FileSeekResponse(offset = Long.MAX_VALUE)),
+            HtspResult.Ok(FileSeekResponse(offsetBytes = Long.MAX_VALUE)),
             connection.call(FileSeekRequest(0L, Long.MIN_VALUE, FileSeekWhence.END)),
         )
         assertEquals(
@@ -396,34 +476,26 @@ class HtspProtocolCoreTest {
                 "absolute" to 0L,
             ),
             HtspRequestCodecs.encode(
-                SubscriptionSkipRequest(1L, SubscriptionSeekPosition.Time(2L), absolute = 0L),
+                SubscriptionSkipRequest(1L, SubscriptionSeekPosition.Time(2L), absolute = false),
             ),
         )
         assertEquals(
             linkedMapOf(
                 "subscriptionId" to 1L,
                 "size" to -3L,
-                "absolute" to 0xffff_ffffL,
+                "absolute" to 1L,
             ),
             HtspRequestCodecs.encode(
                 SubscriptionSkipRequest(
                     1L,
                     SubscriptionSeekPosition.Size(-3L),
-                    absolute = 0xffff_ffffL,
+                    absolute = true,
                 ),
             ),
         )
         listOf<() -> Unit>(
             { SubscriptionSkipRequest(-1L, SubscriptionSeekPosition.Time(0L)) },
             { SubscriptionSkipRequest(0x1_0000_0000L, SubscriptionSeekPosition.Size(0L)) },
-            { SubscriptionSkipRequest(0L, SubscriptionSeekPosition.Time(0L), absolute = -1L) },
-            {
-                SubscriptionSkipRequest(
-                    0L,
-                    SubscriptionSeekPosition.Size(0L),
-                    absolute = 0x1_0000_0000L,
-                )
-            },
         ).forEach(::assertIllegalArgument)
 
         val transport = FakeProtocolTransport(version = 8)
@@ -503,7 +575,7 @@ class HtspProtocolCoreTest {
             ),
         )
         assertEquals(
-            HtspResult.Ok(FileStatResponse(sizeBytes = 123L, modifiedAtUnixSeconds = -456L)),
+            HtspResult.Ok(FileStatResponse(sizeBytes = 123L, modifiedAtEpochSeconds = -456L)),
             connection.call(request),
         )
         assertEquals("fileStat", transport.lastMethod)
@@ -511,7 +583,7 @@ class HtspProtocolCoreTest {
 
         transport.reply = HtspWireReply(linkedMapOf())
         assertEquals(
-            HtspResult.Ok(FileStatResponse(sizeBytes = null, modifiedAtUnixSeconds = null)),
+            HtspResult.Ok(FileStatResponse(sizeBytes = null, modifiedAtEpochSeconds = null)),
             connection.call(request),
         )
 
@@ -657,7 +729,7 @@ class HtspProtocolCoreTest {
         val hello = connection.call(HelloRequest(44L, "client"))
         assertTrue(hello is HtspResult.Ok)
         val response = (hello as HtspResult.Ok).value
-        assertEquals(0xffff_ffffL, response.htspVersion)
+        assertEquals(0xffff_ffffL, response.protocolVersion)
         assertEquals(HtspBinary(ByteArray(32) { index -> index.toByte() }), response.challenge)
         assertEquals(listOf("htsp", "timeshift"), response.serverCapabilities)
         assertEquals(0xffff_ffffL, response.apiVersion)
@@ -854,7 +926,7 @@ class HtspProtocolCoreTest {
     fun getSysTimeUsesHandwrittenConnectionExecute() = runTest {
         val factoryConnection = createHtspConnection(Dispatchers.Unconfined)
         val expected = GetSysTimeResponse(
-            unixTimeSeconds = 1_723_456_789L,
+            timeEpochSeconds = 1_723_456_789L,
             legacyTimezoneHoursWestOfGmt = -2,
             gmtOffsetMinutes = 120,
         )
@@ -1083,8 +1155,8 @@ class HtspProtocolCoreTest {
             channel = HtspRecordingRuleChannel.Id(0xffff_ffffL),
             minDurationSeconds = 0L,
             maxDurationSeconds = 0xffff_ffffL,
-            fullText = 0xffff_ffffL,
-            mergeText = 0L,
+            fullText = true,
+            mergeText = false,
             duplicateDetection = 0xffff_ffffL,
             maximumRecordingCount = 0L,
             broadcastType = 0xffff_ffffL,
@@ -1110,7 +1182,7 @@ class HtspProtocolCoreTest {
                 "channelId" to 0xffff_ffffL,
                 "minduration" to 0L,
                 "maxduration" to 0xffff_ffffL,
-                "fulltext" to 0xffff_ffffL,
+                "fulltext" to 1L,
                 "mergetext" to 0L,
                 "dupDetect" to 0xffff_ffffL,
                 "maxCount" to 0L,
@@ -1138,7 +1210,7 @@ class HtspProtocolCoreTest {
         assertEquals(13, AddAutorecEntryRequest("x", HtspRecordingRuleChannel.Id(1L)).minimumProtocolVersion)
         assertEquals(18, AddAutorecEntryRequest("x", name = "").minimumProtocolVersion)
         assertEquals(19, AddAutorecEntryRequest("x", enabled = true).minimumProtocolVersion)
-        assertEquals(20, AddAutorecEntryRequest("x", fullText = 0L).minimumProtocolVersion)
+        assertEquals(20, AddAutorecEntryRequest("x", fullText = false).minimumProtocolVersion)
         assertEquals(39, UpdateAutorecEntryRequest("x", broadcastType = 0L).minimumProtocolVersion)
         assertEquals(42, UpdateAutorecEntryRequest("x", comment = "").minimumProtocolVersion)
 
@@ -1186,8 +1258,6 @@ class HtspProtocolCoreTest {
             { HtspRecordingRuleChannel.Id(0x1_0000_0000L) },
             { AddAutorecEntryRequest("x", minDurationSeconds = -1L) },
             { AddAutorecEntryRequest("x", maxDurationSeconds = 0x1_0000_0000L) },
-            { AddAutorecEntryRequest("x", fullText = -1L) },
-            { AddAutorecEntryRequest("x", mergeText = 0x1_0000_0000L) },
             { AddAutorecEntryRequest("x", duplicateDetection = -1L) },
             { AddAutorecEntryRequest("x", maximumRecordingCount = 0x1_0000_0000L) },
             { AddAutorecEntryRequest("x", broadcastType = -1L) },
@@ -1261,21 +1331,21 @@ class HtspProtocolCoreTest {
         assertEquals(null, EnableAsyncMetadataRequest().minimumProtocolVersion)
         assertEquals(
             linkedMapOf(
-                "epg" to 0xffff_ffffL,
+                "epg" to 1L,
                 "lastUpdate" to Long.MIN_VALUE,
                 "epgMaxTime" to Long.MAX_VALUE,
                 "language" to "",
             ),
             HtspRequestCodecs.encode(
                 EnableAsyncMetadataRequest(
-                    epg = 0xffff_ffffL,
-                    lastUpdate = Long.MIN_VALUE,
-                    epgMaxTime = Long.MAX_VALUE,
+                    epg = true,
+                    lastUpdateEpochSeconds = Long.MIN_VALUE,
+                    epgMaxTimeEpochSeconds = Long.MAX_VALUE,
                     language = "",
                 ),
             ),
         )
-        assertEquals(6, EnableAsyncMetadataRequest(epg = 0L).minimumProtocolVersion)
+        assertEquals(6, EnableAsyncMetadataRequest(epg = false).minimumProtocolVersion)
 
         val transport = FakeProtocolTransport(version = 5).apply {
             reply = HtspWireReply(linkedMapOf())
@@ -1302,7 +1372,7 @@ class HtspProtocolCoreTest {
                 "language" to "",
                 "fulltext" to false,
                 "mergetext" to true,
-                "full" to 2L,
+                "full" to 1L,
                 "minduration" to 0L,
                 "maxduration" to 0xffff_ffffL,
             ),
@@ -1315,13 +1385,13 @@ class HtspProtocolCoreTest {
                     language = "",
                     fullText = false,
                     mergeText = true,
-                    full = 2L,
+                    full = true,
                     minDurationSeconds = 0L,
                     maxDurationSeconds = 0xffff_ffffL,
                 ),
             ),
         )
-        assertEquals(4, EpgQueryRequest("q", fullText = false, mergeText = true, full = 1L).minimumProtocolVersion)
+        assertEquals(4, EpgQueryRequest("q", fullText = false, mergeText = true, full = true).minimumProtocolVersion)
         assertEquals(6, EpgQueryRequest("q", language = "").minimumProtocolVersion)
         assertEquals(13, EpgQueryRequest("q", minDurationSeconds = 0L).minimumProtocolVersion)
         assertEquals(13, EpgQueryRequest("q", maxDurationSeconds = 0L, language = "").minimumProtocolVersion)
@@ -1330,7 +1400,6 @@ class HtspProtocolCoreTest {
             { EpgQueryRequest("q", channelId = -1L) },
             { EpgQueryRequest("q", tagId = 0x1_0000_0000L) },
             { EpgQueryRequest("q", contentType = -1L) },
-            { EpgQueryRequest("q", full = 0x1_0000_0000L) },
             { EpgQueryRequest("q", minDurationSeconds = -1L) },
             { EpgQueryRequest("q", maxDurationSeconds = 0x1_0000_0000L) },
         )
@@ -1355,22 +1424,22 @@ class HtspProtocolCoreTest {
                 "ignored" to "envelope",
             ),
         )
-        val fullResult = caller.call(EpgQueryRequest("q", full = 2L))
+        val fullResult = caller.call(EpgQueryRequest("q", full = true))
         assertTrue(fullResult is HtspResult.Ok)
         val fullResponse = (fullResult as HtspResult.Ok).value
         assertTrue(fullResponse is EpgQueryResponse.Events)
         assertEquals(7L, (fullResponse as EpgQueryResponse.Events).events.single().eventId)
-        assertEquals(Long.MIN_VALUE, fullResponse.events.single().start)
-        assertEquals(Long.MAX_VALUE, fullResponse.events.single().stop)
+        assertEquals(Long.MIN_VALUE, fullResponse.events.single().startEpochSeconds)
+        assertEquals(Long.MAX_VALUE, fullResponse.events.single().stopEpochSeconds)
 
         transport.reply = HtspWireReply(linkedMapOf())
         assertEquals(
             HtspResult.Ok(EpgQueryResponse.EventIds(emptyList())),
-            caller.call(EpgQueryRequest("q", full = 0L)),
+            caller.call(EpgQueryRequest("q", full = false)),
         )
         assertEquals(
             HtspResult.Ok(EpgQueryResponse.Events(emptyList())),
-            caller.call(EpgQueryRequest("q", full = 1L)),
+            caller.call(EpgQueryRequest("q", full = true)),
         )
 
         val malformedIdReplies = listOf(
@@ -1399,7 +1468,7 @@ class HtspProtocolCoreTest {
         )
         malformedEventReplies.forEach { fields ->
             transport.reply = HtspWireReply(fields)
-            assertEquals(HtspResult.ServerError(), caller.call(EpgQueryRequest("q", full = 1L)))
+            assertEquals(HtspResult.ServerError(), caller.call(EpgQueryRequest("q", full = true)))
         }
     }
 
@@ -1478,9 +1547,9 @@ class HtspProtocolCoreTest {
                 GetEpgObjectResponse(
                     broadcast = HtspEpgBroadcastObject(
                         id = 42L,
-                        updatedUnixSeconds = Long.MIN_VALUE,
-                        startUnixSeconds = -1L,
-                        stopUnixSeconds = Long.MAX_VALUE,
+                        updatedEpochSeconds = Long.MIN_VALUE,
+                        startEpochSeconds = -1L,
+                        stopEpochSeconds = Long.MAX_VALUE,
                         grabber = "",
                         channelUuid = "channel-uuid",
                         eventId = 0xffff_ffffL,
@@ -1514,7 +1583,7 @@ class HtspProtocolCoreTest {
                         ),
                         genres = listOf(0L, 0xffff_ffffL, 0L),
                         copyrightYear = 0xffff_ffffL,
-                        firstAiredUnixSeconds = Long.MIN_VALUE,
+                        firstAiredEpochSeconds = Long.MIN_VALUE,
                         categories = listOf("documentary", "news"),
                         keywords = emptyList(),
                         seriesLinkUri = "series-link",
@@ -1649,8 +1718,8 @@ class HtspProtocolCoreTest {
                     HtspEvent(
                         eventId = 0xffff_ffffL,
                         channelId = null,
-                        start = Long.MIN_VALUE,
-                        stop = Long.MAX_VALUE,
+                        startEpochSeconds = Long.MIN_VALUE,
+                        stopEpochSeconds = Long.MAX_VALUE,
                         title = null,
                         subtitle = null,
                         summary = null,
@@ -1667,7 +1736,7 @@ class HtspProtocolCoreTest {
                         ratingCountry = null,
                         starRating = null,
                         copyrightYear = null,
-                        firstAired = null,
+                        firstAiredEpochSeconds = null,
                         isNew = null,
                         seasonNumber = null,
                         seasonCount = null,
@@ -1868,8 +1937,8 @@ class HtspProtocolCoreTest {
             AddDvrEntryRequest(
                 selector = AddDvrEntrySelector.ExplicitChannelTime(
                     channelId = 0L,
-                    start = Long.MIN_VALUE,
-                    stop = Long.MAX_VALUE,
+                    startEpochSeconds = Long.MIN_VALUE,
+                    stopEpochSeconds = Long.MAX_VALUE,
                 ),
             ).let(HtspRequestCodecs::encode).keys.toList(),
         )
@@ -1895,7 +1964,7 @@ class HtspProtocolCoreTest {
                 SubscriptionSkipRequest(
                     3L,
                     SubscriptionSeekPosition.Time(Long.MAX_VALUE),
-                    absolute = 1L,
+                    absolute = true,
                 ),
             ),
         )
@@ -1916,7 +1985,7 @@ class HtspProtocolCoreTest {
             HtspRequestCodecs.encode(filter).keys.toList(),
         )
 
-        val update = UpdateDvrEntryRequest(entryId = 7L, playPosition = 11L)
+        val update = UpdateDvrEntryRequest(entryId = 7L, playPositionSeconds = 11L)
         assertEquals(7L, update.entryId)
         assertEquals(
             linkedMapOf("playposition" to 11L, "id" to 7L),
@@ -1957,8 +2026,8 @@ class HtspProtocolCoreTest {
     fun subscribeResponseClockObservationsAreStrictNullableFlags() {
         val request = SubscribeRequest(1L, SubscribeChannel.Id(2L))
         assertEquals(
-            7L,
-            HtspRequestCodecs.encode(request.copy(ninetyKhz = 7L))["90khz"],
+            1L,
+            HtspRequestCodecs.encode(request.copy(ninetyKhz = true))["90khz"],
         )
         val absent = classifyHtspReply(HtspWireReply(emptyMap()), request, 43)
         val falseFlags = classifyHtspReply(

@@ -218,7 +218,7 @@ class HtspConnectionSocketFactoryTest {
                 assertEquals(
                     HtspResult.Ok(
                         GetSysTimeResponse(
-                            unixTimeSeconds = 1_723_456_789L,
+                            timeEpochSeconds = 1_723_456_789L,
                             legacyTimezoneHoursWestOfGmt = -2,
                             gmtOffsetMinutes = 120,
                         ),

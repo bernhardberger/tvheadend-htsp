@@ -74,6 +74,70 @@ DVR policy.
 
 ## Protocol quirks and version notes
 
+### Integer flags
+
+The typed API exposes integer 0/1 flags as Boolean values, preserving nullable
+absence. Request encoding uses integer 0/1, not HTSP's separate BOOL type, where
+the pinned server reads an integer. Incoming integer flags are strict: only 0
+and 1 decode. Evidence below refers to pinned `src/htsp_server.c`:
+
+| Kotlin property / surface | Wire field | Lines |
+|---|---|---|
+| DVR update request `enabled` | `enabled` (s64 reader) | 2196 |
+| DVR add/update message `enabled` | `enabled` | 981 |
+| DVR add/update message `duplicate` | `duplicate` | 1188 (explicit 0/1 expression) |
+| Autorec add/update request `fullText`, `mergeText` | `fulltext`, `mergetext` (u32 readers) | 608-611; normalized output at 1251-1252 |
+| Event `isNew` | `isNew` | 1437 |
+| EPG query request `full` | `full` (u32 reader) | 1915 |
+| Async metadata request `epg` | `epg` (u32 reader) | 1660-1661 |
+| Subscribe request `ninetyKhz` | `90khz` (u32 reader) | 2658 |
+| Seek/skip request `absolute` | `absolute` (u32 reader) | 2824-2834 |
+| Skip message `absolute`, `error` | `absolute`, `error` | 4625-4628 (presence of 1; `error` is not a numeric code) |
+| Subscription stream `rdsUecp` | `rds_uecp` | 4367 (explicit 0/1 expression) |
+| Timeshift status `full` | `full` | 4596 |
+
+`tagTitledIcon` remains numeric: line 949 forwards `ct_titled_icon` without
+establishing a 0/1 domain in this source. `duplicateDetection` (`dupDetect`) and
+`broadcastType` remain numeric policy values (lines 612-619, 1244-1246), not
+enablement flags. Likewise `priority`, `audioType`, and `audioVersion` remain
+numeric codes (lines 665-666, 4360-4362); service `content` explicitly has three
+values (line 904). Counters, identifiers, masks, and measurements retain their
+integer widths. `epgQuery.fullText`/`mergeText` already use Boolean properties and
+the native BOOL wire type read by lines 1883-1885; that encoding is unchanged.
+
+### Units
+
+Wire keys below match the request and server-message decoders. Lines refer to
+pinned `src/htsp_server.c` at f082b430; detailed EPG serialization is delegated
+to `epg_object_serialize` there rather than expanded in the HTSP sender.
+
+| Current property | Wire field | Unit | Pinned lines |
+|---|---|---|---|
+| Event/event-update `startEpochSeconds`, `stopEpochSeconds` | `start`, `stop` | Epoch seconds | 1342–1343 |
+| Event/event-update `firstAiredEpochSeconds` | `firstAired` | Epoch seconds | 1435 |
+| DVR add/update, recording file, explicit-channel selector, update request `startEpochSeconds`, `stopEpochSeconds` | `start`, `stop` | Epoch seconds | 996–997, 1136–1139, 2085–2095, 2198–2199 |
+| DVR update `startExtraMinutes`, `stopExtraMinutes` | `startExtra`, `stopExtra` | Minutes | 998–999, 2200–2201 |
+| DVR update `retentionDays`, `removalDays` | `retention`, `removal` | Days or DVR policy sentinel | 1002–1007, 2202–2203 |
+| DVR update `playPositionSeconds` | `playposition` | Seconds | 1078, 2235, 3066 |
+| DVR cutpoint `startMs`, `endMs` | `start`, `end` | Milliseconds | 2562–2563 |
+| Get-events `maxTimeEpochSeconds` | `maxTime` | Epoch seconds | 1813–1828 |
+| Async metadata `lastUpdateEpochSeconds`, `epgMaxTimeEpochSeconds` | `lastUpdate`, `epgMaxTime` | Epoch seconds | 1662–1679 |
+| Detailed EPG `updatedEpochSeconds`, `startEpochSeconds`, `stopEpochSeconds`, `firstAiredEpochSeconds` | `up`, `start`, `stop`, `fair` | Epoch seconds | 1953–1978 (delegated serialization) |
+| File open/stat `modifiedAtEpochSeconds` | `mtime` | Epoch seconds | 799–800, 3099–3100 |
+| System-time `timeEpochSeconds` | `time` | Epoch seconds | 1636 |
+| File read `sizeBytes` | `size` | Bytes | 3007–3030 |
+| File read/seek, seek response `offsetBytes` | `offset` | Bytes | 3015–3016, 3122–3147 |
+| Subscription byte seek `sizeBytes` | `size` | Bytes | 2832–2835 |
+| Subscribe `queueDepthBytes` | `queueDepth` | Payload bytes | 2676–2677, 4191–4197 |
+| Hello request/response, connected state `protocolVersion` | `htspversion` | Unitless version | 1474–1487 |
+| Queue `delayUs` | `delay` | Microseconds, normalized from negotiated clock | Queued muxpkt `dts`: 4222; queue DTS scan: 4263–4278; difference emitted: 4279 |
+| Subscription stream `frameDurationUs` | `duration` | Microseconds, normalized from negotiated clock | 4350–4351 |
+| Timeshift `shift`, `start`, `end` | `shift`, `start`, `end` | Negotiated 90 kHz ticks or microseconds | 4597–4601 |
+| Subscription seek/skip `time` | `time` | Negotiated 90 kHz ticks or microseconds | 2827–2831, 4630 |
+| Descramble `ecmTime` | `ecmtime` | Not established by pinned sender | 4559 |
+
+### Other protocol behavior
+
 - `ServerError.serverMessage` preserves the reply's string `error`. Pinned
   `src/htsp_server.c:488-494` passes `htsp_error`'s fixed `N_()` literals through
   `tvh_gettext_lang` for the connection language; examples include the DVR
@@ -175,8 +239,9 @@ DVR policy.
   `htsp_subscriptions` for exact `hs_sid`, and returns the missing-subscription error when absent. It queues one
   empty reply before one `subscription_change_weight` call; that order does not
   prove the weight is applied.
-- `subscribe` keeps numeric u32 `90khz`: omission and zero select native 1 MHz
-  values, while any nonzero value selects 90 kHz. Reply `90khz` and `normts`
+- `subscribe` exposes nullable Boolean `ninetyKhz`, encoded as u32 `90khz`:
+  omission and false select native 1 MHz values, while true selects 90 kHz
+  (pinned `src/htsp_server.c:2658`). Reply `90khz` and `normts`
   are strict optional flags exposed as nullable booleans; `normts` reports
   timestamp-origin normalization and does not select a rate. A subscription id
   is reserved before the request write and cannot be reused in the connection

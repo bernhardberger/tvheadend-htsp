@@ -72,7 +72,7 @@ suspend fun runProtocolQuickStart(
                 val generation = connectOutcome.connection.generation
                 val failures = mutableListOf<ProtocolFailurePolicy>()
                 connection.enableAsyncMetadataAwaitingInitialSync(
-                    epg = 1L,
+                    epg = true,
                     language = epgLanguage,
                     expectedGeneration = generation,
                 ).onFailure { failure -> failures += policyFor(failure) }
@@ -89,7 +89,7 @@ suspend fun runProtocolQuickStart(
                 val serverUnixTimeSeconds = connection
                     .getSysTime(expectedGeneration = generation)
                     .fold(
-                        onOk = { response -> response.unixTimeSeconds },
+                        onOk = { response -> response.timeEpochSeconds },
                         onFailure = { failure ->
                             failures += policyFor(failure)
                             null

@@ -2,6 +2,44 @@
 
 ## [Unreleased]
 
+**BREAKING (1.0.0-rc.1 API/ABI):** quantity names now expose their units;
+matching convenience parameters and data-class copy parameters follow them.
+HTSP field names and integer widths are unchanged. Full wire-field and pinned
+source evidence is in [the units table](docs/htsp-protocol/README.md#units).
+
+| Surface | Old → new |
+|---|---|
+| Event/event-update; DVR add/update, recording file, explicit channel selector, update request | `start`/`stop` → `startEpochSeconds`/`stopEpochSeconds` |
+| Event/event-update | `firstAired` → `firstAiredEpochSeconds` |
+| DVR update request | `startExtra`/`stopExtra` → `startExtraMinutes`/`stopExtraMinutes`; `retention`/`removal` → `retentionDays`/`removalDays`; `playPosition` → `playPositionSeconds` |
+| DVR cutpoint | `start`/`end` → `startMs`/`endMs` |
+| Get-events; async metadata | `maxTime` → `maxTimeEpochSeconds`; `lastUpdate`/`epgMaxTime` → `lastUpdateEpochSeconds`/`epgMaxTimeEpochSeconds` |
+| Detailed EPG; file open/stat | `…UnixSeconds` → `…EpochSeconds` |
+| System-time response | `unixTimeSeconds` → `timeEpochSeconds` |
+| File read; file read/seek and seek response | `size` → `sizeBytes`; `offset` → `offsetBytes` |
+| Subscription byte seek; subscribe | `size` → `sizeBytes`; `queueDepth` → `queueDepthBytes` |
+| Hello request/response; connected state | `htspVersion` → `protocolVersion` |
+| Queue status; subscription stream | `delay` → `delayUs`; `frameDuration` → `frameDurationUs` (normalized to microseconds) |
+
+**BREAKING (1.0.0-rc.1 API/ABI):** integer wire flags now use Boolean values,
+with null still meaning absent/omitted. Requests encode 0/1; message decoding
+rejects non-0/1 integer flags. Changed properties and matching convenience
+parameters (names and HTSP wire field names are unchanged):
+
+| Surface | Property | Old → new |
+|---|---|---|
+| DVR update request; DVR add/update messages | `enabled` | `Long?` → `Boolean?` |
+| DVR add/update messages | `duplicate` | `Long?` → `Boolean?` |
+| Autorec add/update requests | `fullText`, `mergeText` | `Long?` → `Boolean?` |
+| Event and event-update models | `isNew` | `Long?` → `Boolean?` |
+| EPG query request | `full` | `Long?` → `Boolean?` |
+| Async metadata request | `epg` | `Long?` → `Boolean?` |
+| Subscribe request | `ninetyKhz` | `Long?` → `Boolean?` |
+| Subscription seek/skip requests | `absolute` | `Long?` → `Boolean?` |
+| Subscription skip message | `absolute`, `error` | `Long?` → `Boolean?` |
+| Subscription stream | `rdsUecp` | `Long?` → `Boolean?` |
+| Timeshift status message | `full` | `Long` → `Boolean` |
+
 **BREAKING (1.0.0-rc.1 API/ABI):** `HtspResult.ServerError` is now a data class
 with optional `serverMessage` carrying the server's own rejection text. `when`
 branches must use `is`; equality includes the message. Local failures leave it

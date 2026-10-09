@@ -70,7 +70,7 @@ suspend fun main() {
                 println("Could not connect: ${outcome.failure.kind}")
             is HtspConnectOutcome.Connected -> {
                 val serverTime = connection.getSysTime().getOrNull()
-                println("Server time: ${serverTime?.unixTimeSeconds}")
+                println("Server time: ${serverTime?.timeEpochSeconds}")
             }
         }
     } finally {
@@ -169,7 +169,7 @@ suspend fun runProtocolQuickStart(
                 val generation = connectOutcome.connection.generation
                 val failures = mutableListOf<ProtocolFailurePolicy>()
                 connection.enableAsyncMetadataAwaitingInitialSync(
-                    epg = 1L,
+                    epg = true,
                     language = epgLanguage,
                     expectedGeneration = generation,
                 ).onFailure { failure -> failures += policyFor(failure) }
@@ -186,7 +186,7 @@ suspend fun runProtocolQuickStart(
                 val serverUnixTimeSeconds = connection
                     .getSysTime(expectedGeneration = generation)
                     .fold(
-                        onOk = { response -> response.unixTimeSeconds },
+                        onOk = { response -> response.timeEpochSeconds },
                         onFailure = { failure ->
                             failures += policyFor(failure)
                             null

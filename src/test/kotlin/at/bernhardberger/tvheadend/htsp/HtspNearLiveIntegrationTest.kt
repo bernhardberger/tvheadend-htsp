@@ -91,7 +91,7 @@ internal class HtspNearLiveIntegrationTest {
                 connection.subscriptionSkip(
                     subscriptionId = SUBSCRIPTION_ID,
                     position = SubscriptionSeekPosition.Time(-REWIND_MICROSECONDS),
-                    absolute = 0L,
+                    absolute = false,
                     expectedGeneration = live.generation,
                 ) is HtspResult.Ok,
                 "Timeshift rewind request must be acknowledged",
@@ -260,13 +260,13 @@ internal class HtspNearLiveIntegrationTest {
                             is HtspDvrEntryAddMessage -> recordCompletedDvrChannel(
                                 message.channelId,
                                 message.state,
-                                message.stop,
+                                message.stopEpochSeconds,
                                 message.files,
                             )
                             is HtspDvrEntryUpdateMessage -> recordCompletedDvrChannel(
                                 message.channelId,
                                 message.state,
-                                message.stop,
+                                message.stopEpochSeconds,
                                 message.files,
                             )
                             HtspInitialSyncCompletedMessage -> initialSync = true

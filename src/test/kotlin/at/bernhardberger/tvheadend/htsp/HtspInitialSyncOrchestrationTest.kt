@@ -36,9 +36,9 @@ internal class HtspInitialSyncOrchestrationTest {
             assertEquals(1, eventSource.subscriptionCount.value)
             assertEquals(
                 EnableAsyncMetadataRequest(
-                    epg = 1L,
-                    lastUpdate = Long.MIN_VALUE,
-                    epgMaxTime = Long.MAX_VALUE,
+                    epg = true,
+                    lastUpdateEpochSeconds = Long.MIN_VALUE,
+                    epgMaxTimeEpochSeconds = Long.MAX_VALUE,
                     language = "eng",
                 ),
                 request,
@@ -52,9 +52,9 @@ internal class HtspInitialSyncOrchestrationTest {
         assertEquals(
             HtspResult.Ok(Unit),
             connection.enableAsyncMetadataAwaitingInitialSync(
-                epg = 1L,
-                lastUpdate = Long.MIN_VALUE,
-                epgMaxTime = Long.MAX_VALUE,
+                epg = true,
+                lastUpdateEpochSeconds = Long.MIN_VALUE,
+                epgMaxTimeEpochSeconds = Long.MAX_VALUE,
                 language = "eng",
                 expectedGeneration = generation,
             ),

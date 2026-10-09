@@ -14,6 +14,110 @@ import org.junit.jupiter.api.Test
 
 class HtspServerMessageTest {
     @Test
+    fun renamedWallClockAndRecordingFilePropertiesReadOriginalFields() {
+        val event = decodeMessage(minimalFixture("eventAdd") + mapOf(
+            "start" to 100L, "stop" to 200L, "firstAired" to 50L,
+        )) as HtspEventAddMessage
+        assertEquals(100L, event.event.startEpochSeconds)
+        assertEquals(200L, event.event.stopEpochSeconds)
+        assertEquals(50L, event.event.firstAiredEpochSeconds)
+        val update = decodeMessage(minimalFixture("eventUpdate") + mapOf(
+            "start" to 100L, "stop" to 200L, "firstAired" to 50L,
+        )) as HtspEventUpdateMessage
+        assertEquals(100L, update.startEpochSeconds)
+        assertEquals(200L, update.stopEpochSeconds)
+        assertEquals(50L, update.firstAiredEpochSeconds)
+        val dvr = decodeMessage(minimalFixture("dvrEntryUpdate") + mapOf(
+            "start" to 100L, "stop" to 200L,
+            "files" to listOf(mapOf("start" to 110L, "stop" to 190L)),
+        )) as HtspDvrEntryUpdateMessage
+        assertEquals(100L, dvr.startEpochSeconds)
+        assertEquals(200L, dvr.stopEpochSeconds)
+        assertEquals(110L, dvr.files!!.single().startEpochSeconds)
+        assertEquals(190L, dvr.files!!.single().stopEpochSeconds)
+    }
+
+    @Test
+    fun queueDelayAndFrameDurationUseTheSubscriptionClock() {
+        listOf(HtspTimestampClock.MICROSECONDS, HtspTimestampClock.NINETY_KHZ).forEach { clock ->
+            val expected = if (clock == HtspTimestampClock.NINETY_KHZ) 1_000_000L else 90_000L
+            val queue = decodeHtspServerMessage(minimalFixture("queueStatus") + ("delay" to 90_000L)) {
+                assertEquals(1L, it)
+                clock
+            } as HtspServerMessageDecoded
+            assertEquals(expected, (queue.message as HtspQueueStatusMessage).delayUs)
+            val start = decodeHtspServerMessage(minimalFixture("subscriptionStart") + ("streams" to
+                listOf(mapOf("index" to 0L, "type" to "H264", "duration" to 90_000L)))) {
+                assertEquals(1L, it)
+                clock
+            }
+                as HtspServerMessageDecoded
+            assertEquals(expected, (start.message as HtspSubscriptionStartMessage).streams!!.single().frameDurationUs)
+        }
+        assertEquals(null, (decodeMessage(minimalFixture("queueStatus")) as HtspQueueStatusMessage).delayUs)
+        listOf(-90_000L to -1_000_000L, -10L to -111L, 10L to 111L).forEach { (ticks, expected) ->
+            val decoded = decodeHtspServerMessage(minimalFixture("queueStatus") + ("delay" to ticks)) {
+                HtspTimestampClock.NINETY_KHZ
+            } as HtspServerMessageDecoded
+            assertEquals(expected, (decoded.message as HtspQueueStatusMessage).delayUs)
+            assertEquals(HtspTimestampClock.NINETY_KHZ.toMicroseconds(ticks), expected)
+        }
+        val maximum = decodeHtspServerMessage(minimalFixture("subscriptionStart") + ("streams" to
+            listOf(mapOf("index" to 0L, "type" to "H264", "duration" to 0xffff_ffffL)))) {
+            HtspTimestampClock.NINETY_KHZ
+        } as HtspServerMessageDecoded
+        assertEquals(47_721_858_833L,
+            (maximum.message as HtspSubscriptionStartMessage).streams!!.single().frameDurationUs)
+        assertTrue(decodeHtspServerMessage(minimalFixture("queueStatus") + ("delay" to Long.MAX_VALUE)) {
+            HtspTimestampClock.NINETY_KHZ
+        } is HtspServerMessageMalformedKnownMessage)
+    }
+
+    @Test
+    fun streamRdsUecpIsAStrictOptionalIntegerFlag() {
+        val fixture = minimalFixture("subscriptionStart")
+        fun fields(value: Map<String, Any?>): Map<String, Any?> = fixture +
+            ("streams" to listOf(mapOf("index" to 1L, "type" to "MPEG2AUDIO") + value))
+        listOf(null, false, true).forEach { expected ->
+            val flag = expected?.let { mapOf("rds_uecp" to if (it) 1L else 0L) } ?: emptyMap()
+            val message = decodeMessage(fields(flag)) as HtspSubscriptionStartMessage
+            assertEquals(expected, checkNotNull(message.streams).single().rdsUecp)
+        }
+        listOf(null, -1L, 2L, 0xffff_ffffL, true, "1").forEach { malformed ->
+            assertMalformed(fields(mapOf("rds_uecp" to malformed)))
+        }
+    }
+
+    @Test
+    fun integerWireFlagsDecodeStrictlyWithOptionalAbsence() {
+        val cases: List<Triple<String, String, (HtspServerMessage) -> Boolean?>> = listOf(
+            Triple("dvrEntryAdd", "enabled") { (it as HtspDvrEntryAddMessage).enabled },
+            Triple("dvrEntryUpdate", "enabled") { (it as HtspDvrEntryUpdateMessage).enabled },
+            Triple("dvrEntryAdd", "duplicate") { (it as HtspDvrEntryAddMessage).duplicate },
+            Triple("dvrEntryUpdate", "duplicate") { (it as HtspDvrEntryUpdateMessage).duplicate },
+            Triple("eventAdd", "isNew") { (it as HtspEventAddMessage).event.isNew },
+            Triple("eventUpdate", "isNew") { (it as HtspEventUpdateMessage).isNew },
+            Triple("timeshiftStatus", "full") { (it as HtspTimeshiftStatusMessage).full },
+            Triple("subscriptionSkip", "absolute") { (it as HtspSubscriptionSkipMessage).absolute },
+            Triple("subscriptionSkip", "error") { (it as HtspSubscriptionSkipMessage).error },
+        )
+        cases.forEach { (method, field, readFlag) ->
+            val fixture = minimalFixture(method)
+            listOf(0L to false, 1L to true).forEach { (wire, expected) ->
+                assertEquals(expected, readFlag(decodeMessage(fixture + (field to wire))))
+            }
+            if (method == "timeshiftStatus") {
+                assertMalformed(fixture - field)
+            } else {
+                assertEquals(null, readFlag(decodeMessage(fixture - field)))
+            }
+            listOf(null, -1L, 2L, 0xffff_ffffL, true, "1").forEach { malformed ->
+                assertMalformed(fixture + (field to malformed))
+            }
+        }
+    }
+
+    @Test
     fun queueErrorsPreservePresenceAndUnsignedWireValues() {
         val fixture = minimalFixture("queueStatus")
         val absent = decodeMessage(fixture) as HtspQueueStatusMessage
@@ -711,8 +815,8 @@ class HtspServerMessageTest {
         ) as HtspEventAddMessage
         assertEquals(1L, added.event.eventId)
         assertEquals(2L, added.event.channelId)
-        assertEquals(3L, added.event.start)
-        assertEquals(4L, added.event.stop)
+        assertEquals(3L, added.event.startEpochSeconds)
+        assertEquals(4L, added.event.stopEpochSeconds)
         assertEquals("Title", added.event.title)
         assertEquals("News", added.genre)
         assertEquals(5L, added.event.contentType)
@@ -727,7 +831,7 @@ class HtspServerMessageTest {
         val update = decodeMessage(mapOf("method" to "eventUpdate", "id" to 1L))
             as HtspEventUpdateMessage
         assertEquals(null, update.channelId)
-        assertEquals(null, update.start)
+        assertEquals(null, update.startEpochSeconds)
         assertEquals(null, update.title)
         assertMalformed(
             mapOf(

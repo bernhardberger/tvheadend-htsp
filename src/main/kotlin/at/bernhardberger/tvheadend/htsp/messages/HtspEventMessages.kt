@@ -52,7 +52,6 @@ public data class HtspEventAddMessage private constructor(
                     this.event.ageRating,
                     this.event.starRating,
                     this.event.copyrightYear,
-                    this.event.isNew,
                     this.event.seasonNumber,
                     this.event.seasonCount,
                     this.event.episodeNumber,
@@ -72,8 +71,10 @@ public data class HtspEventAddMessage private constructor(
 public data class HtspEventUpdateMessage private constructor(
     public val eventId: Long,
     public val channelId: Long? = null,
-    public val start: Long? = null,
-    public val stop: Long? = null,
+    /** HTSP `start`, epoch seconds; null means absent (htsp_server.c:1342). */
+    public val startEpochSeconds: Long? = null,
+    /** HTSP `stop`, epoch seconds; null means absent (htsp_server.c:1343). */
+    public val stopEpochSeconds: Long? = null,
     public val title: String? = null,
     public val subtitle: String? = null,
     public val summary: String? = null,
@@ -91,8 +92,10 @@ public data class HtspEventUpdateMessage private constructor(
     public val ratingCountry: String? = null,
     public val starRating: Long? = null,
     public val copyrightYear: Long? = null,
-    public val firstAired: Long? = null,
-    public val isNew: Long? = null,
+    /** HTSP `firstAired`, first-air epoch seconds; null means absent (htsp_server.c:1435). */
+    public val firstAiredEpochSeconds: Long? = null,
+    /** HTSP `isNew`: optional new-broadcast flag (pinned htsp_server.c:1437). */
+    public val isNew: Boolean? = null,
     public val seasonNumber: Long? = null,
     public val seasonCount: Long? = null,
     public val episodeNumber: Long? = null,
@@ -110,8 +113,8 @@ public data class HtspEventUpdateMessage private constructor(
     public constructor(
         eventId: Long,
         channelId: Long? = null,
-        start: Long? = null,
-        stop: Long? = null,
+        startEpochSeconds: Long? = null,
+        stopEpochSeconds: Long? = null,
         title: String? = null,
         subtitle: String? = null,
         summary: String? = null,
@@ -129,8 +132,8 @@ public data class HtspEventUpdateMessage private constructor(
         ratingCountry: String? = null,
         starRating: Long? = null,
         copyrightYear: Long? = null,
-        firstAired: Long? = null,
-        isNew: Long? = null,
+        firstAiredEpochSeconds: Long? = null,
+        isNew: Boolean? = null,
         seasonNumber: Long? = null,
         seasonCount: Long? = null,
         episodeNumber: Long? = null,
@@ -146,8 +149,8 @@ public data class HtspEventUpdateMessage private constructor(
     ) : this(
         eventId = eventId,
         channelId = channelId,
-        start = start,
-        stop = stop,
+        startEpochSeconds = startEpochSeconds,
+        stopEpochSeconds = stopEpochSeconds,
         title = title,
         subtitle = subtitle,
         summary = summary,
@@ -165,7 +168,7 @@ public data class HtspEventUpdateMessage private constructor(
         ratingCountry = ratingCountry,
         starRating = starRating,
         copyrightYear = copyrightYear,
-        firstAired = firstAired,
+        firstAiredEpochSeconds = firstAiredEpochSeconds,
         isNew = isNew,
         seasonNumber = seasonNumber,
         seasonCount = seasonCount,
@@ -186,8 +189,8 @@ public data class HtspEventUpdateMessage private constructor(
     public fun copy(
         eventId: Long = this.eventId,
         channelId: Long? = this.channelId,
-        start: Long? = this.start,
-        stop: Long? = this.stop,
+        startEpochSeconds: Long? = this.startEpochSeconds,
+        stopEpochSeconds: Long? = this.stopEpochSeconds,
         title: String? = this.title,
         subtitle: String? = this.subtitle,
         summary: String? = this.summary,
@@ -205,8 +208,8 @@ public data class HtspEventUpdateMessage private constructor(
         ratingCountry: String? = this.ratingCountry,
         starRating: Long? = this.starRating,
         copyrightYear: Long? = this.copyrightYear,
-        firstAired: Long? = this.firstAired,
-        isNew: Long? = this.isNew,
+        firstAiredEpochSeconds: Long? = this.firstAiredEpochSeconds,
+        isNew: Boolean? = this.isNew,
         seasonNumber: Long? = this.seasonNumber,
         seasonCount: Long? = this.seasonCount,
         episodeNumber: Long? = this.episodeNumber,
@@ -222,8 +225,8 @@ public data class HtspEventUpdateMessage private constructor(
     ): HtspEventUpdateMessage = HtspEventUpdateMessage(
         eventId = eventId,
         channelId = channelId,
-        start = start,
-        stop = stop,
+        startEpochSeconds = startEpochSeconds,
+        stopEpochSeconds = stopEpochSeconds,
         title = title,
         subtitle = subtitle,
         summary = summary,
@@ -241,7 +244,7 @@ public data class HtspEventUpdateMessage private constructor(
         ratingCountry = ratingCountry,
         starRating = starRating,
         copyrightYear = copyrightYear,
-        firstAired = firstAired,
+        firstAiredEpochSeconds = firstAiredEpochSeconds,
         isNew = isNew,
         seasonNumber = seasonNumber,
         seasonCount = seasonCount,
@@ -266,7 +269,6 @@ public data class HtspEventUpdateMessage private constructor(
         ageRating?.let { requireU32("ageRating", it) }
         starRating?.let { requireU32("starRating", it) }
         copyrightYear?.let { requireU32("copyrightYear", it) }
-        isNew?.let { requireU32("isNew", it) }
         seasonNumber?.let { requireU32("seasonNumber", it) }
         seasonCount?.let { requireU32("seasonCount", it) }
         episodeNumber?.let { requireU32("episodeNumber", it) }

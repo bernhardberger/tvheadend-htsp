@@ -58,12 +58,12 @@ internal class HtspNearLiveSkipTest {
                     SubscriptionSkipRequest(
                         subscriptionId = 7L,
                         position = SubscriptionSeekPosition.Time(17_000_000L),
-                        absolute = 1L,
+                        absolute = true,
                     ),
                     SubscriptionSkipRequest(
                         subscriptionId = 7L,
                         position = SubscriptionSeekPosition.Time(1_530_000L),
-                        absolute = 1L,
+                        absolute = true,
                     ),
                 ),
                 requests,
@@ -225,7 +225,7 @@ internal class HtspNearLiveSkipTest {
     private fun status(start: Long?, end: Long?): HtspTimeshiftStatusMessage =
         HtspTimeshiftStatusMessage(
             subscriptionId = 7L,
-            full = 0L,
+            full = false,
             shift = 0L,
             start = start,
             end = end,

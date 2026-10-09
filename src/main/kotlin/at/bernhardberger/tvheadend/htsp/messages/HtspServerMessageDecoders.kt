@@ -92,14 +92,14 @@ internal fun decodeTagDelete(fields: Map<String, Any?>): HtspServerMessage =
 internal fun decodeDvrEntryAdd(fields: Map<String, Any?>): HtspServerMessage = HtspDvrEntryAddMessage(
     entryId = fields.requiredServerAliasU32(DVR_ID_KEYS),
     entryUuid = fields.optionalString("idStr"),
-    enabled = fields.optionalU32("enabled"),
+    enabled = fields.optionalFlag("enabled"),
     channelId = fields.optionalServerAliasU32(DVR_CHANNEL_KEYS),
     channelName = fields.optionalString("channelName"),
     eventId = fields.optionalU32("eventId"),
     autorecEntryUuid = fields.optionalString("autorecId"),
     timerecEntryUuid = fields.optionalString("timerecId"),
-    start = fields.optionalS64("start"),
-    stop = fields.optionalS64("stop"),
+    startEpochSeconds = fields.optionalS64("start"),
+    stopEpochSeconds = fields.optionalS64("stop"),
     startExtraMinutes = fields.optionalS64("startExtra"),
     stopExtraMinutes = fields.optionalS64("stopExtra"),
     retentionDays = fields.optionalU32("retention"),
@@ -131,7 +131,7 @@ internal fun decodeDvrEntryAdd(fields: Map<String, Any?>): HtspServerMessage = H
     files = fields.optionalObjectList("files", ::decodeDvrRecordingFile),
     path = fields.optionalString("path"),
     dvrConfigUuid = fields.optionalString("configId"),
-    duplicate = fields.optionalU32("duplicate"),
+    duplicate = fields.optionalFlag("duplicate"),
     state = fields.optionalServerAliasString(STATUS_KEYS),
     error = fields.optionalServerAliasString(DVR_ERROR_KEYS),
     subscriptionError = fields.optionalString("subscriptionError"),
@@ -144,14 +144,14 @@ internal fun decodeDvrEntryAdd(fields: Map<String, Any?>): HtspServerMessage = H
 internal fun decodeDvrEntryUpdate(fields: Map<String, Any?>): HtspServerMessage = HtspDvrEntryUpdateMessage(
     entryId = fields.requiredServerAliasU32(DVR_ID_KEYS),
     entryUuid = fields.optionalString("idStr"),
-    enabled = fields.optionalU32("enabled"),
+    enabled = fields.optionalFlag("enabled"),
     channelId = fields.optionalServerAliasU32(DVR_CHANNEL_KEYS),
     channelName = fields.optionalString("channelName"),
     eventId = fields.optionalU32("eventId"),
     autorecEntryUuid = fields.optionalString("autorecId"),
     timerecEntryUuid = fields.optionalString("timerecId"),
-    start = fields.optionalS64("start"),
-    stop = fields.optionalS64("stop"),
+    startEpochSeconds = fields.optionalS64("start"),
+    stopEpochSeconds = fields.optionalS64("stop"),
     startExtraMinutes = fields.optionalS64("startExtra"),
     stopExtraMinutes = fields.optionalS64("stopExtra"),
     retentionDays = fields.optionalU32("retention"),
@@ -183,7 +183,7 @@ internal fun decodeDvrEntryUpdate(fields: Map<String, Any?>): HtspServerMessage 
     files = fields.optionalObjectList("files", ::decodeDvrRecordingFile),
     path = fields.optionalString("path"),
     dvrConfigUuid = fields.optionalString("configId"),
-    duplicate = fields.optionalU32("duplicate"),
+    duplicate = fields.optionalFlag("duplicate"),
     state = fields.optionalServerAliasString(STATUS_KEYS),
     error = fields.optionalServerAliasString(DVR_ERROR_KEYS),
     subscriptionError = fields.optionalString("subscriptionError"),
@@ -321,8 +321,8 @@ internal fun decodeEventAdd(fields: Map<String, Any?>): HtspServerMessage =
 internal fun decodeEventUpdate(fields: Map<String, Any?>): HtspServerMessage = HtspEventUpdateMessage(
     eventId = fields.requiredServerAliasU32(EVENT_ID_KEYS),
     channelId = fields.optionalServerAliasU32(EVENT_CHANNEL_KEYS),
-    start = fields.optionalServerAliasS64(EVENT_START_KEYS),
-    stop = fields.optionalServerAliasS64(EVENT_STOP_KEYS),
+    startEpochSeconds = fields.optionalServerAliasS64(EVENT_START_KEYS),
+    stopEpochSeconds = fields.optionalServerAliasS64(EVENT_STOP_KEYS),
     title = fields.optionalServerAliasString(EVENT_TITLE_KEYS),
     subtitle = fields.optionalString("subtitle"),
     summary = fields.optionalString("summary"),
@@ -340,8 +340,8 @@ internal fun decodeEventUpdate(fields: Map<String, Any?>): HtspServerMessage = H
     ratingCountry = fields.optionalString("ratingCountry"),
     starRating = fields.optionalU32("starRating"),
     copyrightYear = fields.optionalU32("copyrightYear"),
-    firstAired = fields.optionalS64("firstAired"),
-    isNew = fields.optionalU32("isNew"),
+    firstAiredEpochSeconds = fields.optionalS64("firstAired"),
+    isNew = fields.optionalFlag("isNew"),
     seasonNumber = fields.optionalServerEventU32(listOf("seasonNumber", "season"), listOf("seasonNumber", "season")),
     seasonCount = fields.optionalServerEventU32(listOf("seasonCount"), listOf("seasonCount", "count")),
     episodeNumber = fields.optionalServerEventU32(listOf("episodeNumber"), listOf("episodeNumber", "number")),
@@ -396,11 +396,16 @@ internal fun decodeMuxPacket(
 }
 
 @JvmSynthetic
-internal fun decodeQueueStatus(fields: Map<String, Any?>): HtspServerMessage = HtspQueueStatusMessage(
+internal fun decodeQueueStatus(
+    fields: Map<String, Any?>,
+    timestampClockForSubscription: (Long) -> HtspTimestampClock = { HtspTimestampClock.MICROSECONDS },
+): HtspServerMessage = HtspQueueStatusMessage(
     subscriptionId = fields.requiredU32("subscriptionId"),
     packetCount = fields.requiredU32("packets"),
     byteCount = fields.requiredU32("bytes"),
-    delay = fields.optionalS64("delay"),
+    delayUs = fields.optionalS64("delay")?.let {
+        timestampClockForSubscription(fields.requiredU32("subscriptionId")).normalizedMicroseconds(it)
+    },
     bFrameDropCount = fields.requiredU32("Bdrops"),
     pFrameDropCount = fields.requiredU32("Pdrops"),
     iFrameDropCount = fields.requiredU32("Idrops"),
@@ -408,10 +413,15 @@ internal fun decodeQueueStatus(fields: Map<String, Any?>): HtspServerMessage = H
 )
 
 @JvmSynthetic
-internal fun decodeSubscriptionStart(fields: Map<String, Any?>): HtspServerMessage =
+internal fun decodeSubscriptionStart(
+    fields: Map<String, Any?>,
+    timestampClockForSubscription: (Long) -> HtspTimestampClock = { HtspTimestampClock.MICROSECONDS },
+): HtspServerMessage =
     HtspSubscriptionStartMessage(
         subscriptionId = fields.requiredServerAliasU32(SUBSCRIPTION_ID_KEYS),
-        streams = fields.optionalObjectList("streams", ::decodeSubscriptionStream),
+        streams = fields.optionalObjectList("streams") {
+            decodeSubscriptionStream(it, timestampClockForSubscription(fields.requiredServerAliasU32(SUBSCRIPTION_ID_KEYS)))
+        },
         sourceInfo = if (fields.containsKey("sourceinfo")) {
             decodeSubscriptionSourceInfo(fields.requiredObject("sourceinfo"))
         } else {
@@ -483,7 +493,7 @@ internal fun decodeSubscriptionSpeed(fields: Map<String, Any?>): HtspServerMessa
 internal fun decodeTimeshiftStatus(fields: Map<String, Any?>): HtspServerMessage =
     HtspTimeshiftStatusMessage(
         subscriptionId = fields.requiredU32("subscriptionId"),
-        full = fields.requiredU32("full"),
+        full = fields.requiredFlag("full"),
         shift = fields.requiredS64("shift"),
         start = fields.optionalS64("start"),
         end = fields.optionalS64("end"),
@@ -494,8 +504,8 @@ internal fun decodeTimeshiftStatus(fields: Map<String, Any?>): HtspServerMessage
 internal fun decodeSubscriptionSkip(fields: Map<String, Any?>): HtspServerMessage =
     HtspSubscriptionSkipMessage(
         subscriptionId = fields.requiredU32("subscriptionId"),
-        absolute = fields.optionalU32("absolute"),
-        error = fields.optionalU32("error"),
+        absolute = fields.optionalFlag("absolute"),
+        error = fields.optionalFlag("error"),
         time = fields.optionalS64("time"),
         sizeBytes = fields.optionalS64("size"),
     )
@@ -515,8 +525,8 @@ private fun decodeDvrRecordingFile(fields: Map<*, *>): HtspDvrRecordingFile = fi
     HtspDvrRecordingFile(
         fileId = optionalU32("id"),
         path = fields.optionalServerAliasString(DVR_FILE_PATH_KEYS),
-        start = optionalS64("start"),
-        stop = optionalS64("stop"),
+        startEpochSeconds = optionalS64("start"),
+        stopEpochSeconds = optionalS64("stop"),
         sizeBytes = optionalS64("size"),
     )
 }
@@ -524,8 +534,8 @@ private fun decodeDvrRecordingFile(fields: Map<*, *>): HtspDvrRecordingFile = fi
 private fun decodeServerEvent(fields: Map<*, *>): HtspEvent = HtspEvent(
     eventId = fields.requiredServerAliasU32(EVENT_ID_KEYS),
     channelId = fields.optionalServerAliasU32(EVENT_CHANNEL_KEYS),
-    start = fields.requiredServerAliasS64(EVENT_START_KEYS),
-    stop = fields.requiredServerAliasS64(EVENT_STOP_KEYS),
+    startEpochSeconds = fields.requiredServerAliasS64(EVENT_START_KEYS),
+    stopEpochSeconds = fields.requiredServerAliasS64(EVENT_STOP_KEYS),
     title = fields.optionalServerAliasString(EVENT_TITLE_KEYS),
     subtitle = fields.optionalString("subtitle"),
     summary = fields.optionalString("summary"),
@@ -542,8 +552,8 @@ private fun decodeServerEvent(fields: Map<*, *>): HtspEvent = HtspEvent(
     ratingCountry = fields.optionalString("ratingCountry"),
     starRating = fields.optionalU32("starRating"),
     copyrightYear = fields.optionalU32("copyrightYear"),
-    firstAired = fields.optionalS64("firstAired"),
-    isNew = fields.optionalU32("isNew"),
+    firstAiredEpochSeconds = fields.optionalS64("firstAired"),
+    isNew = fields.optionalFlag("isNew"),
     seasonNumber = fields.optionalServerEventU32(listOf("seasonNumber", "season"), listOf("seasonNumber", "season")),
     seasonCount = fields.optionalServerEventU32(listOf("seasonCount"), listOf("seasonCount", "count")),
     episodeNumber = fields.optionalServerEventU32(listOf("episodeNumber"), listOf("episodeNumber", "number")),
@@ -556,7 +566,7 @@ private fun decodeServerEvent(fields: Map<*, *>): HtspEvent = HtspEvent(
     nextEventId = fields.optionalU32("nextEventId"),
 )
 
-private fun decodeSubscriptionStream(fields: Map<*, *>): HtspSubscriptionStream = fields.server().run {
+private fun decodeSubscriptionStream(fields: Map<*, *>, clock: HtspTimestampClock): HtspSubscriptionStream = fields.server().run {
     HtspSubscriptionStream(
         streamIndex = requiredU32("index"),
         streamType = requiredString("type"),
@@ -565,16 +575,22 @@ private fun decodeSubscriptionStream(fields: Map<*, *>): HtspSubscriptionStream 
         ancillaryId = optionalU32("ancillary_id"),
         width = optionalU32("width"),
         height = optionalU32("height"),
-        frameDuration = optionalU32("duration"),
+        frameDurationUs = optionalU32("duration")?.let(clock::normalizedMicroseconds),
         aspectNumerator = optionalU32("aspect_num"),
         aspectDenominator = optionalU32("aspect_den"),
         audioType = optionalU32("audio_type"),
         audioVersion = optionalU32("audio_version"),
         channelCount = optionalU32("channels"),
         sampleRate = optionalU32("rate"),
-        rdsUecp = optionalU32("rds_uecp"),
+        rdsUecp = optionalFlag("rds_uecp"),
         codecMetadata = optionalBinary("meta")?.let(::HtspBinary),
     )
+}
+
+private fun HtspTimestampClock.normalizedMicroseconds(value: Long): Long = try {
+    toMicroseconds(value)
+} catch (_: ArithmeticException) {
+    throw HtspServerMessageMappingException()
 }
 
 private fun decodeSubscriptionSourceInfo(fields: Map<*, *>): HtspSubscriptionSourceInfo = fields.server().run {

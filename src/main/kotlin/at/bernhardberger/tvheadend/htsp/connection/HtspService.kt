@@ -136,13 +136,15 @@ public sealed class HtspConnectionState {
     /** A connection attempt is in progress for the recorded host and port. */
     public data class Connecting(val host: String, val port: Int) : HtspConnectionState()
     /**
+     * @param protocolVersion Negotiated HTSP `htspversion`, a unitless version number;
+     * null means unknown (pinned htsp_server.c:1474–1487).
      * @param dvrAccess HTSP `ACCESS_HTSP_RECORDER` from authenticate (version ≥ 26).
      * null when unauthenticated or the field was not returned.
      */
     public data class Connected(
         val host: String,
         val port: Int,
-        val htspVersion: Int?,
+        val protocolVersion: Int?,
         val dvrAccess: Boolean? = null,
     ) : HtspConnectionState()
     /** A connection attempt or active transport failed. */
@@ -257,7 +259,7 @@ internal open class `HtspService-internal`(
         password: String? = null,
         clientName: String = clientIdentity.clientName,
         clientVersion: String = clientIdentity.clientVersion,
-        htspVersion: Int = 44,
+        protocolVersion: Int = 44,
 
         connectTimeoutMs: Int = 10_000,
         responseTimeoutMs: Long = 5_000,
@@ -331,7 +333,7 @@ internal open class `HtspService-internal`(
                     reader.start()
 
                     val helloRequest = HelloRequest(
-                        htspVersion = htspVersion.toLong(),
+                        protocolVersion = protocolVersion.toLong(),
                         clientName = clientName,
                     )
                     val hello = when (
@@ -346,8 +348,8 @@ internal open class `HtspService-internal`(
                     }
                     val negotiatedVersion = checkNotNull(
                         negotiatedHtspVersion(
-                            requested = helloRequest.htspVersion,
-                            server = hello.htspVersion,
+                            requested = helloRequest.protocolVersion,
+                            server = hello.protocolVersion,
                         ),
                     )
                     val sessionChallenge = hello.challenge.toByteArray()
@@ -399,7 +401,7 @@ internal open class `HtspService-internal`(
                             state = HtspConnectionState.Connected(
                                 host = host,
                                 port = port,
-                                htspVersion = negotiatedHtspVersion,
+                                protocolVersion = negotiatedHtspVersion,
                                 dvrAccess = dvrAccess,
                             ),
                             serverFacts = serverFacts,
@@ -455,7 +457,7 @@ internal open class `HtspService-internal`(
             port = endpoint.port,
             username = endpoint.username,
             password = endpoint.password,
-            htspVersion = options.requestedProtocolVersion,
+            protocolVersion = options.requestedProtocolVersion,
             connectTimeoutMs = options.connectTimeoutMs.toInt(),
             responseTimeoutMs = options.responseTimeoutMs,
             soTimeoutMs = options.socketReadTimeoutMs.toInt(),
@@ -1314,7 +1316,7 @@ internal open class `HtspService-internal`(
             )
         }
         generation.subscriptionTimestampClocks[request.subscriptionId] =
-            if (request.ninetyKhz != null && request.ninetyKhz != 0L) {
+            if (request.ninetyKhz == true) {
                 HtspTimestampClock.NINETY_KHZ
             } else {
                 HtspTimestampClock.MICROSECONDS
@@ -1393,7 +1395,7 @@ internal open class `HtspService-internal`(
             when {
                 request is HelloRequest && result is HtspResult.Ok -> {
                     val hello = result.value as HelloResponse
-                    val version = negotiatedHtspVersion(request.htspVersion, hello.htspVersion)
+                    val version = negotiatedHtspVersion(request.protocolVersion, hello.protocolVersion)
                     val facts = (liveServerFacts ?: HtspServerFacts()).withHelloObservations(hello)
                     challenge = hello.challenge.toByteArray()
                     negotiatedHtspVersion = version
@@ -1402,7 +1404,7 @@ internal open class `HtspService-internal`(
                         protocolVersion = version,
                         serverFacts = facts,
                     )
-                    _state.value = connectedState.copy(htspVersion = version)
+                    _state.value = connectedState.copy(protocolVersion = version)
                 }
                 request is AuthenticateRequest && result is HtspResult.Ok -> {
                     val auth = result.value as AuthenticateResponse
@@ -1473,7 +1475,7 @@ internal open class `HtspService-internal`(
         val generation = checkNotNull(protocolGeneration)
         _liveConnection.value = HtspLiveConnection(
             generation = generation.token,
-            protocolVersion = state.htspVersion,
+            protocolVersion = state.protocolVersion,
             dvrAccess = state.dvrAccess,
             serverFacts = serverFacts,
         )

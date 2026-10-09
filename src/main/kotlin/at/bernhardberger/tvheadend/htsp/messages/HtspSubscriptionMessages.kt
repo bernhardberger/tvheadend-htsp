@@ -34,7 +34,8 @@ public data class HtspQueueStatusMessage(
     public val subscriptionId: Long,
     public val packetCount: Long,
     public val byteCount: Long,
-    public val delay: Long?,
+    /** HTSP `delay`, normalized microseconds; null means absent (htsp_server.c:4258–4279). */
+    public val delayUs: Long?,
     public val bFrameDropCount: Long,
     public val pFrameDropCount: Long,
     public val iFrameDropCount: Long,
@@ -61,14 +62,16 @@ public data class HtspSubscriptionStream(
     public val ancillaryId: Long?,
     public val width: Long?,
     public val height: Long?,
-    public val frameDuration: Long?,
+    /** HTSP `duration`, normalized microseconds; null means absent (htsp_server.c:4350–4351). */
+    public val frameDurationUs: Long?,
     public val aspectNumerator: Long?,
     public val aspectDenominator: Long?,
     public val audioType: Long?,
     public val audioVersion: Long?,
     public val channelCount: Long?,
     public val sampleRate: Long?,
-    public val rdsUecp: Long?,
+    /** HTSP `rds_uecp`: optional 0/1 RDS UECP flag (pinned htsp_server.c:4367). */
+    public val rdsUecp: Boolean?,
     public val codecMetadata: HtspBinary? = null,
 ) {
     init {
@@ -78,15 +81,14 @@ public data class HtspSubscriptionStream(
                     ancillaryId,
                     width,
                     height,
-                    frameDuration,
                     aspectNumerator,
                     aspectDenominator,
                     audioType,
                     audioVersion,
                     channelCount,
                     sampleRate,
-                    rdsUecp,
                 ).forEach { requireU32("stream field", it) }
+        frameDurationUs?.let { require(it >= 0L) { "frameDurationUs must be non-negative" } }
     }
 }
 
@@ -217,6 +219,7 @@ public data class HtspDescrambleInfoMessage(
     public val pid: Long,
     public val conditionalAccessId: Long,
     public val providerId: Long,
+    /** HTSP `ecmtime`, unsigned descrambler timing value; the pinned sender does not specify its unit (htsp_server.c:4559). */
     public val ecmTime: Long,
     public val hopCount: Long,
     public val cardSystem: String? = null,
@@ -249,29 +252,33 @@ public data class HtspSubscriptionSpeedMessage(
 /** Timeshift state for one subscription: fullness, current shift, optional start and end bounds, and optional speed. */
 public data class HtspTimeshiftStatusMessage(
     public val subscriptionId: Long,
-    public val full: Long,
+    /** HTSP `full`: 0/1 buffer-full flag (pinned htsp_server.c:4596). */
+    public val full: Boolean,
+    /** HTSP `shift`, signed ticks in this subscription's negotiated 90 kHz or microsecond clock (htsp_server.c:4597). */
     public val shift: Long,
+    /** HTSP `start`, ticks in this subscription's negotiated clock; null means unavailable (htsp_server.c:4598–4599). */
     public val start: Long?,
+    /** HTSP `end`, ticks in this subscription's negotiated clock; null means unavailable (htsp_server.c:4600–4601). */
     public val end: Long?,
     public val speed: Int? = null,
 ) : HtspServerMessage {
     init {
         requireU32("subscriptionId", subscriptionId)
-        requireU32("full", full)
     }
 }
 
-/** Reports the server result of a subscription skip with optional absolute flag, error code, time coordinate, and byte coordinate. */
+/** Reports the server result of a subscription skip with optional absolute and error flags, time coordinate, and byte coordinate. */
 public data class HtspSubscriptionSkipMessage(
     public val subscriptionId: Long,
-    public val absolute: Long?,
-    public val error: Long?,
+    /** HTSP `absolute`: optional 0/1 absolute-position flag (pinned htsp_server.c:4625-4626). */
+    public val absolute: Boolean?,
+    /** HTSP `error`: optional 0/1 skip-failed flag, not an error code (pinned htsp_server.c:4627-4628). */
+    public val error: Boolean?,
+    /** HTSP `time`, ticks in this subscription's negotiated 90 kHz or microsecond clock; null means absent (htsp_server.c:4630). */
     public val time: Long?,
     public val sizeBytes: Long?,
 ) : HtspServerMessage {
     init {
         requireU32("subscriptionId", subscriptionId)
-        absolute?.let { requireU32("absolute", it) }
-        error?.let { requireU32("error", it) }
     }
 }

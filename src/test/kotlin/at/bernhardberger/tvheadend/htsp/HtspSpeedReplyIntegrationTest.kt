@@ -262,7 +262,7 @@ internal class HtspSpeedReplyIntegrationTest {
             "Speed $speed timeshift event must reach the typed subscription stream; $observation; $description",
         )
         assertTrue(
-            typedTimeshift?.full == trace.timeshiftFull && typedTimeshift?.shift == trace.timeshiftShift,
+            typedTimeshift?.full == (trace.timeshiftFull == 1L) && typedTimeshift?.shift == trace.timeshiftShift,
             "Speed $speed typed timeshift values must match the traced wire values",
         )
     }
@@ -345,13 +345,13 @@ internal class HtspSpeedReplyIntegrationTest {
                             is HtspDvrEntryAddMessage -> recordCompletedDvrChannel(
                                 message.channelId,
                                 message.state,
-                                message.stop,
+                                message.stopEpochSeconds,
                                 message.files,
                             )
                             is HtspDvrEntryUpdateMessage -> recordCompletedDvrChannel(
                                 message.channelId,
                                 message.state,
-                                message.stop,
+                                message.stopEpochSeconds,
                                 message.files,
                             )
                             HtspInitialSyncCompletedMessage -> initialSync = true

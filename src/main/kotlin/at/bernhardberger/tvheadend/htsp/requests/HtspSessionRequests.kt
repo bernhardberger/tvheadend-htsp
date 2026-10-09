@@ -28,7 +28,8 @@ public data object HtspEmptyResponse
 
 /** Handshake observations: negotiated version, optional server labels, copied challenge, web root, language, capabilities, and API version. */
 public class HelloResponse(
-    public val htspVersion: Long,
+    /** HTSP `htspversion`, unitless server protocol version (htsp_server.c:1487). */
+    public val protocolVersion: Long,
     public val serverName: String?,
     public val serverVersion: String?,
     public val challenge: HtspBinary,
@@ -42,7 +43,7 @@ public class HelloResponse(
     override fun equals(other: Any?): Boolean =
         this === other ||
             other is HelloResponse &&
-            htspVersion == other.htspVersion &&
+            protocolVersion == other.protocolVersion &&
             serverName == other.serverName &&
             serverVersion == other.serverVersion &&
             challenge == other.challenge &&
@@ -52,7 +53,7 @@ public class HelloResponse(
             apiVersion == other.apiVersion
 
     override fun hashCode(): Int {
-        var result = htspVersion.hashCode()
+        var result = protocolVersion.hashCode()
         result = 31 * result + (serverName?.hashCode() ?: 0)
         result = 31 * result + (serverVersion?.hashCode() ?: 0)
         result = 31 * result + challenge.hashCode()
@@ -64,7 +65,7 @@ public class HelloResponse(
     }
 
     override fun toString(): String =
-        "HelloResponse(htspVersion=$htspVersion, serverName=$serverName, " +
+        "HelloResponse(protocolVersion=$protocolVersion, serverName=$serverName, " +
             "serverVersion=$serverVersion, challenge=$challenge, webRoot=$webRoot, " +
             "language=$language, serverCapabilities=$serverCapabilities, apiVersion=$apiVersion)"
 }
@@ -96,14 +97,16 @@ public data class GetDiskSpaceResponse(
 
 /** Contains Unix time, the legacy hours-west timezone value, and an optional GMT offset in minutes. */
 public data class GetSysTimeResponse(
-    public val unixTimeSeconds: Long,
+    /** HTSP `time`, epoch seconds from `timeval.tv_sec` (htsp_server.c:1636). */
+    public val timeEpochSeconds: Long,
     public val legacyTimezoneHoursWestOfGmt: Int,
     public val gmtOffsetMinutes: Int?,
 )
 
 /** Carries the requested unsigned HTSP version and exact client name for the `hello` exchange. */
 public data class HelloRequest(
-    public val htspVersion: Long,
+    /** HTSP `htspversion`, unitless requested protocol version (htsp_server.c:1474). */
+    public val protocolVersion: Long,
     public val clientName: String,
 ) : HtspRequest<HelloResponse>(
     method = "hello",
@@ -111,7 +114,7 @@ public data class HelloRequest(
     minimumProtocolVersion = null,
 ) {
     init {
-        requireU32("htspVersion", htspVersion)
+        requireU32("protocolVersion", protocolVersion)
     }
 }
 
@@ -145,21 +148,24 @@ public class GetSysTimeRequest : HtspRequest<GetSysTimeResponse>(
 
 /** Selects asynchronous metadata options: EPG inclusion, update frontier, EPG maximum time, and language; null omits each field. */
 public data class EnableAsyncMetadataRequest(
-    public val epg: Long? = null,
-    public val lastUpdate: Long? = null,
-    public val epgMaxTime: Long? = null,
+    /** HTSP `epg`: 0/1 metadata flag; null preserves server state (pinned htsp_server.c:1660-1661). */
+    public val epg: Boolean? = null,
+    /**
+     * HTSP `lastUpdate`, epoch seconds; 0 means never synchronized, so the server sends all eligible metadata;
+     * null omits it (htsp_server.c:1662–1665,1700). Access, EPG enablement and window limits still apply;
+     * an existing async session resends eligible EPG events starting after this frontier (4084–4100).
+     */
+    public val lastUpdateEpochSeconds: Long? = null,
+    /** HTSP `epgMaxTime`, epoch seconds; zero means unlimited window, null omits it (htsp_server.c:1666). */
+    public val epgMaxTimeEpochSeconds: Long? = null,
     public val language: String? = null,
 ) : HtspRequest<HtspEmptyResponse>(
     method = "enableAsyncMetadata",
     access = HtspAccess.ACCESS_HTSP_STREAMING,
     minimumProtocolVersion = 6.takeIf {
-            epg != null || lastUpdate != null || epgMaxTime != null || language != null
+            epg != null || lastUpdateEpochSeconds != null || epgMaxTimeEpochSeconds != null || language != null
         },
-) {
-    init {
-        epg?.let { requireU32("epg", it) }
-    }
-}
+)
 
 /** Fetches the server's stream-profile metadata through typed connection execution and returns its transport or reply failure as [HtspResult]. */
 public suspend fun HtspConnection.getProfiles(
@@ -194,11 +200,16 @@ public suspend fun HtspConnection.getSysTime(
         expectedGeneration = expectedGeneration,
     )
 
-/** Requests asynchronous metadata delivery with the selected EPG window and language options and decodes the typed acknowledgement. */
+/**
+ * Requests asynchronous metadata delivery and decodes the typed acknowledgement.
+ * @param lastUpdateEpochSeconds HTSP `lastUpdate`, epoch seconds; 0 means never synchronized, so the server sends all eligible metadata; null omits it.
+ * @param epgMaxTimeEpochSeconds HTSP `epgMaxTime`, epoch seconds; zero means unlimited, null omits it.
+ * See [EnableAsyncMetadataRequest] for pinned source evidence.
+ */
 public suspend fun HtspConnection.enableAsyncMetadata(
-    epg: Long? = null,
-    lastUpdate: Long? = null,
-    epgMaxTime: Long? = null,
+    epg: Boolean? = null,
+    lastUpdateEpochSeconds: Long? = null,
+    epgMaxTimeEpochSeconds: Long? = null,
     language: String? = null,
     timeoutMs: Long = 5_000L,
     expectedGeneration: HtspConnectionGeneration? = null,
@@ -206,8 +217,8 @@ public suspend fun HtspConnection.enableAsyncMetadata(
     execute(
         request = EnableAsyncMetadataRequest(
             epg = epg,
-            lastUpdate = lastUpdate,
-            epgMaxTime = epgMaxTime,
+            lastUpdateEpochSeconds = lastUpdateEpochSeconds,
+            epgMaxTimeEpochSeconds = epgMaxTimeEpochSeconds,
             language = language,
         ),
         timeoutMs = timeoutMs,
@@ -218,11 +229,14 @@ public suspend fun HtspConnection.enableAsyncMetadata(
  * Enables asynchronous metadata after installing an initial-sync observer for the
  * current generation. Callers must serialize this unsequenced orchestration per generation.
  * [timeoutMs] is one deadline covering both the acknowledgement and sync marker.
+ * @param lastUpdateEpochSeconds HTSP `lastUpdate`, epoch seconds; 0 means never synchronized, so the server sends all eligible metadata; null omits it.
+ * @param epgMaxTimeEpochSeconds HTSP `epgMaxTime`, epoch seconds; zero means unlimited, null omits it.
+ * See [EnableAsyncMetadataRequest] for pinned source evidence.
  */
 public suspend fun HtspConnection.enableAsyncMetadataAwaitingInitialSync(
-    epg: Long? = null,
-    lastUpdate: Long? = null,
-    epgMaxTime: Long? = null,
+    epg: Boolean? = null,
+    lastUpdateEpochSeconds: Long? = null,
+    epgMaxTimeEpochSeconds: Long? = null,
     language: String? = null,
     timeoutMs: Long = 30_000L,
     expectedGeneration: HtspConnectionGeneration? = null,
@@ -271,8 +285,8 @@ public suspend fun HtspConnection.enableAsyncMetadataAwaitingInitialSync(
             val acknowledgement = async(start = CoroutineStart.UNDISPATCHED) {
                 enableAsyncMetadata(
                     epg = epg,
-                    lastUpdate = lastUpdate,
-                    epgMaxTime = epgMaxTime,
+                    lastUpdateEpochSeconds = lastUpdateEpochSeconds,
+                    epgMaxTimeEpochSeconds = epgMaxTimeEpochSeconds,
                     language = language,
                     timeoutMs = timeoutMs,
                     expectedGeneration = generation,
@@ -321,16 +335,19 @@ public suspend fun HtspConnection.enableAsyncMetadataAwaitingInitialSync(
     } ?: HtspResult.Timeout
 }
 
-/** Negotiates the requested HTSP version and client name through the typed handshake request boundary. */
+/**
+ * Negotiates the requested HTSP version and client name through the typed handshake request boundary.
+ * @param protocolVersion HTSP `htspversion`, unitless requested version; see [HelloRequest].
+ */
 public suspend fun HtspConnection.hello(
-    htspVersion: Long,
+    protocolVersion: Long,
     clientName: String,
     timeoutMs: Long = 5_000L,
     expectedGeneration: HtspConnectionGeneration? = null,
 ): HtspResult<HelloResponse> =
     execute(
         request = HelloRequest(
-            htspVersion = htspVersion,
+            protocolVersion = protocolVersion,
             clientName = clientName,
         ),
         timeoutMs = timeoutMs,

@@ -13,7 +13,7 @@ internal object `HtspRequestCodecs-internal` {
             .putIfNotNull("args", request.args?.toWireValue())
 
         is HelloRequest -> linkedMapOf(
-            "htspversion" to request.htspVersion,
+            "htspversion" to request.protocolVersion,
             "clientname" to request.clientName,
         )
 
@@ -26,9 +26,9 @@ internal object `HtspRequestCodecs-internal` {
         is GetSysTimeRequest -> linkedMapOf()
 
         is EnableAsyncMetadataRequest -> linkedMapOf<String, Any?>()
-            .putIfNotNull("epg", request.epg)
-            .putIfNotNull("lastUpdate", request.lastUpdate)
-            .putIfNotNull("epgMaxTime", request.epgMaxTime)
+            .putIfNotNull("epg", request.epg?.toWireFlag())
+            .putIfNotNull("lastUpdate", request.lastUpdateEpochSeconds)
+            .putIfNotNull("epgMaxTime", request.epgMaxTimeEpochSeconds)
             .putIfNotNull("language", request.language)
 
         is GetChannelRequest -> linkedMapOf("channelId" to request.channelId)
@@ -41,7 +41,7 @@ internal object `HtspRequestCodecs-internal` {
             .putIfNotNull("eventId", request.eventId)
             .putIfNotNull("language", request.language)
             .putIfNotNull("numFollowing", request.numFollowing)
-            .putIfNotNull("maxTime", request.maxTime)
+            .putIfNotNull("maxTime", request.maxTimeEpochSeconds)
 
         is EpgQueryRequest -> linkedMapOf<String, Any?>("query" to request.query)
             .putIfNotNull("channelId", request.channelId)
@@ -50,7 +50,7 @@ internal object `HtspRequestCodecs-internal` {
             .putIfNotNull("language", request.language)
             .putIfNotNull("fulltext", request.fullText)
             .putIfNotNull("mergetext", request.mergeText)
-            .putIfNotNull("full", request.full)
+            .putIfNotNull("full", request.full?.toWireFlag())
             .putIfNotNull("minduration", request.minDurationSeconds)
             .putIfNotNull("maxduration", request.maxDurationSeconds)
 
@@ -76,8 +76,8 @@ internal object `HtspRequestCodecs-internal` {
             putIfNotNull("configName", request.configName)
             putIfNotNull("language", request.language)
             if (request.selector is AddDvrEntrySelector.ExplicitChannelTime) {
-                put("start", request.selector.start)
-                put("stop", request.selector.stop)
+                put("start", request.selector.startEpochSeconds)
+                put("stop", request.selector.stopEpochSeconds)
             }
             putIfNotNull("title", request.title)
             putIfNotNull("subtitle", request.subtitle)
@@ -96,14 +96,14 @@ internal object `HtspRequestCodecs-internal` {
             .putIfNotNull("language", request.language)
             .putIfNotNull("comment", request.comment)
             .putIfNotNull("playcount", request.playCount)
-            .putIfNotNull("playposition", request.playPosition)
-            .putIfNotNull("enabled", request.enabled)
-            .putIfNotNull("start", request.start)
-            .putIfNotNull("stop", request.stop)
-            .putIfNotNull("startExtra", request.startExtra)
-            .putIfNotNull("stopExtra", request.stopExtra)
-            .putIfNotNull("retention", request.retention)
-            .putIfNotNull("removal", request.removal)
+            .putIfNotNull("playposition", request.playPositionSeconds)
+            .putIfNotNull("enabled", request.enabled?.toWireFlag())
+            .putIfNotNull("start", request.startEpochSeconds)
+            .putIfNotNull("stop", request.stopEpochSeconds)
+            .putIfNotNull("startExtra", request.startExtraMinutes)
+            .putIfNotNull("stopExtra", request.stopExtraMinutes)
+            .putIfNotNull("retention", request.retentionDays)
+            .putIfNotNull("removal", request.removalDays)
             .putIfNotNull("priority", request.priority)
             .putIfNotNull("ageRating", request.ageRating)
             .apply { put("id", request.entryId) }
@@ -118,8 +118,8 @@ internal object `HtspRequestCodecs-internal` {
             .putRecordingRuleChannel(request.channel)
             .putIfNotNull("minduration", request.minDurationSeconds)
             .putIfNotNull("maxduration", request.maxDurationSeconds)
-            .putIfNotNull("fulltext", request.fullText)
-            .putIfNotNull("mergetext", request.mergeText)
+            .putIfNotNull("fulltext", request.fullText?.toWireFlag())
+            .putIfNotNull("mergetext", request.mergeText?.toWireFlag())
             .putIfNotNull("dupDetect", request.duplicateDetection)
             .putIfNotNull("maxCount", request.maximumRecordingCount)
             .putIfNotNull("broadcastType", request.broadcastType)
@@ -143,8 +143,8 @@ internal object `HtspRequestCodecs-internal` {
             .putRecordingRuleChannel(request.channel)
             .putIfNotNull("minduration", request.minDurationSeconds)
             .putIfNotNull("maxduration", request.maxDurationSeconds)
-            .putIfNotNull("fulltext", request.fullText)
-            .putIfNotNull("mergetext", request.mergeText)
+            .putIfNotNull("fulltext", request.fullText?.toWireFlag())
+            .putIfNotNull("mergetext", request.mergeText?.toWireFlag())
             .putIfNotNull("dupDetect", request.duplicateDetection)
             .putIfNotNull("maxCount", request.maximumRecordingCount)
             .putIfNotNull("broadcastType", request.broadcastType)
@@ -213,9 +213,9 @@ internal object `HtspRequestCodecs-internal` {
             }
             putIfNotNull("profile", request.profile)
             putIfNotNull("weight", request.weight)
-            putIfNotNull("90khz", request.ninetyKhz)
+            putIfNotNull("90khz", request.ninetyKhz?.toWireFlag())
             putIfNotNull("timeshiftPeriod", request.timeshiftPeriodSeconds)
-            putIfNotNull("queueDepth", request.queueDepth)
+            putIfNotNull("queueDepth", request.queueDepthBytes)
         }
 
         is UnsubscribeRequest -> linkedMapOf("subscriptionId" to request.subscriptionId)
@@ -228,9 +228,9 @@ internal object `HtspRequestCodecs-internal` {
         ).apply {
             when (val position = request.position) {
                 is SubscriptionSeekPosition.Time -> put("time", position.time)
-                is SubscriptionSeekPosition.Size -> put("size", position.size)
+                is SubscriptionSeekPosition.Size -> put("size", position.sizeBytes)
             }
-            putIfNotNull("absolute", request.absolute)
+            putIfNotNull("absolute", request.absolute?.toWireFlag())
         }
 
         is SubscriptionSkipRequest -> linkedMapOf<String, Any?>(
@@ -238,9 +238,9 @@ internal object `HtspRequestCodecs-internal` {
         ).apply {
             when (val position = request.position) {
                 is SubscriptionSeekPosition.Time -> put("time", position.time)
-                is SubscriptionSeekPosition.Size -> put("size", position.size)
+                is SubscriptionSeekPosition.Size -> put("size", position.sizeBytes)
             }
-            putIfNotNull("absolute", request.absolute)
+            putIfNotNull("absolute", request.absolute?.toWireFlag())
         }
 
         is SubscriptionSpeedRequest -> linkedMapOf(
@@ -258,9 +258,9 @@ internal object `HtspRequestCodecs-internal` {
 
         is FileReadRequest -> linkedMapOf<String, Any?>(
             "id" to request.id,
-            "size" to request.size,
+            "size" to request.sizeBytes,
         )
-            .putIfNotNull("offset", request.offset)
+            .putIfNotNull("offset", request.offsetBytes)
 
         is FileCloseRequest -> linkedMapOf<String, Any?>("id" to request.id)
             .putIfNotNull("playposition", request.playPositionSeconds)
@@ -270,7 +270,7 @@ internal object `HtspRequestCodecs-internal` {
 
         is FileSeekRequest -> linkedMapOf<String, Any?>(
             "id" to request.id,
-            "offset" to request.offset,
+            "offset" to request.offsetBytes,
         ).putIfNotNull(
             "whence",
             request.whence?.let { whence ->
@@ -295,7 +295,7 @@ internal object `HtspRequestCodecs-internal` {
         is ApiRequest -> decodeApiResponse(fields)
 
         is HelloRequest -> HelloResponse(
-            htspVersion = fields.requiredU32("htspversion"),
+            protocolVersion = fields.requiredU32("htspversion"),
             serverName = fields.observedString("servername"),
             serverVersion = fields.observedString("serverversion"),
             challenge = HtspBinary(
@@ -333,7 +333,7 @@ internal object `HtspRequestCodecs-internal` {
 
         is GetSysTimeRequest -> GetSysTimeResponse(
             // Pinned v44 source emits s32 even though the official method page says s64.
-            unixTimeSeconds = fields.requiredS32("time").toLong(),
+            timeEpochSeconds = fields.requiredS32("time").toLong(),
             legacyTimezoneHoursWestOfGmt = fields.requiredS32("timezone"),
             gmtOffsetMinutes = fields.optionalS32("gmtoffset"),
         )
@@ -377,8 +377,8 @@ internal object `HtspRequestCodecs-internal` {
         is GetDvrCutpointsRequest -> GetDvrCutpointsResponse(
             fields.optionalObjectList("cutpoints") { cutpoint ->
                 HtspDvrCutpoint(
-                    start = cutpoint.requiredU32("start"),
-                    end = cutpoint.requiredU32("end"),
+                    startMs = cutpoint.requiredU32("start"),
+                    endMs = cutpoint.requiredU32("end"),
                     type = cutpoint.requiredU32("type"),
                 )
             },
@@ -424,7 +424,7 @@ internal object `HtspRequestCodecs-internal` {
         is FileStatRequest -> decodeFileStat(fields)
 
         is FileSeekRequest -> FileSeekResponse(
-            offset = fields.requiredS64("offset").also { offset ->
+            offsetBytes = fields.requiredS64("offset").also { offset ->
                 if (offset < 0L) malformedReply()
             },
         )
@@ -472,7 +472,7 @@ internal object `HtspRequestCodecs-internal` {
     private fun decodeEpgQuery(
         request: EpgQueryRequest,
         fields: Map<String, Any?>,
-    ): EpgQueryResponse = if (request.full == null || request.full == 0L) {
+    ): EpgQueryResponse = if (request.full != true) {
         if (fields.containsKey("events")) malformedReply()
         EpgQueryResponse.EventIds(
             if (fields.containsKey("eventIds")) fields.requiredU32List("eventIds") else emptyList(),
@@ -497,7 +497,7 @@ internal object `HtspRequestCodecs-internal` {
         if (sizeBytes < 0L) malformedReply()
         return FileStatResponse(
             sizeBytes = sizeBytes,
-            modifiedAtUnixSeconds = fields.requiredS64("mtime"),
+            modifiedAtEpochSeconds = fields.requiredS64("mtime"),
         )
     }
 
@@ -510,7 +510,7 @@ internal object `HtspRequestCodecs-internal` {
         return FileOpenResponse(
             id = fields.requiredU32("id"),
             sizeBytes = sizeBytes,
-            modifiedAtUnixSeconds = if (hasModifiedAt) fields.requiredS64("mtime") else null,
+            modifiedAtEpochSeconds = if (hasModifiedAt) fields.requiredS64("mtime") else null,
         )
     }
 
@@ -595,14 +595,14 @@ private fun Any?.toApiValue(): HtspApiValue = when (this) {
 
 internal fun AddAutorecEntryRequest.validateAutorecU32Fields() {
     validateAutorecU32Fields(
-        minDurationSeconds, maxDurationSeconds, fullText, mergeText, duplicateDetection,
+        minDurationSeconds, maxDurationSeconds, duplicateDetection,
         maximumRecordingCount, broadcastType, retentionDays, removalDays, priority, daysOfWeekMask,
     )
 }
 
 internal fun UpdateAutorecEntryRequest.validateAutorecU32Fields() {
     validateAutorecU32Fields(
-        minDurationSeconds, maxDurationSeconds, fullText, mergeText, duplicateDetection,
+        minDurationSeconds, maxDurationSeconds, duplicateDetection,
         maximumRecordingCount, broadcastType, retentionDays, removalDays, priority, daysOfWeekMask,
     )
 }
@@ -610,8 +610,6 @@ internal fun UpdateAutorecEntryRequest.validateAutorecU32Fields() {
 private fun validateAutorecU32Fields(
     minDurationSeconds: Long?,
     maxDurationSeconds: Long?,
-    fullText: Long?,
-    mergeText: Long?,
     duplicateDetection: Long?,
     maximumRecordingCount: Long?,
     broadcastType: Long?,
@@ -622,8 +620,6 @@ private fun validateAutorecU32Fields(
 ) {
     minDurationSeconds?.let { requireU32("minduration", it) }
     maxDurationSeconds?.let { requireU32("maxduration", it) }
-    fullText?.let { requireU32("fulltext", it) }
-    mergeText?.let { requireU32("mergetext", it) }
     duplicateDetection?.let { requireU32("dupDetect", it) }
     maximumRecordingCount?.let { requireU32("maxCount", it) }
     broadcastType?.let { requireU32("broadcastType", it) }
@@ -737,8 +733,8 @@ private fun eventFromFields(fields: Map<*, *>): HtspEvent = fields.request().run
     HtspEvent(
         eventId = requiredU32("eventId"),
         channelId = optionalU32("channelId"),
-        start = requiredS64("start"),
-        stop = requiredS64("stop"),
+        startEpochSeconds = requiredS64("start"),
+        stopEpochSeconds = requiredS64("stop"),
         title = optionalString("title"),
         subtitle = optionalString("subtitle"),
         summary = optionalString("summary"),
@@ -755,8 +751,8 @@ private fun eventFromFields(fields: Map<*, *>): HtspEvent = fields.request().run
         ratingCountry = optionalString("ratingCountry"),
         starRating = optionalU32("starRating"),
         copyrightYear = optionalU32("copyrightYear"),
-        firstAired = optionalS64("firstAired"),
-        isNew = optionalU32("isNew"),
+        firstAiredEpochSeconds = optionalS64("firstAired"),
+        isNew = optionalFlag("isNew"),
         seasonNumber = optionalU32("seasonNumber"),
         seasonCount = optionalU32("seasonCount"),
         episodeNumber = optionalU32("episodeNumber"),
@@ -774,9 +770,9 @@ private fun epgBroadcastObjectFromFields(fields: Map<*, *>): HtspEpgBroadcastObj
     if (fields.requiredU32("tp") != 1L) malformedReply()
     return HtspEpgBroadcastObject(
         id = fields.requiredU32("id"),
-        updatedUnixSeconds = fields.requiredS64("up"),
-        startUnixSeconds = fields.requiredS64("start"),
-        stopUnixSeconds = fields.requiredS64("stop"),
+        updatedEpochSeconds = fields.requiredS64("up"),
+        startEpochSeconds = fields.requiredS64("start"),
+        stopEpochSeconds = fields.requiredS64("stop"),
         grabber = fields.optionalString("gr"),
         channelUuid = fields.optionalString("ch"),
         eventId = fields.optionalU32("eid"),
@@ -802,7 +798,7 @@ private fun epgBroadcastObjectFromFields(fields: Map<*, *>): HtspEpgBroadcastObj
         episodeNumber = fields.optionalEpgEpisodeNumber("epn"),
         genres = fields.optionalU32List("genre"),
         copyrightYear = fields.optionalU32("cyear"),
-        firstAiredUnixSeconds = fields.optionalS64("fair"),
+        firstAiredEpochSeconds = fields.optionalS64("fair"),
         categories = fields.optionalSortedUniqueStringList("cat"),
         keywords = fields.optionalSortedUniqueStringList("key"),
         seriesLinkUri = fields.optionalString("slink"),

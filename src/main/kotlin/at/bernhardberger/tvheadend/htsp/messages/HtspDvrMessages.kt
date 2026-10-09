@@ -7,8 +7,10 @@ import at.bernhardberger.tvheadend.htsp.wire.requireU32
 public data class HtspDvrRecordingFile(
     public val fileId: Long?,
     public val path: String?,
-    public val start: Long?,
-    public val stop: Long?,
+    /** HTSP `start`, epoch seconds; null means absent (htsp_server.c:1136–1137). */
+    public val startEpochSeconds: Long?,
+    /** HTSP `stop`, epoch seconds; null means absent (htsp_server.c:1138–1139). */
+    public val stopEpochSeconds: Long?,
     public val sizeBytes: Long?,
 ) {
     init {
@@ -21,14 +23,17 @@ public data class HtspDvrRecordingFile(
 public data class HtspDvrEntryAddMessage private constructor(
     public val entryId: Long,
     public val entryUuid: String? = null,
-    public val enabled: Long? = null,
+    /** HTSP `enabled`: optional 0/1 flag (pinned htsp_server.c:981). */
+    public val enabled: Boolean? = null,
     public val channelId: Long? = null,
     public val channelName: String? = null,
     public val eventId: Long? = null,
     public val autorecEntryUuid: String? = null,
     public val timerecEntryUuid: String? = null,
-    public val start: Long? = null,
-    public val stop: Long? = null,
+    /** HTSP `start`, epoch seconds; null means absent (htsp_server.c:996). */
+    public val startEpochSeconds: Long? = null,
+    /** HTSP `stop`, epoch seconds; null means absent (htsp_server.c:997). */
+    public val stopEpochSeconds: Long? = null,
     public val startExtraMinutes: Long? = null,
     public val stopExtraMinutes: Long? = null,
     public val retentionDays: Long? = null,
@@ -60,7 +65,8 @@ public data class HtspDvrEntryAddMessage private constructor(
     public val files: List<HtspDvrRecordingFile>? = null,
     public val path: String? = null,
     public val dvrConfigUuid: String? = null,
-    public val duplicate: Long? = null,
+    /** HTSP `duplicate`: optional 0/1 duplicate flag (pinned htsp_server.c:1188). */
+    public val duplicate: Boolean? = null,
     public val state: String? = null,
     public val error: String? = null,
     public val subscriptionError: String? = null,
@@ -72,14 +78,14 @@ public data class HtspDvrEntryAddMessage private constructor(
     public constructor(
         entryId: Long,
         entryUuid: String? = null,
-        enabled: Long? = null,
+        enabled: Boolean? = null,
         channelId: Long? = null,
         channelName: String? = null,
         eventId: Long? = null,
         autorecEntryUuid: String? = null,
         timerecEntryUuid: String? = null,
-        start: Long? = null,
-        stop: Long? = null,
+        startEpochSeconds: Long? = null,
+        stopEpochSeconds: Long? = null,
         startExtraMinutes: Long? = null,
         stopExtraMinutes: Long? = null,
         retentionDays: Long? = null,
@@ -111,7 +117,7 @@ public data class HtspDvrEntryAddMessage private constructor(
         files: List<HtspDvrRecordingFile>? = null,
         path: String? = null,
         dvrConfigUuid: String? = null,
-        duplicate: Long? = null,
+        duplicate: Boolean? = null,
         state: String? = null,
         error: String? = null,
         subscriptionError: String? = null,
@@ -127,8 +133,8 @@ public data class HtspDvrEntryAddMessage private constructor(
         eventId = eventId,
         autorecEntryUuid = autorecEntryUuid,
         timerecEntryUuid = timerecEntryUuid,
-        start = start,
-        stop = stop,
+        startEpochSeconds = startEpochSeconds,
+        stopEpochSeconds = stopEpochSeconds,
         startExtraMinutes = startExtraMinutes,
         stopExtraMinutes = stopExtraMinutes,
         retentionDays = retentionDays,
@@ -174,14 +180,14 @@ public data class HtspDvrEntryAddMessage private constructor(
     public fun copy(
         entryId: Long = this.entryId,
         entryUuid: String? = this.entryUuid,
-        enabled: Long? = this.enabled,
+        enabled: Boolean? = this.enabled,
         channelId: Long? = this.channelId,
         channelName: String? = this.channelName,
         eventId: Long? = this.eventId,
         autorecEntryUuid: String? = this.autorecEntryUuid,
         timerecEntryUuid: String? = this.timerecEntryUuid,
-        start: Long? = this.start,
-        stop: Long? = this.stop,
+        startEpochSeconds: Long? = this.startEpochSeconds,
+        stopEpochSeconds: Long? = this.stopEpochSeconds,
         startExtraMinutes: Long? = this.startExtraMinutes,
         stopExtraMinutes: Long? = this.stopExtraMinutes,
         retentionDays: Long? = this.retentionDays,
@@ -213,7 +219,7 @@ public data class HtspDvrEntryAddMessage private constructor(
         files: List<HtspDvrRecordingFile>? = this.files,
         path: String? = this.path,
         dvrConfigUuid: String? = this.dvrConfigUuid,
-        duplicate: Long? = this.duplicate,
+        duplicate: Boolean? = this.duplicate,
         state: String? = this.state,
         error: String? = this.error,
         subscriptionError: String? = this.subscriptionError,
@@ -229,8 +235,8 @@ public data class HtspDvrEntryAddMessage private constructor(
         eventId = eventId,
         autorecEntryUuid = autorecEntryUuid,
         timerecEntryUuid = timerecEntryUuid,
-        start = start,
-        stop = stop,
+        startEpochSeconds = startEpochSeconds,
+        stopEpochSeconds = stopEpochSeconds,
         startExtraMinutes = startExtraMinutes,
         stopExtraMinutes = stopExtraMinutes,
         retentionDays = retentionDays,
@@ -275,7 +281,6 @@ public data class HtspDvrEntryAddMessage private constructor(
 
     init {
         requireU32("entryId", entryId)
-        enabled?.let { requireU32("enabled", it) }
         channelId?.let { requireU32("channelId", it) }
         eventId?.let { requireU32("eventId", it) }
         retentionDays?.let { requireU32("retentionDays", it) }
@@ -291,7 +296,6 @@ public data class HtspDvrEntryAddMessage private constructor(
         partNumber?.let { requireU32("partNumber", it) }
         partCount?.let { requireU32("partCount", it) }
         copyrightYear?.let { requireU32("copyrightYear", it) }
-        duplicate?.let { requireU32("duplicate", it) }
         streamErrors?.let { requireU32("streamErrors", it) }
         dataErrors?.let { requireU32("dataErrors", it) }
     }
@@ -302,14 +306,17 @@ public data class HtspDvrEntryAddMessage private constructor(
 public data class HtspDvrEntryUpdateMessage private constructor(
     public val entryId: Long,
     public val entryUuid: String? = null,
-    public val enabled: Long? = null,
+    /** HTSP `enabled`: optional 0/1 flag (pinned htsp_server.c:981). */
+    public val enabled: Boolean? = null,
     public val channelId: Long? = null,
     public val channelName: String? = null,
     public val eventId: Long? = null,
     public val autorecEntryUuid: String? = null,
     public val timerecEntryUuid: String? = null,
-    public val start: Long? = null,
-    public val stop: Long? = null,
+    /** HTSP `start`, epoch seconds; null means absent (htsp_server.c:996). */
+    public val startEpochSeconds: Long? = null,
+    /** HTSP `stop`, epoch seconds; null means absent (htsp_server.c:997). */
+    public val stopEpochSeconds: Long? = null,
     public val startExtraMinutes: Long? = null,
     public val stopExtraMinutes: Long? = null,
     public val retentionDays: Long? = null,
@@ -341,7 +348,8 @@ public data class HtspDvrEntryUpdateMessage private constructor(
     public val files: List<HtspDvrRecordingFile>? = null,
     public val path: String? = null,
     public val dvrConfigUuid: String? = null,
-    public val duplicate: Long? = null,
+    /** HTSP `duplicate`: optional 0/1 duplicate flag (pinned htsp_server.c:1188). */
+    public val duplicate: Boolean? = null,
     public val state: String? = null,
     public val error: String? = null,
     public val subscriptionError: String? = null,
@@ -353,14 +361,14 @@ public data class HtspDvrEntryUpdateMessage private constructor(
     public constructor(
         entryId: Long,
         entryUuid: String? = null,
-        enabled: Long? = null,
+        enabled: Boolean? = null,
         channelId: Long? = null,
         channelName: String? = null,
         eventId: Long? = null,
         autorecEntryUuid: String? = null,
         timerecEntryUuid: String? = null,
-        start: Long? = null,
-        stop: Long? = null,
+        startEpochSeconds: Long? = null,
+        stopEpochSeconds: Long? = null,
         startExtraMinutes: Long? = null,
         stopExtraMinutes: Long? = null,
         retentionDays: Long? = null,
@@ -392,7 +400,7 @@ public data class HtspDvrEntryUpdateMessage private constructor(
         files: List<HtspDvrRecordingFile>? = null,
         path: String? = null,
         dvrConfigUuid: String? = null,
-        duplicate: Long? = null,
+        duplicate: Boolean? = null,
         state: String? = null,
         error: String? = null,
         subscriptionError: String? = null,
@@ -408,8 +416,8 @@ public data class HtspDvrEntryUpdateMessage private constructor(
         eventId = eventId,
         autorecEntryUuid = autorecEntryUuid,
         timerecEntryUuid = timerecEntryUuid,
-        start = start,
-        stop = stop,
+        startEpochSeconds = startEpochSeconds,
+        stopEpochSeconds = stopEpochSeconds,
         startExtraMinutes = startExtraMinutes,
         stopExtraMinutes = stopExtraMinutes,
         retentionDays = retentionDays,
@@ -455,14 +463,14 @@ public data class HtspDvrEntryUpdateMessage private constructor(
     public fun copy(
         entryId: Long = this.entryId,
         entryUuid: String? = this.entryUuid,
-        enabled: Long? = this.enabled,
+        enabled: Boolean? = this.enabled,
         channelId: Long? = this.channelId,
         channelName: String? = this.channelName,
         eventId: Long? = this.eventId,
         autorecEntryUuid: String? = this.autorecEntryUuid,
         timerecEntryUuid: String? = this.timerecEntryUuid,
-        start: Long? = this.start,
-        stop: Long? = this.stop,
+        startEpochSeconds: Long? = this.startEpochSeconds,
+        stopEpochSeconds: Long? = this.stopEpochSeconds,
         startExtraMinutes: Long? = this.startExtraMinutes,
         stopExtraMinutes: Long? = this.stopExtraMinutes,
         retentionDays: Long? = this.retentionDays,
@@ -494,7 +502,7 @@ public data class HtspDvrEntryUpdateMessage private constructor(
         files: List<HtspDvrRecordingFile>? = this.files,
         path: String? = this.path,
         dvrConfigUuid: String? = this.dvrConfigUuid,
-        duplicate: Long? = this.duplicate,
+        duplicate: Boolean? = this.duplicate,
         state: String? = this.state,
         error: String? = this.error,
         subscriptionError: String? = this.subscriptionError,
@@ -510,8 +518,8 @@ public data class HtspDvrEntryUpdateMessage private constructor(
         eventId = eventId,
         autorecEntryUuid = autorecEntryUuid,
         timerecEntryUuid = timerecEntryUuid,
-        start = start,
-        stop = stop,
+        startEpochSeconds = startEpochSeconds,
+        stopEpochSeconds = stopEpochSeconds,
         startExtraMinutes = startExtraMinutes,
         stopExtraMinutes = stopExtraMinutes,
         retentionDays = retentionDays,
@@ -556,7 +564,6 @@ public data class HtspDvrEntryUpdateMessage private constructor(
 
     init {
         requireU32("entryId", entryId)
-        enabled?.let { requireU32("enabled", it) }
         channelId?.let { requireU32("channelId", it) }
         eventId?.let { requireU32("eventId", it) }
         retentionDays?.let { requireU32("retentionDays", it) }
@@ -572,7 +579,6 @@ public data class HtspDvrEntryUpdateMessage private constructor(
         partNumber?.let { requireU32("partNumber", it) }
         partCount?.let { requireU32("partCount", it) }
         copyrightYear?.let { requireU32("copyrightYear", it) }
-        duplicate?.let { requireU32("duplicate", it) }
         streamErrors?.let { requireU32("streamErrors", it) }
         dataErrors?.let { requireU32("dataErrors", it) }
     }
