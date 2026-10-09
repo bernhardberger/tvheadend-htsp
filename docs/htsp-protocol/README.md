@@ -2,7 +2,7 @@
 
 This directory contains protocol reference notes for the hand-maintained HTSP
 surface. The typed surface was reviewed against TVHeadend revision
-`27295c5a48f2c575678bb224014cb9a26a773083`, which reports HTSP v44.
+`f082b430ae66f1761c2e82c34549b759c168f3c6`, which reports HTSP v44.
 
 ## Artifacts
 
@@ -18,10 +18,10 @@ The upstream source bodies are not vendored here.
 The client requests HTSP v44 by default, and servers clamp the negotiated
 version with `MIN(server, requested)`. Callers may explicitly request another
 version. The typed surface's coverage ceiling is TVHeadend master at
-`27295c5a`, which reports HTSP v44. v44 adds only `feAbsoluteSNR` and
+`f082b430`, which reports HTSP v44. v44 adds only `feAbsoluteSNR` and
 `feAbsoluteSignal` on `signalStatus`; both are decoded as optional fields.
 The server emits them according to the frontend's signal scale, not the
-negotiated version (pinned `src/htsp_server.c:4499-4506` has no version
+negotiated version (pinned `src/htsp_server.c:4523-4530` has no version
 guard), so a v44 server may send them on a v43 link and an older server never
 sends them. The pinned server has no other behavior that depends on a
 negotiated version of 43 or 44.
@@ -74,13 +74,18 @@ DVR policy.
 
 ## Protocol quirks and version notes
 
+- Connection limits apply only to streaming. Since upstream `1ddc5d10`, the
+  server admits any HTSP connection and checks the user's connection limits when
+  the connection starts streaming: on `subscribe` and on `fileOpen` of `dvr/` or
+  `dvrfile/` paths. A refusal is the reply `{noaccess: 1, connlimit: 1}`, which
+  maps to `HtspResult.ConnectionLimit`; for `subscribe` the registered stream
+  then ends with `Terminated(SUBSCRIBE_REJECTED)`. Older servers also check the
+  limits at connect time.
 - `queueStatus.errors` is an optional u32 cumulative data-error counter, exposed
   as nullable `HtspQueueStatusMessage.errorCount`. Absence is not converted to
-  zero. In pinned `src/htsp_server.c:4159-4160`, packet errors accumulate in
-  `hs_data_errors`; lines 4225-4226 emit `errors` only when that count is nonzero.
-  On 2026-09-08, upstream master `9a6f78d37c1db9ca68df62512efb410a207885ec`
-  had the same source blob `2837efd3b41ae0ba7f82de2853d8a1d4a1ea88e1` as the
-  pinned revision. There is no negotiated-version guard on this field. The
+  zero. In pinned `src/htsp_server.c:4183-4184`, packet errors accumulate in
+  `hs_data_errors`; lines 4249-4250 emit `errors` only when that count is nonzero.
+  There is no negotiated-version guard on this field. The
   counter is distinct from `Bdrops`, `Pdrops`, and `Idrops`.
 - Interpret fields by direction, wire or container type, presence, and known
   minimum version. Named nested shapes may be complete, partial, dynamic or

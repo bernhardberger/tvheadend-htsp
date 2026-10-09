@@ -127,7 +127,7 @@ negotiated timestamp clock or permit a second collection/subscribe for that id.
 This follows the pinned upstream's `service_restart_streams` in `src/service.c`
 (lines 1050-1073): a composition change emits `SMT_STOP` with
 `SM_CODE_SOURCE_RECONFIGURED`, followed by `SMT_START`. In `src/htsp_server.c`,
-lines 4632-4639 forward these through the same subscription; lines 4377-4399
+lines 4656-4663 forward these through the same subscription; lines 4401-4423
 serialize the same id without destroying it. Unsubscribe separately acknowledges
 then destroys the subscription (lines 2751-2773). See the
 [upstream pin](htsp-protocol/upstream.json).
