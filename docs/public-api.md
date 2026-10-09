@@ -133,9 +133,6 @@ then destroys the subscription (lines 2751-2773). See the
 [upstream pin](htsp-protocol/upstream.json).
 
 Consumers must handle repeated `Started` and reconfigure their decoding pipeline.
-The SDK playback state machine currently treats `Stopped` as terminal and rejects
-a second `Started`; upgrading this protocol library alone does not repair SDK or
-application playback. SDK integration is tracked separately by P30-S1.
 
 Use `enableAsyncMetadataAwaitingInitialSync` to enable metadata and wait for the
 unsequenced `initialSyncCompleted` marker. It installs its generation-scoped
