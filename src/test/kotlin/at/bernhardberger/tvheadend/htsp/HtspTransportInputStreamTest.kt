@@ -91,6 +91,70 @@ class HtspTransportInputStreamTest {
         assertEquals(3, source.readCalls)
     }
 
+    @Test
+    fun timeoutAtEveryBulkReadBoundaryPreservesFrameAccountingAndAlignment() {
+        val firstBytes = ByteArrayOutputStream().also {
+            HtspCodec.writeMessage(it, "muxpkt", mapOf("seq" to -1L, "payload" to ByteArray(188)))
+        }.toByteArray()
+        val nextBytes = ByteArrayOutputStream().also {
+            HtspCodec.writeMessage(it, "hello", mapOf("seq" to 4L))
+        }.toByteArray()
+        for (boundary in 1 until firstBytes.size) {
+            val source = BoundaryTimeoutInputStream(firstBytes + nextBytes, boundary, listOf(0L))
+            val entries = mutableListOf<LogEntry>()
+            val input = HtspTransportInputStream(source, logger(entries), 100L) { source.nowMs * 1_000_000L }
+            input.beginFrame()
+            assertEquals("muxpkt", HtspCodec.readMessage(input).method)
+            assertEquals(firstBytes.size, input.frameBytesRead())
+            assertEquals(1, entries.size)
+            assertEquals(HtspLogLevel.WARNING, entries.single().level)
+            input.beginFrame()
+            assertEquals(4, HtspCodec.readMessage(input).seq)
+            assertEquals(nextBytes.size, input.frameBytesRead())
+        }
+    }
+
+    @Test
+    fun persistentTimeoutWithinBulkFieldHeaderExpiresWithoutLosingPartialByteCount() {
+        val bytes = ByteArrayOutputStream().also { HtspCodec.writeMessage(it, "hello", emptyMap()) }.toByteArray()
+        val source = BoundaryTimeoutInputStream(bytes, 7, listOf(0L, 99L, 100L))
+        val input = HtspTransportInputStream(source, HtspLogger.None, 100L) { source.nowMs * 1_000_000L }
+        input.beginFrame()
+        assertThrows(SocketTimeoutException::class.java) { HtspCodec.readMessage(input) }
+        assertEquals(7, input.frameBytesRead())
+        assertEquals(100L, source.nowMs)
+    }
+
+    private class BoundaryTimeoutInputStream(
+        bytes: ByteArray,
+        private val boundary: Int,
+        private val timeoutTimesMs: List<Long>,
+    ) : InputStream() {
+        private val delegate = ByteArrayInputStream(bytes)
+        private var position = 0
+        private var timeoutIndex = 0
+        var nowMs: Long = 0
+            private set
+
+        override fun read(): Int {
+            timeoutIfDue()
+            return delegate.read().also { if (it >= 0) position++ }
+        }
+
+        override fun read(b: ByteArray, off: Int, len: Int): Int {
+            timeoutIfDue()
+            val length = if (position < boundary) minOf(len, boundary - position) else len
+            return delegate.read(b, off, length).also { if (it > 0) position += it }
+        }
+
+        private fun timeoutIfDue() {
+            if (position == boundary && timeoutIndex < timeoutTimesMs.size) {
+                nowMs = timeoutTimesMs[timeoutIndex++]
+                throw SocketTimeoutException("Scripted bulk read timeout")
+            }
+        }
+    }
+
     private class TimedInputStream(private val reads: List<Pair<Int?, Long>>) : InputStream() {
         var nowMs = 0L
             private set

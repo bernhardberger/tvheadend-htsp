@@ -63,7 +63,7 @@ public class WireBenchmarks {
         (input as? HtspTransportInputStream)?.beginFrame()
     }
 
-    /** Includes per-field single-byte header reads and payload allocation. */
+    /** Includes per-field bulk header reads and payload allocation. */
     @Benchmark
     public fun wireDecode(blackhole: Blackhole): Unit {
         beginFrame()

@@ -43,13 +43,10 @@ internal object `HtspCodec-internal` {
         }
 
         val len = declaredLen.toInt()
-        val reader = BoundedReader(input, len, FramePosition(4))
+        val reader = FrameReader(input)
 
         val fields = LinkedHashMap<String, Any?>()
-        decodeMap(reader, fields, depth = 0)
-
-        // Always drain any leftover bytes so next message stays aligned
-        reader.drain(what = "message tail")
+        decodeMap(reader, fields, end = 4 + len, depth = 0)
 
         val method = fields["method"] as? String
         val seq = (fields["seq"] as? Long)?.takeIf { it in 0L..0xFFFF_FFFFL }?.toInt()
@@ -77,100 +74,59 @@ internal object `HtspCodec-internal` {
     // DECODING
     // ----------------------------
 
-    private fun decodeMap(r: BoundedReader, out: MutableMap<String, Any?>, depth: Int) {
+    private fun decodeMap(r: FrameReader, out: MutableMap<String, Any?>, end: Int, depth: Int) {
         if (depth > MAX_NESTING_DEPTH) {
             throw HtspFramingException("nesting exceeds limit", r.byteOffset)
         }
-        while (r.remaining > 0) {
-            val (name, value) = decodeField(r, depth)
+        while (r.byteOffset < end) {
+            val name = r.readFieldHeader(end)
+            val value = decodeValue(r, depth, name)
             if (name != null) out[name] = value
         }
     }
 
-    private fun decodeList(r: BoundedReader, out: MutableList<Any?>, depth: Int) {
+    private fun decodeList(r: FrameReader, out: MutableList<Any?>, end: Int, depth: Int) {
         if (depth > MAX_NESTING_DEPTH) {
             throw HtspFramingException("nesting exceeds limit", r.byteOffset)
         }
-        while (r.remaining > 0) {
-            val (_, value) = decodeField(r, depth)
-            out.add(value)
+        while (r.byteOffset < end) {
+            val name = r.readFieldHeader(end)
+            out.add(decodeValue(r, depth, name))
         }
     }
 
-    private fun decodeField(r: BoundedReader, depth: Int): Pair<String?, Any?> {
-        val type = r.readU8()
-        val nameLen = r.readU8()
-        if (nameLen > MAX_FIELD_NAME) {
-            throw HtspFramingException("field name exceeds limit", r.byteOffset)
-        }
-
-        val dataLenU = r.readU32BE()
-        if (nameLen.toLong() + dataLenU > r.remaining.toLong()) {
-            throw HtspFramingException(
-                "field name and data exceed enclosing frame",
-                r.byteOffset,
-            )
-        }
-        val dataLen = dataLenU.toInt()
-
-        val name = if (nameLen > 0) {
-            val nb = r.readExactly(nameLen, what = "field name")
-            String(nb, StandardCharsets.UTF_8)
-        } else null
-
-        val data = r.slice(dataLen)
-
+    private fun decodeValue(r: FrameReader, depth: Int, name: String?): Any {
+        val type = r.fieldType
+        val dataLen = r.fieldLength
         if (depth == 0 && name == "seq" && type == TYPE_S64 && dataLen > 8) {
             throw HtspFramingException("sequence integer exceeds 64 bits", r.byteOffset)
         }
 
-        val value: Any? = when (type) {
-            TYPE_MAP -> LinkedHashMap<String, Any?>().also { decodeMap(data, it, depth + 1) }
-            TYPE_LIST -> ArrayList<Any?>().also { decodeList(data, it, depth + 1) }
-            TYPE_S64 -> readS64VarLenLE(data)
-            TYPE_STR -> String(data.readExactly(dataLen, what = "string"), StandardCharsets.UTF_8)
-            TYPE_BIN -> data.readExactly(dataLen, what = "binary")
-            TYPE_DBL -> readDoubleLE(data, dataLen)
-            TYPE_BOOL -> readBool(data, dataLen)
-            TYPE_UUID -> HtspWireUuid(data.readExactly(dataLen, what = "uuid"))
-            else -> data.readExactly(dataLen, what = "unknown field")
+        return when (type) {
+            TYPE_MAP -> LinkedHashMap<String, Any?>().also { decodeMap(r, it, r.byteOffset + dataLen, depth + 1) }
+            TYPE_LIST -> ArrayList<Any?>().also { decodeList(r, it, r.byteOffset + dataLen, depth + 1) }
+            TYPE_S64 -> r.readS64(dataLen)
+            TYPE_STR -> r.readString(dataLen, what = "string")
+            TYPE_BIN -> r.readExactly(dataLen, what = "binary")
+            TYPE_DBL -> readDoubleLE(r, dataLen)
+            TYPE_BOOL -> readBool(r, dataLen)
+            TYPE_UUID -> HtspWireUuid(r.readExactly(dataLen, what = "uuid"))
+            else -> r.readExactly(dataLen, what = "unknown field")
         }
-
-        // ensure slice fully consumed (keeps parent aligned)
-        data.drain(what = "field tail")
-
-        return name to value
     }
 
-    private fun readS64VarLenLE(r: BoundedReader): Long {
-        val len = r.remaining
-        if (len == 0) return 0L
-        val n = min(len, 8)
-        var v = 0L
-        for (i in 0 until n) {
-            v = v or ((r.readU8().toLong() and 0xFFL) shl (8 * i))
-        }
-        // consume any leftover bytes in this slice (if any)
-        r.drain(what = "signed integer tail")
-        return v
-    }
-
-    private fun readDoubleLE(r: BoundedReader, len: Int): Double {
+    private fun readDoubleLE(r: FrameReader, len: Int): Double {
         if (len != 8) {
-            r.drain(what = "double length mismatch")
+            r.drain(len, what = "double length mismatch")
             return 0.0
         }
-        var bits = 0L
-        for (i in 0 until 8) {
-            bits = bits or ((r.readU8().toLong() and 0xFFL) shl (8 * i))
-        }
-        return java.lang.Double.longBitsToDouble(bits)
+        return java.lang.Double.longBitsToDouble(r.readS64(len))
     }
 
-    private fun readBool(r: BoundedReader, len: Int): Boolean {
+    private fun readBool(r: FrameReader, len: Int): Boolean {
         if (len <= 0) return false
-        val v = r.readU8() != 0
-        r.drain(what = "boolean tail")
+        val v = r.readS64(1) != 0L
+        r.drain(len - 1, what = "boolean tail")
         return v
     }
 
@@ -195,16 +151,19 @@ internal object `HtspCodec-internal` {
         off: Int = 0,
         len: Int = buf.size,
         what: String,
+        bounded: Boolean = false,
     ) {
         var readTotal = 0
         while (readTotal < len) {
             val count = input.read(buf, off + readTotal, len - readTotal)
             if (count < 0) {
+                if (bounded) throw EOFException("EOF while reading bounded HTSP frame")
                 throw EOFException("EOF while reading $what ($len bytes, read=$readTotal)")
             }
             if (count == 0) {
                 val value = input.read()
                 if (value < 0) {
+                    if (bounded) throw EOFException("EOF while reading bounded HTSP frame")
                     throw EOFException("EOF while reading $what ($len bytes, read=$readTotal)")
                 }
                 buf[off + readTotal] = value.toByte()
@@ -216,52 +175,69 @@ internal object `HtspCodec-internal` {
     }
 
     // ----------------------------
-    // BoundedReader (always consumes exact bytes)
+    // One cursor and reusable scalar/name scratch space per frame. Binary fields
+    // still read straight into their owned array: no whole-frame/payload copy or retention.
+    // There is no per-field slice: every decodeValue branch must consume exactly the
+    // field length, or the rest of the frame desynchronizes.
     // ----------------------------
 
-    private class BoundedReader(
-        private val input: InputStream,
-        initialLimit: Int,
-        private val position: FramePosition,
-        private val parent: BoundedReader? = null,
-    ) {
-        var remaining: Int = initialLimit
+    private class FrameReader(private val input: InputStream) {
+        private val scratch = ByteArray(256)
+        var byteOffset: Int = 4
+            private set
+        var fieldType: Int = 0
+            private set
+        var fieldLength: Int = 0
             private set
 
-        val byteOffset: Int
-            get() = position.byteOffset
-
-        fun readU8(): Int {
-            requireWithinBound(1, "field byte")
-            val value = input.read()
-            if (value < 0) throw EOFException("EOF while reading bounded HTSP frame")
-            consume(1)
-            return value and 0xFF
-        }
-
-        fun readU32BE(): Long {
-            val b0 = readU8().toLong()
-            val b1 = readU8().toLong()
-            val b2 = readU8().toLong()
-            val b3 = readU8().toLong()
-            return (((b0 shl 24) or (b1 shl 16) or (b2 shl 8) or b3) and 0xFFFF_FFFFL)
+        fun readFieldHeader(end: Int): String? {
+            // Consume a short enclosing header before rejecting it, just as single-byte
+            // reads did. Physical EOF takes precedence over the enclosing-bound error.
+            val size = min(6, end - byteOffset)
+            readScratch(size, bounded = true)
+            if (size < 6) throw HtspFramingException("field byte exceeds enclosing frame", byteOffset)
+            fieldType = scratch[0].toInt() and 0xff
+            val nameLen = scratch[1].toInt() and 0xff
+            val dataLen = ((scratch[2].toLong() and 0xff) shl 24) or
+                ((scratch[3].toLong() and 0xff) shl 16) or
+                ((scratch[4].toLong() and 0xff) shl 8) or (scratch[5].toLong() and 0xff)
+            if (nameLen.toLong() + dataLen > end - byteOffset) {
+                throw HtspFramingException("field name and data exceed enclosing frame", byteOffset)
+            }
+            fieldLength = dataLen.toInt()
+            return if (nameLen == 0) null else readString(nameLen, what = "field name")
         }
 
         fun readExactly(n: Int, what: String): ByteArray {
-            requireWithinBound(n, what)
             val buf = ByteArray(n)
             readFully(input, buf, len = n, what = what)
-            consume(n)
+            byteOffset += n
             return buf
         }
 
-        fun slice(n: Int): BoundedReader {
-            requireWithinBound(n, "field data")
-            return BoundedReader(input, n, position = position, parent = this)
+        fun readString(n: Int, what: String): String {
+            if (n > scratch.size) return String(readExactly(n, what), StandardCharsets.UTF_8)
+            readScratch(n, what = what)
+            return String(scratch, 0, n, StandardCharsets.UTF_8)
         }
 
-        fun drain(what: String) {
-            if (remaining <= 0) return
+        fun readS64(len: Int): Long {
+            val n = min(len, 8)
+            readScratch(n, bounded = true)
+            var value = 0L
+            for (i in 0 until n) value = value or ((scratch[i].toLong() and 0xff) shl (8 * i))
+            drain(len - n, what = "signed integer tail")
+            return value
+        }
+
+        private fun readScratch(n: Int, what: String = "field byte", bounded: Boolean = false) {
+            readFully(input, scratch, len = n, what = what, bounded = bounded)
+            byteOffset += n
+        }
+
+        fun drain(n: Int, what: String) {
+            if (n <= 0) return
+            var remaining = n
             val tmp = ByteArray(8192)
             while (remaining > 0) {
                 val toRead = min(remaining, tmp.size)
@@ -270,35 +246,15 @@ internal object `HtspCodec-internal` {
                 if (count == 0) {
                     val value = input.read()
                     if (value < 0) throw EOFException("EOF while draining $what")
-                    consume(1)
+                    remaining--
+                    byteOffset++
                 } else {
-                    consume(count)
+                    remaining -= count
+                    byteOffset += count
                 }
             }
         }
-
-        private fun requireWithinBound(n: Int, what: String) {
-            if (n < 0 || n > remaining) {
-                throw HtspFramingException("$what exceeds enclosing frame", byteOffset)
-            }
-        }
-
-        private fun consume(n: Int) {
-            remaining -= n
-            position.byteOffset += n
-            parent?.consumeFromChild(n)
-        }
-
-        private fun consumeFromChild(n: Int) {
-            remaining -= n
-            if (remaining < 0) {
-                throw HtspFramingException("child over-consumed enclosing frame", byteOffset)
-            }
-            parent?.consumeFromChild(n)
-        }
     }
-
-    private class FramePosition(var byteOffset: Int)
 
     // ----------------------------
     // Encoding (unchanged)

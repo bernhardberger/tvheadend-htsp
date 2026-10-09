@@ -4,9 +4,13 @@ import at.bernhardberger.tvheadend.htsp.wire.*
 
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
+import java.io.EOFException
+import java.io.InputStream
+import java.io.SequenceInputStream
 import org.junit.jupiter.api.Assertions.assertArrayEquals
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertThrows
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 class HtspCodecTest {
@@ -108,4 +112,144 @@ class HtspCodecTest {
         assertEquals("field name and data exceed enclosing frame", failure.failure)
         assertEquals(10, failure.byteOffset)
     }
+
+    @Test
+    fun headersAndScalarsUseBulkReadsWithoutReadingIntoTheNextFrame() {
+        val bytes = encoded("first", mapOf("value" to -2L, "nested" to listOf(3L, true, 1.5)))
+        val next = encoded("second", emptyMap())
+        val source = ByteArrayInputStream(bytes + next)
+        val input = object : InputStream() {
+            override fun read(): Int = error("Complete bulk reads must not fall back to single-byte reads")
+            override fun read(b: ByteArray, off: Int, len: Int): Int = source.read(b, off, len)
+        }
+        val first = HtspCodec.readMessage(input)
+        assertEquals(-2L, first.long("value"))
+        assertEquals(listOf(3L, true, 1.5), first.list("nested"))
+        assertEquals(next.size, source.available())
+        assertEquals("second", HtspCodec.readMessage(input).method)
+    }
+
+    @Test
+    fun oneByteAndZeroLengthReadsPreserveNestedFieldsAndBinaryOwnership() {
+        val payload = ByteArray(188) { it.toByte() }
+        val bytes = encoded("muxpkt", mapOf("payload" to payload, "box" to mapOf("items" to listOf(-1L, "Živě"))))
+        val source = ByteArrayInputStream(bytes + encoded("muxpkt", mapOf("payload" to byteArrayOf(9))))
+        var zeroNext = false
+        val input = object : InputStream() {
+            override fun read(): Int = source.read()
+            override fun read(b: ByteArray, off: Int, len: Int): Int {
+                zeroNext = !zeroNext
+                return if (zeroNext) 0 else source.read(b, off, minOf(1, len))
+            }
+        }
+        val first = HtspCodec.readMessage(input)
+        assertEquals(mapOf("items" to listOf(-1L, "Živě")), first.map("box"))
+        assertTrue(first.rawPayload === first.fields["payload"])
+        assertArrayEquals(byteArrayOf(9), HtspCodec.readMessage(input).rawPayload)
+        assertArrayEquals(payload, first.rawPayload)
+        assertEquals(0, source.available())
+    }
+
+    @Test
+    fun scratchBoundaryStringsAndMaximumUtf8NameRemainIndependent() {
+        val name = "é".repeat(127) + "a"
+        val fields = linkedMapOf<String, Any?>(name to "first", "emptyBinary" to byteArrayOf())
+        for (size in listOf(0, 255, 256, 257)) fields["text$size"] = "x".repeat(size)
+        val decoded = HtspCodec.readMessage(encoded("strings", fields).inputStream())
+        assertEquals("first", decoded.str(name))
+        for (size in listOf(0, 255, 256, 257)) assertEquals("x".repeat(size), decoded.str("text$size"))
+        assertArrayEquals(byteArrayOf(), decoded.bin("emptyBinary"))
+    }
+
+    @Test
+    fun duplicateMapKeysRemainLastWinsAndListNamesRemainIgnored() {
+        val duplicates = field(3, "same", "first".encodeToByteArray()) +
+            field(3, "same", "last".encodeToByteArray()) + field(3, "", "ignored".encodeToByteArray())
+        val body = duplicates + field(1, "map", duplicates) + field(5, "list", duplicates) +
+            field(1, "nested", field(2, "seq", byteArrayOf(1, 0, 0, 0, 0, 0, 0, 0, 99)))
+        val decoded = HtspCodec.readMessage(frame(body).inputStream())
+        assertEquals("last", decoded.str("same"))
+        assertEquals(mapOf("same" to "last"), decoded.map("map"))
+        assertEquals(listOf("first", "last", "ignored"), decoded.list("list"))
+        assertEquals(mapOf("seq" to 1L), decoded.map("nested"))
+        assertEquals(setOf("same", "map", "list", "nested"), decoded.fields.keys)
+    }
+
+    @Test
+    fun shortRootAndNestedHeadersPreserveFramingOffsetsAndPhysicalEofPriority() {
+        for (container in listOf(0, 1, 5)) {
+            for (declared in 1..5) {
+                for (physical in 0..declared) {
+                    val prefix = if (container == 0) byteArrayOf() else
+                        fieldHeader(container, 1, declared) + byteArrayOf('x'.code.toByte())
+                    val bytes = frame(prefix + ByteArray(physical), declaredLength = prefix.size + declared)
+                    if (physical < declared) {
+                        val failure = assertThrows(EOFException::class.java) { HtspCodec.readMessage(bytes.inputStream()) }
+                        assertEquals("EOF while reading bounded HTSP frame", failure.message)
+                    } else {
+                        val failure = assertThrows(HtspFramingException::class.java) {
+                            HtspCodec.readMessage(bytes.inputStream())
+                        }
+                        assertEquals("field byte exceeds enclosing frame", failure.failure)
+                        assertEquals(4 + prefix.size + declared, failure.byteOffset)
+                    }
+                }
+            }
+        }
+    }
+
+    @Test
+    fun bulkReadsKeepRegionSpecificEofMessages() {
+        val name = frame(fieldHeader(3, 3, 0) + byteArrayOf(1), declaredLength = 9)
+        assertEquals("EOF while reading field name (3 bytes, read=1)", eofMessage(name))
+        val text = frame(fieldHeader(3, 0, 3) + byteArrayOf(1), declaredLength = 9)
+        assertEquals("EOF while reading string (3 bytes, read=1)", eofMessage(text))
+        val binary = frame(fieldHeader(4, 0, 3) + byteArrayOf(1), declaredLength = 9)
+        assertEquals("EOF while reading binary (3 bytes, read=1)", eofMessage(binary))
+        val integer = frame(fieldHeader(2, 0, 3) + byteArrayOf(1), declaredLength = 9)
+        assertEquals("EOF while reading bounded HTSP frame", eofMessage(integer))
+        val bool = frame(fieldHeader(7, 0, 3) + byteArrayOf(1), declaredLength = 9)
+        assertEquals("EOF while draining boolean tail", eofMessage(bool))
+    }
+
+    @Test
+    fun invalidFieldLengthIsRejectedBeforeAttemptingItsMissingNameOrBody() {
+        val input = frame(fieldHeader(3, 2, 1), declaredLength = 8).inputStream()
+        val failure = assertThrows(HtspFramingException::class.java) { HtspCodec.readMessage(input) }
+        assertEquals("field name and data exceed enclosing frame", failure.failure)
+        assertEquals(10, failure.byteOffset)
+    }
+
+    @Test
+    fun maximumRootLengthReadsBinaryDirectlyAndOversizeNeverReadsBody() {
+        val maximum = 32 * 1024 * 1024
+        val payloadSize = maximum - 7
+        val prefix = frameWithDeclaredLength(maximum) + fieldHeader(4, 1, payloadSize) + byteArrayOf('b'.code.toByte())
+        var remaining = payloadSize
+        val zeros = object : InputStream() {
+            override fun read(): Int = error("Binary must be read in bulk")
+            override fun read(b: ByteArray, off: Int, len: Int): Int {
+                if (remaining == 0) return -1
+                val count = minOf(remaining, len)
+                b.fill(0, off, off + count)
+                remaining -= count
+                return count
+            }
+        }
+        val decoded = HtspCodec.readMessage(SequenceInputStream(prefix.inputStream(), zeros))
+        assertEquals(payloadSize, decoded.bin("b")?.size)
+        assertEquals(0, remaining)
+        val oversized = SequenceInputStream(frameWithDeclaredLength(maximum + 1).inputStream(), object : InputStream() {
+            override fun read(): Int = error("Invalid root length must be rejected before reading its body")
+        })
+        assertEquals("invalid root length", assertThrows(HtspFramingException::class.java) {
+            HtspCodec.readMessage(oversized)
+        }.failure)
+    }
+
+    private fun encoded(method: String, fields: Map<String, Any?>): ByteArray =
+        ByteArrayOutputStream().also { HtspCodec.writeMessage(it, method, fields) }.toByteArray()
+
+    private fun eofMessage(bytes: ByteArray): String? =
+        assertThrows(EOFException::class.java) { HtspCodec.readMessage(bytes.inputStream()) }.message
 }

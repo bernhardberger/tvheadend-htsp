@@ -3,6 +3,8 @@
 ## [Unreleased]
 
 - Add an isolated kotlinx-benchmark/JMH harness for codec, buffer, and loopback baselines.
+- Decode frames with bulk header reads: small and metadata frames decode about 30-40%
+  faster with 20-30% less allocation; payload-dominated frames are unchanged.
 
 - **BREAKING:** metadata delivery now uses independent bounded collector queues,
   drops newest metadata on overflow and reports `MetadataOverflow`. Queue saturation
