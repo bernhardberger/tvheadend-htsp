@@ -30,6 +30,8 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.filterIsInstance
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
@@ -40,11 +42,137 @@ import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertNotSame
 import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Test
 import kotlin.concurrent.thread
 import kotlin.coroutines.CoroutineContext
 
 class HtspConnectionSocketFactoryTest {
+    @Test
+    fun connectFailureStateAndOutcomeExcludeExceptionSecrets() = runBlocking {
+        val sentinel = "connect-secret-sentinel"
+        val connection = createHtspConnection(Dispatchers.IO, socketFactory = { throw IOException(sentinel) })
+        val state = async(Dispatchers.Unconfined, start = CoroutineStart.UNDISPATCHED) {
+            connection.connectionState.filterIsInstance<HtspConnectionState.Error>().first()
+        }
+        try {
+            withTimeout(5_000L) {
+                val outcome = connection.connect(HtspEndpoint("127.0.0.1", 9_982))
+                val expected = HtspTransportFailure(HtspTransportFailureKind.TRANSPORT_UNAVAILABLE)
+                assertEquals(HtspConnectOutcome.Failed(expected), outcome)
+                val error = state.await()
+                assertEquals(expected, error.failure)
+                assertFalse(error.failure.toString().contains(sentinel))
+                assertFalse(error.toString().contains(sentinel))
+            }
+        } finally {
+            state.cancelAndJoin()
+            connection.close()
+        }
+    }
+
+    @Test
+    fun activeFailureStateAndEventShareRedactedFailureValue() = runBlocking {
+        val sentinel = "active-secret-sentinel"
+        val releaseFailure = CountDownLatch(1)
+        val reads = AtomicInteger()
+        val socket = ScriptedSocket("127.0.0.1", 9_982, listOf(
+            loadHtspGoldenFrame("scripted-hello-response.hex"),
+            loadHtspGoldenFrame("scripted-authenticate-response.hex"),
+        ))
+        val connection = HtspService(Dispatchers.IO, socketFactory = { socket }, beforeFrameRead = {
+            if (reads.incrementAndGet() == 3) {
+                check(releaseFailure.await(5, TimeUnit.SECONDS))
+                throw IOException(sentinel)
+            }
+        })
+        val state = async(Dispatchers.Unconfined, start = CoroutineStart.UNDISPATCHED) {
+            connection.connectionState.filterIsInstance<HtspConnectionState.Error>().first()
+        }
+        val event = async(start = CoroutineStart.UNDISPATCHED) {
+            connection.events.filterIsInstance<HtspTransportEvent.ConnectionFailure>().first()
+        }
+        try {
+            withTimeout(5_000L) {
+                assertTrue(connection.connect(HtspEndpoint("127.0.0.1", 9_982)) is HtspConnectOutcome.Connected)
+                releaseFailure.countDown()
+                val error = state.await()
+                assertEquals(HtspTransportFailureKind.TRANSPORT_UNAVAILABLE, error.failure.kind)
+                assertSame(error.failure, event.await().failure)
+                assertFalse(error.failure.toString().contains(sentinel))
+                assertFalse(error.toString().contains(sentinel))
+            }
+        } finally {
+            releaseFailure.countDown()
+            state.cancelAndJoin()
+            event.cancelAndJoin()
+            connection.close()
+        }
+    }
+
+    @Test
+    fun socketTimeoutOptionsValidateLongBoundsOnConstructionAndCopy() {
+        val maximum = Int.MAX_VALUE.toLong()
+        assertEquals(1L, HtspConnectOptions(connectTimeoutMs = 1L).connectTimeoutMs)
+        assertEquals(1L, HtspConnectOptions(socketReadTimeoutMs = 1L).socketReadTimeoutMs)
+        assertEquals(maximum, HtspConnectOptions(connectTimeoutMs = maximum).connectTimeoutMs)
+        assertEquals(maximum, HtspConnectOptions().copy(socketReadTimeoutMs = maximum).socketReadTimeoutMs)
+        for (invalid in listOf(Long.MIN_VALUE, -1L, 0L, maximum + 1L, Long.MAX_VALUE)) {
+            assertThrows(IllegalArgumentException::class.java) { HtspConnectOptions(connectTimeoutMs = invalid) }
+            assertThrows(IllegalArgumentException::class.java) { HtspConnectOptions(socketReadTimeoutMs = invalid) }
+            assertThrows(IllegalArgumentException::class.java) { HtspConnectOptions().copy(connectTimeoutMs = invalid) }
+            assertThrows(IllegalArgumentException::class.java) { HtspConnectOptions().copy(socketReadTimeoutMs = invalid) }
+        }
+    }
+
+    @Test
+    fun maximumSocketTimeoutsReachJdkWithoutTruncation() = runBlocking {
+        val socket = ScriptedSocket("127.0.0.1", 9_982, listOf(
+            loadHtspGoldenFrame("scripted-hello-response.hex"),
+            loadHtspGoldenFrame("scripted-authenticate-response.hex"),
+        ))
+        val connection = createHtspConnection(Dispatchers.IO, socketFactory = { socket })
+        try {
+            withTimeout(5_000L) {
+                assertTrue(connection.connect(HtspEndpoint("127.0.0.1", 9_982), HtspConnectOptions(
+                    connectTimeoutMs = Int.MAX_VALUE.toLong(),
+                    socketReadTimeoutMs = Int.MAX_VALUE.toLong(),
+                )) is HtspConnectOutcome.Connected)
+                assertEquals(Int.MAX_VALUE, socket.connectTimeoutMs)
+                assertEquals(Int.MAX_VALUE, socket.readTimeoutMs)
+            }
+        } finally {
+            connection.close()
+        }
+    }
+
+    @Test
+    fun endpointAndRecordingRuleRequestsRedactSensitiveValuesAfterCopy() {
+        val username = "username-secret-sentinel"
+        val password = "password-secret-sentinel"
+        val endpoint = HtspEndpoint("host", 9_982, username, password).toString()
+        assertFalse(endpoint.contains(username))
+        assertFalse(endpoint.contains(password))
+        val directory = "/directory-secret-sentinel"
+        val copiedDirectory = "/copied-directory-secret-sentinel"
+        val addAutorec = AddAutorecEntryRequest("title", directory = directory)
+        val updateAutorec = UpdateAutorecEntryRequest("id", directory = directory)
+        val addTimerec = AddTimerecEntryRequest("title", directory = directory)
+        val updateTimerec = UpdateTimerecEntryRequest("id", directory = directory)
+        val requests = listOf(
+            addAutorec, addAutorec.copy(), addAutorec.copy(directory = copiedDirectory),
+            updateAutorec, updateAutorec.copy(), updateAutorec.copy(directory = copiedDirectory),
+            addTimerec, addTimerec.copy(), addTimerec.copy(directory = copiedDirectory),
+            updateTimerec, updateTimerec.copy(), updateTimerec.copy(directory = copiedDirectory),
+        )
+        for (request in requests) {
+            assertFalse(request.toString().contains(directory))
+            assertFalse(request.toString().contains(copiedDirectory))
+            assertTrue(request.toString().contains("<redacted>"))
+        }
+    }
+
     @Test
     fun publicSocketFactoryScriptsConnectHandshakeAndTypedRequestWithoutNetwork() = runBlocking {
         val callerThread = Thread.currentThread()

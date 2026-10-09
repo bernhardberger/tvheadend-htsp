@@ -201,7 +201,7 @@ internal class `HtspTypedRequestCaller-internal`(
             HtspResult.Timeout
         } catch (_: HtspProtocolMappingException) {
             ensureActiveGeneration(generation)
-            HtspResult.ServerError
+            HtspResult.ServerError()
         } catch (rejected: HtspRequestAdmissionException) {
             ensureActiveGeneration(generation)
             throw rejected
@@ -232,35 +232,36 @@ internal fun <R> classifyHtspReply(
     request: HtspRequest<R>,
     protocolVersion: Int,
 ): HtspResult<R> {
+    val serverMessage = reply.fields["error"] as? String
     if (reply.fields.containsKey("noaccess")) {
         val noAccess = reply.fields["noaccess"]
-        if (noAccess !is Long) return HtspResult.ServerError
+        if (noAccess !is Long) return HtspResult.ServerError(serverMessage)
         when (noAccess) {
             0L -> Unit
             1L -> {
                 if (!reply.fields.containsKey("connlimit")) return HtspResult.AccessDenied
                 val connectionLimit = reply.fields["connlimit"]
-                if (connectionLimit !is Long) return HtspResult.ServerError
+                if (connectionLimit !is Long) return HtspResult.ServerError(serverMessage)
                 return if (connectionLimit == 1L) {
                     HtspResult.ConnectionLimit
                 } else {
                     HtspResult.AccessDenied
                 }
             }
-            else -> return HtspResult.ServerError
+            else -> return HtspResult.ServerError(serverMessage)
         }
     }
     if (reply.fields.containsKey("error")) {
-        val error = reply.fields["error"] as? String ?: return HtspResult.ServerError
+        val error = reply.fields["error"] as? String ?: return HtspResult.ServerError()
         if (error.lowercase().isUnknownMethodError()) return HtspResult.NotSupported
-        if (request !is HtspDvrMutationRequest) return HtspResult.ServerError
+        return HtspResult.ServerError(serverMessage = error)
     }
     return try {
         HtspResult.Ok(HtspRequestCodecs.decode(request, reply.fields, protocolVersion))
     } catch (_: HtspProtocolMappingException) {
-        HtspResult.ServerError
+        HtspResult.ServerError()
     } catch (_: RuntimeException) {
-        HtspResult.ServerError
+        HtspResult.ServerError()
     }
 }
 

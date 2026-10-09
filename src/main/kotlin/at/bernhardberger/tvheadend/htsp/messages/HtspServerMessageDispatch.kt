@@ -18,7 +18,7 @@ public data object HtspServerMessageMalformedKnownMessage : HtspServerMessageDec
  * malformed known input. Standalone mux packets are interpreted as native
  * microseconds because no subscribe request supplies a negotiated clock.
  */
-public fun decodeHtspServerMessage(fields: Map<String, Any?>): HtspServerMessageDecodeResult =
+internal fun decodeHtspServerMessage(fields: Map<String, Any?>): HtspServerMessageDecodeResult =
     decodeHtspServerMessage(fields) { HtspTimestampClock.MICROSECONDS }
 
 @JvmSynthetic

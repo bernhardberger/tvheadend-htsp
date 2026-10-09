@@ -352,34 +352,27 @@ internal object `HtspRequestCodecs-internal` {
 
         is GetDvrConfigsRequest -> GetDvrConfigsResponse(fields.optionalObjectList("dvrconfigs", ::dvrConfigFromFields))
 
-        is AddDvrEntryRequest -> decodeDvrMutation(fields) { success, error ->
-            val entryId = if (fields.containsKey("id")) {
-                fields.optionalU32("id")
-            } else {
-                fields.optionalU32("dvrId")
-            }
-            AddDvrEntryResponse(success, entryId, error)
-        }
+        is AddDvrEntryRequest -> decodeDvrAdd(fields)
 
-        is UpdateDvrEntryRequest -> decodeDvrMutation(fields, ::UpdateDvrEntryResponse)
+        is UpdateDvrEntryRequest -> decodeStrictAcknowledgement(fields, UpdateDvrEntryResponse)
 
-        is StopDvrEntryRequest -> decodeDvrMutation(fields, ::StopDvrEntryResponse)
+        is StopDvrEntryRequest -> decodeStrictAcknowledgement(fields, StopDvrEntryResponse)
 
-        is CancelDvrEntryRequest -> decodeDvrMutation(fields, ::CancelDvrEntryResponse)
+        is CancelDvrEntryRequest -> decodeStrictAcknowledgement(fields, CancelDvrEntryResponse)
 
-        is DeleteDvrEntryRequest -> decodeDvrMutation(fields, ::DeleteDvrEntryResponse)
+        is DeleteDvrEntryRequest -> decodeStrictAcknowledgement(fields, DeleteDvrEntryResponse)
 
         is AddAutorecEntryRequest -> decodeRecordingRuleAdd(fields, ::AddAutorecEntryResponse)
 
-        is UpdateAutorecEntryRequest -> decodeRecordingRuleAcknowledgement(fields, UpdateAutorecEntryResponse)
+        is UpdateAutorecEntryRequest -> decodeStrictAcknowledgement(fields, UpdateAutorecEntryResponse)
 
-        is DeleteAutorecEntryRequest -> decodeRecordingRuleAcknowledgement(fields, DeleteAutorecEntryResponse)
+        is DeleteAutorecEntryRequest -> decodeStrictAcknowledgement(fields, DeleteAutorecEntryResponse)
 
         is AddTimerecEntryRequest -> decodeRecordingRuleAdd(fields, ::AddTimerecEntryResponse)
 
-        is UpdateTimerecEntryRequest -> decodeRecordingRuleAcknowledgement(fields, UpdateTimerecEntryResponse)
+        is UpdateTimerecEntryRequest -> decodeStrictAcknowledgement(fields, UpdateTimerecEntryResponse)
 
-        is DeleteTimerecEntryRequest -> decodeRecordingRuleAcknowledgement(fields, DeleteTimerecEntryResponse)
+        is DeleteTimerecEntryRequest -> decodeStrictAcknowledgement(fields, DeleteTimerecEntryResponse)
 
         is GetDvrCutpointsRequest -> GetDvrCutpointsResponse(
             fields.optionalObjectList("cutpoints") { cutpoint ->
@@ -526,14 +519,10 @@ internal object `HtspRequestCodecs-internal` {
         return FileCloseResponse
     }
 
-    private fun <R> decodeDvrMutation(
-        fields: Map<String, Any?>,
-        response: (Long?, String?) -> R,
-    ): R {
-        val success = fields.optionalU32("success")
-        val error = fields.optionalString("error")
-        if (success == null && error == null) malformedReply()
-        return response(success, error)
+    private fun decodeDvrAdd(fields: Map<String, Any?>): AddDvrEntryResponse {
+        fields.requireStrictSuccess()
+        val entryId = if (fields.containsKey("id")) fields.requiredU32("id") else fields.requiredU32("dvrId")
+        return AddDvrEntryResponse(entryId)
     }
 
     private fun <R> decodeRecordingRuleAdd(fields: Map<String, Any?>, response: (String) -> R): R {
@@ -541,7 +530,7 @@ internal object `HtspRequestCodecs-internal` {
         return response(fields.requiredString("id"))
     }
 
-    private fun <R> decodeRecordingRuleAcknowledgement(fields: Map<String, Any?>, response: R): R {
+    private fun <R> decodeStrictAcknowledgement(fields: Map<String, Any?>, response: R): R {
         fields.requireStrictSuccess()
         return response
     }

@@ -6,6 +6,7 @@ import org.gradle.api.tasks.compile.JavaCompile
 import org.gradle.api.tasks.testing.Test
 import dev.detekt.gradle.Detekt
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import org.jetbrains.kotlin.gradle.dsl.JvmDefaultMode
 import org.jetbrains.kotlin.gradle.tasks.KotlinJvmCompile
 import java.security.MessageDigest
 
@@ -43,6 +44,8 @@ kotlin {
     jvmToolchain(21)
     explicitApi()
     compilerOptions {
+        // Pinned for the whole 1.x line: changing this would remove ABI declarations.
+        jvmDefault.set(JvmDefaultMode.ENABLE)
         jvmTarget.set(JvmTarget.JVM_17)
         freeCompilerArgs.add("-Xjdk-release=17")
     }

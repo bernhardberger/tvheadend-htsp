@@ -13,7 +13,7 @@ import org.junit.jupiter.api.Test
 class HtspResultCombinatorTest {
     private val failures: List<HtspFailure>
         get() = listOf(
-            HtspResult.ServerError,
+            HtspResult.ServerError(),
             HtspResult.AccessDenied,
             HtspResult.ConnectionLimit,
             HtspResult.Timeout,

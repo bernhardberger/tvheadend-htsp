@@ -146,7 +146,7 @@ public sealed class HtspConnectionState {
         val dvrAccess: Boolean? = null,
     ) : HtspConnectionState()
     /** A connection attempt or active transport failed. */
-    public data class Error(val throwable: Throwable) : HtspConnectionState()
+    public data class Error(val failure: HtspTransportFailure) : HtspConnectionState()
 }
 
 internal open class `HtspService-internal`(
@@ -429,7 +429,7 @@ internal open class `HtspService-internal`(
                         )
                         throw superseded
                     }
-                    publishConnectionState(attemptId, HtspConnectionState.Error(t))
+                    publishConnectionState(attemptId, HtspConnectionState.Error(typedTransportFailure(t)))
                     disconnectInternal(
                         t = t,
                         attemptId = attemptId,
@@ -456,9 +456,9 @@ internal open class `HtspService-internal`(
             username = endpoint.username,
             password = endpoint.password,
             htspVersion = options.requestedProtocolVersion,
-            connectTimeoutMs = options.connectTimeoutMs,
+            connectTimeoutMs = options.connectTimeoutMs.toInt(),
             responseTimeoutMs = options.responseTimeoutMs,
-            soTimeoutMs = options.socketReadTimeoutMs,
+            soTimeoutMs = options.socketReadTimeoutMs.toInt(),
             socketBufferBytes = options.socketBufferBytes,
             forceReconnect = options.forceReconnect,
         )
@@ -1082,13 +1082,14 @@ internal open class `HtspService-internal`(
             if (!isCurrentConnectionAttempt(attemptId)) return@withLock false
             withCurrentConnectionAttempt(attemptId) {
                 if (transportRetirement != HtspSubscriptionTermination.LOCAL_RETIREMENT) {
-                    _state.value = HtspConnectionState.Error(failure)
+                    val typedFailure = if (transportRetirement == HtspSubscriptionTermination.TIMEOUT) {
+                        HtspTransportFailure(HtspTransportFailureKind.CONNECTION_TIMEOUT)
+                    } else {
+                        typedTransportFailure(failure)
+                    }
+                    _state.value = HtspConnectionState.Error(typedFailure)
                     typedEvent = HtspTransportEvent.ConnectionFailure(
-                        failure = if (transportRetirement == HtspSubscriptionTermination.TIMEOUT) {
-                            HtspTransportFailure(HtspTransportFailureKind.CONNECTION_TIMEOUT)
-                        } else {
-                            typedTransportFailure(failure)
-                        },
+                        failure = typedFailure,
                         generation = protocolGeneration?.token,
                     )
                 }

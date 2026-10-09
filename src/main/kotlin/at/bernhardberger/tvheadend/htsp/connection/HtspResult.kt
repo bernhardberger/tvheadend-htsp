@@ -5,8 +5,29 @@ public sealed interface HtspResult<out R> {
     /** The request completed successfully with [value]. */
     public data class Ok<out R>(public val value: R) : HtspResult<R>
 
-    /** The server rejected the request or supplied a malformed reply. */
-    public data object ServerError : HtspFailure
+    /**
+     * The server rejected the request or supplied a malformed reply.
+     *
+     * [serverMessage] is the reply's `error` string whenever present, and `null` otherwise,
+     * including for locally detected failures. A subscribe stream ends on explicit rejection
+     * (a string `error` or `noaccess: 1`), not on whether [serverMessage] is non-null.
+     * TVHeadend sends fixed
+     * messages translated into the connection's language. Treat the text as untrusted display
+     * text, not as a stable code. [toString] never renders it.
+     */
+    @ConsistentCopyVisibility
+    public data class ServerError private constructor(
+        public val serverMessage: String?,
+        private val evolution: Unit,
+    ) : HtspFailure {
+        public constructor(serverMessage: String? = null) : this(serverMessage, Unit)
+
+        /** Copies this failure, optionally replacing the server's error text. */
+        public fun copy(serverMessage: String? = this.serverMessage): ServerError = ServerError(serverMessage)
+
+        override fun toString(): String =
+            "ServerError(serverMessage=${if (serverMessage == null) "null" else "<redacted>"})"
+    }
 
     /** The server explicitly denied access to the request. */
     public data object AccessDenied : HtspFailure
@@ -24,7 +45,10 @@ public sealed interface HtspResult<out R> {
     public data object NotSupported : HtspFailure
 }
 
-/** Payload-free failure returned by a typed HTSP request. */
+/**
+ * Failure returned by a typed HTSP request. Only [HtspResult.ServerError] carries a value: the
+ * server's own error text.
+ */
 public sealed interface HtspFailure : HtspResult<Nothing>
 
 /** Returns the success value, or `null` for any failure. */

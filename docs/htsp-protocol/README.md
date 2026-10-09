@@ -74,6 +74,22 @@ DVR policy.
 
 ## Protocol quirks and version notes
 
+- `ServerError.serverMessage` preserves the reply's string `error`. Pinned
+  `src/htsp_server.c:488-494` passes `htsp_error`'s fixed `N_()` literals through
+  `tvh_gettext_lang` for the connection language; examples include the DVR
+  refusals at lines 2148-2160. The `api` error conversion at lines 1558-1572
+  maps permission errors to `noaccess: 1`, missing/unimplemented methods to an
+  empty reply, and other failures to the literal `N_("Bad request")`, not backend
+  error text. These messages are untrusted display text, not stable codes.
+- DVR mutations require `success: 1` for typed success. `addDvrEntry` emits
+  `id` plus `success: 1` in pinned `src/htsp_server.c:2128-2129`; the decoder's
+  `dvrId` fallback is compatibility-only, not emitted by the pinned server.
+  Its failure branch at lines 2132-2133 emits `success: 0` plus the fixed
+  `error: "Could not add dvrEntry"`. `updateDvrEntry`, `stopDvrEntry`,
+  `cancelDvrEntry`, and `deleteDvrEntry` return `htsp_success()` at lines
+  2243, 2261, 2279, and 2297 respectively (`success: 1`, lines 499-504).
+  Their DVR-entry lookup refusals use `htsp_error` via `htsp_findDvrEntry`
+  at lines 2143-2160. Missing or non-1 `success` is not typed success.
 - Connection limits apply only to streaming. Since upstream `1ddc5d10`, the
   server admits any HTSP connection and checks the user's connection limits when
   the connection starts streaming: on `subscribe` and on `fileOpen` of `dvr/` or
@@ -211,7 +227,7 @@ DVR policy.
   event/explicit-time and subscription ID/name choices have wrapper-free
   conveniences. Seek and skip use `SubscriptionSeekPosition.Time` and `.Size`
   because both values are `Long`.
-- `decodeHtspServerMessage(Map<String, Any?>)` is the versionless finite decoder. It treats every `seq` reply envelope, unknown or
+- The internal `decodeHtspServerMessage(Map<String, Any?>)` is the versionless finite decoder, not a public API. It treats every `seq` reply envelope, unknown or
   missing/non-string method, as unknown; malformed recognized messages are
   malformed-known. It is not a version gate. `descrambleInfo` is emitted from
   v24 unless anonymized and requires full-u32 `subscriptionId`, `pid`, `caid`,

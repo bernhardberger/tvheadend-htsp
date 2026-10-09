@@ -44,6 +44,13 @@ refused login, a missing permission, a timeout, or a dead socket arrives as a
 failure case you pattern-match on, or unwrap with the `map`, `fold`,
 `getOrNull`, `getOrElse`, and `onFailure` helpers.
 
+DVR mutation refusals (`error`, missing `success`, or `success` other than 1) return
+`HtspResult.ServerError`, not an `Ok` response carrying `success`/`error` fields.
+`AddDvrEntryResponse.entryId` is required; update, stop, cancel, and delete return
+acknowledgement objects. `HtspDvrMutationResponse` is a memberless marker.
+`Ok` means the server acknowledged the request, not that the recording state
+has already changed; observe DVR metadata updates for that state.
+
 ## Cancellation stays cancellation
 
 Cancelling the calling coroutine cancels the in-flight call, which propagates
@@ -119,14 +126,17 @@ transport instead of disappearing.
 collecting: the same id may receive another `Started` with replacement stream and
 source metadata, then more packets. Do not infer retirement from status text.
 A successful unsubscribe acknowledgement drains committed events and completes
-the flow. When the server refuses `subscribe` with an error or access denial
+the flow. When the server explicitly refuses `subscribe` with a string `error` or `noaccess: 1`
 (`ServerError`, `AccessDenied`, `ConnectionLimit`, or `NotSupported`), the flow
 delivers events committed before the reply, then ends with
 `Terminated(SUBSCRIBE_REJECTED)`; the id remains used for that generation. A
 timeout or cancellation alone leaves the flow open, because the server may still
 have created the subscription; a refusal that arrives later still ends it. A
-reply that only fails local decoding returns `ServerError` but leaves the flow
-open; send `unsubscribe` to release it. Generation, transport or local
+reply that only fails local decoding without explicit rejection leaves the flow
+open; send `unsubscribe` to release it. Stream termination depends on the explicit
+rejection fields, not `serverMessage`: a null message does not imply an open
+stream (for example, `noaccess: 1` with malformed `connlimit` ends it with
+`ServerError()`). Generation, transport or local
 retirement ends the flow with a final `Terminated`, even after `Stopped`. Collector cancellation remains
 `CancellationException`. Reconfiguration does not reset the subscription's
 negotiated timestamp clock or permit a second collection/subscribe for that id.
@@ -238,6 +248,15 @@ Existing `componentN` functions keep their positions, and equality, hashing and
 
 ## Argument validation and lifecycle calls
 
+### Protocol field-domain mapping
+
+Each wire field's documented domain decides its Kotlin type: u32 → `Long`
+because 0..4294967295 does not fit `Int`; s32 → `Int`; s64 → `Long`. This rule
+also applies to fields with small validated ranges. Library-level configuration
+uses `Long` for durations. Socket connect and read timeouts must be in
+1..2147483647 milliseconds to fit the JDK's `Int` socket APIs; larger values
+are rejected, never truncated.
+
 Passing an invalid argument, such as a non-positive timeout, may throw
 `IllegalArgumentException`. Lifecycle calls such as `disconnect` and `close`
 return `Unit`.
@@ -253,10 +272,17 @@ traffic and credentials.
 
 ## What outcome values deliberately omit
 
-Failure values are stable categories, not payloads. They never expose
-throwables, server error text, endpoints, credentials, digest or challenge
-bytes, paths, sequence numbers, subscription IDs, or generation identities, so
-logs and crash reports built from them stay free of secrets and wire internals.
+Failure values never expose throwables, endpoints, credentials, digest or
+challenge bytes, paths, sequence numbers, subscription IDs, or generation
+identities. `HtspResult.ServerError.serverMessage` carries the reply's `error`
+string whenever the reply had one, and is null otherwise, including for locally
+detected failures. It does not determine subscribe-stream termination. The pinned
+upstream `htsp_server.c` sends only fixed error literals
+translated via `tvh_gettext_lang` into the connection language.
+
+Treat that message as untrusted, user-displayable text, not a stable error code.
+`toString()` never renders it. `ServerError` is a data class: match it with
+`is HtspResult.ServerError`, and remember that equality includes `serverMessage`.
 
 Requests reach the server only through the finite typed catalog:
 `HtspConnection.execute` accepts those request types and nothing else, so there

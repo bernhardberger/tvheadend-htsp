@@ -341,7 +341,9 @@ internal class HtspServiceSubscriptionEventTest : HtspServiceLifecycleFixture() 
     @Test
     fun rejectedSubscribeTerminatesTheRegisteredStreamAfterEarlierEvents() {
         val rejections = listOf(
-            mapOf("error" to "No such channel") to HtspResult.ServerError,
+            mapOf("noaccess" to "1", "error" to "text") to HtspResult.ServerError("text"),
+            mapOf("noaccess" to 1L, "connlimit" to "x") to HtspResult.ServerError(),
+            mapOf("error" to "No such channel") to HtspResult.ServerError("No such channel"),
             mapOf("noaccess" to 1L) to HtspResult.AccessDenied,
             mapOf("noaccess" to 1L, "connlimit" to 1L) to HtspResult.ConnectionLimit,
             mapOf("error" to "Method not found") to HtspResult.NotSupported,
@@ -364,7 +366,7 @@ internal class HtspServiceSubscriptionEventTest : HtspServiceLifecycleFixture() 
                     server.sendServerMessage("subscriptionStatus", statusFields(21L, "noFreeAdapter"))
                     server.replyToCapturedPostHandshakeRequest(replyFields)
 
-                    assertSame(expected, withTimeout(1_000L) { subscribe.await() })
+                    assertEquals(expected, withTimeout(1_000L) { subscribe.await() })
                     assertEquals(
                         listOf(
                             HtspSubscriptionEvent.Status::class,
@@ -408,6 +410,35 @@ internal class HtspServiceSubscriptionEventTest : HtspServiceLifecycleFixture() 
     }
 
     @Test
+    fun malformedNoaccessWithoutErrorKeepsTheStreamOpen() {
+        FakeHtspServer(
+            respondToHello = true,
+            captureOnePostHandshakeRequest = true,
+        ).use { server ->
+            val service = service()
+            runBlocking {
+                service.connect(HtspEndpoint("127.0.0.1", server.port))
+                val events = async(start = CoroutineStart.UNDISPATCHED) {
+                    service.subscriptionEvents(23L).take(1).toList()
+                }
+                val subscribe = async(Dispatchers.IO) {
+                    service.subscribe(subscriptionId = 23L, channelId = 1L)
+                }
+                assertTrue(server.postHandshakeRequestReceived.await(1, TimeUnit.SECONDS))
+                server.replyToCapturedPostHandshakeRequest(mapOf("noaccess" to "1"))
+                assertEquals(HtspResult.ServerError(), withTimeout(1_000L) { subscribe.await() })
+
+                server.sendServerMessage(
+                    "subscriptionStart",
+                    mapOf("subscriptionId" to 23L, "streams" to emptyList<Map<String, Any?>>()),
+                )
+                assertTrue(withTimeout(1_000L) { events.await() }.single() is HtspSubscriptionEvent.Started)
+                service.disconnect()
+            }
+        }
+    }
+
+    @Test
     fun locallyMalformedSubscribeReplyKeepsTheStreamOpen() {
         FakeHtspServer(
             respondToHello = true,
@@ -424,7 +455,7 @@ internal class HtspServiceSubscriptionEventTest : HtspServiceLifecycleFixture() 
                 }
                 assertTrue(server.postHandshakeRequestReceived.await(1, TimeUnit.SECONDS))
                 server.replyToCapturedPostHandshakeRequest(mapOf("90khz" to "yes"))
-                assertSame(HtspResult.ServerError, withTimeout(1_000L) { subscribe.await() })
+                assertEquals(HtspResult.ServerError(), withTimeout(1_000L) { subscribe.await() })
 
                 server.sendServerMessage(
                     "subscriptionStart",

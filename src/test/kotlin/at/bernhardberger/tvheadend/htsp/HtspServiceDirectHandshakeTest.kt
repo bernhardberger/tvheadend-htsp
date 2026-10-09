@@ -641,7 +641,7 @@ internal class HtspServiceDirectHandshakeTest : HtspServiceLifecycleFixture() {
                     service.subscriptionEvents(39L, generation).toList()
                 }
 
-                assertSame(HtspResult.ServerError, service.hello(44L, "malformed-client", 1_000L, generation))
+                assertEquals(HtspResult.ServerError(), service.hello(44L, "malformed-client", 1_000L, generation))
                 assertTrue(service.isCurrent(generation))
                 assertNull(service.liveConnection.value)
                 assertNull(service.commitIfLive(generation) { it })

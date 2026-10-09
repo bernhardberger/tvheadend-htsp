@@ -227,9 +227,14 @@ private fun policyFor(failure: HtspFailure): ProtocolFailurePolicy = when (failu
     HtspResult.Timeout -> ProtocolFailurePolicy.RETRY_LATER
     HtspResult.TransportUnavailable -> ProtocolFailurePolicy.RECONNECT
     HtspResult.NotSupported -> ProtocolFailurePolicy.UNSUPPORTED
-    HtspResult.ServerError -> ProtocolFailurePolicy.REJECTED
+    is HtspResult.ServerError -> ProtocolFailurePolicy.REJECTED
 }
 ```
+
+`ServerError.serverMessage` optionally carries untrusted server rejection text
+for display, not a stable error code; `toString()` never renders it. Locally
+detected failures have no server message. DVR refusals return `ServerError`;
+an `Ok` DVR mutation acknowledges the request, not a completed state change.
 
 The global `events` flow contains metadata and connection failures only. For a
 live subscription, start collecting `connection.subscriptionEvents(id)` before

@@ -2,6 +2,32 @@
 
 ## [Unreleased]
 
+**BREAKING (1.0.0-rc.1 API/ABI):** `HtspResult.ServerError` is now a data class
+with optional `serverMessage` carrying the server's own rejection text. `when`
+branches must use `is`; equality includes the message. Local failures leave it
+null, and `toString()` never renders it.
+
+**BREAKING (1.0.0-rc.1 API/ABI and behavior):** DVR mutation responses no longer
+expose `success`/`error`; refusals return `ServerError` instead of `Ok`.
+`AddDvrEntryResponse.entryId` is non-null, and update, stop, cancel, and delete
+responses are acknowledgement objects. `Ok` acknowledges the request, not an
+already-completed recording state change.
+
+**BREAKING (1.0.0-rc.1 API/ABI):** `HtspConnectionState.Error` carries a bounded
+`HtspTransportFailure` instead of a `Throwable`. Connection failures no longer
+expose exception messages through lifecycle state.
+
+**BREAKING (1.0.0-rc.1 API/ABI):** `decodeHtspServerMessage(Map)` is internal;
+consume typed messages through the connection's event streams instead.
+
+**BREAKING (1.0.0-rc.1 API/ABI):** `HtspConnectOptions.connectTimeoutMs` and
+`socketReadTimeoutMs` are `Long`. Both require 1..2147483647 milliseconds for
+the JDK socket API, including when options are copied.
+
+Endpoint string rendering now redacts usernames as well as passwords.
+Automatic/time-based recording-rule add/update requests redact their payloads,
+including directories, in string rendering of constructed and copied instances.
+
 **BREAKING (behavior and ABI addition):** when the server refuses `subscribe`
 with an error or access denial (`ServerError`, `AccessDenied`,
 `ConnectionLimit`, `NotSupported`), the registered `subscriptionEvents(id)` flow

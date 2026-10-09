@@ -19,22 +19,26 @@ public class HtspEndpoint(
     public val password: String = "",
 ) {
     override fun toString(): String =
-        "HtspEndpoint(host=$host, port=$port, username=$username, password=<redacted>)"
+        "HtspEndpoint(host=$host, port=$port, username=<redacted>, password=<redacted>)"
 }
 
 /** Connection timeouts and socket bounds, all durations in milliseconds. */
 public data class HtspConnectOptions(
-    public val connectTimeoutMs: Int = 10_000,
+    public val connectTimeoutMs: Long = 10_000L,
     public val responseTimeoutMs: Long = 5_000L,
-    public val socketReadTimeoutMs: Int = 60_000,
+    public val socketReadTimeoutMs: Long = 60_000L,
     public val socketBufferBytes: Int = 64 * 1_024,
     public val requestedProtocolVersion: Int = 44,
     public val forceReconnect: Boolean = false,
 ) {
     init {
-        require(connectTimeoutMs > 0) { "connectTimeoutMs must be positive" }
+        require(connectTimeoutMs in 1L..Int.MAX_VALUE.toLong()) {
+            "connectTimeoutMs must be in 1..Int.MAX_VALUE for the socket API"
+        }
         require(responseTimeoutMs > 0L) { "responseTimeoutMs must be positive" }
-        require(socketReadTimeoutMs > 0) { "socketReadTimeoutMs must be positive" }
+        require(socketReadTimeoutMs in 1L..Int.MAX_VALUE.toLong()) {
+            "socketReadTimeoutMs must be in 1..Int.MAX_VALUE for the socket API"
+        }
         require(socketBufferBytes > 0) { "socketBufferBytes must be positive" }
         require(requestedProtocolVersion > 0) { "requestedProtocolVersion must be positive" }
     }

@@ -78,6 +78,8 @@ public data class AddAutorecEntryRequest(
     init {
         validateAutorecU32Fields()
     }
+
+    override fun toString(): String = "AddAutorecEntryRequest(<redacted>)"
 }
 
 /** Identifies an automatic recording rule and carries optional channel, matching, duration, schedule, count, retention, ownership, title, and configuration changes. */
@@ -118,6 +120,8 @@ public data class UpdateAutorecEntryRequest(
     init {
         validateAutorecU32Fields()
     }
+
+    override fun toString(): String = "UpdateAutorecEntryRequest(<redacted>)"
 }
 
 /** Selects one automatic recording rule by string [id] for deletion. */
@@ -155,6 +159,8 @@ public data class AddTimerecEntryRequest(
     init {
         validateTimerecU32Fields()
     }
+
+    override fun toString(): String = "AddTimerecEntryRequest(<redacted>)"
 }
 
 /** Identifies a time-based recording rule and carries optional channel, daily interval, enablement, days, policy, ownership, title, and configuration changes. */
@@ -181,6 +187,8 @@ public data class UpdateTimerecEntryRequest(
     init {
         validateTimerecU32Fields()
     }
+
+    override fun toString(): String = "UpdateTimerecEntryRequest(<redacted>)"
 }
 
 /** Selects one time-based recording rule by string [id] for deletion. */

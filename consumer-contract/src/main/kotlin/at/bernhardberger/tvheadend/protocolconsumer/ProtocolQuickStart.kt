@@ -130,5 +130,5 @@ private fun policyFor(failure: HtspFailure): ProtocolFailurePolicy = when (failu
     HtspResult.Timeout -> ProtocolFailurePolicy.RETRY_LATER
     HtspResult.TransportUnavailable -> ProtocolFailurePolicy.RECONNECT
     HtspResult.NotSupported -> ProtocolFailurePolicy.UNSUPPORTED
-    HtspResult.ServerError -> ProtocolFailurePolicy.REJECTED
+    is HtspResult.ServerError -> ProtocolFailurePolicy.REJECTED
 }

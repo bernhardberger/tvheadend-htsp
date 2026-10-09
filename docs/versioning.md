@@ -84,6 +84,9 @@ match exhaustively, including `HtspResult`, `HtspFailure`,
 `HtspConnectOutcome`, `HtspTransportEvent`, `HtspConnectionState`, and the
 request selector types. A new kind of server failure is reported through an
 existing category, such as `ServerError`, until the next major version.
+Match that data class with `is HtspResult.ServerError`; its optional
+`serverMessage` is untrusted server text, not a stable code, and participates
+in equality without being rendered by `toString()`.
 
 ### Incompatible changes
 

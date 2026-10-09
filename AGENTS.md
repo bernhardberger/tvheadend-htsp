@@ -46,7 +46,8 @@ official TVHeadend software or as wholly original work.
   or application code.
 - Public suspending server round trips return typed outcomes; cancellation
   propagates as cancellation. Preserve the transport-owned lifecycle scopes.
-  Error values never carry secrets or credentials.
+  Error values never carry client secrets, credentials, endpoints or throwables;
+  `ServerError` may carry the server's own error text, which `toString` never renders.
 - `docs/htsp-protocol/` holds the upstream pin record and protocol notes. The
   client requests HTSP v44 by default, matching the typed surface's v44
   coverage ceiling. The protocol surface is hand-maintained; a method or

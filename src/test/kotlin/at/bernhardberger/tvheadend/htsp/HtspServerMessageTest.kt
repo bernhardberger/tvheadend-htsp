@@ -466,7 +466,7 @@ class HtspServerMessageTest {
                 method.name == "decodeHtspServerMessage" &&
                     method.parameterTypes.contentEquals(arrayOf(Map::class.java))
             },
-            "S2 requires the production-named public decoder",
+            "The internal decoder remains available to production dispatch",
         )
         Class.forName("at.bernhardberger.tvheadend.htsp.messages.HtspServerMessageDecodeResult")
         Class.forName("at.bernhardberger.tvheadend.htsp.messages.HtspServerMessageDecoded")

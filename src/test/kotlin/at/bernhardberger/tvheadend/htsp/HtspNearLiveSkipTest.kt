@@ -194,13 +194,13 @@ internal class HtspNearLiveSkipTest {
                 dispatches += 1
                 assertTrue(request is SubscriptionSkipRequest)
                 if (cancel) throw cancellation
-                return HtspResult.ServerError as HtspResult<R>
+                return HtspResult.ServerError() as HtspResult<R>
             }
         }
 
         try {
-            assertSame(
-                HtspResult.ServerError,
+            assertEquals(
+                HtspResult.ServerError(),
                 connection.subscriptionSkipNearLive(
                     status(10_000_000L, 20_000_000L),
                     SubscriptionTimestampClock.MICROSECONDS,

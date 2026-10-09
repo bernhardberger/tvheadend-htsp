@@ -144,7 +144,7 @@ class HtspApiBridgeTest {
 
         val transport = FakeApiTransport(24, HtspWireReply(decoded.fields))
         val caller = HtspTypedRequestCaller(transport)
-        assertSame(HtspResult.ServerError, caller.call(ApiRequest("malformed-uuid")))
+        assertEquals(HtspResult.ServerError(), caller.call(ApiRequest("malformed-uuid")))
 
         transport.reply = HtspWireReply(linkedMapOf("response" to linkedMapOf("ok" to true)))
         assertEquals(
@@ -220,7 +220,7 @@ class HtspApiBridgeTest {
         transport.reply = HtspWireReply(linkedMapOf("error" to "Method not found"))
         assertSame(HtspResult.NotSupported, caller.call(ApiRequest("unknown")))
         transport.reply = HtspWireReply(linkedMapOf("error" to "path /missing was not found"))
-        assertSame(HtspResult.ServerError, caller.call(ApiRequest("missing")))
+        assertEquals(HtspResult.ServerError("path /missing was not found"), caller.call(ApiRequest("missing")))
         transport.reply = HtspWireReply(linkedMapOf("response" to linkedMapOf("error" to "not found")))
         assertEquals(
             HtspResult.Ok(ApiResponse.Payload(htspApiObject("error" to HtspApiString("not found")))),
@@ -245,7 +245,7 @@ class HtspApiBridgeTest {
         val caller = HtspTypedRequestCaller(transport)
         malformedResponses.forEach { fields ->
             transport.reply = HtspWireReply(fields)
-            assertSame(HtspResult.ServerError, caller.call(request), fields.toString())
+            assertEquals(HtspResult.ServerError(), caller.call(request), fields.toString())
         }
     }
 

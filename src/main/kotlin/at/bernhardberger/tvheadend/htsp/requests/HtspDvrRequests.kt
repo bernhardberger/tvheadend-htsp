@@ -26,47 +26,32 @@ public data class GetDvrConfigsResponse(public val configurations: List<HtspDvrC
 public sealed interface HtspDvrMutationRequest
 
 /**
- * Shared DVR mutation fields: optional success code, untrusted server error text, and an optional entry identifier where applicable.
+ * Successful DVR mutation acknowledgement. A refused mutation is a
+ * [HtspResult.ServerError] instead. An acknowledgement confirms that the server accepted the
+ * request; it does not prove that the recording state has already changed.
  *
  * Minor releases may add subtypes; keep an `else` branch when matching.
  */
-public sealed interface HtspDvrMutationResponse {
-    public val success: Long?
-    public val error: String?
-    public val entryId: Long?
-        get() = null
+public sealed interface HtspDvrMutationResponse
+
+/** DVR-add acknowledgement carrying the created entry's unsigned [entryId]. */
+public data class AddDvrEntryResponse(public val entryId: Long) : HtspDvrMutationResponse {
+    init {
+        requireU32("entryId", entryId)
+    }
 }
 
-/** DVR-add reply with optional success code, returned [entryId], and untrusted server [error]. */
-public data class AddDvrEntryResponse(
-    override public val success: Long?,
-    override public val entryId: Long?,
-    override public val error: String?,
-) : HtspDvrMutationResponse
+/** Acknowledges a strict `success: 1` DVR-update reply. */
+public data object UpdateDvrEntryResponse : HtspDvrMutationResponse
 
-/** DVR-update result carrying the optional success code and untrusted server error text. */
-public data class UpdateDvrEntryResponse(
-    override public val success: Long?,
-    override public val error: String?,
-) : HtspDvrMutationResponse
+/** Acknowledges a strict `success: 1` DVR-stop reply. */
+public data object StopDvrEntryResponse : HtspDvrMutationResponse
 
-/** DVR-stop result carrying the optional success code and untrusted server error text. */
-public data class StopDvrEntryResponse(
-    override public val success: Long?,
-    override public val error: String?,
-) : HtspDvrMutationResponse
+/** Acknowledges a strict `success: 1` DVR-cancel reply. */
+public data object CancelDvrEntryResponse : HtspDvrMutationResponse
 
-/** DVR-cancel result carrying the optional success code and untrusted server error text. */
-public data class CancelDvrEntryResponse(
-    override public val success: Long?,
-    override public val error: String?,
-) : HtspDvrMutationResponse
-
-/** DVR-delete result carrying the optional success code and untrusted server error text. */
-public data class DeleteDvrEntryResponse(
-    override public val success: Long?,
-    override public val error: String?,
-) : HtspDvrMutationResponse
+/** Acknowledges a strict `success: 1` DVR-delete reply. */
+public data object DeleteDvrEntryResponse : HtspDvrMutationResponse
 /** Contains the optional ordered cutpoint list for the selected DVR entry. */
 public data class GetDvrCutpointsResponse(public val cutpoints: List<HtspDvrCutpoint>?)
 
