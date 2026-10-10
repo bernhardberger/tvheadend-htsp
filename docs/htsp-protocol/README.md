@@ -389,6 +389,20 @@ silently ignore it and may still answer Ok.
 
 ## Maintenance
 
+The weekly upstream-drift workflow maintains one `upstream-drift` issue per
+pinned revision when upstream master differs from the pinned sources or HTSP
+protocol version. It updates the body quietly, comments only on
+protocol-version changes (including a moved or unparsable `HTSP_PROTO_VERSION`
+define), and closes the issue without a comment when the pins match again or a
+re-pin supersedes it. An issue closed by a maintainer stays closed and is
+updated quietly until the next re-pin opens a new one; protocol-version changes
+are still commented on it, because they are the alert this workflow exists for.
+Re-pins remain manual, reviewed changes updating `upstream.json` and the source
+line references in these notes. GitHub disables scheduled workflows after 60
+days without repository activity, and the repository-name guard skips every run
+after a rename or transfer; either stops drift monitoring silently, so re-enable
+or adjust the workflow then.
+
 Request models and connection extensions are grouped by domain in
 `requests/Htsp*Requests.kt`; server-message models are grouped in
 `messages/Htsp*Messages.kt`, with request codec and server decoder/dispatch

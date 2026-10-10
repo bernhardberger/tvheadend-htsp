@@ -1,0 +1,100 @@
+name: Upstream HTSP drift
+
+on:
+  schedule:
+    - cron: '23 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: upstream-drift
+  cancel-in-progress: false
+
+jobs:
+  compare:
+    if: github.repository == 'bernhardberger/tvheadend-htsp'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Compare pins and maintain one issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          upstream=repos/tvheadend/tvheadend
+          pin=docs/htsp-protocol/upstream.json
+          work=$(mktemp -d)
+          trap 'rm -rf "$work"' EXIT
+          # Only contents 404s mean removal; all other API failures are fatal.
+          contents() {
+            if gh api "$@" > "$work/response" 2> "$work/error"; then
+              cat "$work/response"
+            elif [[ $(<"$work/error") == *'(HTTP 404)'* ]]; then
+              printf 'null\n'
+            else
+              cat "$work/error" >&2
+              return 1
+            fi
+          }
+          master=$(gh api "$upstream/commits/master" --jq .sha)
+          revision=$(jq -er .revision "$pin")
+          pinned_version=$(jq -er .htspProtoVersion "$pin")
+          files=$(jq -er '.files | to_entries[] | [.key, .value.gitBlobSha1] | @tsv' "$pin")
+          drift=false
+          printf '| File / history | Pinned blob | Master blob |\n|---|---|---|\n' > "$work/table"
+          while IFS=$'\t' read -r path pinned; do
+            response=$(contents "$upstream/contents/$path?ref=$master")
+            current=$(jq -er 'if . == null then "removed/renamed" else .sha end' <<< "$response")
+            if [[ "$pinned" != "$current" ]]; then
+              drift=true
+              printf '| [%s](https://github.com/tvheadend/tvheadend/commits/master/%s) | `%s` | `%s` |\n' \
+                "$path" "$path" "$pinned" "$current" >> "$work/table"
+            fi
+          done <<< "$files"
+          source=$(contents "$upstream/contents/src/htsp_server.c?ref=$master" -H 'Accept: application/vnd.github.raw+json')
+          version=removed
+          if [[ "$source" != null ]]; then
+            # A moved or reformatted define is reported as drift, not as a silent failure.
+            version=$(jq -Rrs 'capture("(?m)^\\s*#\\s*define\\s+HTSP_PROTO_VERSION\\s+(?<version>[0-9]+)\\b").version // "not-found"' <<< "$source")
+          fi
+          [[ "$version" == "$pinned_version" ]] || drift=true
+          title="Upstream HTSP drift since ${revision:0:8}"
+          {
+            printf '<!-- htsp-proto-version: %s -->\n\n' "$version"
+            printf 'HTSP protocol version: pinned **%s**, master **%s**.\n\n' "$pinned_version" "$version"
+            printf '[Compare pinned revision with master](https://github.com/tvheadend/tvheadend/compare/%s...%s).\n\n' "$revision" "$master"
+            cat "$work/table"
+            printf '\nRe-pinning is manual and reviewed: see `docs/htsp-protocol/README.md`; update `upstream.json` and line references.\n'
+          } > "$work/body"
+          echo "Drift: $drift; master: $master; HTSP: $pinned_version -> $version"
+          if [[ ${DRY_RUN:-0} == 1 ]]; then cat "$work/body"; exit 0; fi
+          # One issue per pinned revision; an issue a maintainer closed stays closed until the next re-pin.
+          issues=$(gh issue list --state all --label upstream-drift --limit 20 --json number,state,title,body)
+          # A re-pin supersedes open issues of earlier pins; close them quietly.
+          jq -r --arg title "$title" '.[] | select(.state == "OPEN" and .title != $title) | .number' <<< "$issues" \
+            | while read -r stale; do gh issue close "$stale" < /dev/null; done
+          issue=$(jq -c --arg title "$title" 'map(select(.title == $title))[0] // empty' <<< "$issues")
+          number=$(jq -r '.number // empty' <<< "$issue")
+          state=$(jq -r '.state // empty' <<< "$issue")
+          if [[ "$drift" == true ]]; then
+            gh label create upstream-drift --color D4C5F9 --description 'Pinned HTSP upstream sources changed' --force
+            if [[ -z "$number" ]]; then
+              gh issue create --label upstream-drift --title "$title" --body-file "$work/body"
+            else
+              previous=$(jq -r '.body | capture("<!-- htsp-proto-version: (?<version>[^ ]+) -->").version // empty' <<< "$issue")
+              # Notify before recording the new version so a failed comment is retried next run.
+              if [[ -n "$previous" && "$previous" != "$version" ]]; then
+                gh issue comment "$number" --body "Upstream HTSP_PROTO_VERSION changed: $previous -> $version."
+              fi
+              gh issue edit "$number" --body-file "$work/body"
+            fi
+          elif [[ "$state" == OPEN ]]; then
+            gh issue close "$number"
+          fi

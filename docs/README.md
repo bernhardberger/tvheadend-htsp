@@ -31,6 +31,20 @@ Guides for people using the library, and references for people working on it.
 - [`../release/openpgp/README.md`](../release/openpgp/README.md): the dedicated
   release-key trust model, tracked public key, and exact primary fingerprint.
 
+Dependabot proposes monthly grouped dependency updates; there is no auto-merge.
+Bot PRs are expected to fail dependency verification until a maintainer regenerates
+`gradle/verification-metadata.xml` with `--write-verification-metadata pgp,sha256
+--export-keys` and reviews the keys, never trusting new keys blindly. Kotlin
+and kotlinx-coroutines bumps also need the exact `kotlin-stdlib`, coroutines and
+`org.jetbrains:annotations` pins in `build.gradle.kts`
+(`verifyProductionDependencyGraph`) and `tools/check-published-jvm-compatibility`
+updated, because consumers see them; a higher Kotlin minimum goes into the
+release notes (see [`versioning.md`](versioning.md)). Security updates, when
+enabled in the repository settings, arrive as separate pull requests outside
+the monthly group. Check that each update PR covers the Gradle wrapper
+(including `distributionSha256Sum`) and the foojay settings plugin in
+`settings.gradle.kts`; update them by hand when it does not.
+
 ## Benchmarks
 
 Run on JDK 21 with `./gradlew --no-daemon benchmark`, or use
