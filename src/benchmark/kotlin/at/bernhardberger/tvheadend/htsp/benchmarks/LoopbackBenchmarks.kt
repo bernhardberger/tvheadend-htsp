@@ -154,7 +154,7 @@ private class LoopbackPeer : Closeable {
                         else -> error("Unexpected benchmark request")
                     }
                     synchronized(outputLock) {
-                        HtspCodec.writeMessage(socket.getOutputStream(), checkNotNull(request.method), fields)
+                        socket.getOutputStream().write(HtspCodec.encode(checkNotNull(request.method), fields))
                         socket.getOutputStream().flush()
                     }
                 }

@@ -202,8 +202,7 @@ internal class HtspServiceConnectionAdmissionTest : HtspServiceLifecycleFixture(
                         val pendingRequest = async(Dispatchers.IO) {
                             service.request(
                                 method = "newestRequest",
-                                timeoutMs = 5_000L,
-                                disconnectOnTimeout = false,
+                                policy = HtspReplyPolicy(timeoutMs = 5_000L, retireOnTimeout = false),
                             )
                         }
                         assertTrue(newestServer.postHandshakeRequestReceived.await(1, TimeUnit.SECONDS))
@@ -288,13 +287,11 @@ internal class HtspServiceConnectionAdmissionTest : HtspServiceLifecycleFixture(
                         service.connectionState.collect { observed += it }
                     }
                     val first = launch(Dispatchers.IO) {
-                        service.connect(
-                            host = "127.0.0.1",
-                            port = firstServer.port,
-                            connectTimeoutMs = 1_000,
-                            responseTimeoutMs = 5_000,
-                            soTimeoutMs = 50,
-                        )
+                        service.establish(HtspConnectionParameters(
+                            HtspEndpoint(host = "127.0.0.1", port = firstServer.port),
+                            HtspConnectOptions(connectTimeoutMs = 1_000, responseTimeoutMs = 5_000, socketReadTimeoutMs = 50),
+                            HtspClientIdentity.Default,
+                        ))
                     }
                     withTimeout(1_000L) {
                         service.connectionState.first {
@@ -304,14 +301,11 @@ internal class HtspServiceConnectionAdmissionTest : HtspServiceLifecycleFixture(
 
                     first.cancel()
                     val replacement = async(Dispatchers.IO) {
-                        service.connect(
-                            host = "127.0.0.1",
-                            port = replacementServer.port,
-                            connectTimeoutMs = 1_000,
-                            responseTimeoutMs = 1_000,
-                            soTimeoutMs = 50,
-                            forceReconnect = true,
-                        )
+                        service.establish(HtspConnectionParameters(
+                            HtspEndpoint(host = "127.0.0.1", port = replacementServer.port),
+                            HtspConnectOptions(connectTimeoutMs = 1_000, responseTimeoutMs = 1_000, socketReadTimeoutMs = 50, forceReconnect = true),
+                            HtspClientIdentity.Default,
+                        ))
                     }
                     replacement.await()
                     first.join()
@@ -337,40 +331,43 @@ internal class HtspServiceConnectionAdmissionTest : HtspServiceLifecycleFixture(
     fun cancelledReplacementWaitingForConnectOwnerLeavesDisconnectedState() {
         FakeHtspServer(respondToHello = false).use { firstServer ->
             FakeHtspServer(respondToHello = true).use { replacementServer ->
-                val service = service()
+                val ownerInstalled = CompletableDeferred<Unit>()
+                val releaseOwner = CompletableDeferred<Unit>()
+                val service = service(afterTransportInstallation = {
+                    ownerInstalled.complete(Unit)
+                    releaseOwner.await()
+                })
                 runBlocking {
                     val first = launch(Dispatchers.IO) {
-                        service.connect(
-                            host = "127.0.0.1",
-                            port = firstServer.port,
-                            connectTimeoutMs = 1_000,
-                            responseTimeoutMs = 5_000,
-                            soTimeoutMs = 50,
-                        )
+                        service.establish(HtspConnectionParameters(
+                            HtspEndpoint(host = "127.0.0.1", port = firstServer.port),
+                            HtspConnectOptions(connectTimeoutMs = 1_000, responseTimeoutMs = 5_000, socketReadTimeoutMs = 50),
+                            HtspClientIdentity.Default,
+                        ))
                     }
-                    withTimeout(1_000L) {
-                        service.connectionState.first { it is HtspConnectionState.Connecting }
-                    }
+                    // Keep the first attempt inside the connect owner until cancellation is observed.
+                    withTimeout(1_000L) { ownerInstalled.await() }
                     val firstAttempt = service.currentConnectionAttemptId()
 
                     val replacement = launch(Dispatchers.IO) {
-                        service.connect(
-                            host = "127.0.0.1",
-                            port = replacementServer.port,
-                            connectTimeoutMs = 1_000,
-                            responseTimeoutMs = 1_000,
-                            soTimeoutMs = 50,
-                            forceReconnect = true,
-                        )
+                        service.establish(HtspConnectionParameters(
+                            HtspEndpoint(host = "127.0.0.1", port = replacementServer.port),
+                            HtspConnectOptions(connectTimeoutMs = 1_000, responseTimeoutMs = 1_000, socketReadTimeoutMs = 50, forceReconnect = true),
+                            HtspClientIdentity.Default,
+                        ))
                     }
-                    withTimeout(1_000L) {
-                        while (service.currentConnectionAttemptId() == firstAttempt) delay(1L)
+                    try {
+                        withTimeout(1_000L) {
+                            while (service.currentConnectionAttemptId() == firstAttempt) delay(1L)
+                        }
+                        replacement.cancelAndJoin()
+                        releaseOwner.complete(Unit)
+                        withTimeout(1_000L) { first.join() }
+                        assertTrue(service.connectionState.value is HtspConnectionState.Disconnected)
+                    } finally {
+                        releaseOwner.complete(Unit)
+                        service.close()
                     }
-
-                    replacement.cancelAndJoin()
-                    withTimeout(1_000L) { first.join() }
-
-                    assertTrue(service.connectionState.value is HtspConnectionState.Disconnected)
                 }
             }
         }

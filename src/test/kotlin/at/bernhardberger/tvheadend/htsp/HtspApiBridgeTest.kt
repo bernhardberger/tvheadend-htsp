@@ -259,7 +259,7 @@ class HtspApiBridgeTest {
 
     private fun codecRoundTrip(method: String, fields: Map<String, Any?>): Map<String, Any?> {
         val output = ByteArrayOutputStream()
-        HtspCodec.writeMessage(output, method, fields)
+        output.write(HtspCodec.encode(method, fields))
         return HtspCodec.readMessage(ByteArrayInputStream(output.toByteArray())).fields
             .filterKeys { it != "method" }
     }

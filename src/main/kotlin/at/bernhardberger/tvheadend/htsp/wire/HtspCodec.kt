@@ -3,7 +3,7 @@ package at.bernhardberger.tvheadend.htsp.wire
 import java.io.EOFException
 import java.io.InputStream
 import java.io.IOException
-import java.io.OutputStream
+import java.nio.ByteBuffer
 import java.nio.charset.StandardCharsets
 import kotlin.math.min
 
@@ -13,66 +13,41 @@ internal class HtspFramingException(
 ) : IOException("HTSP framing failure: $failure at byte offset $byteOffset")
 
 internal object `HtspCodec-internal` {
-
-    private const val TYPE_MAP: Int = 1
-    private const val TYPE_S64: Int = 2
-    private const val TYPE_STR: Int = 3
-    private const val TYPE_BIN: Int = 4
-    private const val TYPE_LIST: Int = 5
-    private const val TYPE_DBL: Int = 6
-    private const val TYPE_BOOL: Int = 7
-    private const val TYPE_UUID: Int = 8
+    // HTSP field tags, as recorded in docs/htsp-protocol/WIRE_FORMAT.md.
+    private object FieldType {
+        const val MAP = 1
+        const val S64 = 2
+        const val STR = 3
+        const val BIN = 4
+        const val LIST = 5
+        const val DBL = 6
+        const val BOOL = 7
+        const val UUID = 8
+    }
 
     private const val MAX_MESSAGE_SIZE = 32 * 1024 * 1024
     private const val MAX_FIELD_NAME = 255
     private const val MAX_NESTING_DEPTH = 32
+    private val unnamed = ByteArray(0)
 
     fun readMessage(input: InputStream): HtspWireMessage {
-        // ---- Root 4B length ----
-        val hdr = ByteArray(4)
-        readFully(input, hdr, len = 4, what = "root length")
-
-        val declaredLen =
-            (((hdr[0].toLong() and 0xFF) shl 24) or
-                    ((hdr[1].toLong() and 0xFF) shl 16) or
-                    ((hdr[2].toLong() and 0xFF) shl 8)  or
-                    ( hdr[3].toLong() and 0xFF)) and 0xFFFF_FFFFL
-
-        if (declaredLen <= 0L || declaredLen > MAX_MESSAGE_SIZE.toLong()) {
-            throw HtspFramingException("invalid root length", byteOffset = 0)
-        }
-
-        val len = declaredLen.toInt()
         val reader = FrameReader(input)
-
+        val end = reader.readRootEnd()
         val fields = LinkedHashMap<String, Any?>()
-        decodeMap(reader, fields, end = 4 + len, depth = 0)
-
-        val method = fields["method"] as? String
-        val seq = (fields["seq"] as? Long)?.takeIf { it in 0L..0xFFFF_FFFFL }?.toInt()
-        val rawPayload = if (method == "muxpkt") fields["payload"] as? ByteArray else null
-
-        return HtspWireMessage(
-            method = method,
-            seq = seq,
-            fields = fields,
-            rawPayload = rawPayload,
-        )
+        decodeMap(reader, fields, end = end, depth = 0)
+        return HtspWireMessage(fields)
     }
 
-    fun writeMessage(output: OutputStream, method: String, fields: Map<String, Any?>) {
-        val root = LinkedHashMap<String, Any?>()
-        root["method"] = method
-        for ((k, v) in fields) root[k] = v
-
-        val body = encodeMapBody(root)
-        writeU32BE(output, body.size)
-        output.write(body)
+    fun encode(method: String, fields: Map<String, Any?>): ByteArray {
+        // A caller-supplied method replaces the default without changing its position.
+        val envelope = linkedMapOf<String, Any?>("method" to method).apply { putAll(fields) }
+        val plan = planMap(envelope)
+        val bodySize = containerSize(plan)
+        val frame = ByteBuffer.allocate(Math.addExact(Int.SIZE_BYTES, bodySize))
+        frame.putInt(bodySize)
+        plan.forEach { it.writeTo(frame) }
+        return frame.array()
     }
-
-    // ----------------------------
-    // DECODING
-    // ----------------------------
 
     private fun decodeMap(r: FrameReader, out: MutableMap<String, Any?>, end: Int, depth: Int) {
         if (depth > MAX_NESTING_DEPTH) {
@@ -98,19 +73,19 @@ internal object `HtspCodec-internal` {
     private fun decodeValue(r: FrameReader, depth: Int, name: String?): Any {
         val type = r.fieldType
         val dataLen = r.fieldLength
-        if (depth == 0 && name == "seq" && type == TYPE_S64 && dataLen > 8) {
+        if (depth == 0 && name == "seq" && type == FieldType.S64 && dataLen > 8) {
             throw HtspFramingException("sequence integer exceeds 64 bits", r.byteOffset)
         }
 
         return when (type) {
-            TYPE_MAP -> LinkedHashMap<String, Any?>().also { decodeMap(r, it, r.byteOffset + dataLen, depth + 1) }
-            TYPE_LIST -> ArrayList<Any?>().also { decodeList(r, it, r.byteOffset + dataLen, depth + 1) }
-            TYPE_S64 -> r.readS64(dataLen)
-            TYPE_STR -> r.readString(dataLen, what = "string")
-            TYPE_BIN -> r.readExactly(dataLen, what = "binary")
-            TYPE_DBL -> readDoubleLE(r, dataLen)
-            TYPE_BOOL -> readBool(r, dataLen)
-            TYPE_UUID -> HtspWireUuid(r.readExactly(dataLen, what = "uuid"))
+            FieldType.MAP -> LinkedHashMap<String, Any?>().also { decodeMap(r, it, r.byteOffset + dataLen, depth + 1) }
+            FieldType.LIST -> ArrayList<Any?>().also { decodeList(r, it, r.byteOffset + dataLen, depth + 1) }
+            FieldType.S64 -> r.readS64(dataLen)
+            FieldType.STR -> r.readString(dataLen, what = "string")
+            FieldType.BIN -> r.readExactly(dataLen, what = "binary")
+            FieldType.DBL -> readDoubleLE(r, dataLen)
+            FieldType.BOOL -> readBool(r, dataLen)
+            FieldType.UUID -> HtspWireUuid(r.readExactly(dataLen, what = "uuid"))
             else -> r.readExactly(dataLen, what = "unknown field")
         }
     }
@@ -130,47 +105,33 @@ internal object `HtspCodec-internal` {
         return v
     }
 
-    // ----------------------------
-    // Root prefix write
-    // ----------------------------
-
-    private fun writeU32BE(output: OutputStream, v: Int) {
-        output.write((v ushr 24) and 0xFF)
-        output.write((v ushr 16) and 0xFF)
-        output.write((v ushr 8) and 0xFF)
-        output.write(v and 0xFF)
-    }
-
-    // ----------------------------
-    // Exact read helpers
-    // ----------------------------
-
-    private fun readFully(
-        input: InputStream,
-        buf: ByteArray,
-        off: Int = 0,
-        len: Int = buf.size,
-        what: String,
+    /** Fills only the requested slice, including streams that make no bulk-read progress. */
+    private fun readInto(
+        source: InputStream,
+        destination: ByteArray,
+        length: Int,
+        label: String,
         bounded: Boolean = false,
     ) {
-        var readTotal = 0
-        while (readTotal < len) {
-            val count = input.read(buf, off + readTotal, len - readTotal)
-            if (count < 0) {
-                if (bounded) throw EOFException("EOF while reading bounded HTSP frame")
-                throw EOFException("EOF while reading $what ($len bytes, read=$readTotal)")
-            }
-            if (count == 0) {
-                val value = input.read()
-                if (value < 0) {
-                    if (bounded) throw EOFException("EOF while reading bounded HTSP frame")
-                    throw EOFException("EOF while reading $what ($len bytes, read=$readTotal)")
+        var remaining = length
+        while (remaining != 0) {
+            val position = length - remaining
+            val received = source.read(destination, position, remaining)
+            val progress = when (received) {
+                0 -> {
+                    val single = source.read()
+                    if (single < 0) -1 else {
+                        destination[position] = single.toByte()
+                        1
+                    }
                 }
-                buf[off + readTotal] = value.toByte()
-                readTotal++
-            } else {
-                readTotal += count
+                else -> received
             }
+            if (progress < 0) {
+                val detail = if (bounded) "bounded HTSP frame" else "$label ($length bytes, read=$position)"
+                throw EOFException("EOF while reading $detail")
+            }
+            remaining -= progress
         }
     }
 
@@ -189,6 +150,16 @@ internal object `HtspCodec-internal` {
             private set
         var fieldLength: Int = 0
             private set
+
+        fun readRootEnd(): Int {
+            readInto(input, scratch, Int.SIZE_BYTES, "root length")
+            var length = 0L
+            repeat(Int.SIZE_BYTES) { index -> length = length * 256 + (scratch[index].toInt() and 0xff) }
+            if (length !in 1L..MAX_MESSAGE_SIZE.toLong()) {
+                throw HtspFramingException("invalid root length", byteOffset = 0)
+            }
+            return Int.SIZE_BYTES + length.toInt()
+        }
 
         fun readFieldHeader(end: Int): String? {
             // Consume a short enclosing header before rejecting it, just as single-byte
@@ -210,7 +181,7 @@ internal object `HtspCodec-internal` {
 
         fun readExactly(n: Int, what: String): ByteArray {
             val buf = ByteArray(n)
-            readFully(input, buf, len = n, what = what)
+            readInto(input, buf, n, what)
             byteOffset += n
             return buf
         }
@@ -231,7 +202,7 @@ internal object `HtspCodec-internal` {
         }
 
         private fun readScratch(n: Int, what: String = "field byte", bounded: Boolean = false) {
-            readFully(input, scratch, len = n, what = what, bounded = bounded)
+            readInto(input, scratch, n, what, bounded)
             byteOffset += n
         }
 
@@ -256,132 +227,71 @@ internal object `HtspCodec-internal` {
         }
     }
 
-    // ----------------------------
-    // Encoding (unchanged)
-    // ----------------------------
+    // Planning converts names/strings once and measures containers without serializing
+    // them. Emission then writes directly into the sole frame buffer, including binaries.
+    private class PlannedField(
+        val name: ByteArray,
+        val type: Int,
+        val dataSize: Int,
+        val bytes: ByteArray? = null,
+        val bits: Long = 0,
+        val children: List<PlannedField> = emptyList(),
+    ) {
+        val size: Int = Math.addExact(6 + name.size, dataSize)
 
-    private fun encodeMapBody(map: Map<String, Any?>): ByteArray {
-        val out = ByteArrayBuilder()
-        for ((name, value) in map) {
-            if (value == null) continue
-            out.append(encodeField(name, value))
+        fun writeTo(frame: ByteBuffer) {
+            frame.put(type.toByte()).put(name.size.toByte()).putInt(dataSize).put(name)
+            when (type) {
+                FieldType.MAP, FieldType.LIST -> children.forEach { it.writeTo(frame) }
+                FieldType.S64, FieldType.DBL, FieldType.BOOL ->
+                    repeat(dataSize) { byte -> frame.put((bits ushr (byte * 8)).toByte()) }
+                FieldType.STR, FieldType.BIN, FieldType.UUID -> frame.put(checkNotNull(bytes))
+                else -> error("Unplanned HTSP field type")
+            }
         }
-        return out.toByteArray()
     }
 
-    private fun encodeListBody(list: List<Any?>): ByteArray {
-        val out = ByteArrayBuilder()
-        for (value in list) {
-            if (value == null) continue
-            out.append(encodeField(null, value))
-        }
-        return out.toByteArray()
-    }
+    private fun containerSize(fields: List<PlannedField>): Int =
+        fields.fold(0) { size, field -> Math.addExact(size, field.size) }
 
-    private fun encodeField(name: String?, value: Any): ByteArray {
-        val nameBytes = name?.toByteArray(StandardCharsets.UTF_8) ?: ByteArray(0)
-        val nameLen = nameBytes.size
-        if (nameLen > MAX_FIELD_NAME) {
+    private fun planMap(values: Map<String, Any?>): List<PlannedField> =
+        values.entries.mapNotNull { (name, value) ->
+            if (value == null) null else planField(name.toByteArray(StandardCharsets.UTF_8), value)
+        }
+
+    private fun planField(name: ByteArray, value: Any): PlannedField {
+        if (name.size > MAX_FIELD_NAME) {
             throw HtspFramingException("encoded field name exceeds one-byte bound", byteOffset = 0)
         }
-
-        val (typeId, dataBytes) = encodeValue(value)
-
-        val out = ByteArrayBuilder()
-        out.appendByte(typeId)
-        out.appendByte(nameLen)
-        out.appendU32BE(dataBytes.size)
-        out.append(nameBytes)
-        out.append(dataBytes)
-        return out.toByteArray()
-    }
-
-    private fun encodeValue(value: Any): Pair<Int, ByteArray> {
         return when (value) {
-            is String -> TYPE_STR to value.toByteArray(StandardCharsets.UTF_8)
-            is ByteArray -> TYPE_BIN to value
-            is HtspWireUuid -> TYPE_UUID to value.bytes()
-            is Boolean -> TYPE_BOOL to byteArrayOf(if (value) 1 else 0)
-            is Double -> TYPE_DBL to writeDoubleLE(value)
-            is Float -> TYPE_DBL to writeDoubleLE(value.toDouble())
-            is Int -> TYPE_S64 to writeS64VarLen(value.toLong())
-            is Long -> TYPE_S64 to writeS64VarLen(value)
-            is Short -> TYPE_S64 to writeS64VarLen(value.toLong())
-            is Byte -> TYPE_S64 to writeS64VarLen(value.toLong())
-            is Number -> TYPE_S64 to writeS64VarLen(value.toLong())
-            is Map<*, *> -> {
-                val m = value.entries.associate { (k, v) ->
-                    (k?.toString() ?: error("Map key is null")) to v
-                }
-                TYPE_MAP to encodeMapBody(m)
+            is String -> planBytes(name, FieldType.STR, value.toByteArray(StandardCharsets.UTF_8))
+            is ByteArray -> planBytes(name, FieldType.BIN, value)
+            is HtspWireUuid -> planBytes(name, FieldType.UUID, value.bytes())
+            is Boolean -> PlannedField(name, FieldType.BOOL, 1, bits = if (value) 1L else 0L)
+            is Double -> PlannedField(name, FieldType.DBL, 8, bits = value.toRawBits())
+            is Float -> PlannedField(name, FieldType.DBL, 8, bits = value.toDouble().toRawBits())
+            is Number -> {
+                val bits = value.toLong()
+                val width = (Long.SIZE_BITS - java.lang.Long.numberOfLeadingZeros(bits) + 7) / 8
+                PlannedField(name, FieldType.S64, width, bits = bits)
             }
-            is List<*> -> TYPE_LIST to encodeListBody(value)
+            is Map<*, *> -> {
+                // Stringification can merge keys; retain the first position and last value.
+                val named = LinkedHashMap<String, Any?>()
+                value.forEach { (key, item) -> named[checkNotNull(key) { "Map key is null" }.toString()] = item }
+                val children = planMap(named)
+                PlannedField(name, FieldType.MAP, containerSize(children), children = children)
+            }
+            is List<*> -> {
+                val children = value.mapNotNull { item -> item?.let { planField(unnamed, it) } }
+                PlannedField(name, FieldType.LIST, containerSize(children), children = children)
+            }
             else -> error("Unsupported HTSP field type: ${value::class.java.name}")
         }
     }
 
-    private fun writeS64VarLen(v: Long): ByteArray {
-        if (v < 0) return writeLongLE(v)
-        if (v == 0L) return ByteArray(0)
-
-        var tmp = v
-        val bytes = ByteArray(8)
-        var len = 0
-        while (tmp != 0L) {
-            bytes[len] = (tmp and 0xFF).toByte()
-            tmp = tmp ushr 8
-            len++
-        }
-        return bytes.copyOf(len)
-    }
-
-    private fun writeLongLE(v: Long): ByteArray {
-        val b = ByteArray(8)
-        var x = v
-        for (i in 0 until 8) {
-            b[i] = (x and 0xFF).toByte()
-            x = x shr 8
-        }
-        return b
-    }
-
-    private fun writeDoubleLE(v: Double): ByteArray {
-        val bits = java.lang.Double.doubleToRawLongBits(v)
-        return writeLongLE(bits)
-    }
-
-    private class ByteArrayBuilder(initial: Int = 256) {
-        private var a = ByteArray(initial)
-        private var n = 0
-
-        fun append(bytes: ByteArray) {
-            ensure(n + bytes.size)
-            System.arraycopy(bytes, 0, a, n, bytes.size)
-            n += bytes.size
-        }
-
-        fun appendByte(v: Int) {
-            ensure(n + 1)
-            a[n++] = (v and 0xFF).toByte()
-        }
-
-        fun appendU32BE(v: Int) {
-            ensure(n + 4)
-            a[n++] = ((v ushr 24) and 0xFF).toByte()
-            a[n++] = ((v ushr 16) and 0xFF).toByte()
-            a[n++] = ((v ushr 8) and 0xFF).toByte()
-            a[n++] = (v and 0xFF).toByte()
-        }
-
-        fun toByteArray(): ByteArray = a.copyOf(n)
-
-        private fun ensure(cap: Int) {
-            if (cap <= a.size) return
-            var newSize = a.size
-            while (newSize < cap) newSize *= 2
-            a = a.copyOf(newSize)
-        }
-    }
+    private fun planBytes(name: ByteArray, type: Int, bytes: ByteArray): PlannedField =
+        PlannedField(name, type, bytes.size, bytes = bytes)
 }
 
 internal typealias HtspCodec = `HtspCodec-internal`

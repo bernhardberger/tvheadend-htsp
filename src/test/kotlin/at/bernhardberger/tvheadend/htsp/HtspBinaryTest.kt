@@ -106,7 +106,7 @@ internal class HtspBinaryTest {
     @Test
     fun standaloneFileReadMapDecodeStillSnapshotsCodecPayload() {
         val frame = ByteArrayOutputStream().also { output ->
-            HtspCodec.writeMessage(output, "fileRead", mapOf("data" to byteArrayOf(1, 2, 3)))
+            output.write(HtspCodec.encode("fileRead", mapOf("data" to byteArrayOf(1, 2, 3))))
         }.toByteArray()
         val message = HtspCodec.readMessage(ByteArrayInputStream(frame))
         val response = HtspRequestCodecs.decode(FileReadRequest(1L, 3L), message.fields, 43)
@@ -153,15 +153,11 @@ internal class HtspBinaryTest {
 
     private fun encodePacket(payloadSize: Int): ByteArray =
         ByteArrayOutputStream().also { output ->
-            HtspCodec.writeMessage(
-                output = output,
-                method = "muxpkt",
-                fields = mapOf(
+            output.write(HtspCodec.encode("muxpkt", mapOf(
                     "subscriptionId" to 1L,
                     "stream" to 0L,
                     "duration" to 40L,
                     "payload" to ByteArray(payloadSize) { index -> index.toByte() },
-                ),
-            )
+                )))
         }.toByteArray()
 }

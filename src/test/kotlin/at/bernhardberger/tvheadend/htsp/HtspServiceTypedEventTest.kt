@@ -287,19 +287,21 @@ internal class HtspServiceTypedEventTest : HtspServiceLifecycleFixture() {
             val service = service()
             runBlocking {
                 service.connect(HtspEndpoint("127.0.0.1", server.port))
-                val sequence = service.javaClass.getDeclaredField("seq").apply { isAccessible = true }
-                    .get(service) as AtomicInteger
+                val sequence = service.javaClass.getDeclaredField("nextRequestSequence").apply { isAccessible = true }
                 listOf(Int.MAX_VALUE, Int.MIN_VALUE, -1, 0).forEachIndexed { index, value ->
-                    sequence.set(value)
+                    sequence.setInt(service, value)
                     val pending = async(Dispatchers.IO) {
-                        service.request("sequenceProbe", timeoutMs = 1_000L, disconnectOnTimeout = false)
+                        service.request(
+                            "sequenceProbe",
+                            policy = HtspReplyPolicy(timeoutMs = 1_000L, retireOnTimeout = false),
+                        )
                     }
                     assertTrue(server.awaitPostHandshakeRequestCount(index + 1, 1_000L))
                     val wireSequence = value.toLong() and 0xFFFF_FFFFL
                     assertEquals(wireSequence, server.postHandshakeRequest(index).fields["seq"])
                     server.replyToPostHandshakeRequest(index, mapOf("seq" to wireSequence))
                     assertEquals(value, withTimeout(1_000L) { pending.await() }.seq)
-                    assertEquals(value + 1, sequence.get())
+                    assertEquals(value + 1, sequence.getInt(service))
                 }
                 service.close()
             }
@@ -397,8 +399,7 @@ internal class HtspServiceTypedEventTest : HtspServiceLifecycleFixture() {
                 val request = async(Dispatchers.IO) {
                     service.request(
                         method = "blockedCollectorProbe",
-                        timeoutMs = 1_000L,
-                        disconnectOnTimeout = false,
+                        policy = HtspReplyPolicy(timeoutMs = 1_000L, retireOnTimeout = false),
                     )
                 }
                 assertTrue(server.postHandshakeRequestReceived.await(1, TimeUnit.SECONDS))
@@ -566,26 +567,21 @@ internal class HtspServiceTypedEventTest : HtspServiceLifecycleFixture() {
                         service.events.collect { events += it }
                     }
                     val first = launch(Dispatchers.IO) {
-                        service.connect(
-                            host = "127.0.0.1",
-                            port = firstServer.port,
-                            connectTimeoutMs = 1_000,
-                            responseTimeoutMs = 5_000,
-                            soTimeoutMs = 50,
-                        )
+                        service.establish(HtspConnectionParameters(
+                            HtspEndpoint(host = "127.0.0.1", port = firstServer.port),
+                            HtspConnectOptions(connectTimeoutMs = 1_000, responseTimeoutMs = 5_000, socketReadTimeoutMs = 50),
+                            HtspClientIdentity.Default,
+                        ))
                     }
                     assertTrue(firstServer.authenticateRequestReceived.await(1, TimeUnit.SECONDS))
                     val firstAttempt = service.currentConnectionAttemptId()
 
                     val replacement = async(Dispatchers.IO) {
-                        service.connect(
-                            host = "127.0.0.1",
-                            port = replacementServer.port,
-                            connectTimeoutMs = 1_000,
-                            responseTimeoutMs = 1_000,
-                            soTimeoutMs = 50,
-                            forceReconnect = true,
-                        )
+                        service.establish(HtspConnectionParameters(
+                            HtspEndpoint(host = "127.0.0.1", port = replacementServer.port),
+                            HtspConnectOptions(connectTimeoutMs = 1_000, responseTimeoutMs = 1_000, socketReadTimeoutMs = 50, forceReconnect = true),
+                            HtspClientIdentity.Default,
+                        ))
                     }
                     withTimeout(1_000L) {
                         while (service.currentConnectionAttemptId() == firstAttempt) delay(1L)
@@ -625,19 +621,16 @@ internal class HtspServiceTypedEventTest : HtspServiceLifecycleFixture() {
         ).use { server ->
             val service = service()
             runBlocking {
-                service.connect(
-                    host = "127.0.0.1",
-                    port = server.port,
-                    connectTimeoutMs = 1_000,
-                    responseTimeoutMs = 1_000,
-                    soTimeoutMs = 50,
-                )
+                service.establish(HtspConnectionParameters(
+                    HtspEndpoint(host = "127.0.0.1", port = server.port),
+                    HtspConnectOptions(connectTimeoutMs = 1_000, responseTimeoutMs = 1_000, socketReadTimeoutMs = 50),
+                    HtspClientIdentity.Default,
+                ))
 
                 val failure = runCatching {
                     service.request(
                         method = "getEvents",
-                        timeoutMs = 100,
-                        disconnectOnTimeout = false,
+                        policy = HtspReplyPolicy(timeoutMs = 100, retireOnTimeout = false),
                     )
                 }.exceptionOrNull()
                 assertTrue(failure is HtspRequestTimeoutException)

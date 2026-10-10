@@ -14,7 +14,7 @@ class HtspAttemptMonitorTest {
         val effects = mutableListOf<String>()
         val wakeup = Channel<Unit>(2)
         val reply = CompletableDeferred<HtspWireMessage>()
-        val message = HtspWireMessage("reply", 1, emptyMap())
+        val message = HtspWireMessage(mapOf("method" to "reply", "seq" to 1L))
         val connecting = HtspConnectionState.Connecting("test", 1)
         lateinit var attempt: HtspAttemptMonitor
         attempt = HtspAttemptMonitor {
@@ -60,7 +60,7 @@ class HtspAttemptMonitorTest {
         val thrown = assertThrows(IllegalStateException::class.java) {
             attempt.withAttemptLock {
                 attempt.recordStateLocked(connecting)
-                attempt.queueReply(reply, HtspWireMessage("reply", 1, emptyMap()))
+                attempt.queueReply(reply, HtspWireMessage(mapOf("method" to "reply", "seq" to 1L)))
                 attempt.queueWakeup(wakeup)
                 throw failure
             }
@@ -84,7 +84,7 @@ class HtspAttemptMonitorTest {
         val thrown = assertThrows(IllegalStateException::class.java) {
             attempt.withAttemptLock {
                 attempt.recordStateLocked(HtspConnectionState.Connecting("test", 1))
-                attempt.queueReply(reply, HtspWireMessage("reply", 1, emptyMap()))
+                attempt.queueReply(reply, HtspWireMessage(mapOf("method" to "reply", "seq" to 1L)))
                 attempt.queueWakeup(wakeup)
             }
         }

@@ -51,7 +51,7 @@ class HtspProtocolCoreTest {
             val encoded = HtspRequestCodecs.encode(request)
             assertEquals(expected, encoded, request.method)
             val output = java.io.ByteArrayOutputStream()
-            HtspCodec.writeMessage(output, request.method, encoded)
+            output.write(HtspCodec.encode(request.method, encoded))
             assertEquals(expected + ("method" to request.method),
                 HtspCodec.readMessage(output.toByteArray().inputStream()).fields)
         }
@@ -94,7 +94,7 @@ class HtspProtocolCoreTest {
                     assertEquals(flag?.let { if (it) 1L else 0L }, encoded[field])
                 }
                 val output = java.io.ByteArrayOutputStream()
-                HtspCodec.writeMessage(output, request.method, encoded)
+                output.write(HtspCodec.encode(request.method, encoded))
                 val decoded = HtspCodec.readMessage(output.toByteArray().inputStream()).fields
                 fields.forEach { field -> assertEquals(encoded[field], decoded[field]) }
             }

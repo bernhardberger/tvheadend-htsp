@@ -14,8 +14,9 @@ internal class HtspLifecycleRegressionTest : HtspServiceLifecycleFixture() {
     @Test
     fun disconnectRetiresAnAttemptQueuedBeforeConnectingStatePublication() = runBlocking {
         val service = service(socketFactory = { error("Superseded attempt must not create a socket") })
-        val mutex = HtspService::class.java.getDeclaredField("connectMutex").apply { isAccessible = true }
-            .get(service) as kotlinx.coroutines.sync.Mutex
+        val owner = serviceConnectionOwner(service)
+        val mutex = owner.javaClass.getDeclaredField("admission").apply { isAccessible = true }
+            .get(owner) as kotlinx.coroutines.sync.Mutex
         mutex.lock()
         val connect = async(start = CoroutineStart.UNDISPATCHED) { service.connect(HtspEndpoint("127.0.0.1", 1)) }
         try {
@@ -41,7 +42,7 @@ internal class HtspLifecycleRegressionTest : HtspServiceLifecycleFixture() {
                 if (pause.get()) { admitted.complete(Unit); resume.await() }
             })
             service.connect(HtspEndpoint("127.0.0.1", server.port))
-            val reader = HtspService::class.java.getDeclaredField("readerJob").apply { isAccessible = true }.get(service) as Job
+            val reader = serviceReaderJob(service)
             pause.set(true)
             val replacement = async { service.connect(HtspEndpoint("127.0.0.1", server.port), HtspConnectOptions(forceReconnect = true)) }
             admitted.await()
@@ -88,8 +89,7 @@ internal class HtspLifecycleRegressionTest : HtspServiceLifecycleFixture() {
                         HtspConnectOptions(responseTimeoutMs = 10_000L))
                 }
                 assertTrue(server.authenticateRequestReceived.await(1, TimeUnit.SECONDS))
-                val reader = HtspService::class.java.getDeclaredField("readerJob")
-                    .apply { isAccessible = true }.get(service) as Job
+                val reader = serviceReaderJob(service)
                 server.closeClientTransport()
                 responseGate.countDown()
                 val outcome = withTimeout(1_000L) { connect.await() } as HtspConnectOutcome.Failed
@@ -248,7 +248,7 @@ internal class HtspLifecycleRegressionTest : HtspServiceLifecycleFixture() {
             val connect = async { service.connect(HtspEndpoint("127.0.0.1", server.port)) }
             try {
                 withTimeout(2_000L) { acknowledged.await() }
-                val reader = HtspService::class.java.getDeclaredField("readerJob").apply { isAccessible = true }.get(service) as Job
+                val reader = serviceReaderJob(service)
                 HtspService::class.java.getDeclaredMethod("markTransportGone", java.net.Socket::class.java,
                     HtspSubscriptionTermination::class.java).apply { isAccessible = true }
                     .invoke(service, socket, HtspSubscriptionTermination.LOCAL_RETIREMENT)
@@ -290,7 +290,7 @@ internal class HtspLifecycleRegressionTest : HtspServiceLifecycleFixture() {
                 }, afterPublicationCurrencyCheck = { if (it is HtspTransportEvent.ConnectionFailure) failures += it })
                 service.connect(HtspEndpoint("127.0.0.1", server.port))
                 assertTrue(reading.await(2, TimeUnit.SECONDS))
-                val reader = HtspService::class.java.getDeclaredField("readerJob").apply { isAccessible = true }.get(service) as Job
+                val reader = serviceReaderJob(service)
                 val pairs = java.util.concurrent.CopyOnWriteArrayList<Pair<HtspConnectionState, HtspLiveConnection?>>()
                 val stateObserver = launch(Dispatchers.Unconfined, start = CoroutineStart.UNDISPATCHED) {
                     service.connectionState.collect { pairs += it to service.liveConnection.value }
@@ -300,7 +300,10 @@ internal class HtspLifecycleRegressionTest : HtspServiceLifecycleFixture() {
                 }
                 try {
                     failWrites.set(writeFailure)
-                    val result = runCatching { service.request("getProfiles", timeoutMs = 100L) }
+                    val result = runCatching { service.request(
+                        "getProfiles",
+                        policy = HtspReplyPolicy(timeoutMs = 100L),
+                    ) }
                     assertInstanceOf(java.io.IOException::class.java, result.exceptionOrNull())
                     val failure = HtspTransportFailure(if (writeFailure) HtspTransportFailureKind.TRANSPORT_UNAVAILABLE
                         else HtspTransportFailureKind.CONNECTION_TIMEOUT)
@@ -330,7 +333,7 @@ internal class HtspLifecycleRegressionTest : HtspServiceLifecycleFixture() {
             val service = service(afterAuthenticationAcknowledgement = { acknowledged.complete(Unit); resume.await() })
             val connect = async { service.connect(HtspEndpoint("127.0.0.1", server.port)) }
             acknowledged.await()
-            val reader = HtspService::class.java.getDeclaredField("readerJob").apply { isAccessible = true }.get(service) as Job
+            val reader = serviceReaderJob(service)
             server.closeClientTransport()
             withTimeout(1_000L) { reader.join() }
             val error = service.connectionState.value as HtspConnectionState.Error
@@ -352,7 +355,7 @@ internal class HtspLifecycleRegressionTest : HtspServiceLifecycleFixture() {
                 service.connectionState.collect { states += it }
             }
             withTimeout(1_000L) { while (states.isEmpty()) yield() }
-            val reader = HtspService::class.java.getDeclaredField("readerJob").apply { isAccessible = true }.get(service) as Job
+            val reader = serviceReaderJob(service)
             server.closeClientTransport()
             withTimeout(1_000L) { reader.join() }
             withTimeout(1_000L) { while (states.lastOrNull() !is HtspConnectionState.Error) yield() }

@@ -106,13 +106,11 @@ internal class HtspServiceHandshakeFactsTest : HtspServiceLifecycleFixture() {
 
             val failure = runBlocking {
                 runCatching {
-                    service.connect(
-                        host = "127.0.0.1",
-                        port = server.port,
-                        connectTimeoutMs = 1_000,
-                        responseTimeoutMs = 1_000,
-                        soTimeoutMs = 50,
-                    )
+                    service.establish(HtspConnectionParameters(
+                        HtspEndpoint(host = "127.0.0.1", port = server.port),
+                        HtspConnectOptions(connectTimeoutMs = 1_000, responseTimeoutMs = 1_000, socketReadTimeoutMs = 50),
+                        HtspClientIdentity.Default,
+                    ))
                 }.exceptionOrNull()
             }
 
@@ -134,13 +132,11 @@ internal class HtspServiceHandshakeFactsTest : HtspServiceLifecycleFixture() {
 
             val failure = runBlocking {
                 runCatching {
-                    service.connect(
-                        host = "127.0.0.1",
-                        port = server.port,
-                        connectTimeoutMs = 1_000,
-                        responseTimeoutMs = 1_000,
-                        soTimeoutMs = 50,
-                    )
+                    service.establish(HtspConnectionParameters(
+                        HtspEndpoint(host = "127.0.0.1", port = server.port),
+                        HtspConnectOptions(connectTimeoutMs = 1_000, responseTimeoutMs = 1_000, socketReadTimeoutMs = 50),
+                        HtspClientIdentity.Default,
+                    ))
                 }.exceptionOrNull()
             }
 
@@ -192,15 +188,11 @@ internal class HtspServiceHandshakeFactsTest : HtspServiceLifecycleFixture() {
         ).use { server ->
             val service = service()
             runBlocking {
-                service.connect(
-                    host = "127.0.0.1",
-                    port = server.port,
-                    username = "viewer",
-                    password = password,
-                    connectTimeoutMs = 1_000,
-                    responseTimeoutMs = 1_000,
-                    soTimeoutMs = 50,
-                )
+                service.establish(HtspConnectionParameters(
+                    HtspEndpoint(host = "127.0.0.1", port = server.port, username = "viewer", password = password),
+                    HtspConnectOptions(connectTimeoutMs = 1_000, responseTimeoutMs = 1_000, socketReadTimeoutMs = 50),
+                    HtspClientIdentity.Default,
+                ))
 
                 val hello = requireNotNull(server.handshakeFields["hello"])
                 assertEquals(44L, hello["htspversion"])
@@ -227,13 +219,11 @@ internal class HtspServiceHandshakeFactsTest : HtspServiceLifecycleFixture() {
         ).use { server ->
             val service = service()
             runBlocking {
-                service.connect(
-                    host = "127.0.0.1",
-                    port = server.port,
-                    connectTimeoutMs = 1_000,
-                    responseTimeoutMs = 1_000,
-                    soTimeoutMs = 50,
-                )
+                service.establish(HtspConnectionParameters(
+                    HtspEndpoint(host = "127.0.0.1", port = server.port),
+                    HtspConnectOptions(connectTimeoutMs = 1_000, responseTimeoutMs = 1_000, socketReadTimeoutMs = 50),
+                    HtspClientIdentity.Default,
+                ))
 
                 val state = service.connectionState.value as HtspConnectionState.Connected
                 assertEquals(true, state.dvrAccess)
@@ -288,15 +278,11 @@ internal class HtspServiceHandshakeFactsTest : HtspServiceLifecycleFixture() {
         ).use { server ->
             val service = service()
             runBlocking {
-                service.connect(
-                    host = "127.0.0.1",
-                    port = server.port,
-                    username = "viewer",
-                    password = "secret",
-                    connectTimeoutMs = 1_000,
-                    responseTimeoutMs = 1_000,
-                    soTimeoutMs = 50,
-                )
+                service.establish(HtspConnectionParameters(
+                    HtspEndpoint(host = "127.0.0.1", port = server.port, username = "viewer", password = "secret"),
+                    HtspConnectOptions(connectTimeoutMs = 1_000, responseTimeoutMs = 1_000, socketReadTimeoutMs = 50),
+                    HtspClientIdentity.Default,
+                ))
 
                 val state = service.connectionState.value as HtspConnectionState.Connected
                 val attemptId = service.currentConnectionAttemptId()
@@ -388,13 +374,11 @@ internal class HtspServiceHandshakeFactsTest : HtspServiceLifecycleFixture() {
         ).use { server ->
             val service = service()
             runBlocking {
-                service.connect(
-                    host = "127.0.0.1",
-                    port = server.port,
-                    connectTimeoutMs = 1_000,
-                    responseTimeoutMs = 1_000,
-                    soTimeoutMs = 50,
-                )
+                service.establish(HtspConnectionParameters(
+                    HtspEndpoint(host = "127.0.0.1", port = server.port),
+                    HtspConnectOptions(connectTimeoutMs = 1_000, responseTimeoutMs = 1_000, socketReadTimeoutMs = 50),
+                    HtspClientIdentity.Default,
+                ))
 
                 val facts = requireNotNull(
                     service.serverFactsForLiveConnectionAttempt(service.currentConnectionAttemptId()),
@@ -434,13 +418,11 @@ internal class HtspServiceHandshakeFactsTest : HtspServiceLifecycleFixture() {
         ).use { server ->
             val service = service()
             runBlocking {
-                service.connect(
-                    host = "127.0.0.1",
-                    port = server.port,
-                    connectTimeoutMs = 1_000,
-                    responseTimeoutMs = 1_000,
-                    soTimeoutMs = 50,
-                )
+                service.establish(HtspConnectionParameters(
+                    HtspEndpoint(host = "127.0.0.1", port = server.port),
+                    HtspConnectOptions(connectTimeoutMs = 1_000, responseTimeoutMs = 1_000, socketReadTimeoutMs = 50),
+                    HtspClientIdentity.Default,
+                ))
                 val facts = requireNotNull(
                     service.serverFactsForLiveConnectionAttempt(service.currentConnectionAttemptId()),
                 )
@@ -462,13 +444,11 @@ internal class HtspServiceHandshakeFactsTest : HtspServiceLifecycleFixture() {
         ).use { server ->
             val service = service()
             runBlocking {
-                service.connect(
-                    host = "127.0.0.1",
-                    port = server.port,
-                    connectTimeoutMs = 1_000,
-                    responseTimeoutMs = 1_000,
-                    soTimeoutMs = 50,
-                )
+                service.establish(HtspConnectionParameters(
+                    HtspEndpoint(host = "127.0.0.1", port = server.port),
+                    HtspConnectOptions(connectTimeoutMs = 1_000, responseTimeoutMs = 1_000, socketReadTimeoutMs = 50),
+                    HtspClientIdentity.Default,
+                ))
 
                 val facts = requireNotNull(
                     service.serverFactsForLiveConnectionAttempt(service.currentConnectionAttemptId()),

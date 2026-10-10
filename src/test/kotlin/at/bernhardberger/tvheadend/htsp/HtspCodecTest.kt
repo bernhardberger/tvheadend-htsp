@@ -20,10 +20,7 @@ class HtspCodecTest {
         val payload = byteArrayOf(0x47, 0x01, 0x02)
         val output = ByteArrayOutputStream()
 
-        HtspCodec.writeMessage(
-            output = output,
-            method = "muxpkt",
-            fields = mapOf(
+        output.write(HtspCodec.encode("muxpkt", mapOf(
                 "seq" to 7,
                 "signed" to -2L,
                 "zero" to 0,
@@ -33,8 +30,7 @@ class HtspCodecTest {
                 "ratio" to 1.5,
                 "nested" to mapOf("value" to 9),
                 "items" to listOf("first", 2),
-            ),
-        )
+            )))
 
         val framed = output.toByteArray()
         val declaredLength =
@@ -48,13 +44,13 @@ class HtspCodecTest {
 
         assertEquals("muxpkt", decoded.method)
         assertEquals(7, decoded.seq)
-        assertEquals(-2L, decoded.long("signed"))
-        assertEquals(0, decoded.int("zero"))
-        assertEquals("Živě", decoded.str("title"))
-        assertEquals(true, decoded.bool("enabled"))
+        assertEquals(-2L, decoded.fields["signed"])
+        assertEquals(0L, decoded.fields["zero"])
+        assertEquals("Živě", decoded.fields["title"])
+        assertEquals(true, decoded.fields["enabled"])
         assertEquals(1.5, decoded.fields["ratio"])
-        assertEquals(9L, decoded.map("nested")?.get("value"))
-        assertEquals(listOf("first", 2L), decoded.list("items"))
+        assertEquals(9L, (decoded.fields["nested"] as Map<*, *>)["value"])
+        assertEquals(listOf("first", 2L), decoded.fields["items"])
         assertArrayEquals(payload, decoded.rawPayload)
     }
 
@@ -62,14 +58,14 @@ class HtspCodecTest {
     fun replySequencesRetainTheFullUnsignedDomainWithoutNumericAliasing() {
         listOf(0L, 7L, Int.MAX_VALUE.toLong(), 0x8000_0000L, 0xFFFF_FFFFL).forEach { seq ->
             val output = ByteArrayOutputStream()
-            HtspCodec.writeMessage(output, "reply", mapOf("seq" to seq))
+            output.write(HtspCodec.encode("reply", mapOf("seq" to seq)))
             val decoded = HtspCodec.readMessage(ByteArrayInputStream(output.toByteArray()))
             assertEquals(seq.toInt(), decoded.seq)
             assertEquals(seq, decoded.fields["seq"])
         }
         listOf(-1L, 0x1_0000_0007L, Long.MAX_VALUE, 7.0, 7.9, "7", true).forEach { seq ->
             val output = ByteArrayOutputStream()
-            HtspCodec.writeMessage(output, "reply", mapOf("seq" to seq))
+            output.write(HtspCodec.encode("reply", mapOf("seq" to seq)))
             assertEquals(null, HtspCodec.readMessage(ByteArrayInputStream(output.toByteArray())).seq)
         }
     }
@@ -123,8 +119,8 @@ class HtspCodecTest {
             override fun read(b: ByteArray, off: Int, len: Int): Int = source.read(b, off, len)
         }
         val first = HtspCodec.readMessage(input)
-        assertEquals(-2L, first.long("value"))
-        assertEquals(listOf(3L, true, 1.5), first.list("nested"))
+        assertEquals(-2L, first.fields["value"])
+        assertEquals(listOf(3L, true, 1.5), first.fields["nested"])
         assertEquals(next.size, source.available())
         assertEquals("second", HtspCodec.readMessage(input).method)
     }
@@ -143,7 +139,7 @@ class HtspCodecTest {
             }
         }
         val first = HtspCodec.readMessage(input)
-        assertEquals(mapOf("items" to listOf(-1L, "Živě")), first.map("box"))
+        assertEquals(mapOf("items" to listOf(-1L, "Živě")), first.fields["box"])
         assertTrue(first.rawPayload === first.fields["payload"])
         assertArrayEquals(byteArrayOf(9), HtspCodec.readMessage(input).rawPayload)
         assertArrayEquals(payload, first.rawPayload)
@@ -156,9 +152,9 @@ class HtspCodecTest {
         val fields = linkedMapOf<String, Any?>(name to "first", "emptyBinary" to byteArrayOf())
         for (size in listOf(0, 255, 256, 257)) fields["text$size"] = "x".repeat(size)
         val decoded = HtspCodec.readMessage(encoded("strings", fields).inputStream())
-        assertEquals("first", decoded.str(name))
-        for (size in listOf(0, 255, 256, 257)) assertEquals("x".repeat(size), decoded.str("text$size"))
-        assertArrayEquals(byteArrayOf(), decoded.bin("emptyBinary"))
+        assertEquals("first", decoded.fields[name])
+        for (size in listOf(0, 255, 256, 257)) assertEquals("x".repeat(size), decoded.fields["text$size"])
+        assertArrayEquals(byteArrayOf(), decoded.fields["emptyBinary"] as ByteArray)
     }
 
     @Test
@@ -168,10 +164,10 @@ class HtspCodecTest {
         val body = duplicates + field(1, "map", duplicates) + field(5, "list", duplicates) +
             field(1, "nested", field(2, "seq", byteArrayOf(1, 0, 0, 0, 0, 0, 0, 0, 99)))
         val decoded = HtspCodec.readMessage(frame(body).inputStream())
-        assertEquals("last", decoded.str("same"))
-        assertEquals(mapOf("same" to "last"), decoded.map("map"))
-        assertEquals(listOf("first", "last", "ignored"), decoded.list("list"))
-        assertEquals(mapOf("seq" to 1L), decoded.map("nested"))
+        assertEquals("last", decoded.fields["same"])
+        assertEquals(mapOf("same" to "last"), decoded.fields["map"])
+        assertEquals(listOf("first", "last", "ignored"), decoded.fields["list"])
+        assertEquals(mapOf("seq" to 1L), decoded.fields["nested"])
         assertEquals(setOf("same", "map", "list", "nested"), decoded.fields.keys)
     }
 
@@ -237,7 +233,7 @@ class HtspCodecTest {
             }
         }
         val decoded = HtspCodec.readMessage(SequenceInputStream(prefix.inputStream(), zeros))
-        assertEquals(payloadSize, decoded.bin("b")?.size)
+        assertEquals(payloadSize, (decoded.fields["b"] as ByteArray).size)
         assertEquals(0, remaining)
         val oversized = SequenceInputStream(frameWithDeclaredLength(maximum + 1).inputStream(), object : InputStream() {
             override fun read(): Int = error("Invalid root length must be rejected before reading its body")
@@ -248,7 +244,7 @@ class HtspCodecTest {
     }
 
     private fun encoded(method: String, fields: Map<String, Any?>): ByteArray =
-        ByteArrayOutputStream().also { HtspCodec.writeMessage(it, method, fields) }.toByteArray()
+        ByteArrayOutputStream().also { it.write(HtspCodec.encode(method, fields)) }.toByteArray()
 
     private fun eofMessage(bytes: ByteArray): String? =
         assertThrows(EOFException::class.java) { HtspCodec.readMessage(bytes.inputStream()) }.message

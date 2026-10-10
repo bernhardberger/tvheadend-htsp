@@ -9,7 +9,7 @@ import java.io.ByteArrayOutputStream
 import java.io.InputStream
 
 internal fun frame(method: String, fields: Map<String, Any?>): ByteArray =
-    ByteArrayOutputStream().also { HtspCodec.writeMessage(it, method, fields) }.toByteArray()
+    ByteArrayOutputStream().also { it.write(HtspCodec.encode(method, fields)) }.toByteArray()
 
 internal fun muxFrame(size: Int): ByteArray = frame("muxpkt", mapOf(
     "subscriptionId" to 1L, "stream" to 0L, "frametype" to 73L,

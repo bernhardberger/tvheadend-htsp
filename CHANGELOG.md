@@ -7,6 +7,9 @@
   faster with 20-30% less allocation; payload-dominated frames are unchanged.
 - Decode server messages outside the connection lock and take it once per packet,
   shortening lock hold time for large frames.
+- Reimplement the frame encoder, wire envelope and connection-service skeleton;
+  encoding writes each frame into one buffer and allocates about half as much.
+  Wire bytes are unchanged.
 
 - **BREAKING:** metadata delivery now uses independent bounded collector queues,
   drops newest metadata on overflow and reports `MetadataOverflow`. Queue saturation

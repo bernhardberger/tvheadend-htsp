@@ -148,7 +148,7 @@ public class RequestBenchmarks {
     @Benchmark
     public fun encode(blackhole: Blackhole): Unit {
         val output = ByteArrayOutputStream()
-        HtspCodec.writeMessage(output, method, HtspRequestCodecs.encode(request))
+        output.write(HtspCodec.encode(method, HtspRequestCodecs.encode(request)))
         blackhole.consume(output)
     }
 }

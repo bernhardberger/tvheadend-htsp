@@ -32,8 +32,8 @@ class HtspTransportInputStreamTest {
     @Test
     fun timeoutAfterCurrentFrameBytes_retriesLogsAndPreservesExactAlignment() {
         val encodedFrames = ByteArrayOutputStream().also { output ->
-            HtspCodec.writeMessage(output, "hello", mapOf("seq" to 3))
-            HtspCodec.writeMessage(output, "authenticate", mapOf("seq" to 4))
+            output.write(HtspCodec.encode("hello", mapOf("seq" to 3)))
+            output.write(HtspCodec.encode("authenticate", mapOf("seq" to 4)))
         }.toByteArray()
         val entries = mutableListOf<LogEntry>()
         val input = HtspTransportInputStream(
@@ -94,10 +94,10 @@ class HtspTransportInputStreamTest {
     @Test
     fun timeoutAtEveryBulkReadBoundaryPreservesFrameAccountingAndAlignment() {
         val firstBytes = ByteArrayOutputStream().also {
-            HtspCodec.writeMessage(it, "muxpkt", mapOf("seq" to -1L, "payload" to ByteArray(188)))
+            it.write(HtspCodec.encode("muxpkt", mapOf("seq" to -1L, "payload" to ByteArray(188))))
         }.toByteArray()
         val nextBytes = ByteArrayOutputStream().also {
-            HtspCodec.writeMessage(it, "hello", mapOf("seq" to 4L))
+            it.write(HtspCodec.encode("hello", mapOf("seq" to 4L)))
         }.toByteArray()
         for (boundary in 1 until firstBytes.size) {
             val source = BoundaryTimeoutInputStream(firstBytes + nextBytes, boundary, listOf(0L))
@@ -116,7 +116,7 @@ class HtspTransportInputStreamTest {
 
     @Test
     fun persistentTimeoutWithinBulkFieldHeaderExpiresWithoutLosingPartialByteCount() {
-        val bytes = ByteArrayOutputStream().also { HtspCodec.writeMessage(it, "hello", emptyMap()) }.toByteArray()
+        val bytes = ByteArrayOutputStream().also { it.write(HtspCodec.encode("hello", emptyMap())) }.toByteArray()
         val source = BoundaryTimeoutInputStream(bytes, 7, listOf(0L, 99L, 100L))
         val input = HtspTransportInputStream(source, HtspLogger.None, 100L) { source.nowMs * 1_000_000L }
         input.beginFrame()

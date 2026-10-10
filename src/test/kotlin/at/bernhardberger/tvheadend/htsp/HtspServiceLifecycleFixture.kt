@@ -18,6 +18,14 @@ import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.TimeUnit
 import kotlin.concurrent.thread
 
+internal fun serviceConnectionOwner(service: Any): Any =
+    HtspService::class.java.getDeclaredField("connectionOwner").apply { isAccessible = true }.get(service)
+
+internal fun serviceReaderJob(service: Any): kotlinx.coroutines.Job {
+    val owner = serviceConnectionOwner(service)
+    return owner.javaClass.getDeclaredField("reader").apply { isAccessible = true }.get(owner) as kotlinx.coroutines.Job
+}
+
 internal abstract class HtspServiceLifecycleFixture {
 
     protected fun service(
@@ -241,7 +249,7 @@ internal abstract class HtspServiceLifecycleFixture {
 
         private fun writeFrame(output: OutputStream, method: String, fields: Map<String, Any?>) {
             synchronized(writeLock) {
-                HtspCodec.writeMessage(output, method, fields)
+                output.write(HtspCodec.encode(method, fields))
                 output.flush()
             }
         }
@@ -249,7 +257,7 @@ internal abstract class HtspServiceLifecycleFixture {
         private fun sequenceOnlyReply(sequence: Int): ByteArray {
             require(sequence >= 0)
             val encoded = ByteArrayOutputStream().also { output ->
-                HtspCodec.writeMessage(output, method = "", fields = mapOf("seq" to sequence))
+                output.write(HtspCodec.encode("", mapOf("seq" to sequence)))
             }.toByteArray()
             val methodNameSize = encoded[Int.SIZE_BYTES + 1].toInt() and 0xff
             val methodValueSize = ByteBuffer.wrap(encoded, Int.SIZE_BYTES + 2, Int.SIZE_BYTES).int

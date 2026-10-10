@@ -307,7 +307,7 @@ internal class HtspServiceSubscriptionEventTest : HtspServiceLifecycleFixture() 
     }
 
     private suspend fun readTestFrame(service: HtspService, attempt: Long, method: String, fields: Map<String, Any?>) {
-        val bytes = ByteArrayOutputStream().apply { HtspCodec.writeMessage(this, method, fields) }.toByteArray()
+        val bytes = ByteArrayOutputStream().apply { this.write(HtspCodec.encode(method, fields)) }.toByteArray()
         val reader = service.javaClass.getDeclaredMethod("readerLoop", InputStream::class.java,
             Long::class.javaPrimitiveType, Long::class.javaPrimitiveType, Continuation::class.java)
             .apply { isAccessible = true }
@@ -1850,8 +1850,7 @@ internal class HtspServiceSubscriptionEventTest : HtspServiceLifecycleFixture() 
                 val request = async(Dispatchers.IO) {
                     service.request(
                         method = "controlBackpressureProbe",
-                        timeoutMs = 2_000L,
-                        disconnectOnTimeout = false,
+                        policy = HtspReplyPolicy(timeoutMs = 2_000L, retireOnTimeout = false),
                     )
                 }
                 assertTrue(server.postHandshakeRequestReceived.await(1, TimeUnit.SECONDS))
@@ -2167,8 +2166,7 @@ internal class HtspServiceSubscriptionEventTest : HtspServiceLifecycleFixture() 
                 val request = async(Dispatchers.IO) {
                     service.request(
                         method = "metadataBackpressureProbe",
-                        timeoutMs = 2_000L,
-                        disconnectOnTimeout = false,
+                        policy = HtspReplyPolicy(timeoutMs = 2_000L, retireOnTimeout = false),
                     )
                 }
                 assertTrue(server.postHandshakeRequestReceived.await(1, TimeUnit.SECONDS))
@@ -2232,8 +2230,7 @@ internal class HtspServiceSubscriptionEventTest : HtspServiceLifecycleFixture() 
                 val service = service(metadataEventBufferCapacity = 1)
                 runBlocking {
                     val connected = service.connect(HtspEndpoint("127.0.0.1", server.port)) as HtspConnectOutcome.Connected
-                    val reader = HtspService::class.java.getDeclaredField("readerJob")
-                        .apply { isAccessible = true }.get(service) as kotlinx.coroutines.Job
+                    val reader = serviceReaderJob(service)
                     val stalled = CompletableDeferred<Unit>()
                     val release = CompletableDeferred<Unit>()
                     val failure = CompletableDeferred<HtspTransportEvent.ConnectionFailure>()

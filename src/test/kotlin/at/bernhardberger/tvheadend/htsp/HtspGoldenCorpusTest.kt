@@ -61,7 +61,7 @@ class HtspGoldenCorpusTest {
         assertEquals(-2L, decoded.fields["negative"])
         assertEquals("Živě", decoded.fields["text"])
         assertEquals("", decoded.fields["empty"])
-        assertArrayEquals(byteArrayOf(0, -1, 0x47), decoded.bin("binary"))
+        assertArrayEquals(byteArrayOf(0, -1, 0x47), decoded.fields["binary"] as ByteArray)
         assertEquals(1.5, decoded.fields["double"])
         assertEquals(true, decoded.fields["enabled"])
         assertArrayEquals(ByteArray(16) { it.toByte() }, (decoded.fields["uuid"] as HtspWireUuid).bytes())
@@ -102,5 +102,5 @@ class HtspGoldenCorpusTest {
     }
 
     private fun encode(method: String, fields: Map<String, Any?>): ByteArray =
-        ByteArrayOutputStream().also { HtspCodec.writeMessage(it, method, fields) }.toByteArray()
+        ByteArrayOutputStream().also { it.write(HtspCodec.encode(method, fields)) }.toByteArray()
 }

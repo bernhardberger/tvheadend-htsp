@@ -256,7 +256,7 @@ class HtspConnectionSocketFactoryTest {
     fun privateFileReadDispatchTransfersPayloadButRawRequestsKeepTheirRepresentation() = runBlocking {
         val responses = (3L..4L).map { sequence ->
             ByteArrayOutputStream().also { output ->
-                HtspCodec.writeMessage(output, "fileRead", mapOf("seq" to sequence, "data" to byteArrayOf(1, 2, 3)))
+                output.write(HtspCodec.encode("fileRead", mapOf("seq" to sequence, "data" to byteArrayOf(1, 2, 3))))
             }.toByteArray()
         }
         val socket = ScriptedSocket(
@@ -394,10 +394,7 @@ class HtspConnectionSocketFactoryTest {
                 val eventCollector = launch(Dispatchers.Unconfined) { connection.events.collect(events::add) }
                 try {
                     assertTrue(connection.connect(HtspEndpoint("127.0.0.1", 9_982)) is HtspConnectOutcome.Connected)
-                    val reader = HtspService::class.java.getDeclaredField("readerJob").run {
-                        isAccessible = true
-                        get(connection) as Job
-                    }
+                    val reader = serviceReaderJob(connection)
                     val call = async(start = CoroutineStart.UNDISPATCHED) {
                         if (callerTimeout) {
                             withTimeout(100L) { connection.getSysTime(timeoutMs = 2_000L) }
@@ -512,7 +509,7 @@ class HtspConnectionSocketFactoryTest {
                     loadHtspGoldenFrame("scripted-hello-response.hex"),
                     loadHtspGoldenFrame("scripted-authenticate-response.hex"),
                     ByteArrayOutputStream().also { output ->
-                        HtspCodec.writeMessage(output, "getSysTime", mapOf("seq" to 4L, "time" to 1L, "timezone" to 0L))
+                        output.write(HtspCodec.encode("getSysTime", mapOf("seq" to 4L, "time" to 1L, "timezone" to 0L)))
                     }.toByteArray(),
                 ),
             )
@@ -596,15 +593,12 @@ class HtspConnectionSocketFactoryTest {
                     expectedConnectionAttemptId: Long,
                     method: String,
                     fields: Map<String, Any?>,
-                    timeoutMs: Long,
-                    flush: Boolean,
-                    disconnectOnTimeout: Boolean,
+                    policy: HtspReplyPolicy,
                     onReplyCommitted: ((HtspWireMessage) -> Unit)?,
                 ): HtspWireMessage {
                     awaitContention(false)
                     return super.requestForConnectionAttempt(
-                        expectedConnectionAttemptId, method, fields, timeoutMs, flush,
-                        disconnectOnTimeout, onReplyCommitted,
+                        expectedConnectionAttemptId, method, fields, policy, onReplyCommitted,
                     )
                 }
             }

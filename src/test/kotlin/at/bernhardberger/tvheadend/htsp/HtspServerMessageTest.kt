@@ -133,7 +133,7 @@ class HtspServerMessageTest {
         listOf(null, 0L, 1L, 0x8000_0000L, 0xffff_ffffL).forEach { errors ->
             val fields = if (errors == null) fixture else fixture + ("errors" to errors)
             val output = ByteArrayOutputStream()
-            HtspCodec.writeMessage(output, "queueStatus", fields)
+            output.write(HtspCodec.encode("queueStatus", fields))
             val wireFields = HtspCodec.readMessage(output.toByteArray().inputStream()).fields
             assertEquals(absent.copy(errorCount = errors), decodeMessage(wireFields))
         }

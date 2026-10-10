@@ -23,14 +23,14 @@ internal class HtspReviewDeliveryRegressionTest : HtspServiceLifecycleFixture() 
                     val input = client.getInputStream()
                     val output = client.getOutputStream()
                     for ((sequence, method) in listOf("hello", "authenticate").withIndex()) {
-                        HtspCodec.writeMessage(output, method, mapOf("seq" to sequence))
+                        output.write(HtspCodec.encode(method, mapOf("seq" to sequence)))
                         assertEquals(sequence, HtspCodec.readMessage(input).seq)
                     }
                     val start = CompletableDeferred<Unit>()
                     val requests = async(Dispatchers.IO) {
                         start.await()
                         repeat(count) { sequence ->
-                            HtspCodec.writeMessage(output, "getProfiles", mapOf("seq" to sequence + 2))
+                            output.write(HtspCodec.encode("getProfiles", mapOf("seq" to sequence + 2)))
                         }
                     }
                     val notifications = async(Dispatchers.IO) {
@@ -239,7 +239,7 @@ internal class HtspReviewDeliveryRegressionTest : HtspServiceLifecycleFixture() 
                 val pending = HtspService::class.java.getDeclaredField("pending").apply { isAccessible = true }
                     .get(service) as Map<*, *>
                 val request = pending.values.single()!!
-                val response = request.javaClass.getDeclaredField("def").apply { isAccessible = true }
+                val response = request.javaClass.getDeclaredField("reply").apply { isAccessible = true }
                     .get(request) as CompletableDeferred<*>
                 val completionUnderLock = CompletableDeferred<Boolean>()
                 response.invokeOnCompletion { completionUnderLock.complete(Thread.holdsLock(lock)) }
@@ -446,10 +446,10 @@ internal class HtspReviewDeliveryRegressionTest : HtspServiceLifecycleFixture() 
     fun serviceBudgetsFrameBodiesWithoutCountingFourByteHeaders(): Unit = runBlocking {
         val budget = 1024L * 1024L
         val encoded = java.io.ByteArrayOutputStream()
-        at.bernhardberger.tvheadend.htsp.wire.HtspCodec.writeMessage(encoded, "channelAdd", mapOf("channelId" to 1L, "channelName" to ""))
+        encoded.write(at.bernhardberger.tvheadend.htsp.wire.HtspCodec.encode("channelAdd", mapOf("channelId" to 1L, "channelName" to "")))
         val fields = mapOf("channelId" to 1L, "channelName" to "x".repeat(budget.toInt() - (encoded.size() - 4)))
         encoded.reset()
-        at.bernhardberger.tvheadend.htsp.wire.HtspCodec.writeMessage(encoded, "channelAdd", fields)
+        encoded.write(at.bernhardberger.tvheadend.htsp.wire.HtspCodec.encode("channelAdd", fields))
         assertEquals(budget + 4L, encoded.size().toLong())
         FakeHtspServer(respondToHello = true).use { server ->
             val queued = CountDownLatch(2)

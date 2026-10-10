@@ -64,7 +64,7 @@ class HtspCodecRoundTripPropertyTest {
     }
 
     private fun roundTrip(method: String, fields: Map<String, Any?>): HtspWireMessage {
-        val bytes = ByteArrayOutputStream().also { HtspCodec.writeMessage(it, method, fields) }.toByteArray()
+        val bytes = ByteArrayOutputStream().also { it.write(HtspCodec.encode(method, fields)) }.toByteArray()
         return HtspCodec.readMessage(ByteArrayInputStream(bytes))
     }
 

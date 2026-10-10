@@ -43,7 +43,11 @@ internal class HtspServiceRequestTimeoutTest : HtspServiceLifecycleFixture() {
         ).use { server ->
             val service = service()
             try {
-                service.connect("127.0.0.1", server.port)
+                service.establish(HtspConnectionParameters(
+                    HtspEndpoint(host = "127.0.0.1", port = server.port),
+                    HtspConnectOptions(),
+                    HtspClientIdentity.Default,
+                ))
                 val generation = requireNotNull(service.liveConnection.value).generation
                 val events = async(start = CoroutineStart.UNDISPATCHED) {
                     service.subscriptionEvents(47L, generation).toList()
@@ -84,7 +88,11 @@ internal class HtspServiceRequestTimeoutTest : HtspServiceLifecycleFixture() {
                 }
             })
             try {
-                service.connect("127.0.0.1", server.port)
+                service.establish(HtspConnectionParameters(
+                    HtspEndpoint(host = "127.0.0.1", port = server.port),
+                    HtspConnectOptions(),
+                    HtspClientIdentity.Default,
+                ))
                 val generation = requireNotNull(service.liveConnection.value).generation
                 val failure = async(start = CoroutineStart.UNDISPATCHED) {
                     service.events.first { it is HtspTransportEvent.ConnectionFailure }
@@ -115,10 +123,11 @@ internal class HtspServiceRequestTimeoutTest : HtspServiceLifecycleFixture() {
                 val readCycles = AtomicInteger()
                 val service = service(nanoTime = clock::get, beforeFrameRead = { readCycles.incrementAndGet() })
                 try {
-                    service.connect(
-                        "127.0.0.1", server.port,
-                        responseTimeoutMs = responseTimeoutMs, soTimeoutMs = 25,
-                    )
+                    service.establish(HtspConnectionParameters(
+                        HtspEndpoint(host = "127.0.0.1", port = server.port),
+                        HtspConnectOptions(responseTimeoutMs = responseTimeoutMs, socketReadTimeoutMs = 25),
+                        HtspClientIdentity.Default,
+                    ))
                     clock.set(10_000_000_000L)
                     var previousCycle = readCycles.get()
                     withTimeout(1_000L) {
@@ -158,7 +167,11 @@ internal class HtspServiceRequestTimeoutTest : HtspServiceLifecycleFixture() {
                 val occupied = CountDownLatch(1)
                 val release = CountDownLatch(1)
                 try {
-                    service.connect("127.0.0.1", server.port, responseTimeoutMs = 100L, soTimeoutMs = 25)
+                    service.establish(HtspConnectionParameters(
+                        HtspEndpoint(host = "127.0.0.1", port = server.port),
+                        HtspConnectOptions(responseTimeoutMs = 100L, socketReadTimeoutMs = 25),
+                        HtspClientIdentity.Default,
+                    ))
                     val blocker = launch(dispatcher) {
                         occupied.countDown()
                         check(release.await(3, TimeUnit.SECONDS))
@@ -197,7 +210,11 @@ internal class HtspServiceRequestTimeoutTest : HtspServiceLifecycleFixture() {
             ).use { server ->
                 val service = service()
                 try {
-                    service.connect("127.0.0.1", server.port, responseTimeoutMs = 100L, soTimeoutMs = 25)
+                    service.establish(HtspConnectionParameters(
+                        HtspEndpoint(host = "127.0.0.1", port = server.port),
+                        HtspConnectOptions(responseTimeoutMs = 100L, socketReadTimeoutMs = 25),
+                        HtspClientIdentity.Default,
+                    ))
                     val events = async(start = CoroutineStart.UNDISPATCHED) {
                         service.subscriptionEvents(48L).toList()
                     }
@@ -235,22 +252,17 @@ internal class HtspServiceRequestTimeoutTest : HtspServiceLifecycleFixture() {
             FakeHtspServer(respondToHello = true).use { replacementServer ->
                 val service = service()
                 runBlocking {
-                    service.connect(
-                        host = "127.0.0.1",
-                        port = firstServer.port,
-                        connectTimeoutMs = 1_000,
-                        responseTimeoutMs = 1_000,
-                        soTimeoutMs = 50,
-                    )
+                    service.establish(HtspConnectionParameters(
+                        HtspEndpoint(host = "127.0.0.1", port = firstServer.port),
+                        HtspConnectOptions(connectTimeoutMs = 1_000, responseTimeoutMs = 1_000, socketReadTimeoutMs = 50),
+                        HtspClientIdentity.Default,
+                    ))
                     val staleAttempt = service.currentConnectionAttemptId()
-                    service.connect(
-                        host = "127.0.0.1",
-                        port = replacementServer.port,
-                        connectTimeoutMs = 1_000,
-                        responseTimeoutMs = 1_000,
-                        soTimeoutMs = 50,
-                        forceReconnect = true,
-                    )
+                    service.establish(HtspConnectionParameters(
+                        HtspEndpoint(host = "127.0.0.1", port = replacementServer.port),
+                        HtspConnectOptions(connectTimeoutMs = 1_000, responseTimeoutMs = 1_000, socketReadTimeoutMs = 50, forceReconnect = true),
+                        HtspClientIdentity.Default,
+                    ))
 
                     val failure = runCatching {
                         service.requestForConnectionAttempt(
@@ -279,13 +291,11 @@ internal class HtspServiceRequestTimeoutTest : HtspServiceLifecycleFixture() {
                 val result = executor.submit<Throwable?> {
                     runBlocking {
                         runCatching {
-                            service().connect(
-                                host = "127.0.0.1",
-                                port = server.port,
-                                connectTimeoutMs = 1_000,
-                                responseTimeoutMs = 100,
-                                soTimeoutMs = 50,
-                            )
+                            service().establish(HtspConnectionParameters(
+                                HtspEndpoint(host = "127.0.0.1", port = server.port),
+                                HtspConnectOptions(connectTimeoutMs = 1_000, responseTimeoutMs = 100, socketReadTimeoutMs = 50),
+                                HtspClientIdentity.Default,
+                            ))
                         }.exceptionOrNull()
                     }
                 }.get(2, TimeUnit.SECONDS)
@@ -303,13 +313,11 @@ internal class HtspServiceRequestTimeoutTest : HtspServiceLifecycleFixture() {
         FakeHtspServer(respondToHello = true).use { server ->
             val service = service()
             runBlocking {
-                service.connect(
-                    host = "127.0.0.1",
-                    port = server.port,
-                    connectTimeoutMs = 1_000,
-                    responseTimeoutMs = 1_000,
-                    soTimeoutMs = 50,
-                )
+                service.establish(HtspConnectionParameters(
+                    HtspEndpoint(host = "127.0.0.1", port = server.port),
+                    HtspConnectOptions(connectTimeoutMs = 1_000, responseTimeoutMs = 1_000, socketReadTimeoutMs = 50),
+                    HtspClientIdentity.Default,
+                ))
             }
 
             val executor = Executors.newSingleThreadExecutor()
@@ -334,19 +342,16 @@ internal class HtspServiceRequestTimeoutTest : HtspServiceLifecycleFixture() {
         FakeHtspServer(respondToHello = true).use { server ->
             val service = service()
             runBlocking {
-                service.connect(
-                    host = "127.0.0.1",
-                    port = server.port,
-                    connectTimeoutMs = 1_000,
-                    responseTimeoutMs = 1_000,
-                    soTimeoutMs = 50,
-                )
+                service.establish(HtspConnectionParameters(
+                    HtspEndpoint(host = "127.0.0.1", port = server.port),
+                    HtspConnectOptions(connectTimeoutMs = 1_000, responseTimeoutMs = 1_000, socketReadTimeoutMs = 50),
+                    HtspClientIdentity.Default,
+                ))
 
                 val failure = runCatching {
                     service.request(
                         method = "getEvents",
-                        timeoutMs = 100,
-                        disconnectOnTimeout = false,
+                        policy = HtspReplyPolicy(timeoutMs = 100, retireOnTimeout = false),
                     )
                 }.exceptionOrNull()
 
@@ -366,13 +371,11 @@ internal class HtspServiceRequestTimeoutTest : HtspServiceLifecycleFixture() {
         ).use { server ->
             val service = service()
             runBlocking {
-                service.connect(
-                    host = "127.0.0.1",
-                    port = server.port,
-                    connectTimeoutMs = 1_000,
-                    responseTimeoutMs = 100,
-                    soTimeoutMs = 25,
-                )
+                service.establish(HtspConnectionParameters(
+                    HtspEndpoint(host = "127.0.0.1", port = server.port),
+                    HtspConnectOptions(connectTimeoutMs = 1_000, responseTimeoutMs = 100, socketReadTimeoutMs = 25),
+                    HtspClientIdentity.Default,
+                ))
                 val subscription = async(start = CoroutineStart.UNDISPATCHED) {
                     service.subscriptionEvents(37L).toList()
                 }
@@ -381,8 +384,7 @@ internal class HtspServiceRequestTimeoutTest : HtspServiceLifecycleFixture() {
                     runCatching {
                         service.request(
                             method = "silentWatchdogProbe",
-                            timeoutMs = 2_000L,
-                            disconnectOnTimeout = false,
+                            policy = HtspReplyPolicy(timeoutMs = 2_000L, retireOnTimeout = false),
                         )
                     }.exceptionOrNull()
                 }
@@ -415,14 +417,12 @@ internal class HtspServiceRequestTimeoutTest : HtspServiceLifecycleFixture() {
         ).use { server ->
             val service = service()
             runBlocking {
-                service.connect(
-                    host = "127.0.0.1",
-                    port = server.port,
-                    connectTimeoutMs = 1_000,
+                service.establish(HtspConnectionParameters(
+                    HtspEndpoint(host = "127.0.0.1", port = server.port),
                     // Wider response bounds tolerate slow CI scheduling while 25 ms socket timeouts still exercise idle cycles.
-                    responseTimeoutMs = 500,
-                    soTimeoutMs = 25,
-                )
+                    HtspConnectOptions(connectTimeoutMs = 1_000, responseTimeoutMs = 500, socketReadTimeoutMs = 25),
+                    HtspClientIdentity.Default,
+                ))
 
                 val leftConnected = withTimeoutOrNull(350L) {
                     service.connectionState.first { state -> state !is HtspConnectionState.Connected }
@@ -433,8 +433,7 @@ internal class HtspServiceRequestTimeoutTest : HtspServiceLifecycleFixture() {
                 val request = async(Dispatchers.IO) {
                     service.request(
                         method = "afterIdleProbe",
-                        timeoutMs = 2_000L,
-                        disconnectOnTimeout = false,
+                        policy = HtspReplyPolicy(timeoutMs = 2_000L, retireOnTimeout = false),
                     )
                 }
                 assertTrue(server.postHandshakeRequestReceived.await(2, TimeUnit.SECONDS))
@@ -450,20 +449,17 @@ internal class HtspServiceRequestTimeoutTest : HtspServiceLifecycleFixture() {
         FakeHtspServer(respondToHello = true).use { server ->
             val service = service()
             runBlocking {
-                service.connect(
-                    host = "127.0.0.1",
-                    port = server.port,
-                    connectTimeoutMs = 1_000,
-                    responseTimeoutMs = 1_000,
-                    soTimeoutMs = 50,
-                )
+                service.establish(HtspConnectionParameters(
+                    HtspEndpoint(host = "127.0.0.1", port = server.port),
+                    HtspConnectOptions(connectTimeoutMs = 1_000, responseTimeoutMs = 1_000, socketReadTimeoutMs = 50),
+                    HtspClientIdentity.Default,
+                ))
 
                 val failure = runCatching {
                     withTimeout(50L) {
                         service.request(
                             method = "getEvents",
-                            timeoutMs = 500L,
-                            disconnectOnTimeout = false,
+                            policy = HtspReplyPolicy(timeoutMs = 500L, retireOnTimeout = false),
                         )
                     }
                 }.exceptionOrNull()
@@ -483,13 +479,11 @@ internal class HtspServiceRequestTimeoutTest : HtspServiceLifecycleFixture() {
         ).use { server ->
             val service = service()
             runBlocking {
-                service.connect(
-                    host = "127.0.0.1",
-                    port = server.port,
-                    connectTimeoutMs = 1_000,
-                    responseTimeoutMs = 1_000,
-                    soTimeoutMs = 50,
-                )
+                service.establish(HtspConnectionParameters(
+                    HtspEndpoint(host = "127.0.0.1", port = server.port),
+                    HtspConnectOptions(connectTimeoutMs = 1_000, responseTimeoutMs = 1_000, socketReadTimeoutMs = 50),
+                    HtspClientIdentity.Default,
+                ))
                 val sync = async(Dispatchers.IO) {
                     service.enableAsyncMetadataAwaitingInitialSync(timeoutMs = 250L)
                 }
@@ -511,13 +505,11 @@ internal class HtspServiceRequestTimeoutTest : HtspServiceLifecycleFixture() {
         ).use { server ->
             val service = service()
             runBlocking {
-                service.connect(
-                    host = "127.0.0.1",
-                    port = server.port,
-                    connectTimeoutMs = 1_000,
-                    responseTimeoutMs = 1_000,
-                    soTimeoutMs = 50,
-                )
+                service.establish(HtspConnectionParameters(
+                    HtspEndpoint(host = "127.0.0.1", port = server.port),
+                    HtspConnectOptions(connectTimeoutMs = 1_000, responseTimeoutMs = 1_000, socketReadTimeoutMs = 50),
+                    HtspClientIdentity.Default,
+                ))
 
                 val sync = async(Dispatchers.IO) {
                     try {
@@ -547,20 +539,18 @@ internal class HtspServiceRequestTimeoutTest : HtspServiceLifecycleFixture() {
         ).use { server ->
             val service = service()
             runBlocking {
-                service.connect(
-                    host = "127.0.0.1",
-                    port = server.port,
-                    connectTimeoutMs = 1_000,
-                    responseTimeoutMs = 1_000,
-                    soTimeoutMs = 50,
-                )
+                service.establish(HtspConnectionParameters(
+                    HtspEndpoint(host = "127.0.0.1", port = server.port),
+                    HtspConnectOptions(connectTimeoutMs = 1_000, responseTimeoutMs = 1_000, socketReadTimeoutMs = 50),
+                    HtspClientIdentity.Default,
+                ))
                 val attemptId = service.currentConnectionAttemptId()
                 val request = launch(Dispatchers.IO) {
                     service.requestForConnectionAttempt(
                         expectedConnectionAttemptId = attemptId,
                         method = "subscribe",
                         fields = mapOf("subscriptionId" to 42),
-                        timeoutMs = 5_000L,
+                        policy = HtspReplyPolicy(timeoutMs = 5_000L),
                     )
                 }
 
@@ -584,13 +574,11 @@ internal class HtspServiceRequestTimeoutTest : HtspServiceLifecycleFixture() {
         ).use { server ->
             val service = service()
             runBlocking {
-                service.connect(
-                    host = "127.0.0.1",
-                    port = server.port,
-                    connectTimeoutMs = 1_000,
-                    responseTimeoutMs = 1_000,
-                    soTimeoutMs = 50,
-                )
+                service.establish(HtspConnectionParameters(
+                    HtspEndpoint(host = "127.0.0.1", port = server.port),
+                    HtspConnectOptions(connectTimeoutMs = 1_000, responseTimeoutMs = 1_000, socketReadTimeoutMs = 50),
+                    HtspClientIdentity.Default,
+                ))
                 val attemptId = service.currentConnectionAttemptId()
                 val update = async(Dispatchers.IO) {
                     service.requestForConnectionAttempt(
