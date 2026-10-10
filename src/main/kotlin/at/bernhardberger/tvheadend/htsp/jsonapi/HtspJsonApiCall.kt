@@ -24,12 +24,23 @@ public sealed interface ApiResponse {
     @HtspJsonApi
     public data class Payload(public val value: HtspApiContainer) : ApiResponse
 
-    /** Marks a successful JSON API callback that supplied no response payload. */
+    /**
+     * Marks a reply without a `response` payload.
+     *
+     * The server sends the same empty reply for a call that produced no payload, an unknown
+     * [ApiRequest.path], and an object the endpoint could not find, so this value does not prove
+     * that the call did anything.
+     */
     @HtspJsonApi
     public data object NoPayload : ApiResponse
 }
 
-/** Calls one JSON API path with an optional object argument through typed connection execution; failures remain [HtspResult] values. */
+/**
+ * Calls one JSON API path with an optional object argument through typed connection execution; failures remain [HtspResult] values.
+ *
+ * An unknown path or a missing object is not a failure: the server answers it like a call without
+ * payload, so it arrives as `Ok(`[ApiResponse.NoPayload]`)`.
+ */
 @HtspJsonApi
 public suspend fun HtspConnection.api(
     path: String,

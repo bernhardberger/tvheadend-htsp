@@ -186,6 +186,14 @@ to `epg_object_serialize` there rather than expanded in the HTSP sender.
   maps to `HtspResult.ConnectionLimit`; for `subscribe` the registered stream
   then ends with `Terminated(SUBSCRIBE_REJECTED)`. Older servers also check the
   limits at connect time.
+- The `api` method cannot report "not found". In pinned
+  `src/htsp_server.c:1540-1581`, `api_exec` results `ENOENT` and `ENOSYS` are
+  answered with an empty successful reply, the same as a call that produced no
+  response. `src/api.c:86` returns `ENOSYS` for an unknown path, and handlers
+  such as `src/api/api_idnode.c:670` return `ENOENT` for a missing object.
+  `ApiResponse.NoPayload` therefore covers all three cases. `EPERM`/`EACCES`
+  reply `noaccess` (`HtspResult.AccessDenied`); other errors reply
+  `"Bad request"` (`HtspResult.ServerError`).
 - `queueStatus.errors` is an optional u32 cumulative data-error counter, exposed
   as nullable `HtspQueueStatusMessage.errorCount`. Absence is not converted to
   zero. In pinned `src/htsp_server.c:4183-4184`, packet errors accumulate in
