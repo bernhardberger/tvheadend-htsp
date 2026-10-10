@@ -14,6 +14,7 @@ class HtspResultCombinatorTest {
     private val failures: List<HtspFailure>
         get() = listOf(
             HtspResult.ServerError(),
+            HtspResult.MalformedReply,
             HtspResult.AccessDenied,
             HtspResult.ConnectionLimit,
             HtspResult.Timeout,

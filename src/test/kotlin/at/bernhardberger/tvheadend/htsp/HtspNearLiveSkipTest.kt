@@ -184,8 +184,8 @@ internal class HtspNearLiveSkipTest {
         val cancellation = CancellationException("synthetic near-live cancellation")
         var dispatches = 0
         var cancel = false
+        var failure: HtspResult<Nothing> = HtspResult.ServerError()
         val connection = object : HtspConnection by owner {
-            @Suppress("UNCHECKED_CAST")
             override suspend fun <R> execute(
                 request: HtspRequest<R>,
                 timeoutMs: Long,
@@ -194,29 +194,32 @@ internal class HtspNearLiveSkipTest {
                 dispatches += 1
                 assertTrue(request is SubscriptionSkipRequest)
                 if (cancel) throw cancellation
-                return HtspResult.ServerError() as HtspResult<R>
+                return failure
             }
         }
 
         try {
-            assertEquals(
-                HtspResult.ServerError(),
-                connection.subscriptionSkipNearLive(
-                    status(10_000_000L, 20_000_000L),
-                    SubscriptionTimestampClock.MICROSECONDS,
-                    marginSeconds = 3L,
-                ),
-            )
+            for (expected in listOf(HtspResult.ServerError(), HtspResult.MalformedReply)) {
+                failure = expected
+                assertEquals(
+                    expected,
+                    connection.subscriptionSkipNearLive(
+                        status(10_000_000L, 20_000_000L),
+                        SubscriptionTimestampClock.MICROSECONDS,
+                        marginSeconds = 3L,
+                    ),
+                )
+            }
             cancel = true
-            val failure = runCatching {
+            val thrown = runCatching {
                 connection.subscriptionSkipNearLive(
                     status(10_000_000L, 20_000_000L),
                     SubscriptionTimestampClock.MICROSECONDS,
                     marginSeconds = 3L,
                 )
             }.exceptionOrNull()
-            assertSame(cancellation, failure)
-            assertEquals(2, dispatches)
+            assertSame(cancellation, thrown)
+            assertEquals(3, dispatches)
         } finally {
             owner.close()
         }

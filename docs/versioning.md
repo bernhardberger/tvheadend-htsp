@@ -87,10 +87,11 @@ exact `toString` format, internal declarations, and undocumented behavior.
   release notes.
 
 All other sealed hierarchies and enums are closed for the 1.x line and safe to
-match exhaustively, including `HtspResult`, `HtspFailure`,
+match exhaustively, including `HtspResult`, `HtspFailure` (whose 1.0 members include
+`MalformedReply` as distinct from `ServerError`),
 `HtspConnectOutcome`, `HtspConnectionState`, and the
 request selector types. A new kind of server failure is reported through an
-existing category, such as `ServerError`, until the next major version.
+existing category, such as `ServerError`, until 2.0.
 Match that data class with `is HtspResult.ServerError`; its optional
 `serverMessage` is untrusted server text, not a stable code, and participates
 in equality without being rendered by `toString()`.

@@ -128,7 +128,7 @@ class HtspApiBridgeTest {
     }
 
     @Test
-    fun malformedUuidReplyIsServerErrorWithoutRetiringTheCurrentTransport() = runTest {
+    fun malformedUuidReplyIsMalformedReplyWithoutRetiringTheCurrentTransport() = runTest {
         val malformedBytes = ByteArray(15) { it.toByte() }
         val malformedUuid = rawField(type = 8, name = "uuid", data = malformedBytes)
         val response = rawField(type = 1, name = "response", data = malformedUuid)
@@ -144,7 +144,7 @@ class HtspApiBridgeTest {
 
         val transport = FakeApiTransport(24, HtspWireReply(decoded.fields))
         val caller = HtspTypedRequestCaller(transport)
-        assertEquals(HtspResult.ServerError(), caller.call(ApiRequest("malformed-uuid")))
+        assertEquals(HtspResult.MalformedReply, caller.call(ApiRequest("malformed-uuid")))
 
         transport.reply = HtspWireReply(linkedMapOf("response" to linkedMapOf("ok" to true)))
         assertEquals(
@@ -245,7 +245,7 @@ class HtspApiBridgeTest {
         val caller = HtspTypedRequestCaller(transport)
         malformedResponses.forEach { fields ->
             transport.reply = HtspWireReply(fields)
-            assertEquals(HtspResult.ServerError(), caller.call(request), fields.toString())
+            assertEquals(HtspResult.MalformedReply, caller.call(request), fields.toString())
         }
     }
 

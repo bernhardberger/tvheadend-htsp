@@ -71,8 +71,34 @@ refused login, a missing permission, a timeout, or a dead socket arrives as a
 failure case you pattern-match on, or unwrap with the `map`, `fold`,
 `getOrNull`, `getOrElse`, and `onFailure` helpers.
 
-DVR mutation refusals (`error`, missing `success`, or `success` other than 1) return
+During connect, a malformed hello or authenticate reply returns
+`HtspConnectOutcome.Failed` with `INCOMPATIBLE_SERVER` and retires the attempt's
+transport. An explicit authenticate access denial remains `AUTHENTICATION_REJECTED`.
+
+The closed request failure cases are:
+
+- `ServerError`: an explicit server refusal, with optional untrusted server error text.
+- `AccessDenied`: the server explicitly denied access.
+- `ConnectionLimit`: the server explicitly denied access because of its connection limit.
+- `NotSupported`: the negotiated protocol is too old or the server reports an unknown method.
+- `Timeout`: the response deadline elapsed; this does not prove the server did nothing.
+- `TransportUnavailable`: no usable transport was available.
+- `MalformedReply`: a reply arrived but could not be decoded, either because an envelope
+  field was malformed or because the typed decoder could not map the reply. This is
+  payload-free, with no server text or throwable, and is not a server refusal. The
+  server may have performed the request: a subscribe may have created a server-side
+  subscription, and its stream stays open (send unsubscribe if it is not wanted).
+  Do not blindly retry non-idempotent requests such as `addDvrEntry`.
+
+Subscribe streams terminate with `SUBSCRIBE_REJECTED` for classified server rejections
+(`ServerError`, `AccessDenied`, `ConnectionLimit`, `NotSupported`), not for
+`MalformedReply`, timeout, or caller cancellation. Late replies after timeout do not
+change that stream decision.
+
+DVR mutation refusals (`error` or integer `success: 0`) return
 `HtspResult.ServerError`, not an `Ok` response carrying `success`/`error` fields.
+Without an explicit error, missing or wrong-typed `success`, integers other than
+0 or 1, and malformed success payloads return `MalformedReply`.
 `AddDvrEntryResponse.entryId` is required; update, stop, cancel, and delete return
 acknowledgement objects. `HtspDvrMutationResponse` is a memberless marker.
 `Ok` means the server acknowledged the request, not that the recording state
@@ -89,6 +115,12 @@ means a stale fence or nothing to do. Disconnect retires an attempt/transport or
 clears sticky Error to Disconnected; already disconnected or closed returns false.
 Close returns true only on the first actual close, including from Disconnected.
 Both decide atomically with transport retirement and leave replacements untouched.
+Disconnect keeps the current generation, as does plain transport loss, so
+`close(generation)` can still close the service after either event. A later admitted
+connect attempt invalidates that generation, even if the attempt fails.
+A reused live connection does not replace its generation. A stale `close(generation)`
+does not terminally close the service; owners wanting unconditional terminal shutdown
+must call `close()` without a generation.
 Cleanup completes even for an already-cancelled caller, then propagates caller cancellation.
 A connect superseded by another connect, disconnect, or owner close
 returns `HtspConnectOutcome.Failed` with `SUPERSEDED`, not cancellation.
@@ -230,7 +262,7 @@ streams with `MALFORMED_MESSAGE`, and makes pending requests transport-unavailab
 collecting: the same id may receive another `Started` with replacement stream and
 source metadata, then more packets. Do not infer retirement from status text.
 A successful unsubscribe acknowledgement drains committed events and completes
-the flow. When the server explicitly refuses `subscribe` with a string `error` or `noaccess: 1`
+the flow. When the subscribe reply is classified as a server refusal
 (`ServerError`, `AccessDenied`, `ConnectionLimit`, or `NotSupported`), the flow
 delivers events committed before the reply, then ends with
 `Terminated(SUBSCRIBE_REJECTED)`; the id remains used for that generation. A
@@ -238,11 +270,11 @@ timeout or cancellation alone leaves the flow open, because the server may still
 have created the subscription. A refusal after caller cancellation is observed
 only until the original request deadline; timeout or generation retirement removes
 the late-reply observer. A
-reply that only fails local decoding without explicit rejection leaves the flow
-open; send `unsubscribe` to release it. Stream termination depends on the explicit
-rejection fields, not `serverMessage`: a null message does not imply an open
-stream (for example, `noaccess: 1` with malformed `connlimit` ends it with
-`ServerError()`). Generation, transport or local
+`MalformedReply` leaves the flow open; send `unsubscribe` to release it. Malformed
+`noaccess` takes precedence even over a string `error`, since the reply cannot be
+classified as a refusal. Stream termination depends on the classified result, not
+`serverMessage`: `noaccess: 1` with malformed `connlimit` ends it with
+`AccessDenied`. Generation, transport or local
 retirement ends the flow with a final `Terminated`, even after `Stopped`. Collector cancellation remains
 `CancellationException`. Reconfiguration does not reset the subscription's
 negotiated timestamp clock or permit a second collection/subscribe for that id.
@@ -397,8 +429,9 @@ traffic and credentials.
 Failure values never expose throwables, endpoints, credentials, digest or
 challenge bytes, paths, sequence numbers, subscription IDs, or generation
 identities. `HtspResult.ServerError.serverMessage` carries the reply's `error`
-string whenever the reply had one, and is null otherwise, including for locally
-detected failures. It does not determine subscribe-stream termination. The pinned
+string whenever the reply had one, and is null otherwise, such as for an
+unsuccessful DVR acknowledgement without error text. It does not determine
+subscribe-stream termination. The pinned
 upstream `htsp_server.c` sends only fixed error literals
 translated via `tvh_gettext_lang` into the connection language.
 

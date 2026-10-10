@@ -22,11 +22,42 @@ import org.junit.jupiter.api.Assertions.assertNotSame
 import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import java.net.Socket
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 
 internal class HtspServiceConnectionAdmissionTest : HtspServiceLifecycleFixture() {
+
+    @Test
+    fun malformedHelloReportsIncompatibleServerAndRetiresTransport() {
+        FakeHtspServer(respondToHello = true, helloReplyFields = emptyMap()).use { server ->
+            val socket = Socket()
+            val service = service(socketFactory = { socket })
+            runBlocking {
+                val outcome = service.connect(HtspEndpoint("127.0.0.1", server.port)) as HtspConnectOutcome.Failed
+                assertEquals(HtspTransportFailureKind.INCOMPATIBLE_SERVER, outcome.failure.kind)
+                assertEquals(HtspConnectionState.Error(outcome.failure), service.connectionState.value)
+                assertNull(service.liveConnection.value)
+                assertTrue(socket.isClosed)
+            }
+        }
+    }
+
+    @Test
+    fun malformedAuthenticateReportsIncompatibleServerAndRetiresTransport() {
+        FakeHtspServer(respondToHello = true, authFields = mapOf("noaccess" to "1")).use { server ->
+            val socket = Socket()
+            val service = service(socketFactory = { socket })
+            runBlocking {
+                val outcome = service.connect(HtspEndpoint("127.0.0.1", server.port)) as HtspConnectOutcome.Failed
+                assertEquals(HtspTransportFailureKind.INCOMPATIBLE_SERVER, outcome.failure.kind)
+                assertEquals(HtspConnectionState.Error(outcome.failure), service.connectionState.value)
+                assertNull(service.liveConnection.value)
+                assertTrue(socket.isClosed)
+            }
+        }
+    }
 
     @Test
     fun identicalEndpointReusesOnlyTheSameLiveConnectionIdentity() {
@@ -311,11 +342,12 @@ internal class HtspServiceConnectionAdmissionTest : HtspServiceLifecycleFixture(
                     first.join()
                     delay(50L)
 
-                    val replacementStart = observed.indexOfFirst {
-                        it is HtspConnectionState.Connecting && it.port == replacementServer.port
+                    val replacementConnected = observed.indexOfFirst {
+                        it is HtspConnectionState.Connected && it.port == replacementServer.port
                     }
-                    assertTrue(replacementStart >= 0)
-                    assertTrue(observed.drop(replacementStart).none { it is HtspConnectionState.Error })
+                    assertTrue(replacementConnected >= 0)
+                    val connectedState = observed[replacementConnected]
+                    assertTrue(observed.drop(replacementConnected).all { it == connectedState })
                     assertEquals(
                         replacementServer.port,
                         (service.connectionState.value as HtspConnectionState.Connected).port,

@@ -66,6 +66,7 @@ internal class HtspInitialSyncOrchestrationTest {
     fun markerNeverOverridesAnUnsuccessfulAcknowledgement() = runTest {
         val failures = listOf<HtspFailure>(
             HtspResult.ServerError(),
+            HtspResult.MalformedReply,
             HtspResult.AccessDenied,
             HtspResult.ConnectionLimit,
             HtspResult.Timeout,

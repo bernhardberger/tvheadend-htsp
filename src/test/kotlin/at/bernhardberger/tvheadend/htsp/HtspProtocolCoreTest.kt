@@ -68,7 +68,7 @@ class HtspProtocolCoreTest {
         }
         listOf(null, true, "1").forEach { malformed ->
             assertEquals(
-                HtspResult.ServerError(),
+                HtspResult.MalformedReply,
                 classifyHtspReply(HtspWireReply(base + ("isNew" to malformed)), request, 44),
             )
         }
@@ -334,7 +334,7 @@ class HtspProtocolCoreTest {
             linkedMapOf<String, Any?>("id" to 1L, "size" to -1L, "mtime" to 1L),
         ).forEach { fields ->
             transport.reply = HtspWireReply(fields)
-            assertEquals(HtspResult.ServerError(), connection.call(FileOpenRequest("")))
+            assertEquals(HtspResult.MalformedReply, connection.call(FileOpenRequest("")))
         }
 
         val mutableData = byteArrayOf(1, 2, 3)
@@ -357,7 +357,7 @@ class HtspProtocolCoreTest {
             linkedMapOf<String, Any?>("data" to emptyList<Any?>()),
         ).forEach { fields ->
             transport.reply = HtspWireReply(fields)
-            assertEquals(HtspResult.ServerError(), connection.call(FileReadRequest(0L, 1L)))
+            assertEquals(HtspResult.MalformedReply, connection.call(FileReadRequest(0L, 1L)))
         }
 
         transport.reply = HtspWireReply(linkedMapOf("seq" to 7L))
@@ -388,7 +388,7 @@ class HtspProtocolCoreTest {
             transport.lastFields,
         )
         transport.reply = HtspWireReply(linkedMapOf("unexpected" to 1L))
-        assertEquals(HtspResult.ServerError(), connection.call(FileCloseRequest(0L)))
+        assertEquals(HtspResult.MalformedReply, connection.call(FileCloseRequest(0L)))
 
         transport.reply = HtspWireReply(linkedMapOf("offset" to Long.MAX_VALUE))
         assertEquals(
@@ -405,7 +405,7 @@ class HtspProtocolCoreTest {
             linkedMapOf<String, Any?>("offset" to 0),
         ).forEach { fields ->
             transport.reply = HtspWireReply(fields)
-            assertEquals(HtspResult.ServerError(), connection.call(FileSeekRequest(0L, 0L)))
+            assertEquals(HtspResult.MalformedReply, connection.call(FileSeekRequest(0L, 0L)))
         }
 
         transport.reply = HtspWireReply(linkedMapOf("noaccess" to 1L))
@@ -522,7 +522,7 @@ class HtspProtocolCoreTest {
         )
 
         transport.reply = HtspWireReply(linkedMapOf("unexpected" to 1L))
-        assertEquals(HtspResult.ServerError(), connection.call(request))
+        assertEquals(HtspResult.MalformedReply, connection.call(request))
 
         transport.reply = HtspWireReply(linkedMapOf("noaccess" to 1L))
         assertSame(HtspResult.AccessDenied, connection.call(request))
@@ -593,7 +593,7 @@ class HtspProtocolCoreTest {
             linkedMapOf<String, Any?>("size" to -1L, "mtime" to Long.MIN_VALUE),
         ).forEach { fields ->
             transport.reply = HtspWireReply(fields)
-            assertEquals(HtspResult.ServerError(), connection.call(request))
+            assertEquals(HtspResult.MalformedReply, connection.call(request))
         }
 
         val staleGeneration = connection.generation
@@ -670,7 +670,7 @@ class HtspProtocolCoreTest {
             linkedMapOf<String, Any?>("path" to "wire-path-value", "ticket" to 1L),
         ).forEach { fields ->
             transport.reply = HtspWireReply(fields)
-            assertEquals(HtspResult.ServerError(), connection.call(request))
+            assertEquals(HtspResult.MalformedReply, connection.call(request))
         }
 
         transport.reply = HtspWireReply(linkedMapOf("noaccess" to 1L))
@@ -761,7 +761,7 @@ class HtspProtocolCoreTest {
             linkedMapOf<String, Any?>("htspversion" to -1L, "challenge" to ByteArray(32)),
         ).forEach { fields ->
             transport.reply = HtspWireReply(fields)
-            assertEquals(HtspResult.ServerError(), connection.call(HelloRequest(44L, "client")))
+            assertEquals(HtspResult.MalformedReply, connection.call(HelloRequest(44L, "client")))
         }
 
         transport.reply = HtspWireReply(
@@ -824,7 +824,7 @@ class HtspProtocolCoreTest {
         assertSame(HtspResult.ConnectionLimit, connection.call(authenticateRequest))
         listOf<Any?>(1, 2L, "1", null).forEach { malformed ->
             transport.reply = HtspWireReply(linkedMapOf("noaccess" to malformed))
-            assertEquals(HtspResult.ServerError(), connection.call(authenticateRequest))
+            assertEquals(HtspResult.MalformedReply, connection.call(authenticateRequest))
         }
     }
 
@@ -977,22 +977,34 @@ class HtspProtocolCoreTest {
         assertEquals(2, transport.dispatches)
 
         transport.reply = HtspWireReply(linkedMapOf("noaccess" to 1))
-        assertEquals(HtspResult.ServerError(), connection.call(GetChannelRequest(channelId = 7L)))
+        assertEquals(HtspResult.MalformedReply, connection.call(GetChannelRequest(channelId = 7L)))
         assertEquals(3, transport.dispatches)
 
         transport.reply = HtspWireReply(linkedMapOf("noaccess" to 0L))
-        assertEquals(HtspResult.ServerError(), connection.call(GetChannelRequest(channelId = 7L)))
+        assertEquals(HtspResult.MalformedReply, connection.call(GetChannelRequest(channelId = 7L)))
         assertEquals(4, transport.dispatches)
     }
 
     @Test
-    fun malformedAccessFieldsPreserveAnyServerErrorText() {
+    fun malformedEnvelopesAreDistinctFromExplicitAccessDenials() {
         val replies = listOf(
-            mapOf("noaccess" to "1", "error" to "text") to HtspResult.ServerError("text"),
-            mapOf("noaccess" to 2L, "error" to "text") to HtspResult.ServerError("text"),
-            mapOf("noaccess" to 1L, "connlimit" to "x", "error" to "text") to HtspResult.ServerError("text"),
-            mapOf("noaccess" to 1L, "connlimit" to "x") to HtspResult.ServerError(),
-            mapOf("noaccess" to "1") to HtspResult.ServerError(),
+            mapOf("noaccess" to "1", "error" to "text") to HtspResult.MalformedReply,
+            mapOf("noaccess" to 2L, "error" to "text") to HtspResult.MalformedReply,
+            mapOf("noaccess" to 1L, "connlimit" to "x", "error" to "text") to HtspResult.AccessDenied,
+            mapOf("noaccess" to 1L, "connlimit" to "x") to HtspResult.AccessDenied,
+            mapOf("noaccess" to "1") to HtspResult.MalformedReply,
+            mapOf("noaccess" to null) to HtspResult.MalformedReply,
+            mapOf("noaccess" to 1) to HtspResult.MalformedReply,
+            mapOf("noaccess" to true) to HtspResult.MalformedReply,
+            mapOf("noaccess" to -1L) to HtspResult.MalformedReply,
+            mapOf("error" to null) to HtspResult.MalformedReply,
+            mapOf("error" to 1L) to HtspResult.MalformedReply,
+            mapOf("error" to true) to HtspResult.MalformedReply,
+            mapOf("noaccess" to 1L, "connlimit" to null, "error" to 1L) to HtspResult.AccessDenied,
+            mapOf("noaccess" to 1L, "connlimit" to 0L) to HtspResult.AccessDenied,
+            mapOf("noaccess" to 1L, "connlimit" to 2L) to HtspResult.AccessDenied,
+            mapOf<String, Any?>("noaccess" to 1L, "connlimit" to 1) to HtspResult.AccessDenied,
+            mapOf("noaccess" to 1L, "connlimit" to 1L, "error" to 1L) to HtspResult.ConnectionLimit,
         )
         replies.forEach { (fields, expected) ->
             assertEquals(expected, classifyHtspReply(HtspWireReply(fields), GetChannelRequest(7L), 44))
@@ -1011,12 +1023,13 @@ class HtspProtocolCoreTest {
         assertSame(HtspResult.AccessDenied, connection.call(GetChannelRequest(7L)))
 
         transport.reply = HtspWireReply(linkedMapOf("noaccess" to 1L, "connlimit" to "1"))
-        assertEquals(HtspResult.ServerError(), connection.call(GetChannelRequest(7L)))
+        assertEquals(HtspResult.AccessDenied, connection.call(GetChannelRequest(7L)))
 
         transport.reply = HtspWireReply(linkedMapOf("noaccess" to (1 as Any)))
-        assertEquals(HtspResult.ServerError(), connection.call(GetChannelRequest(7L)))
+        assertEquals(HtspResult.MalformedReply, connection.call(GetChannelRequest(7L)))
 
         val failures: List<HtspFailure> = listOf(
+            HtspResult.MalformedReply,
             HtspResult.AccessDenied,
             HtspResult.ConnectionLimit,
             HtspResult.Timeout,
@@ -1033,6 +1046,33 @@ class HtspProtocolCoreTest {
     }
 
     @Test
+    fun typedMappingAndRuntimeDecoderFailuresBecomeMalformedReplyButCancellationEscapes() = runTest {
+        val transport = FakeProtocolTransport(version = 44)
+        val connection = HtspTypedRequestCaller(transport)
+        val request = GetDiskSpaceRequest()
+
+        transport.reply = HtspWireReply(emptyMap())
+        assertSame(HtspResult.MalformedReply, connection.call(request))
+
+        val decoderFailure = IllegalArgumentException("sentinel-private-decoder-detail")
+        val fields = object : Map<String, Any?> by emptyMap() {
+            override fun get(key: String): Any? = throw decoderFailure
+        }
+        transport.reply = HtspWireReply(fields)
+        assertSame(HtspResult.MalformedReply, connection.call(request))
+        assertEquals("MalformedReply", connection.call(request).toString())
+
+        val cancellation = CancellationException("decoder cancellation")
+        val cancelledFields = object : Map<String, Any?> by emptyMap() {
+            override fun get(key: String): Any? = throw cancellation
+        }
+        val thrown = org.junit.jupiter.api.assertThrows<CancellationException> {
+            classifyHtspReply(HtspWireReply(cancelledFields), request, 44)
+        }
+        assertSame(cancellation, thrown)
+    }
+
+    @Test
     fun methodNotFoundIsNotSupportedWhileOrdinaryErrorsRemainServerError() = runTest {
         val transport = FakeProtocolTransport(version = 44)
         val connection = HtspTypedRequestCaller(transport)
@@ -1044,7 +1084,17 @@ class HtspProtocolCoreTest {
         assertEquals(HtspResult.ServerError("ordinary server detail"), connection.call(GetChannelRequest(7L)))
 
         transport.reply = HtspWireReply(linkedMapOf("error" to 7L))
-        assertEquals(HtspResult.ServerError(), connection.call(GetChannelRequest(7L)))
+        assertEquals(HtspResult.MalformedReply, connection.call(GetChannelRequest(7L)))
+    }
+
+    @Test
+    fun unsupportedInternalRequestMappingFailureIsMalformedWithoutDispatch() = runTest {
+        val transport = FakeProtocolTransport(version = 44)
+        val connection = HtspTypedRequestCaller(transport)
+        val request = object : HtspRequest<Unit>("unsupported", HtspAccess.ACCESS_ANONYMOUS, null) {}
+
+        assertSame(HtspResult.MalformedReply, connection.call(request))
+        assertEquals(0, transport.dispatches)
     }
 
     @Test
@@ -1057,6 +1107,12 @@ class HtspProtocolCoreTest {
             StopDvrEntryRequest(1L),
             CancelDvrEntryRequest(1L),
             DeleteDvrEntryRequest(1L),
+            AddAutorecEntryRequest("x"),
+            UpdateAutorecEntryRequest("x"),
+            DeleteAutorecEntryRequest("x"),
+            AddTimerecEntryRequest("x"),
+            UpdateTimerecEntryRequest("x"),
+            DeleteTimerecEntryRequest("x"),
         )
 
         requests.forEach { request ->
@@ -1069,14 +1125,21 @@ class HtspProtocolCoreTest {
             transport.reply = HtspWireReply(linkedMapOf("success" to 1L, "error" to "contradictory detail"))
             assertEquals(HtspResult.ServerError("contradictory detail"), connection.call(request))
 
+            transport.reply = HtspWireReply(linkedMapOf("success" to 0L))
+            assertEquals(HtspResult.ServerError(), connection.call(request))
+
             listOf(
-                linkedMapOf<String, Any?>("success" to 0L),
                 linkedMapOf<String, Any?>("success" to 2L),
+                linkedMapOf<String, Any?>("success" to -1L),
+                linkedMapOf<String, Any?>("success" to 0x1_0000_0000L),
                 linkedMapOf<String, Any?>(),
                 linkedMapOf<String, Any?>("error" to 1L),
+                linkedMapOf<String, Any?>("success" to null),
+                linkedMapOf<String, Any?>("success" to "1"),
+                linkedMapOf<String, Any?>("success" to 1),
             ).forEach { fields ->
                 transport.reply = HtspWireReply(fields)
-                assertEquals(HtspResult.ServerError(), connection.call(request))
+                assertEquals(HtspResult.MalformedReply, connection.call(request))
             }
         }
 
@@ -1086,7 +1149,7 @@ class HtspProtocolCoreTest {
         assertEquals(HtspResult.Ok(CancelDvrEntryResponse), connection.call(CancelDvrEntryRequest(1L)))
         assertEquals(HtspResult.Ok(DeleteDvrEntryResponse), connection.call(DeleteDvrEntryRequest(1L)))
         assertEquals(
-            HtspResult.ServerError(),
+            HtspResult.MalformedReply,
             connection.call(AddDvrEntryRequest(AddDvrEntrySelector.Event(1L))),
         )
     }
@@ -1127,7 +1190,7 @@ class HtspProtocolCoreTest {
             linkedMapOf("success" to 1L, "dvrId" to 0x1_0000_0000L),
         ).forEach { fields ->
             transport.reply = HtspWireReply(fields)
-            assertEquals(HtspResult.ServerError(), connection.call(request))
+            assertEquals(HtspResult.MalformedReply, connection.call(request))
         }
     }
 
@@ -1306,23 +1369,21 @@ class HtspProtocolCoreTest {
 
         val malformedAdds = listOf(
             linkedMapOf<String, Any?>(),
-            linkedMapOf("success" to 0L, "id" to "id"),
-            linkedMapOf("success" to 2L, "id" to "id"),
             linkedMapOf("success" to 1, "id" to "id"),
             linkedMapOf<String, Any?>("success" to 1L),
             linkedMapOf("success" to 1L, "id" to 1L),
         )
         malformedAdds.forEach { fields ->
             transport.reply = HtspWireReply(fields)
-            assertEquals(HtspResult.ServerError(), connection.call(AddAutorecEntryRequest("x")))
+            assertEquals(HtspResult.MalformedReply, connection.call(AddAutorecEntryRequest("x")))
         }
-        listOf<Any?>(null, 0L, 2L, 1).forEach { success ->
+        listOf<Any?>(null, 1).forEach { success ->
             transport.reply = if (success == null) {
                 HtspWireReply(linkedMapOf())
             } else {
                 HtspWireReply(linkedMapOf("success" to success))
             }
-            assertEquals(HtspResult.ServerError(), connection.call(DeleteTimerecEntryRequest("x")))
+            assertEquals(HtspResult.MalformedReply, connection.call(DeleteTimerecEntryRequest("x")))
         }
         transport.reply = HtspWireReply(linkedMapOf("error" to "private server detail", "success" to 0L))
         assertEquals(HtspResult.ServerError("private server detail"), connection.call(AddTimerecEntryRequest("x")))
@@ -1460,7 +1521,7 @@ class HtspProtocolCoreTest {
         )
         malformedIdReplies.forEach { fields ->
             transport.reply = HtspWireReply(fields)
-            assertEquals(HtspResult.ServerError(), caller.call(EpgQueryRequest("q")))
+            assertEquals(HtspResult.MalformedReply, caller.call(EpgQueryRequest("q")))
         }
         val malformedEventReplies = listOf(
             linkedMapOf<String, Any?>("eventIds" to emptyList<Any?>()),
@@ -1476,7 +1537,7 @@ class HtspProtocolCoreTest {
         )
         malformedEventReplies.forEach { fields ->
             transport.reply = HtspWireReply(fields)
-            assertEquals(HtspResult.ServerError(), caller.call(EpgQueryRequest("q", full = true)))
+            assertEquals(HtspResult.MalformedReply, caller.call(EpgQueryRequest("q", full = true)))
         }
     }
 
@@ -1608,11 +1669,11 @@ class HtspProtocolCoreTest {
         transport.reply = HtspWireReply(
             validGetEpgObjectReply().apply { put("cred", listOf(null, 1L, "still opaque")) },
         )
-        assertEquals(HtspResult.ServerError(), connection.call(GetEpgObjectRequest(1L)))
+        assertEquals(HtspResult.MalformedReply, connection.call(GetEpgObjectRequest(1L)))
     }
 
     @Test
-    fun getEpgObjectRejectsEveryMalformedBoundedReplyShapeAsPayloadFreeServerError() = runTest {
+    fun getEpgObjectRejectsEveryMalformedBoundedReplyShapeAsMalformedReply() = runTest {
         val transport = FakeProtocolTransport(version = 44)
         val connection = HtspTypedRequestCaller(transport)
         val malformed = listOf(
@@ -1650,7 +1711,7 @@ class HtspProtocolCoreTest {
 
         malformed.forEach { fields ->
             transport.reply = HtspWireReply(fields)
-            assertEquals(HtspResult.ServerError(), connection.call(GetEpgObjectRequest(1L)))
+            assertEquals(HtspResult.MalformedReply, connection.call(GetEpgObjectRequest(1L)))
         }
     }
 
@@ -1677,12 +1738,12 @@ class HtspProtocolCoreTest {
             transport.reply = HtspWireReply(
                 validGetEpgObjectReply().apply { put(field, listOf(utf8Second, utf8First)) },
             )
-            assertEquals(HtspResult.ServerError(), connection.call(GetEpgObjectRequest(1L)))
+            assertEquals(HtspResult.MalformedReply, connection.call(GetEpgObjectRequest(1L)))
 
             transport.reply = HtspWireReply(
                 validGetEpgObjectReply().apply { put(field, listOf(utf8First, utf8First)) },
             )
-            assertEquals(HtspResult.ServerError(), connection.call(GetEpgObjectRequest(1L)))
+            assertEquals(HtspResult.MalformedReply, connection.call(GetEpgObjectRequest(1L)))
         }
     }
 
@@ -2061,11 +2122,11 @@ class HtspProtocolCoreTest {
 
         listOf(null, 1, true, "1").forEach { malformed ->
             assertEquals(
-                HtspResult.ServerError(),
+                HtspResult.MalformedReply,
                 classifyHtspReply(HtspWireReply(mapOf("90khz" to malformed)), request, 43),
             )
             assertEquals(
-                HtspResult.ServerError(),
+                HtspResult.MalformedReply,
                 classifyHtspReply(HtspWireReply(mapOf("normts" to malformed)), request, 43),
             )
         }

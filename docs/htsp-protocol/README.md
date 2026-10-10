@@ -184,7 +184,13 @@ to `epg_object_serialize` there rather than expanded in the HTSP sender.
   `cancelDvrEntry`, and `deleteDvrEntry` return `htsp_success()` at lines
   2243, 2261, 2279, and 2297 respectively (`success: 1`, lines 499-504).
   Their DVR-entry lookup refusals use `htsp_error` via `htsp_findDvrEntry`
-  at lines 2143-2160. Missing or non-1 `success` is not typed success.
+  at lines 2143-2160. Integer `success: 0` is `ServerError`, with or without
+  an `error` string. Without an explicit error, missing or wrong-typed `success`,
+  integers other than 0 or 1, or a malformed success payload, are `MalformedReply`.
+- Malformed `noaccess` (not an integer 0 or 1), non-string `error`, and typed
+  reply mapping failures are `MalformedReply`, not server refusals. Explicit
+  `noaccess: 1` remains `AccessDenied` unless integer `connlimit: 1` refines it
+  to `ConnectionLimit`; other `connlimit` values do not invalidate that denial.
 - Connection limits apply only to streaming. Since upstream `1ddc5d10`, the
   server admits any HTSP connection and checks the user's connection limits when
   the connection starts streaming: on `subscribe` and on `fileOpen` of `dvr/` or

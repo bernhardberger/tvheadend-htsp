@@ -708,8 +708,7 @@ internal class HtspServiceSubscriptionEventTest : HtspServiceLifecycleFixture() 
     @Test
     fun rejectedSubscribeTerminatesTheRegisteredStreamAfterEarlierEvents() {
         val rejections = listOf(
-            mapOf("noaccess" to "1", "error" to "text") to HtspResult.ServerError("text"),
-            mapOf("noaccess" to 1L, "connlimit" to "x") to HtspResult.ServerError(),
+            mapOf("noaccess" to 1L, "connlimit" to "x") to HtspResult.AccessDenied,
             mapOf("error" to "No such channel") to HtspResult.ServerError("No such channel"),
             mapOf("noaccess" to 1L) to HtspResult.AccessDenied,
             mapOf("noaccess" to 1L, "connlimit" to 1L) to HtspResult.ConnectionLimit,
@@ -777,7 +776,19 @@ internal class HtspServiceSubscriptionEventTest : HtspServiceLifecycleFixture() 
     }
 
     @Test
-    fun malformedNoaccessWithoutErrorKeepsTheStreamOpen() {
+    fun malformedSubscribeEnvelopesKeepTheStreamOpenEvenWithErrorText() {
+        val malformed = listOf(
+            mapOf("noaccess" to "1"),
+            mapOf("noaccess" to "1", "error" to "text"),
+            mapOf("noaccess" to 2L, "error" to "Method not found"),
+            mapOf("error" to 1L),
+        )
+        malformed.forEach { replyFields ->
+            assertMalformedSubscribeKeepsStreamOpen(replyFields)
+        }
+    }
+
+    private fun assertMalformedSubscribeKeepsStreamOpen(replyFields: Map<String, Any?>) {
         FakeHtspServer(
             respondToHello = true,
             captureOnePostHandshakeRequest = true,
@@ -792,8 +803,8 @@ internal class HtspServiceSubscriptionEventTest : HtspServiceLifecycleFixture() 
                     service.subscribe(subscriptionId = 23L, channelId = 1L)
                 }
                 assertTrue(server.postHandshakeRequestReceived.await(1, TimeUnit.SECONDS))
-                server.replyToCapturedPostHandshakeRequest(mapOf("noaccess" to "1"))
-                assertEquals(HtspResult.ServerError(), withTimeout(1_000L) { subscribe.await() })
+                server.replyToCapturedPostHandshakeRequest(replyFields)
+                assertEquals(HtspResult.MalformedReply, withTimeout(1_000L) { subscribe.await() })
 
                 server.sendServerMessage(
                     "subscriptionStart",
@@ -822,7 +833,7 @@ internal class HtspServiceSubscriptionEventTest : HtspServiceLifecycleFixture() 
                 }
                 assertTrue(server.postHandshakeRequestReceived.await(1, TimeUnit.SECONDS))
                 server.replyToCapturedPostHandshakeRequest(mapOf("90khz" to "yes"))
-                assertEquals(HtspResult.ServerError(), withTimeout(1_000L) { subscribe.await() })
+                assertEquals(HtspResult.MalformedReply, withTimeout(1_000L) { subscribe.await() })
 
                 server.sendServerMessage(
                     "subscriptionStart",

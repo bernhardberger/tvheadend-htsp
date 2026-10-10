@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+- **BREAKING:** add `HtspResult.MalformedReply` to the closed request result type.
+  Malformed envelopes and typed decoding failures no longer appear as server
+  refusals. Update exhaustive matches; the server may have acted, so do not blindly
+  retry non-idempotent requests. Malformed subscribe replies leave the stream open.
+  Malformed hello and authenticate replies during connect now report
+  `INCOMPATIBLE_SERVER`, rather than transport unavailability or authentication rejection.
+  `noaccess: 1` with malformed `connlimit` now returns `AccessDenied` instead of
+  `ServerError`. Malformed `noaccess` beside a string `error` now returns
+  `MalformedReply`, without exposing the server text. DVR acknowledgement `success`
+  values other than integer 0 or 1 now return `MalformedReply` instead of
+  `ServerError` when no explicit error is present; integer 0 remains a refusal.
+
 - Follow upstream BOOL length decoding; treat type-6 fields as unknown bytes and reject Double/Float values at encode.
 - Add an isolated kotlinx-benchmark/JMH harness for codec, buffer, and loopback baselines.
 - Decode frames with bulk header reads: small and metadata frames decode about 30-40%

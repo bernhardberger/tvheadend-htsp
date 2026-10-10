@@ -245,6 +245,7 @@ internal open class `HtspService-internal`(
                         )
                     ) {
                         is HtspResult.Ok -> result.value
+                        HtspResult.MalformedReply -> throw HtspIncompatibleServerException()
                         is HtspFailure -> throw IllegalStateException("HTSP hello failed")
                     }
                     if (hello.protocolVersion < MINIMUM_HTSP_PROTOCOL_VERSION) {
@@ -284,6 +285,7 @@ internal open class `HtspService-internal`(
                         )
                     ) {
                         is HtspResult.Ok -> result.value
+                        HtspResult.MalformedReply -> throw HtspIncompatibleServerException()
                         is HtspFailure -> throw HtspAuthenticationRejectedException()
                     }
                     afterAuthenticationAcknowledgement()
@@ -1052,7 +1054,21 @@ internal open class `HtspService-internal`(
                     onReplyCommitted = { reply ->
                         // Only an explicit server refusal ends the stream; a reply that merely fails
                         // local decoding may belong to a subscription the server did create.
-                        val refused = reply.fields["error"] is String || reply.fields["noaccess"] == 1L
+                        val result = classifyHtspReply(
+                            HtspWireReply(reply.fields),
+                            request,
+                            generation.protocolVersion ?: 0,
+                        )
+                        val refused = when (result) {
+                            is HtspResult.ServerError,
+                            HtspResult.AccessDenied,
+                            HtspResult.ConnectionLimit,
+                            HtspResult.NotSupported -> true
+                            is HtspResult.Ok,
+                            HtspResult.MalformedReply,
+                            HtspResult.Timeout,
+                            HtspResult.TransportUnavailable -> false
+                        }
                         if (refused && protocolGeneration === serviceGeneration) {
                             serviceGeneration.subscriptionStreams[request.subscriptionId]
                                 ?.terminate(HtspSubscriptionTermination.SUBSCRIBE_REJECTED)

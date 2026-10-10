@@ -234,6 +234,13 @@ public final class at/bernhardberger/tvheadend/htsp/connection/HtspResult$Connec
 	public fun toString ()Ljava/lang/String;
 }
 
+public final class at/bernhardberger/tvheadend/htsp/connection/HtspResult$MalformedReply : at/bernhardberger/tvheadend/htsp/connection/HtspFailure {
+	public static final field INSTANCE Lat/bernhardberger/tvheadend/htsp/connection/HtspResult$MalformedReply;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
 public final class at/bernhardberger/tvheadend/htsp/connection/HtspResult$NotSupported : at/bernhardberger/tvheadend/htsp/connection/HtspFailure {
 	public static final field INSTANCE Lat/bernhardberger/tvheadend/htsp/connection/HtspResult$NotSupported;
 	public fun equals (Ljava/lang/Object;)Z

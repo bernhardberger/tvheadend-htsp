@@ -1,6 +1,7 @@
 package at.bernhardberger.tvheadend.htsp.requests
 
 import at.bernhardberger.tvheadend.htsp.connection.HtspProtocolMappingException
+import at.bernhardberger.tvheadend.htsp.connection.HtspServerRejectionException
 import at.bernhardberger.tvheadend.htsp.jsonapi.*
 import at.bernhardberger.tvheadend.htsp.wire.*
 import java.util.Collections
@@ -670,7 +671,12 @@ private fun validateTimerecU32Fields(
 }
 
 private fun Map<*, *>.requireStrictSuccess() {
-    if (requiredU32("success") != 1L) malformedReply()
+    val success = this["success"] as? Long ?: malformedReply()
+    when (success) {
+        1L -> Unit
+        0L -> throw HtspServerRejectionException()
+        else -> malformedReply()
+    }
 }
 
 private fun Map<*, *>.request(): HtspFieldReader = HtspFieldReader(this, ::malformedReply)

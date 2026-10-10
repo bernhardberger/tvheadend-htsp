@@ -29,7 +29,8 @@ public sealed interface HtspDvrMutationRequest
 
 /**
  * Successful DVR mutation acknowledgement. A refused mutation is a
- * [HtspResult.ServerError] instead. An acknowledgement confirms that the server accepted the
+ * [HtspResult.ServerError] instead; an undecodable reply is [HtspResult.MalformedReply].
+ * An acknowledgement confirms that the server accepted the
  * request; it does not prove that the recording state has already changed.
  *
  * Minor releases may add subtypes; keep an `else` branch when matching.

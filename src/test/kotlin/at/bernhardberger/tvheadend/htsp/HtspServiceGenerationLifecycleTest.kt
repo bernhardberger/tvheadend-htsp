@@ -264,6 +264,7 @@ internal class HtspServiceGenerationLifecycleTest : HtspServiceLifecycleFixture(
                 assertSame(HtspResult.TransportUnavailable, service.getProfiles(expectedGeneration = first))
                 assertSame(HtspResult.TransportUnavailable, service.getProfiles())
                 assertFalse(service.disconnect(first))
+                assertFalse(service.close(first))
                 assertNull(service.liveConnection.value)
 
                 service.disconnect()
@@ -344,23 +345,42 @@ internal class HtspServiceGenerationLifecycleTest : HtspServiceLifecycleFixture(
                     assertFalse(service.close(stale))
                     assertSame(current, service.liveConnection.value?.generation)
 
-                    service.disconnect(current)
+                    assertTrue(service.disconnect(current))
                     assertNull(service.liveConnection.value)
                     assertTrue(service.isCurrent(current))
                     assertTrue(service.isCurrent(current))
                     assertNull(service.liveConnection.value)
 
-                    service.disconnect(current)
+                    assertFalse(service.disconnect(current))
                     assertNull(service.liveConnection.value)
                     assertTrue(service.isCurrent(current))
 
-                    service.close(current)
+                    assertTrue(service.close(current))
                     assertNull(service.liveConnection.value)
                     assertTrue(
                         service.connect(HtspEndpoint("127.0.0.1", replacementServer.port)) is
                             HtspConnectOutcome.Failed,
                     )
                 }
+            }
+        }
+    }
+
+    @Test
+    fun transportLossLeavesCurrentGenerationEligibleForTerminalClose() {
+        FakeHtspServer(respondToHello = true).use { server ->
+            val service = service()
+            runBlocking {
+                val endpoint = HtspEndpoint("127.0.0.1", server.port)
+                val generation = (service.connect(endpoint) as HtspConnectOutcome.Connected).connection.generation
+                server.closeClientTransport()
+                withTimeout(1_000L) { service.liveConnection.first { it == null } }
+
+                assertTrue(service.isCurrent(generation))
+                assertTrue(service.close(generation))
+                assertFalse(service.close(generation))
+                val failed = service.connect(endpoint) as HtspConnectOutcome.Failed
+                assertEquals(HtspTransportFailureKind.TRANSPORT_UNAVAILABLE, failed.failure.kind)
             }
         }
     }

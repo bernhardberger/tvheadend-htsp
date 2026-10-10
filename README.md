@@ -138,6 +138,7 @@ enum class ProtocolFailurePolicy {
     RECONNECT,
     UNSUPPORTED,
     REJECTED,
+    REVIEW_SERVER_STATE,
 }
 
 data class ProtocolSnapshot(
@@ -238,6 +239,7 @@ private fun policyFor(failure: HtspFailure): ProtocolFailurePolicy = when (failu
     HtspResult.Timeout -> ProtocolFailurePolicy.RETRY_LATER
     HtspResult.TransportUnavailable -> ProtocolFailurePolicy.RECONNECT
     HtspResult.NotSupported -> ProtocolFailurePolicy.UNSUPPORTED
+    HtspResult.MalformedReply -> ProtocolFailurePolicy.REVIEW_SERVER_STATE // Do not blindly retry.
     is HtspResult.ServerError -> ProtocolFailurePolicy.REJECTED
 }
 ```

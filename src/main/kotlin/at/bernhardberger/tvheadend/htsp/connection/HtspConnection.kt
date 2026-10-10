@@ -106,7 +106,10 @@ public interface HtspConnection {
      * Returns true when this call retires an attempt or transport, or clears sticky Error to
      * Disconnected. Returns false for a stale generation, an already disconnected service, or
      * an already closed service, leaving any replacement untouched. A current generation remains
-     * eligible after transport loss. Cleanup completes even for a cancelled caller; only caller
+     * eligible after transport loss or disconnect: neither replaces the generation, so [close]
+     * can still close it. A later admitted connect attempt invalidates that generation, even if
+     * the attempt fails. Reusing a live connection does not replace its generation.
+     * Cleanup completes even for a cancelled caller; only caller
      * cancellation may then throw CancellationException.
      */
     public suspend fun disconnect(expectedGeneration: HtspConnectionGeneration? = null): Boolean
@@ -115,7 +118,11 @@ public interface HtspConnection {
      * Terminally closes the expected current generation, or performs owner-global close when null.
      * Returns true only when this call closes the service, including an already disconnected
      * service. Returns false if already closed or if the expected generation is stale, leaving
-     * any replacement untouched. A current generation remains eligible after transport loss.
+     * any replacement untouched. Transport loss and disconnect keep the current generation,
+     * so close(expectedGeneration) can still close it. A later admitted connect attempt
+     * invalidates that generation, even if the attempt fails.
+     * Reusing a live connection does not replace its generation. Owners wanting unconditional
+     * terminal shutdown must call close() without an expected generation.
      * Cleanup completes even for a cancelled caller; only caller cancellation may then throw
      * CancellationException.
      */
@@ -221,7 +228,7 @@ internal class `HtspTypedRequestCaller-internal`(
             HtspResult.Timeout
         } catch (_: HtspProtocolMappingException) {
             ensureActiveGeneration(generation)
-            HtspResult.ServerError()
+            HtspResult.MalformedReply
         } catch (rejected: HtspRequestAdmissionException) {
             ensureActiveGeneration(generation)
             throw rejected
@@ -252,36 +259,38 @@ internal fun <R> classifyHtspReply(
     request: HtspRequest<R>,
     protocolVersion: Int,
 ): HtspResult<R> {
-    val serverMessage = reply.fields["error"] as? String
     if (reply.fields.containsKey("noaccess")) {
         val noAccess = reply.fields["noaccess"]
-        if (noAccess !is Long) return HtspResult.ServerError(serverMessage)
+        if (noAccess !is Long) return HtspResult.MalformedReply
         when (noAccess) {
             0L -> Unit
             1L -> {
                 if (!reply.fields.containsKey("connlimit")) return HtspResult.AccessDenied
                 val connectionLimit = reply.fields["connlimit"]
-                if (connectionLimit !is Long) return HtspResult.ServerError(serverMessage)
-                return if (connectionLimit == 1L) {
+                return if (connectionLimit is Long && connectionLimit == 1L) {
                     HtspResult.ConnectionLimit
                 } else {
                     HtspResult.AccessDenied
                 }
             }
-            else -> return HtspResult.ServerError(serverMessage)
+            else -> return HtspResult.MalformedReply
         }
     }
     if (reply.fields.containsKey("error")) {
-        val error = reply.fields["error"] as? String ?: return HtspResult.ServerError()
+        val error = reply.fields["error"] as? String ?: return HtspResult.MalformedReply
         if (error.lowercase().isUnknownMethodError()) return HtspResult.NotSupported
         return HtspResult.ServerError(serverMessage = error)
     }
     return try {
         HtspResult.Ok(HtspRequestCodecs.decode(request, reply.fields, protocolVersion))
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (_: HtspServerRejectionException) {
+        HtspResult.ServerError()
     } catch (_: HtspProtocolMappingException) {
-        HtspResult.ServerError()
+        HtspResult.MalformedReply
     } catch (_: RuntimeException) {
-        HtspResult.ServerError()
+        HtspResult.MalformedReply
     }
 }
 
@@ -352,6 +361,10 @@ internal typealias HtspCallTimeoutException = `HtspCallTimeoutException-internal
 internal class `HtspProtocolMappingException-internal` : Exception()
 
 internal typealias HtspProtocolMappingException = `HtspProtocolMappingException-internal`
+
+internal class `HtspServerRejectionException-internal` : Exception()
+
+internal typealias HtspServerRejectionException = `HtspServerRejectionException-internal`
 
 internal class `HtspRequestAdmissionException-internal`(message: String) :
     IllegalStateException(message)

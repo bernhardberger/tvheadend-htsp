@@ -6,11 +6,10 @@ public sealed interface HtspResult<out R> {
     public data class Ok<out R>(public val value: R) : HtspResult<R>
 
     /**
-     * The server rejected the request or supplied a malformed reply.
+     * The server rejected the request.
      *
      * [serverMessage] is the reply's `error` string whenever present, and `null` otherwise,
-     * including for locally detected failures. A subscribe stream ends on explicit rejection
-     * (a string `error` or `noaccess: 1`), not on whether [serverMessage] is non-null.
+     * including for an unsuccessful DVR acknowledgement without error text.
      * TVHeadend sends fixed
      * messages translated into the connection's language. Treat the text as untrusted display
      * text, not as a stable code. [toString] never renders it.
@@ -28,6 +27,16 @@ public sealed interface HtspResult<out R> {
         override fun toString(): String =
             "ServerError(serverMessage=${if (serverMessage == null) "null" else "<redacted>"})"
     }
+
+    /**
+     * A reply arrived but could not be decoded: an envelope field was malformed or the typed
+     * decoder could not map the reply to the protocol model. Carries no text or throwable.
+     *
+     * The server may have performed the request. A subscribe may have created a server-side
+     * subscription; its stream stays open, so send unsubscribe if it is not wanted. Do not
+     * blindly retry a non-idempotent request such as addDvrEntry.
+     */
+    public data object MalformedReply : HtspFailure
 
     /** The server explicitly denied access to the request. */
     public data object AccessDenied : HtspFailure
