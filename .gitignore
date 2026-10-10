@@ -5,3 +5,4 @@ consumer-contract/build/
 local.properties
 __pycache__/
 *.pyc
+.kotlin/
