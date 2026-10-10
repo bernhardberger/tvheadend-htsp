@@ -27,7 +27,6 @@ class HtspCodecTest {
                 "title" to "Živě",
                 "payload" to payload,
                 "enabled" to true,
-                "ratio" to 1.5,
                 "nested" to mapOf("value" to 9),
                 "items" to listOf("first", 2),
             )))
@@ -48,7 +47,6 @@ class HtspCodecTest {
         assertEquals(0L, decoded.fields["zero"])
         assertEquals("Živě", decoded.fields["title"])
         assertEquals(true, decoded.fields["enabled"])
-        assertEquals(1.5, decoded.fields["ratio"])
         assertEquals(9L, (decoded.fields["nested"] as Map<*, *>)["value"])
         assertEquals(listOf("first", 2L), decoded.fields["items"])
         assertArrayEquals(payload, decoded.rawPayload)
@@ -63,10 +61,15 @@ class HtspCodecTest {
             assertEquals(seq.toInt(), decoded.seq)
             assertEquals(seq, decoded.fields["seq"])
         }
-        listOf(-1L, 0x1_0000_0007L, Long.MAX_VALUE, 7.0, 7.9, "7", true).forEach { seq ->
+        listOf(-1L, 0x1_0000_0007L, Long.MAX_VALUE, "7", true).forEach { seq ->
             val output = ByteArrayOutputStream()
             output.write(HtspCodec.encode("reply", mapOf("seq" to seq)))
             assertEquals(null, HtspCodec.readMessage(ByteArrayInputStream(output.toByteArray())).seq)
+        }
+        listOf(7.0, 7.9).forEach { seq ->
+            val bits = seq.toRawBits()
+            val rawTypeSix = frame(field(6, "seq", ByteArray(8) { (bits ushr (it * 8)).toByte() }))
+            assertEquals(null, HtspCodec.readMessage(rawTypeSix.inputStream()).seq)
         }
     }
 
@@ -111,7 +114,7 @@ class HtspCodecTest {
 
     @Test
     fun headersAndScalarsUseBulkReadsWithoutReadingIntoTheNextFrame() {
-        val bytes = encoded("first", mapOf("value" to -2L, "nested" to listOf(3L, true, 1.5)))
+        val bytes = encoded("first", mapOf("value" to -2L, "nested" to listOf(3L, true, false)))
         val next = encoded("second", emptyMap())
         val source = ByteArrayInputStream(bytes + next)
         val input = object : InputStream() {
@@ -120,7 +123,7 @@ class HtspCodecTest {
         }
         val first = HtspCodec.readMessage(input)
         assertEquals(-2L, first.fields["value"])
-        assertEquals(listOf(3L, true, 1.5), first.fields["nested"])
+        assertEquals(listOf(3L, true, false), first.fields["nested"])
         assertEquals(next.size, source.available())
         assertEquals("second", HtspCodec.readMessage(input).method)
     }
@@ -205,7 +208,7 @@ class HtspCodecTest {
         val integer = frame(fieldHeader(2, 0, 3) + byteArrayOf(1), declaredLength = 9)
         assertEquals("EOF while reading bounded HTSP frame", eofMessage(integer))
         val bool = frame(fieldHeader(7, 0, 3) + byteArrayOf(1), declaredLength = 9)
-        assertEquals("EOF while draining boolean tail", eofMessage(bool))
+        assertEquals("EOF while draining boolean length mismatch", eofMessage(bool))
     }
 
     @Test

@@ -18,8 +18,6 @@ class HtspCodecRoundTripPropertyTest {
             "binary" to byteArrayOf(1, 2),
             "uuid" to HtspWireUuid(ByteArray(16) { (15 - it).toByte() }),
             "boolean" to true,
-            "double" to 2.25,
-            "float" to 3.5f,
             "int" to 4,
             "long" to 5L,
             "short" to 6.toShort(),
@@ -37,8 +35,6 @@ class HtspCodecRoundTripPropertyTest {
         assertWireValueEquals(byteArrayOf(1, 2), decoded["binary"])
         assertWireValueEquals(fields["uuid"], decoded["uuid"])
         assertWireValueEquals(true, decoded["boolean"])
-        assertWireValueEquals(2.25, decoded["double"])
-        assertWireValueEquals(3.5, decoded["float"])
         assertWireValueEquals(4L, decoded["int"])
         assertWireValueEquals(5L, decoded["long"])
         assertWireValueEquals(6L, decoded["short"])
@@ -69,7 +65,7 @@ class HtspCodecRoundTripPropertyTest {
     }
 
     private fun randomValue(random: Random, depth: Int): Any? {
-        val scalarKinds = if (depth < 3) 12 else 10
+        val scalarKinds = if (depth < 3) 10 else 8
         return when (random.nextInt(scalarKinds)) {
             0 -> null
             1 -> random.nextLong()
@@ -77,11 +73,9 @@ class HtspCodecRoundTripPropertyTest {
             3 -> random.nextInt().toShort()
             4 -> random.nextInt().toByte()
             5 -> random.nextBoolean()
-            6 -> random.nextDouble()
-            7 -> random.nextFloat()
-            8 -> "text-${random.nextInt(100)}-Ž"
-            9 -> ByteArray(random.nextInt(6)).also(random::nextBytes)
-            10 -> linkedMapOf("child" to randomValue(random, depth + 1), "null" to null)
+            6 -> "text-${random.nextInt(100)}-Ž"
+            7 -> ByteArray(random.nextInt(6)).also(random::nextBytes)
+            8 -> linkedMapOf("child" to randomValue(random, depth + 1), "null" to null)
             else -> listOf(randomValue(random, depth + 1), null, randomValue(random, depth + 1))
         }
     }
@@ -89,7 +83,6 @@ class HtspCodecRoundTripPropertyTest {
     private fun normalize(value: Any?): Any? = when (value) {
         null -> null
         is Int, is Short, is Byte -> (value as Number).toLong()
-        is Float -> value.toDouble()
         is Map<*, *> -> value.entries.mapNotNull { (key, child) ->
             normalize(child)?.let { key.toString() to it }
         }.toMap(LinkedHashMap())

@@ -333,10 +333,17 @@ internal class HtspServiceConnectionAdmissionTest : HtspServiceLifecycleFixture(
             FakeHtspServer(respondToHello = true).use { replacementServer ->
                 val ownerInstalled = CompletableDeferred<Unit>()
                 val releaseOwner = CompletableDeferred<Unit>()
-                val service = service(afterTransportInstallation = {
-                    ownerInstalled.complete(Unit)
-                    releaseOwner.await()
-                })
+                val replacementAdmitted = CompletableDeferred<Unit>()
+                val admissions = AtomicInteger()
+                val service = service(
+                    afterConnectionAdmission = {
+                        if (admissions.incrementAndGet() == 2) replacementAdmitted.complete(Unit)
+                    },
+                    afterTransportInstallation = {
+                        ownerInstalled.complete(Unit)
+                        releaseOwner.await()
+                    },
+                )
                 runBlocking {
                     val first = launch(Dispatchers.IO) {
                         service.establish(HtspConnectionParameters(
@@ -347,9 +354,8 @@ internal class HtspServiceConnectionAdmissionTest : HtspServiceLifecycleFixture(
                     }
                     // Keep the first attempt inside the connect owner until cancellation is observed.
                     withTimeout(1_000L) { ownerInstalled.await() }
-                    val firstAttempt = service.currentConnectionAttemptId()
 
-                    val replacement = launch(Dispatchers.IO) {
+                    val replacement = launch {
                         service.establish(HtspConnectionParameters(
                             HtspEndpoint(host = "127.0.0.1", port = replacementServer.port),
                             HtspConnectOptions(connectTimeoutMs = 1_000, responseTimeoutMs = 1_000, socketReadTimeoutMs = 50, forceReconnect = true),
@@ -357,9 +363,11 @@ internal class HtspServiceConnectionAdmissionTest : HtspServiceLifecycleFixture(
                         ))
                     }
                     try {
-                        withTimeout(1_000L) {
-                            while (service.currentConnectionAttemptId() == firstAttempt) delay(1L)
-                        }
+                        // Both replacement and waiter use this runBlocking event loop. After
+                        // signalling admission, replacement cannot yield until the owner mutex:
+                        // the first attempt has not installed a reader, so retirement cannot join one.
+                        withTimeout(1_000L) { replacementAdmitted.await() }
+                        assertTrue(replacement.isActive)
                         replacement.cancelAndJoin()
                         releaseOwner.complete(Unit)
                         withTimeout(1_000L) { first.join() }

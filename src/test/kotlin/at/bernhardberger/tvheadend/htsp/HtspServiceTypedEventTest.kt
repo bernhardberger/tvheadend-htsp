@@ -234,9 +234,13 @@ internal class HtspServiceTypedEventTest : HtspServiceLifecycleFixture() {
     @Test
     fun numericReplyAliasesCannotCompletePendingOrLateUnsubscribe() {
         listOf(false, true).forEach { late ->
-            listOf<(Int) -> Any>(
-                { sequence -> sequence.toLong() + 0x1_0000_0000L },
-                { sequence -> sequence.toDouble() + 0.9 },
+            listOf<(Int) -> ByteArray>(
+                { sequence -> HtspCodec.encode("unsubscribe", mapOf("seq" to sequence.toLong() + 0x1_0000_0000L)) },
+                { sequence ->
+                    // Inject unsupported type 6 directly; the encoder must not produce it.
+                    val bits = (sequence.toDouble() + 0.9).toRawBits()
+                    frame(field(6, "seq", ByteArray(8) { (bits ushr (it * 8)).toByte() }))
+                },
             ).forEach { alias ->
                 FakeHtspServer(
                     respondToHello = true,
@@ -258,7 +262,7 @@ internal class HtspServiceTypedEventTest : HtspServiceLifecycleFixture() {
                         assertTrue(server.awaitPostHandshakeRequestCount(1, 1_000L))
                         val sequence = requireNotNull(server.postHandshakeRequest(0).seq)
                         if (late) assertSame(HtspResult.Timeout, withTimeout(1_000L) { pending.await() }.getOrThrow())
-                        server.replyToPostHandshakeRequest(0, mapOf("seq" to alias(sequence)))
+                        server.sendRaw(alias(sequence))
 
                         assertEquals(
                             HtspTransportFailureKind.INCOMPATIBLE_SERVER,

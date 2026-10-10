@@ -82,6 +82,12 @@ DVR policy.
 `subscriptionStart` can contain duplicate top-level `meta` keys
 (`src/htsp_server.c:4370–4372`); the codec keeps the last value.
 
+- Wire BOOL is true only for exactly one nonzero data byte; every other length
+  decodes false (`src/htsmsg_binary.c:133–135,146–147`). The binary format has no double
+  type: type 6 has no decoder or serializer case (`src/htsmsg_binary.c:88–143,225–255,275–350`,
+  revision `f082b430ae66f1761c2e82c34549b759c168f3c6` from `upstream.json`). The local
+  decoder preserves type-6 data as unknown bytes; encoding Double/Float is rejected.
+
 Recording-file `info` is a list of stream maps (`src/dvr/dvr_rec.c:1465–1513`):
 optional type, language, audio codes, video dimensions/aspect ratio,
 90 kHz frame duration (normalized to microseconds), and subtitle IDs. Channel

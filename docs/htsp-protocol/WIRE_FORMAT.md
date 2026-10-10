@@ -41,16 +41,16 @@ another four-byte root prefix.
 | 3 | STR (UTF-8 bytes) | yes |
 | 4 | BIN | yes |
 | 5 | LIST | yes |
-| 6 | DBL (eight-byte little-endian IEEE 754) | **no** |
+| 6 | Unknown (raw bytes on decode only) | **no** |
 | 7 | BOOL | yes |
 | 8 | UUID (16 bytes) | yes |
 
-The local codec keeps DBL read/write behavior for compatibility, so
-`scalar-types.hex` pins all eight local IDs and re-encodes them locally. That
-DBL field is local-only: at the pinned TVHeadend source, `htsmsg_binary_des0`
-has no `HMF_DBL` decode case, and the `htsmsg_binary_write` length switch has
-no `HMF_DBL` case and falls through to `default: abort()`. Treat DBL as local
-compatibility evidence, not as something the pinned server can serialize.
+The binary format has no double type. Although `htsmsg.h` defines `HMF_DBL=6`,
+the pinned `htsmsg_binary_des0` has no decode case and rejects it; the
+`htsmsg_binary_write` length switch falls through to `default: abort()`.
+The local decoder treats type 6 like any other unknown type, preserving raw
+bytes, and the encoder rejects Double/Float values as unsupported.
+`scalar-types.hex` pins the supported scalar IDs and re-encodes them locally.
 
 ## Signed 64-bit values
 
@@ -66,7 +66,13 @@ than eight bytes keep their low eight little-endian bytes on both; the local
 tests also pin following-field alignment in
 `HtspMalformedFrameCatalogTest.signed64LongerThanEight_usesLowEightLittleEndianBytesAndPreservesAlignment`.
 
-## Boolean false
+## Booleans
+
+BOOL decodes true only when its data length is exactly one and that byte is
+nonzero. Every other length decodes false, consuming the entire declared field
+(`src/htsmsg_binary.c:133–135,146–147`).
+`HtspMalformedFrameCatalogTest.booleanLengths_followUpstreamAndPreserveFollowingFieldAndFrameAlignment`
+pins lengths zero, one (0x00, 0x01, 0xFF), and greater than one.
 
 The pinned serializer normally emits false with data length zero. The
 decode-only `boolean-false.hex` fixture pins its exact 30-byte body and the
@@ -84,8 +90,7 @@ silently drained.
 | Input | Local behavior | Pinned server | Classification | Pinning test |
 |---|---|---|---|---|
 | Unknown type ID | Preserve the complete field data as a raw `ByteArray`. | Frees the field and rejects the whole message. | Local leniency diverging from pin. | `HtspMalformedFrameCatalogTest.unknownTypeId_decodesExactRawBytes` |
-| DBL type 6, including eight-byte data | Decode eight-byte little-endian IEEE 754; wrong lengths drain the declared slice and decode `0.0`. | No decode case: rejects every type 6; serializer has no case and aborts. | Local-only type, not server-producible. | `HtspGoldenCorpusTest.scalarTypes_pinS64Utf8BinaryDoubleBooleanAndUuidBytes`; `HtspMalformedFrameCatalogTest.doubleWrongLength_decodesZeroAndPreservesFollowingFieldAlignment` |
-| BOOL data length greater than one | Use whether the first byte is nonzero, then drain the declared field tail and preserve alignment. | True only when length is exactly one; otherwise false. | Bounded local divergence; conforming pinned serialization emits only lengths zero or one. | `HtspMalformedFrameCatalogTest.booleanLengthGreaterThanOne_usesFirstByteAndPreservesNextFrameAlignment` |
+| Type 6, including eight-byte data | Preserve the complete field data as a raw `ByteArray`, like other unknown types. | No decode case: rejects every type 6; serializer has no case and aborts. | Unknown-type leniency, not a supported double type. | `HtspMalformedFrameCatalogTest.typeSix_decodesLikeUnknownTypeAndPreservesFollowingFieldAlignment` |
 | One to five residual bytes after the last complete root/container field | Attempts another field and rejects; one deterministic residual root byte reports `HtspFramingException` with `field byte exceeds enclosing frame`. | Rejects when the decode loop returns with any residue. | Both reject; the local failure taxonomy differs. | `HtspMalformedFrameCatalogTest.oneResidualRootByteAfterCompleteField_isNotSilentlyDrained` |
 
 ## Malformed and truncated input

@@ -91,11 +91,15 @@ class HtspMalformedFrameCatalogTest {
     }
 
     @Test
-    fun doubleWrongLength_decodesZeroAndPreservesFollowingFieldAlignment() {
-        val body = field(TYPE_DBL, "ratio", byteArrayOf(1, 2, 3)) + field(TYPE_STR, "next", "ok".encodeToByteArray())
-        val decoded = decode(frame(body))
-        assertEquals(0.0, decoded.fields["ratio"])
-        assertEquals("ok", decoded.fields["next"])
+    fun typeSix_decodesLikeUnknownTypeAndPreservesFollowingFieldAlignment() {
+        listOf(byteArrayOf(), byteArrayOf(1, 2, 3), byteArrayOf(0, 0, 0, 0, 0, 0, -8, 63)).forEach { raw ->
+            val body = field(6, "ratio", raw) + field(0x7f, "unknown", raw) +
+                field(TYPE_STR, "next", "ok".encodeToByteArray())
+            val decoded = decode(frame(body))
+            assertArrayEquals(raw, decoded.fields["ratio"] as ByteArray)
+            assertArrayEquals(decoded.fields["unknown"] as ByteArray, decoded.fields["ratio"] as ByteArray)
+            assertEquals("ok", decoded.fields["next"])
+        }
     }
 
     @Test
@@ -114,13 +118,25 @@ class HtspMalformedFrameCatalogTest {
     }
 
     @Test
-    fun booleanLengthGreaterThanOne_usesFirstByteAndPreservesNextFrameAlignment() {
-        val first = frame(field(TYPE_BOOL, "flag", byteArrayOf(1, 55, 66)))
-        val second = loadHtspGoldenFrame("hello.hex")
-        val input = ByteArrayInputStream(first + second)
-        assertEquals(true, HtspCodec.readMessage(input).fields["flag"])
-        assertEquals("hello", HtspCodec.readMessage(input).method)
-        assertEquals(0, input.available())
+    fun booleanLengths_followUpstreamAndPreserveFollowingFieldAndFrameAlignment() {
+        listOf(
+            byteArrayOf() to false,
+            byteArrayOf(0) to false,
+            byteArrayOf(1) to true,
+            byteArrayOf(-1) to true,
+            byteArrayOf(1, 55, 66) to false,
+            byteArrayOf(0, -1) to false,
+            ByteArray(513) { -1 } to false,
+        ).forEach { (data, expected) ->
+            val first = frame(field(TYPE_BOOL, "flag", data) + field(TYPE_STR, "next", "ok".encodeToByteArray()))
+            val second = loadHtspGoldenFrame("hello.hex")
+            val input = ByteArrayInputStream(first + second)
+            val decoded = HtspCodec.readMessage(input)
+            assertEquals(expected, decoded.fields["flag"], "boolean length ${data.size}")
+            assertEquals("ok", decoded.fields["next"])
+            assertEquals("hello", HtspCodec.readMessage(input).method)
+            assertEquals(0, input.available())
+        }
     }
 
     @Test
@@ -153,7 +169,6 @@ class HtspMalformedFrameCatalogTest {
         const val TYPE_S64 = 2
         const val TYPE_STR = 3
         const val TYPE_BIN = 4
-        const val TYPE_DBL = 6
         const val TYPE_BOOL = 7
     }
 }

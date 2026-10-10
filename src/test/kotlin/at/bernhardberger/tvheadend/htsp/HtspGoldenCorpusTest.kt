@@ -50,11 +50,11 @@ class HtspGoldenCorpusTest {
     }
 
     @Test
-    fun scalarTypes_pinS64Utf8BinaryDoubleBooleanAndUuidBytes() {
+    fun scalarTypes_pinS64Utf8BinaryBooleanAndUuidBytes() {
         val frame = loadHtspGoldenFrame("scalar-types.hex")
         val decoded = HtspCodec.readMessage(ByteArrayInputStream(frame))
 
-        assertEquals(0xA7, frame.size - 4)
+        assertEquals(0x93, frame.size - 4)
         assertEquals("types", decoded.method)
         assertEquals(0L, decoded.fields["zero"])
         assertEquals(0x1234L, decoded.fields["positive"])
@@ -62,7 +62,6 @@ class HtspGoldenCorpusTest {
         assertEquals("Živě", decoded.fields["text"])
         assertEquals("", decoded.fields["empty"])
         assertArrayEquals(byteArrayOf(0, -1, 0x47), decoded.fields["binary"] as ByteArray)
-        assertEquals(1.5, decoded.fields["double"])
         assertEquals(true, decoded.fields["enabled"])
         assertArrayEquals(ByteArray(16) { it.toByte() }, (decoded.fields["uuid"] as HtspWireUuid).bytes())
         assertArrayEquals(frame, encode(decoded.method!!, decoded.fields - "method"))

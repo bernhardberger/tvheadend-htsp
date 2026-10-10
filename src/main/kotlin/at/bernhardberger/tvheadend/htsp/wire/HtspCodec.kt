@@ -20,7 +20,6 @@ internal object `HtspCodec-internal` {
         const val STR = 3
         const val BIN = 4
         const val LIST = 5
-        const val DBL = 6
         const val BOOL = 7
         const val UUID = 8
     }
@@ -83,26 +82,16 @@ internal object `HtspCodec-internal` {
             FieldType.S64 -> r.readS64(dataLen)
             FieldType.STR -> r.readString(dataLen, what = "string")
             FieldType.BIN -> r.readExactly(dataLen, what = "binary")
-            FieldType.DBL -> readDoubleLE(r, dataLen)
             FieldType.BOOL -> readBool(r, dataLen)
             FieldType.UUID -> HtspWireUuid(r.readExactly(dataLen, what = "uuid"))
             else -> r.readExactly(dataLen, what = "unknown field")
         }
     }
 
-    private fun readDoubleLE(r: FrameReader, len: Int): Double {
-        if (len != 8) {
-            r.drain(len, what = "double length mismatch")
-            return 0.0
-        }
-        return java.lang.Double.longBitsToDouble(r.readS64(len))
-    }
-
     private fun readBool(r: FrameReader, len: Int): Boolean {
-        if (len <= 0) return false
-        val v = r.readS64(1) != 0L
-        r.drain(len - 1, what = "boolean tail")
-        return v
+        if (len == 1) return r.readS64(1) != 0L
+        r.drain(len, what = "boolean length mismatch")
+        return false
     }
 
     /** Fills only the requested slice, including streams that make no bulk-read progress. */
@@ -209,10 +198,9 @@ internal object `HtspCodec-internal` {
         fun drain(n: Int, what: String) {
             if (n <= 0) return
             var remaining = n
-            val tmp = ByteArray(8192)
             while (remaining > 0) {
-                val toRead = min(remaining, tmp.size)
-                val count = input.read(tmp, 0, toRead)
+                val toRead = min(remaining, scratch.size)
+                val count = input.read(scratch, 0, toRead)
                 if (count < 0) throw EOFException("EOF while draining $what")
                 if (count == 0) {
                     val value = input.read()
@@ -243,7 +231,7 @@ internal object `HtspCodec-internal` {
             frame.put(type.toByte()).put(name.size.toByte()).putInt(dataSize).put(name)
             when (type) {
                 FieldType.MAP, FieldType.LIST -> children.forEach { it.writeTo(frame) }
-                FieldType.S64, FieldType.DBL, FieldType.BOOL ->
+                FieldType.S64, FieldType.BOOL ->
                     repeat(dataSize) { byte -> frame.put((bits ushr (byte * 8)).toByte()) }
                 FieldType.STR, FieldType.BIN, FieldType.UUID -> frame.put(checkNotNull(bytes))
                 else -> error("Unplanned HTSP field type")
@@ -268,9 +256,8 @@ internal object `HtspCodec-internal` {
             is ByteArray -> planBytes(name, FieldType.BIN, value)
             is HtspWireUuid -> planBytes(name, FieldType.UUID, value.bytes())
             is Boolean -> PlannedField(name, FieldType.BOOL, 1, bits = if (value) 1L else 0L)
-            is Double -> PlannedField(name, FieldType.DBL, 8, bits = value.toRawBits())
-            is Float -> PlannedField(name, FieldType.DBL, 8, bits = value.toDouble().toRawBits())
             is Number -> {
+                check(value !is Double && value !is Float) { "Unsupported HTSP field type: ${value::class.java.name}" }
                 val bits = value.toLong()
                 val width = (Long.SIZE_BITS - java.lang.Long.numberOfLeadingZeros(bits) + 7) / 8
                 PlannedField(name, FieldType.S64, width, bits = bits)

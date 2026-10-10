@@ -4,6 +4,8 @@ import at.bernhardberger.tvheadend.htsp.wire.HtspCodec
 import java.io.ByteArrayOutputStream
 import java.math.BigInteger
 import org.junit.jupiter.api.Assertions.assertArrayEquals
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Test
 
 class HtspCodecEncodingTest {
@@ -37,17 +39,19 @@ class HtspCodecEncodingTest {
     }
 
     @Test
-    fun floatingPoint_preservesRawDoubleBitsAndWidensFloat() {
-        listOf(
-            0.0 to "00 00 00 00 00 00 00 00",
-            -0.0 to "00 00 00 00 00 00 00 80",
-            Double.POSITIVE_INFINITY to "00 00 00 00 00 00 f0 7f",
-            Double.NEGATIVE_INFINITY to "00 00 00 00 00 00 f0 ff",
-            Double.fromBits(0x7ff8_1234_5678_9abcL) to "bc 9a 78 56 34 12 f8 7f",
-            Double.MIN_VALUE to "01 00 00 00 00 00 00 00",
-        ).forEach { (value, payload) -> assertScalar(6, payload, value) }
-        assertScalar(6, "00 00 00 00 00 00 f8 3f", 1.5f)
-        assertScalar(6, "00 00 00 00 00 00 00 80", -0.0f)
+    fun floatingPoint_rejectsDoubleAndFloatAsUnsupportedIncludingNestedValues() {
+        listOf<Number>(
+            0.0, -0.0, 1.5, Double.POSITIVE_INFINITY, Double.NEGATIVE_INFINITY,
+            Double.fromBits(0x7ff8_1234_5678_9abcL), Double.MIN_VALUE,
+            0.0f, -0.0f, 1.5f, Float.POSITIVE_INFINITY, Float.NEGATIVE_INFINITY, Float.NaN, Float.MIN_VALUE,
+        ).forEach { value ->
+            listOf(value, mapOf("nested" to value), listOf(value)).forEach { fieldValue ->
+                val failure = assertThrows(IllegalStateException::class.java) {
+                    encode(mapOf("v" to fieldValue))
+                }
+                assertEquals("Unsupported HTSP field type: ${value::class.java.name}", failure.message)
+            }
+        }
     }
 
     @Test

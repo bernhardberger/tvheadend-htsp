@@ -366,7 +366,7 @@ internal class HtspServiceHandshakeFactsTest : HtspServiceLifecycleFixture() {
                 "faileddvr" to 1L,
                 "anonymous" to true,
                 "limitall" to -1,
-                "limitdvr" to 1.5,
+                "limitdvr" to "1.5",
                 "limitstreaming" to Long.MAX_VALUE,
                 "uilevel" to "high",
                 "uilanguage" to ByteArray(2),
