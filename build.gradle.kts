@@ -214,11 +214,11 @@ publishing {
             artifactId = "htsp"
             pom {
                 name.set("TVHeadend HTSP for Kotlin/JVM")
-                description.set("An independently maintained Kotlin/JVM client library for the TVHeadend HTSP protocol.")
+                description.set("An independently maintained, unofficial Kotlin/JVM client library for the TVHeadend HTSP protocol; not affiliated with the TVHeadend project.")
                 url.set("https://github.com/bernhardberger/tvheadend-htsp")
                 licenses {
                     license {
-                        name.set("GNU General Public License v3.0")
+                        name.set("GPL-3.0-only")
                         url.set("https://www.gnu.org/licenses/gpl-3.0.html")
                         distribution.set("repo")
                     }
@@ -234,7 +234,7 @@ publishing {
                     connection.set("scm:git:https://github.com/bernhardberger/tvheadend-htsp.git")
                     developerConnection.set("scm:git:ssh://git@github.com/bernhardberger/tvheadend-htsp.git")
                     url.set("https://github.com/bernhardberger/tvheadend-htsp")
-                    tag.set("HEAD")
+                    tag.set(if (version.toString().endsWith("-SNAPSHOT")) "HEAD" else "v$version")
                 }
                 issueManagement {
                     system.set("GitHub Issues")

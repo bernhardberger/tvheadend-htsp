@@ -10,6 +10,9 @@
 - Reimplement the frame encoder, wire envelope and connection-service skeleton;
   encoding writes each frame into one buffer and allocates about half as much.
   Wire bytes are unchanged.
+- State the license as `GPL-3.0-only` in `NOTICE.md` and the POM, add copyright,
+  dated modification and Corresponding Source notices, name the release tag in
+  the POM SCM metadata, and date changelog releases.
 
 - **BREAKING:** metadata delivery now uses independent bounded collector queues,
   drops newest metadata on overflow and reports `MetadataOverflow`. Queue saturation
@@ -140,7 +143,7 @@ The release workflow accepts stable `X.Y.Z` versions and `-alpha.N`, `-beta.N`
 and `-rc.N` pre-releases. Pre-releases and major-zero releases remain GitHub
 prereleases; stable releases from 1.0.0 are full releases marked latest.
 
-## [0.10.0]
+## [0.10.0] - 2026-09-08
 
 **BREAKING (JVM ABI):** `HtspQueueStatusMessage` gains trailing nullable
 `errorCount: Long? = null`, decoding the optional unsigned-u32 `queueStatus.errors`
@@ -154,7 +157,7 @@ Absence remains null, distinct from an explicit zero. Values through
 produce the existing redacted malformed-message outcome. This is the cumulative
 server data-error count, not dropped frames or a per-report delta.
 
-## [0.9.0]
+## [0.9.0] - 2026-09-08
 
 **BREAKING (behavior; Kotlin source and JVM signatures unchanged):** request
 timeouts now include local serialization and socket writes. Cancellation and
@@ -185,7 +188,7 @@ Typed file reads transfer their private decoder-owned payload rather than copy
 it again. Public binary construction and standalone decoding still take defensive
 snapshots, and byte-array accessors still return copies.
 
-## [0.8.0]
+## [0.8.0] - 2026-09-08
 
 **BREAKING (behavior; Kotlin source and JVM signatures unchanged):**
 `HtspSubscriptionEvent.Stopped` no longer completes subscription collection.
@@ -208,7 +211,7 @@ nested payload contents, or request paths (HTSP-06). Exact accessors, equality,
 and wire payloads are unchanged. This is not a guarantee for explicitly logged
 raw accessor values or unrelated message types.
 
-## [0.7.0]
+## [0.7.0] - 2026-08-24
 
 Added an explicit near-live subscription helper that derives one bounded
 absolute `subscriptionSkip` from an observed timeshift end, caller-selected
@@ -220,7 +223,7 @@ The new helper never falls back to it and does not claim exact live mode or
 treat the synchronous request acknowledgement as settled positioning; ordered
 timeshift and skip events remain authoritative.
 
-## [0.6.0]
+## [0.6.0] - 2026-08-24
 
 Completed or cancelled subscription streams now release their event buffers,
 collector-job references, and timestamp clocks after ordered draining finishes.
@@ -253,7 +256,7 @@ already committed subscription events.
 attribution cases above. Consumers must handle the expanded enum and map each
 reason according to their own recovery policy.
 
-## [0.5.0]
+## [0.5.0] - 2026-08-20
 
 Automatic-recording add metadata now accepts the nullable `comment`, `name`,
 `owner`, and `creator` fields emitted by TVHeadend. Their typed properties are
@@ -263,7 +266,7 @@ null when absent; present fields with invalid wire types remain incompatible.
 properties are now nullable. Source consumers must handle absence, and binaries
 compiled against 0.4.0 can observe null from their existing JVM getters.
 
-## [0.4.0]
+## [0.4.0] - 2026-08-20
 
 Malformed recognized global metadata now fails the transport as an incompatible
 server instead of disappearing before a later initial-sync marker. Unknown
@@ -276,7 +279,7 @@ provide atomic registration; source implementations of `HtspConnection` must add
 it, while existing binaries remain compatible unless they are asked to invoke the
 new overload.
 
-## [0.3.0]
+## [0.3.0] - 2026-08-19
 
 Link the current coordinate to Maven Central and streamline future GitHub
 prereleases to the verified Central ZIP and release manifest. Individual Maven
@@ -342,7 +345,7 @@ reducers. Collection inputs remain immutable snapshots, binary metadata keeps
 content equality, unsigned validation still applies to copies, and message
 rendering remains payload-free and redacted.
 
-## [0.2.0]
+## [0.2.0] - 2026-08-18
 
 Clarify that the client requests HTSP v43 by default while the typed surface
 has a v44 coverage ceiling. Remove the protocol evidence and generation tooling
@@ -371,7 +374,7 @@ renamed to `HtspConnectionState`. The unused `StreamProfile` is removed;
 profile responses already use `HtspProfile`, and `StreamProfile` had no
 repository references.
 
-## [0.1.1]
+## [0.1.1] - 2026-08-17
 
 This release records the initial provisional baseline under `0.1.1` after the
 `v0.1.0` release attempt stopped before publication. It does not promise source,
@@ -381,7 +384,7 @@ The initial provisional baseline contains the standalone Kotlin/JVM HTSP v44
 protocol library and its typed outcome API. Publication and availability are
 independently verified external state and are not established by this entry.
 
-## [0.1.0]
+## [0.1.0] - 2026-08-17
 
 The signed `v0.1.0` tag did not produce a release. Its workflow stopped before
 Central or GitHub publication, and the tag is not reused.

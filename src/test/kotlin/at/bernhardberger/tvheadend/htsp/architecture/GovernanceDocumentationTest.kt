@@ -19,18 +19,27 @@ class GovernanceDocumentationTest {
                     "TVHeadend project; the TVHeadend name describes compatibility only.",
             ),
             "NOTICE.md" to listOf(
-                "This HTSP protocol library is independently maintained GPLv3 software derived from " +
-                    "[Preclikos/tvhstream](https://github.com/Preclikos/tvhstream).",
+                "Copyright (C) 2026 Bernhard Berger",
+                "SPDX-License-Identifier: GPL-3.0-only",
+                "This HTSP protocol library began as a modified extract of " +
+                    "[Preclikos/tvhstream](https://github.com/Preclikos/tvhstream) (GPL-3.0, " +
+                    "Copyright (C) 2026 the tvhstream authors).",
+                "ideas and code from [TVHClient](https://github.com/rsiebert/TVHClient).",
                 "The standalone repository begins with the HTSP protocol extraction baseline instead " +
                     "of embedding the predecessor application's unrelated Git history.",
+                "Bernhard Berger has modified and extended the extracted code since August 2026.",
+                "library remains a derivative work of tvhstream.",
+                "at the release tag `v<version>`.",
                 "This library is not affiliated with, endorsed by, or sponsored by the " +
-                    "[Tvheadend project](https://github.com/tvheadend/tvheadend).",
+                    "[TVHeadend project](https://github.com/tvheadend/tvheadend).",
             ),
             "docs/licensing.md" to listOf(
-                "The combined HTSP library work is licensed under the GNU General Public License v3.0.",
+                "The HTSP library is licensed under the GNU General Public License v3.0 only " +
+                    "(SPDX `GPL-3.0-only`).",
                 "This library is an independently maintained descendant of " +
                     "[Preclikos/tvhstream](https://github.com/Preclikos/tvhstream).",
-                "It incorporates predecessor work and is not wholly original.",
+                "It began as a modified extract of predecessor work and is not wholly original.",
+                "The library therefore remains a derivative work of tvhstream under GPL-3.0-only.",
                 "The standalone repository begins with the HTSP protocol extraction baseline instead " +
                     "of embedding the predecessor application's unrelated Git history.",
                 "The library is developed and maintained independently of the TVHeadend project.",

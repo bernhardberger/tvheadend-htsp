@@ -263,7 +263,7 @@ to `epg_object_serialize` there rather than expanded in the HTSP sender.
   coupled signed-s64 `size = st.st_size` then `mtime = st.st_mtime`; a failed
   `fstat` returns an empty success map. There are no other outputs. The official
   docs call these u64, mark them independently optional, and omit empty success
-  and the mtime unit; the SDK leaves POSIX `st_mtime` unchanged.
+  and the mtime unit; the library leaves POSIX `st_mtime` unchanged.
 - `stopDvrEntry` has no evidenced introduction version. Its recorder handler
   uses the DVR-entry helper in write mode, returns its bounded error, calls only
   `dvr_entry_stop`, and returns `success:u32 = 1`. Cancel and delete use other

@@ -510,7 +510,7 @@ def terminate_gpg_agents(workspace: Path, runner: Callable[..., subprocess.Compl
 
 
 def extract_release_notes(changelog: str, version: str) -> str:
-    heading = re.compile(rf"(?m)^## \[{re.escape(version)}\]\s*$")
+    heading = re.compile(rf"(?m)^## \[{re.escape(version)}\](?: - \d{{4}}-\d{{2}}-\d{{2}})?[ \t]*$")
     matches = list(heading.finditer(changelog))
     if len(matches) != 1:
         raise ReleaseError(f"CHANGELOG must contain exactly one section for {version}")
@@ -1639,6 +1639,12 @@ def self_test() -> list[str]:
     if github_release_notes(changelog, notes_identity) != expected_notes:
         errors.append("self-test release-note distribution links mismatch")
     expect_error(errors, "missing release notes", lambda: extract_release_notes(changelog, "0.3.0"))
+    dated = "# Changelog\n\n## [Unreleased]\n\n- Next.\n\n## [1.0.0] - 2026-10-10\n\nStable notes.\n\n## [1.0.0-rc.1] - 2026-10-01\n\nCandidate notes.\n"
+    if extract_release_notes(dated, "1.0.0") != "## [1.0.0] - 2026-10-10\n\nStable notes.\n":
+        errors.append("self-test dated release-note extraction mismatch")
+    if extract_release_notes(dated, "1.0.0-rc.1") != "## [1.0.0-rc.1] - 2026-10-01\n\nCandidate notes.\n":
+        errors.append("self-test dated prerelease-note extraction mismatch")
+    expect_error(errors, "malformed release date", lambda: extract_release_notes("## [1.0.0] - 10.10.2026\n\nNotes.\n", "1.0.0"))
     guard_fixture = """jobs:
   release:
     if: >-
