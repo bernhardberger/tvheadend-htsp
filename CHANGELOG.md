@@ -71,7 +71,7 @@
   immutable recording stream/HbbTV/credit metadata, and packet commercial advice.
 - Add direct `HtspBinary.copyInto(ByteBuffer)` without an intermediate array.
 
-**BREAKING (1.0.0-rc.1 API/ABI):** quantity names now expose their units;
+**BREAKING (API/ABI):** quantity names now expose their units;
 matching convenience parameters and data-class copy parameters follow them.
 HTSP field names and integer widths are unchanged. Full wire-field and pinned
 source evidence is in [the units table](docs/htsp-protocol/README.md#units).
@@ -90,7 +90,7 @@ source evidence is in [the units table](docs/htsp-protocol/README.md#units).
 | Hello request/response; connected state | `htspVersion` → `protocolVersion` |
 | Queue status; subscription stream | `delay` → `delayUs`; `frameDuration` → `frameDurationUs` (normalized to microseconds) |
 
-**BREAKING (1.0.0-rc.1 API/ABI):** integer wire flags now use Boolean values,
+**BREAKING (API/ABI):** integer wire flags now use Boolean values,
 with null still meaning absent/omitted. Requests encode 0/1; message decoding
 accepts zero/nonzero integer flags. Changed properties and matching convenience
 parameters (names and HTSP wire field names are unchanged):
@@ -109,25 +109,25 @@ parameters (names and HTSP wire field names are unchanged):
 | Subscription stream | `rdsUecp` | `Long?` → `Boolean?` |
 | Timeshift status message | `full` | `Long` → `Boolean` |
 
-**BREAKING (1.0.0-rc.1 API/ABI):** `HtspResult.ServerError` is now a data class
+**BREAKING (API/ABI):** `HtspResult.ServerError` is now a data class
 with optional `serverMessage` carrying the server's own rejection text. `when`
 branches must use `is`; equality includes the message. Local failures leave it
 null, and `toString()` never renders it.
 
-**BREAKING (1.0.0-rc.1 API/ABI and behavior):** DVR mutation responses no longer
+**BREAKING (API/ABI and behavior):** DVR mutation responses no longer
 expose `success`/`error`; refusals return `ServerError` instead of `Ok`.
 `AddDvrEntryResponse.entryId` is non-null, and update, stop, cancel, and delete
 responses are acknowledgement objects. `Ok` acknowledges the request, not an
 already-completed recording state change.
 
-**BREAKING (1.0.0-rc.1 API/ABI):** `HtspConnectionState.Error` carries a bounded
+**BREAKING (API/ABI):** `HtspConnectionState.Error` carries a bounded
 `HtspTransportFailure` instead of a `Throwable`. Connection failures no longer
 expose exception messages through lifecycle state.
 
-**BREAKING (1.0.0-rc.1 API/ABI):** `decodeHtspServerMessage(Map)` is internal;
+**BREAKING (API/ABI):** `decodeHtspServerMessage(Map)` is internal;
 consume typed messages through the connection's event streams instead.
 
-**BREAKING (1.0.0-rc.1 API/ABI):** `HtspConnectOptions.connectTimeoutMs` and
+**BREAKING (API/ABI):** `HtspConnectOptions.connectTimeoutMs` and
 `socketReadTimeoutMs` are `Long`. Both require 1..2147483647 milliseconds for
 the JDK socket API, including when options are copied.
 
