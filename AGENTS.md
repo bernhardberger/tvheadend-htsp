@@ -62,6 +62,17 @@ official TVHeadend software or as wholly original work.
 
 ## Build and verify
 
+On hosts that install the shared build launcher
+(`/usr/local/bin/tvhplayer-verify`), use `./tools/verify [Gradle tasks/options]`
+for **all local Gradle builds**, including staged-publication and
+`-p consumer-contract` runs. With no arguments it runs `build check`. The
+launcher runs single-use Gradle with in-process Kotlin inside a memory-bounded
+build slice shared with other projects, so avoid overlapping heavy verification.
+Direct `./gradlew` bypasses containment; do not retry a cancelled or OOM build
+that way. Other hosts retain normal Gradle behavior. Cold-cache checks are
+exceptional: point `GRADLE_USER_HOME` at a fresh disk-backed directory, never a
+tmpfs. Retain ordinary persistent caches; do not clean by default.
+
 The Gradle wrapper is the only build prerequisite; JDK toolchains resolve
 automatically. CI (`.github/workflows/ci.yml`) is the authoritative gate.
 
