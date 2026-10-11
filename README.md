@@ -41,9 +41,9 @@ caller-owned `ByteBuffer` through `HtspBinary.copyInto`, without a temporary arr
 ## Installation
 
 The exact immutable release coordinate is
-`at.bernhardberger.tvheadend:htsp:0.10.0`. It is available from
-[Maven Central](https://central.sonatype.com/artifact/at.bernhardberger.tvheadend/htsp/0.10.0),
-with the [repository files](https://repo1.maven.org/maven2/at/bernhardberger/tvheadend/htsp/0.10.0/)
+`at.bernhardberger.tvheadend:htsp:1.0.0-beta.1`. It is available from
+[Maven Central](https://central.sonatype.com/artifact/at.bernhardberger.tvheadend/htsp/1.0.0-beta.1),
+with the [repository files](https://repo1.maven.org/maven2/at/bernhardberger/tvheadend/htsp/1.0.0-beta.1/)
 available directly.
 
 The Gradle dependency is:
@@ -51,11 +51,12 @@ The Gradle dependency is:
 <!-- dependency-static:htsp -->
 ```kotlin
 dependencies {
-    implementation("at.bernhardberger.tvheadend:htsp:0.10.0")
+    implementation("at.bernhardberger.tvheadend:htsp:1.0.0-beta.1")
 }
 ```
 
-The API is provisional during the major-zero line and may change; see
+`1.0.0-beta.1` is a pre-release of `1.0.0`; its API may still change before
+the final release. See
 [versioning and compatibility](docs/versioning.md), [release
 policy](docs/releasing.md), and the [release change history](CHANGELOG.md).
 
