@@ -1,6 +1,11 @@
 # Changelog
 
-## [Unreleased]
+## [1.0.0-beta.1] - 2026-10-11
+
+First pre-release of the 1.0 line. Like every pre-release, it makes no
+compatibility promise toward later pre-releases or `1.0.0`; see
+[`docs/versioning.md`](https://github.com/bernhardberger/tvheadend-htsp/blob/v1.0.0-beta.1/docs/versioning.md). Upgrading from `0.10.0` needs source
+changes: read the **BREAKING** entries below.
 
 - **BREAKING:** add `HtspResult.MalformedReply` to the closed request result type.
   Malformed envelopes and typed decoding failures no longer appear as server
@@ -74,7 +79,7 @@
 **BREAKING (API/ABI):** quantity names now expose their units;
 matching convenience parameters and data-class copy parameters follow them.
 HTSP field names and integer widths are unchanged. Full wire-field and pinned
-source evidence is in [the units table](docs/htsp-protocol/README.md#units).
+source evidence is in [the units table](https://github.com/bernhardberger/tvheadend-htsp/blob/v1.0.0-beta.1/docs/htsp-protocol/README.md#units).
 
 | Surface | Old → new |
 |---|---|
