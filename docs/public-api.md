@@ -102,7 +102,11 @@ Without an explicit error, missing or wrong-typed `success`, integers other than
 `AddDvrEntryResponse.entryId` is required; update, stop, cancel, and delete return
 acknowledgement objects. `HtspDvrMutationResponse` is a memberless marker.
 `Ok` means the server acknowledged the request, not that the recording state
-has already changed; observe DVR metadata updates for that state.
+has already changed; observe DVR metadata updates for that state. For example, a
+server whose DVR log retention outlives a completed recording's file answers an
+acknowledged `deleteDvrEntry` with a `dvrEntryUpdate` whose `error` is
+`File missing` (pinned `src/htsp_server.c:1175`) instead of `dvrEntryDelete`;
+the entry remains until retention removes it.
 
 ## Cancellation stays cancellation
 
