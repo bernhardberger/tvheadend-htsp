@@ -1,5 +1,20 @@
 # Changelog
 
+## [Unreleased]
+
+- Decode typed programme artwork from HTSP v45 ([tvheadend/tvheadend#2343](https://github.com/tvheadend/tvheadend/pull/2343),
+  not yet merged upstream): `imagePoster`, `imageBackdrop` and `imageStill` on
+  `HtspEvent`, `HtspEventUpdateMessage`, `HtspEpgBroadcastObject`,
+  `HtspDvrEntryAddMessage` and `HtspDvrEntryUpdateMessage`. An empty string
+  means the server has no such image; null means the field was absent.
+- Request HTSP v45 by default; older servers still negotiate down. Pass
+  `requestedProtocolVersion = 44` to keep the old request.
+- Preserve the `1.0.0-beta.1` constructor and `copy` signatures of those five
+  classes, including default-argument bridges. Existing compiled callers keep
+  linking, and their `copy` calls retain the new artwork fields.
+- Redact `HtspEvent` and `HtspEpgBroadcastObject` string rendering, including
+  through response wrappers, so programme artwork references are not logged.
+
 ## [1.0.0-beta.1] - 2026-10-11
 
 First pre-release of the 1.0 line. Like every pre-release, it makes no

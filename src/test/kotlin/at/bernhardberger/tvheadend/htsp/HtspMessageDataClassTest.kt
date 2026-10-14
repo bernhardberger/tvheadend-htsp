@@ -384,6 +384,9 @@ class HtspMessageDataClassTest {
         credits = at.bernhardberger.tvheadend.htsp.requests.HtspProgrammeCredits(listOf(
             at.bernhardberger.tvheadend.htsp.requests.HtspProgrammeCredit("Person", "actor"),
         )),
+        imagePoster = "37",
+        imageBackdrop = "38",
+        imageStill = "39",
     )
 
     private fun eventUpdateValues(message: HtspEventUpdateMessage): List<Any?> = listOf(
@@ -423,6 +426,9 @@ class HtspMessageDataClassTest {
         message.dvrId,
         message.nextEventId,
         message.credits,
+        message.imagePoster,
+        message.imageBackdrop,
+        message.imageStill,
     )
 
     private fun completeDvrAdd(): HtspDvrEntryAddMessage = HtspDvrEntryAddMessage(
@@ -476,6 +482,9 @@ class HtspMessageDataClassTest {
         dataSizeBytes = -48L,
         seasonCount = 49L,
         episodeOnscreen = "S1E1",
+        imagePoster = "50",
+        imageBackdrop = "51",
+        imageStill = "52",
     )
 
     private fun completeDvrUpdate(): HtspDvrEntryUpdateMessage = HtspDvrEntryUpdateMessage(
@@ -529,6 +538,9 @@ class HtspMessageDataClassTest {
         dataSizeBytes = -148L,
         seasonCount = 149L,
         episodeOnscreen = "S2E1",
+        imagePoster = "150",
+        imageBackdrop = "151",
+        imageStill = "152",
     )
 
     private fun dvrAddValues(message: HtspDvrEntryAddMessage): List<Any?> = listOf(
@@ -545,6 +557,7 @@ class HtspMessageDataClassTest {
         message.error, message.subscriptionError, message.streamErrors, message.dataErrors,
         message.dataSizeBytes,
         message.seasonCount, message.episodeOnscreen,
+        message.imagePoster, message.imageBackdrop, message.imageStill,
     )
 
     private fun dvrUpdateValues(message: HtspDvrEntryUpdateMessage): List<Any?> = listOf(
@@ -561,6 +574,7 @@ class HtspMessageDataClassTest {
         message.error, message.subscriptionError, message.streamErrors, message.dataErrors,
         message.dataSizeBytes,
         message.seasonCount, message.episodeOnscreen,
+        message.imagePoster, message.imageBackdrop, message.imageStill,
     )
 
     private fun assertPublicComponents(message: Any, expected: List<Any?>) {

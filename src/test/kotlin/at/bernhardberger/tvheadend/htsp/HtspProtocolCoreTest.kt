@@ -1608,6 +1608,9 @@ class HtspProtocolCoreTest {
                 "slink" to "series-link",
                 "elink" to "episode-link",
                 "cred" to linkedMapOf("Person" to "actor"),
+                "img_poster" to "poster-ref",
+                "img_backdrop" to "backdrop-ref",
+                "img_still" to "still-ref",
             ),
         )
 
@@ -1658,6 +1661,9 @@ class HtspProtocolCoreTest {
                         seriesLinkUri = "series-link",
                         episodeLinkUri = "episode-link",
                         credits = HtspProgrammeCredits(listOf(HtspProgrammeCredit("Person", "actor"))),
+                        imagePoster = "poster-ref",
+                        imageBackdrop = "backdrop-ref",
+                        imageStill = "still-ref",
                     ),
                 ),
             ),
@@ -1670,6 +1676,25 @@ class HtspProtocolCoreTest {
             validGetEpgObjectReply().apply { put("cred", listOf(null, 1L, "still opaque")) },
         )
         assertEquals(HtspResult.MalformedReply, connection.call(GetEpgObjectRequest(1L)))
+    }
+
+    @Test
+    fun getEpgObjectArtworkPreservesAbsenceAndEmptyStrings() = runTest {
+        val transport = FakeProtocolTransport(version = 45)
+        val connection = HtspTypedRequestCaller(transport)
+        listOf(null, "").forEach { image ->
+            transport.reply = HtspWireReply(validGetEpgObjectReply().apply {
+                if (image != null) {
+                    put("img_poster", image)
+                    put("img_backdrop", image)
+                    put("img_still", image)
+                }
+            })
+            val response = (connection.call(GetEpgObjectRequest(1L)) as HtspResult.Ok).value
+            assertEquals(listOf(image, image, image), with(response.broadcast) {
+                listOf(imagePoster, imageBackdrop, imageStill)
+            })
+        }
     }
 
     @Test
@@ -1707,6 +1732,9 @@ class HtspProtocolCoreTest {
             validGetEpgObjectReply().apply { put("cat", listOf("news", "documentary")) },
             validGetEpgObjectReply().apply { put("key", "not-a-list") },
             validGetEpgObjectReply().apply { put("fair", 1) },
+            validGetEpgObjectReply().apply { put("img_poster", 1L) },
+            validGetEpgObjectReply().apply { put("img_backdrop", 1L) },
+            validGetEpgObjectReply().apply { put("img_still", 1L) },
         )
 
         malformed.forEach { fields ->

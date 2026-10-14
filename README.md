@@ -35,7 +35,7 @@ caller-owned `ByteBuffer` through `HtspBinary.copyInto`, without a temporary arr
   `UNSUPPORTED_SERVER_VERSION`. Requested versions must also be at least 36.
   Servers at v36–v43 omit newer fields, which are nullable in the typed API.
   The typed catalog covers HTSP methods through protocol
-  v44; the client requests protocol v44 by default and the server negotiates
+  v45; the client requests protocol v45 by default and the server negotiates
   downward during the handshake.
 
 ## Installation

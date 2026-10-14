@@ -393,9 +393,19 @@ public data class Example private constructor(
   parameter had a default, also keep a hidden no-argument constructor.
 - In `api/htsp.api` the old signatures become `synthetic`, so existing
   binaries still link; the diff must contain no removed declarations.
+- Old constructors supply the new fields' defaults. Old `copy` overloads
+  must instead forward the receiver's new fields, so older compiled reducers
+  do not silently discard metadata they cannot yet name.
 
 Existing `componentN` functions keep their positions, and equality, hashing and
 `copy` include the new property.
+
+The v45 artwork extension exercises this recipe on the five evolving EPG/DVR
+records. `consumer-contract/src/baseline` compiles against the checksum-pinned
+published `1.0.0-beta.1` JAR; its unchanged call sites run against the staged
+candidate in `ArtworkBinaryCompatibilityTest`, including both default-argument
+masks and artwork preservation. The baseline dependency is compile-only and
+cannot enter the test runtime classpath.
 
 ## Argument validation and lifecycle calls
 
