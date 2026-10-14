@@ -30,12 +30,39 @@ val htspVersion = Regex("""(?m)^version = "([^"]+)"[ \t]*$""")
     ?.get(1)
     ?: error("The root project must declare exactly one literal version")
 
+// Compile these call sites against the immutable release, then execute their
+// unchanged bytecode against the staged candidate on the ordinary test classpath.
+val baseline = sourceSets.create("baseline")
+
 dependencies {
     implementation(libs.htsp) {
         version { strictly(htspVersion) }
     }
     testImplementation(libs.junit)
     testRuntimeOnly(libs.junit.platform.launcher)
+    add(baseline.compileOnlyConfigurationName, "at.bernhardberger.tvheadend:htsp:1.0.0-beta.1")
+    testImplementation(baseline.output)
+}
+
+val baselineClasspath = configurations.named(baseline.compileClasspathConfigurationName)
+val verifyBaselineArtifact = tasks.register("verifyBaselineArtifact") {
+    group = "verification"
+    description = "Verifies that legacy call sites compile against the immutable beta.1 release."
+    inputs.files(baselineClasspath)
+    doLast {
+        val baselineJar = inputs.files.single { it.name == "htsp-1.0.0-beta.1.jar" }
+        val digest = HexFormat.of().formatHex(
+            MessageDigest.getInstance("SHA-256").digest(baselineJar.readBytes()),
+        )
+        // Published SHA-256 recorded in docs/versioning.md, not a locally staged build.
+        check(digest == "824e24dde59891ad2670df6ca927382e4764a10073491a72f5f1ef9fb2addc68") {
+            "The compatibility baseline is not the published 1.0.0-beta.1 JAR"
+        }
+    }
+}
+
+tasks.named(baseline.getCompileTaskName("kotlin")) {
+    dependsOn(verifyBaselineArtifact)
 }
 
 tasks.withType<JavaCompile>().configureEach {

@@ -1284,6 +1284,12 @@ internal class HtspServiceSubscriptionEventTest : HtspServiceLifecycleFixture() 
                         throw IOException("synthetic reader failure")
                     }
                 },
+                beforeTypedEventPublication = { event ->
+                    if ((event.message as? HtspSubscriptionStatusMessage)?.subscriptionId == 33L) {
+                        // Arm on the reader after wake is decoded, not while it may still be between frames.
+                        failNextFrame.set(true)
+                    }
+                },
             )
             runBlocking {
                 service.connect(HtspEndpoint("127.0.0.1", server.port))
@@ -1291,7 +1297,6 @@ internal class HtspServiceSubscriptionEventTest : HtspServiceLifecycleFixture() 
                     service.subscriptionEvents(33L).toList()
                 }
 
-                failNextFrame.set(true)
                 server.sendServerMessage("subscriptionStatus", statusFields(33L, "wake"))
 
                 assertEquals(
@@ -1324,6 +1329,12 @@ internal class HtspServiceSubscriptionEventTest : HtspServiceLifecycleFixture() 
                         throw IllegalStateException("unclassified reader detail")
                     }
                 },
+                beforeTypedEventPublication = { event ->
+                    if ((event.message as? HtspSubscriptionStatusMessage)?.subscriptionId == 41L) {
+                        // Arm on the reader after wake is decoded, not while it may still be between frames.
+                        failNextFrame.set(true)
+                    }
+                },
             )
             runBlocking {
                 service.connect(HtspEndpoint("127.0.0.1", server.port))
@@ -1331,7 +1342,6 @@ internal class HtspServiceSubscriptionEventTest : HtspServiceLifecycleFixture() 
                     service.subscriptionEvents(41L).toList()
                 }
 
-                failNextFrame.set(true)
                 server.sendServerMessage("subscriptionStatus", statusFields(41L, "wake"))
 
                 val events = withTimeout(1_000L) { subscription.await() }

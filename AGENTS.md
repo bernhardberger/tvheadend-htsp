@@ -49,7 +49,7 @@ official TVHeadend software or as wholly original work.
   Error values never carry client secrets, credentials, endpoints or throwables;
   `ServerError` may carry the server's own error text, which `toString` never renders.
 - `docs/htsp-protocol/` holds the upstream pin record and protocol notes. The
-  client requests HTSP v44 by default, matching the typed surface's v44
+  client requests HTSP v45 by default, matching the typed surface's v45
   coverage ceiling. The protocol surface is hand-maintained; a method or
   wire-field change ships with a focused regression test in the same change.
 - The public ABI is tracked in `api/htsp.api` by Kotlin Gradle plugin ABI

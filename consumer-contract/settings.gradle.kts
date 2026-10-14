@@ -21,18 +21,21 @@ dependencyResolutionManagement {
         check(checkoutLocalRepository.toRealPath() == expectedRepository) {
             "Staged HTSP repository must not traverse a symlink or escape the checkout"
         }
-        exclusiveContent {
-            forRepository {
-                maven {
-                    name = "htspCheckoutLocal"
-                    url = checkoutLocalRepository.toUri()
-                    content {
-                        includeGroup("at.bernhardberger.tvheadend")
-                    }
-                }
-            }
-            filter {
+        maven {
+            name = "htspCheckoutLocal"
+            url = checkoutLocalRepository.toUri()
+            content {
                 includeGroup("at.bernhardberger.tvheadend")
+                notForConfigurations("baselineCompileClasspath")
+            }
+        }
+        // Only the old consumer's compilation may use the released library.
+        // Every other HTSP resolution, especially test runtime, stays checkout-local.
+        mavenCentral {
+            name = "htspCompatibilityBaseline"
+            content {
+                includeModule("at.bernhardberger.tvheadend", "htsp")
+                onlyForConfigurations("baselineCompileClasspath")
             }
         }
         mavenCentral {

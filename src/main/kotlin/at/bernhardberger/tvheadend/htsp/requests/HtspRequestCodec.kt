@@ -782,6 +782,9 @@ private fun eventFromFields(fields: Map<*, *>): HtspEvent = fields.request().run
         dvrId = optionalU32("dvrId"),
         nextEventId = optionalU32("nextEventId"),
         credits = decodeProgrammeCredits(fields, "credits", ::malformedReply),
+        imagePoster = optionalString("imagePoster"),
+        imageBackdrop = optionalString("imageBackdrop"),
+        imageStill = optionalString("imageStill"),
     )
 }
 
@@ -823,6 +826,9 @@ private fun epgBroadcastObjectFromFields(fields: Map<*, *>): HtspEpgBroadcastObj
         seriesLinkUri = fields.optionalString("slink"),
         episodeLinkUri = fields.optionalString("elink"),
         credits = decodeProgrammeCredits(fields, "cred", ::malformedReply),
+        imagePoster = fields.optionalString("img_poster"),
+        imageBackdrop = fields.optionalString("img_backdrop"),
+        imageStill = fields.optionalString("img_still"),
     )
 }
 

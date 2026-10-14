@@ -537,7 +537,10 @@ internal class HtspServiceRequestTimeoutTest : HtspServiceLifecycleFixture() {
             respondToHello = true,
             captureOnePostHandshakeRequest = true,
         ).use { server ->
-            val service = service()
+            val written = CompletableDeferred<Unit>()
+            val service = service(
+                afterRequestFrameWritten = { if (it == "subscribe") written.complete(Unit) },
+            )
             runBlocking {
                 service.establish(HtspConnectionParameters(
                     HtspEndpoint(host = "127.0.0.1", port = server.port),
@@ -555,6 +558,8 @@ internal class HtspServiceRequestTimeoutTest : HtspServiceLifecycleFixture() {
                 }
 
                 assertTrue(server.postHandshakeRequestReceived.await(1, TimeUnit.SECONDS))
+                // Server receipt can precede the client's completed-write marker.
+                withTimeout(1_000L) { written.await() }
                 request.cancelAndJoin()
 
                 assertNotNull(service.liveConnection.value)

@@ -129,6 +129,9 @@ internal fun decodeDvrEntryAdd(fields: Map<String, Any?>): HtspServerMessage = H
     comment = fields.optionalString("comment"),
     image = fields.optionalString("image"),
     fanartImage = fields.optionalString("fanartImage"),
+    imagePoster = fields.optionalString("imagePoster"),
+    imageBackdrop = fields.optionalString("imageBackdrop"),
+    imageStill = fields.optionalString("imageStill"),
     copyrightYear = fields.optionalU32("copyrightYear"),
     files = fields.optionalObjectList("files", ::decodeDvrRecordingFile),
     path = fields.optionalString("path"),
@@ -183,6 +186,9 @@ internal fun decodeDvrEntryUpdate(fields: Map<String, Any?>): HtspServerMessage 
     comment = fields.optionalString("comment"),
     image = fields.optionalString("image"),
     fanartImage = fields.optionalString("fanartImage"),
+    imagePoster = fields.optionalString("imagePoster"),
+    imageBackdrop = fields.optionalString("imageBackdrop"),
+    imageStill = fields.optionalString("imageStill"),
     copyrightYear = fields.optionalU32("copyrightYear"),
     files = fields.optionalObjectList("files", ::decodeDvrRecordingFile),
     path = fields.optionalString("path"),
@@ -361,6 +367,9 @@ internal fun decodeEventUpdate(fields: Map<String, Any?>): HtspServerMessage = H
     dvrId = fields.optionalU32("dvrId"),
     nextEventId = fields.optionalU32("nextEventId"),
     credits = decodeProgrammeCredits(fields, "credits") { throw HtspServerMessageMappingException() },
+    imagePoster = fields.optionalString("imagePoster"),
+    imageBackdrop = fields.optionalString("imageBackdrop"),
+    imageStill = fields.optionalString("imageStill"),
 )
 
 @JvmSynthetic
@@ -605,6 +614,9 @@ private fun decodeServerEvent(fields: Map<*, *>): HtspEvent = HtspEvent(
     dvrId = fields.optionalU32("dvrId"),
     nextEventId = fields.optionalU32("nextEventId"),
     credits = decodeProgrammeCredits(fields, "credits") { throw HtspServerMessageMappingException() },
+    imagePoster = fields.optionalString("imagePoster"),
+    imageBackdrop = fields.optionalString("imageBackdrop"),
+    imageStill = fields.optionalString("imageStill"),
 )
 
 private fun decodeSubscriptionStream(fields: Map<*, *>, clock: HtspTimestampClock): HtspSubscriptionStream = fields.server().run {
