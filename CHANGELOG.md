@@ -1,6 +1,22 @@
 # Changelog
 
-## [Unreleased]
+## [1.0.0-beta.2] - 2026-10-15
+
+Second pre-release of the 1.0 line. It gives channels, tags, events, DVR
+entries and recording rules one shared entity type each in the new `model`
+package, and sets out how full and sparse updates apply; the reasoning is in
+[ADR 0002](https://github.com/bernhardberger/tvheadend-htsp/blob/v1.0.0-beta.2/docs/adr/0002-entity-model-and-update-semantics.md).
+Like every pre-release, it makes no compatibility promise toward later
+pre-releases or `1.0.0`; see
+[`docs/versioning.md`](https://github.com/bernhardberger/tvheadend-htsp/blob/v1.0.0-beta.2/docs/versioning.md).
+Upgrading from `1.0.0-beta.1` needs source changes: read the **BREAKING**
+entries below.
+
+- Add usage guides for connecting, metadata, live subscriptions, DVR, the JSON
+  API and troubleshooting in
+  [`docs/guides/`](https://github.com/bernhardberger/tvheadend-htsp/tree/v1.0.0-beta.2/docs/guides),
+  with samples compiled against the library. Every public property now has
+  KDoc, and the API reference has module and package overviews.
 
 - **BREAKING:** `HtspLiveConnection.protocolVersion` is non-null `Long`: live
   connections always carry the version negotiated by a successful hello exchange.

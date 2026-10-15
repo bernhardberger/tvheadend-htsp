@@ -30,7 +30,7 @@ dokka {
 }
 
 group = "at.bernhardberger.tvheadend"
-version = "1.0.0-beta.1"
+version = "1.0.0-beta.2"
 
 val releaseVersion = version.toString().removeSuffix("-SNAPSHOT")
 val allowedPublicationVersions = setOf(
