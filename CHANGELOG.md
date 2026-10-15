@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+- Fixed nested value rendering to redact recording paths, subscription identifiers,
+  server status/error text, endpoints, and metadata payloads.
+
 - **BREAKING:** timerec add/update request and extension minutes-since-midnight
   parameters/properties are `Int?`, matching entity and autorec times of day.
 - **BREAKING:** public protocol versions use `Long` throughout, including connect

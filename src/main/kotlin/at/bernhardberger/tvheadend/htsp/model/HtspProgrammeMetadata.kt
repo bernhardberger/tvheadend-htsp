@@ -35,7 +35,9 @@ public data class HtspHbbtvTitle(
     public val name: String,
     /** Language when available, wire `lang`. */
     public val language: String? = null,
-)
+) {
+    override fun toString(): String = "HtspHbbtvTitle(<redacted>)"
+}
 
 /**
  * Application metadata published to channel-service consumers (src/input/mpegts/dvb_psi_hbbtv.c:139–150).

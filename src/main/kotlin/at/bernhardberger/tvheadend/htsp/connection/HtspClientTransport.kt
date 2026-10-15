@@ -11,7 +11,7 @@ import java.net.UnknownHostException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 
-/** Network endpoint used by the typed HTSP transport. Credentials are never rendered. */
+/** Network endpoint used by the typed HTSP transport. Endpoint and credentials are never rendered. */
 public class HtspEndpoint(
     public val host: String,
     public val port: Int,
@@ -19,7 +19,7 @@ public class HtspEndpoint(
     public val password: String = "",
 ) {
     override fun toString(): String =
-        "HtspEndpoint(host=$host, port=$port, username=<redacted>, password=<redacted>)"
+        "HtspEndpoint(<redacted>)"
 }
 
 /** Minimum supported server protocol version. Raising it requires a major release; lowering it is compatible. */

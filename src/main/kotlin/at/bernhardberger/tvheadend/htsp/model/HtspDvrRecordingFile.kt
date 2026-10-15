@@ -31,7 +31,9 @@ public data class HtspDvrRecordingStream(
     public val compositionId: Long? = null,
     /** Subtitle ancillary identity. */
     public val ancillaryId: Long? = null,
-)
+) {
+    override fun toString(): String = "HtspDvrRecordingStream(<redacted>)"
+}
 
 /** Immutable recording-stream list (pinned htsp_server.c:1133–1135). */
 public class HtspDvrRecordingInfo(streams: List<HtspDvrRecordingStream>) {
@@ -58,4 +60,6 @@ public data class HtspDvrRecordingFile(
     public val info: HtspDvrRecordingInfo? = null,
 ) {
     init { fileId?.let { requireU32("fileId", it) } }
+
+    override fun toString(): String = "HtspDvrRecordingFile(<redacted>)"
 }

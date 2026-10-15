@@ -95,4 +95,6 @@ public data class HtspChannelService(
         requireU32("content", content)
         conditionalAccessId?.let { requireU32("conditionalAccessId", it) }
     }
+
+    override fun toString(): String = "HtspChannelService(<redacted>)"
 }

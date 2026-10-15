@@ -27,6 +27,8 @@ public data class HtspMuxPacketMessage(
         requireU32("streamIndex", streamIndex)
         require(durationUs >= 0L) { "durationUs must be non-negative" }
     }
+
+    override fun toString(): String = "HtspMuxPacketMessage(<redacted>)"
 }
 
 /**
@@ -78,6 +80,8 @@ public data class HtspQueueStatusMessage(
         requireU32("iFrameDropCount", iFrameDropCount)
         errorCount?.let { requireU32("errorCount", it) }
     }
+
+    override fun toString(): String = "HtspQueueStatusMessage(<redacted>)"
 }
 
 /** One stream descriptor with index and codec type plus optional language, video, audio, radio-data, and codec metadata fields. */
@@ -117,6 +121,8 @@ public data class HtspSubscriptionStream(
                 ).forEach { requireU32("stream field", it) }
         frameDurationUs?.let { require(it >= 0L) { "frameDurationUs must be non-negative" } }
     }
+
+    override fun toString(): String = "HtspSubscriptionStream(<redacted>)"
 }
 
 /** Optional tuner source identity and display metadata for a subscription, including adapter, mux, network, provider, service, and satellite position. */
@@ -131,7 +137,9 @@ public data class HtspSubscriptionSourceInfo(
     public val provider: String?,
     public val service: String?,
     public val satellitePosition: String?,
-)
+) {
+    override fun toString(): String = "HtspSubscriptionSourceInfo(<redacted>)"
+}
 
 /** Reports subscription-start metadata: stream list, source information, codec metadata, and optional status or subscription error. */
 @ConsistentCopyVisibility
@@ -194,6 +202,8 @@ public data class HtspSubscriptionStopMessage(
     init {
         requireU32("subscriptionId", subscriptionId)
     }
+
+    override fun toString(): String = "HtspSubscriptionStopMessage(<redacted>)"
 }
 
 /** Reports the grace interval, in seconds, allowed for the identified subscription. */
@@ -205,6 +215,8 @@ public data class HtspSubscriptionGraceMessage(
         requireU32("subscriptionId", subscriptionId)
         requireU32("graceTimeoutSeconds", graceTimeoutSeconds)
     }
+
+    override fun toString(): String = "HtspSubscriptionGraceMessage(<redacted>)"
 }
 
 /** Reports the current optional status and subscription error for one subscription. */
@@ -216,6 +228,8 @@ public data class HtspSubscriptionStatusMessage(
     init {
         requireU32("subscriptionId", subscriptionId)
     }
+
+    override fun toString(): String = "HtspSubscriptionStatusMessage(<redacted>)"
 }
 
 /** Signal observations for one subscription: frontend status, relative and absolute SNR and signal, bit errors, and uncorrected blocks. */
@@ -238,6 +252,8 @@ public data class HtspSignalStatusMessage(
                     uncorrectedBlockCount,
                 ).forEach { requireU32("signal field", it) }
     }
+
+    override fun toString(): String = "HtspSignalStatusMessage(<redacted>)"
 }
 
 /** Descrambling observations for one subscription, including PID, access and provider identifiers, ECM timing, hop count, and optional source labels. */
@@ -264,6 +280,8 @@ public data class HtspDescrambleInfoMessage(
                     hopCount,
                 ).forEach { requireU32("descramble field", it) }
     }
+
+    override fun toString(): String = "HtspDescrambleInfoMessage(<redacted>)"
 }
 
 /** Carries the signed playback [speed] reported by the server for one subscription. */
@@ -274,6 +292,8 @@ public data class HtspSubscriptionSpeedMessage(
     init {
         requireU32("subscriptionId", subscriptionId)
     }
+
+    override fun toString(): String = "HtspSubscriptionSpeedMessage(<redacted>)"
 }
 
 /** Timeshift state for one subscription: fullness, current shift, optional start and end bounds, and optional speed. */
@@ -292,6 +312,8 @@ public data class HtspTimeshiftStatusMessage(
     init {
         requireU32("subscriptionId", subscriptionId)
     }
+
+    override fun toString(): String = "HtspTimeshiftStatusMessage(<redacted>)"
 }
 
 /** Reports the server result of a subscription skip with optional absolute and error flags, time coordinate, and byte coordinate. */
@@ -308,4 +330,6 @@ public data class HtspSubscriptionSkipMessage(
     init {
         requireU32("subscriptionId", subscriptionId)
     }
+
+    override fun toString(): String = "HtspSubscriptionSkipMessage(<redacted>)"
 }

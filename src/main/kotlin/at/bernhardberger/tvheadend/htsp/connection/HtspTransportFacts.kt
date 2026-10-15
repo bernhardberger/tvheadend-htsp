@@ -84,4 +84,6 @@ public data class HtspServerFacts private constructor(
         apiVersion, admin, streaming, dvr, failedDvr, anonymous, limitAll, limitDvr,
         limitStreaming, uiLevel, uiLanguage,
     )
+
+    override fun toString(): String = "HtspServerFacts(<redacted>)"
 }
