@@ -22,7 +22,7 @@ plugins {
 
 dokka {
     dokkaPublications.html {
-        moduleName.set("TVHeadend HTSP for Kotlin/JVM")
+        moduleName.set("tvheadend-htsp")
     }
     dokkaSourceSets.configureEach {
         includes.from("docs/dokka/module.md")

@@ -1,4 +1,4 @@
-# Module TVHeadend HTSP for Kotlin/JVM
+# Module tvheadend-htsp
 
 A Kotlin/JVM client for TVHeadend's HTSP protocol. Requests are suspending
 functions that return typed outcomes, server events arrive on flows, and

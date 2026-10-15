@@ -1,5 +1,12 @@
 # Changelog
 
+## [Unreleased]
+
+- Fixed the API reference (javadoc jar) rendering without styles or scripts on
+  every package and declaration page: the module name `Kotlin/JVM` added a
+  directory level that the pages' relative asset links did not account for. The
+  Dokka module is now `tvheadend-htsp`, so reference URLs change.
+
 ## [1.0.0-beta.2] - 2026-10-15
 
 Second pre-release of the 1.0 line. It gives channels, tags, events, DVR
