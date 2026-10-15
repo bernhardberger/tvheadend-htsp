@@ -35,8 +35,8 @@ The other parameters are optional:
 
 - `clientIdentity` sets the client name the server sees in `hello`. The default
   is `Kotlin HTSP client`. `clientVersion` is not transmitted.
-- `logger` receives bounded warnings and errors from the transport. The default
-  discards them.
+- `logger` receives the transport's diagnostics; see
+  [logging](troubleshooting.md#logging). The default discards them.
 - `eventBufferOptions` sizes the event queues; see
   [metadata sync](metadata.md#buffers-and-overflow).
 - `socketFactory` supplies the sockets, for tests and embedding; see
