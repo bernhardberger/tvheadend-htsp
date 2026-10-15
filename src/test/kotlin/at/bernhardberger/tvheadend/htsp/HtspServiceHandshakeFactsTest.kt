@@ -127,6 +127,29 @@ internal class HtspServiceHandshakeFactsTest : HtspServiceLifecycleFixture() {
     }
 
     @Test
+    fun connectedStateCarriesNegotiatedProtocolVersion() {
+        listOf(44L to 36L, 36L to 44L, 44L to 44L).forEach { (requestedVersion, serverVersion) ->
+            FakeHtspServer(
+                respondToHello = true,
+                helloReplyFields = mapOf("htspversion" to serverVersion, "challenge" to ByteArray(32)),
+            ).use { server ->
+                val service = service()
+                runBlocking {
+                    val outcome = service.connect(
+                        HtspEndpoint("127.0.0.1", server.port),
+                        HtspConnectOptions(requestedProtocolVersion = requestedVersion, responseTimeoutMs = 1_000),
+                    ) as HtspConnectOutcome.Connected
+                    val state = service.connectionState.value as HtspConnectionState.Connected
+                    val protocolVersion: Long = state.connection.protocolVersion
+                    assertEquals(minOf(requestedVersion, serverVersion), protocolVersion)
+                    assertEquals(outcome.connection, state.connection)
+                    service.disconnect()
+                }
+            }
+        }
+    }
+
+    @Test
     fun helloWithoutServerVersionIsRejectedBeforeAuthentication() {
         FakeHtspServer(
             respondToHello = true,

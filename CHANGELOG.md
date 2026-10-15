@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- **BREAKING:** `HtspLiveConnection.protocolVersion` is non-null `Long`: live
+  connections always carry the version negotiated by a successful hello exchange.
 - **BREAKING:** remove `HtspTransportFailureKind.PERMISSION_DENIED` and
   `ZERO_CHANNELS`, which were never produced. Server access refusals remain
   `HtspResult.AccessDenied`.

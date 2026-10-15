@@ -307,7 +307,7 @@ internal open class `HtspService-internal`(
                     publishConnectedState(
                             attemptId = attemptId,
                             endpoint = endpoint,
-                            protocolVersion = handshake?.version,
+                            protocolVersion = negotiatedVersion,
                             dvrAccess = dvrAccess,
                             serverFacts = serverFacts,
                             connectionIdentity = requestedIdentity,
@@ -1318,7 +1318,7 @@ internal open class `HtspService-internal`(
     private fun publishConnectedState(
         attemptId: Long,
         endpoint: HtspEndpoint,
-        protocolVersion: Long?,
+        protocolVersion: Long,
         dvrAccess: Boolean?,
         serverFacts: HtspServerFacts,
         connectionIdentity: HtspConnectionIdentity,

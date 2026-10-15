@@ -187,17 +187,17 @@ public abstract interface class at/bernhardberger/tvheadend/htsp/connection/Htsp
 }
 
 public final class at/bernhardberger/tvheadend/htsp/connection/HtspLiveConnection {
-	public fun <init> (Lat/bernhardberger/tvheadend/htsp/connection/HtspConnectionGeneration;Ljava/lang/Long;Ljava/lang/Boolean;Lat/bernhardberger/tvheadend/htsp/connection/HtspServerFacts;)V
+	public fun <init> (Lat/bernhardberger/tvheadend/htsp/connection/HtspConnectionGeneration;JLjava/lang/Boolean;Lat/bernhardberger/tvheadend/htsp/connection/HtspServerFacts;)V
 	public final fun component1 ()Lat/bernhardberger/tvheadend/htsp/connection/HtspConnectionGeneration;
-	public final fun component2 ()Ljava/lang/Long;
+	public final fun component2 ()J
 	public final fun component3 ()Ljava/lang/Boolean;
 	public final fun component4 ()Lat/bernhardberger/tvheadend/htsp/connection/HtspServerFacts;
-	public final fun copy (Lat/bernhardberger/tvheadend/htsp/connection/HtspConnectionGeneration;Ljava/lang/Long;Ljava/lang/Boolean;Lat/bernhardberger/tvheadend/htsp/connection/HtspServerFacts;)Lat/bernhardberger/tvheadend/htsp/connection/HtspLiveConnection;
-	public static synthetic fun copy$default (Lat/bernhardberger/tvheadend/htsp/connection/HtspLiveConnection;Lat/bernhardberger/tvheadend/htsp/connection/HtspConnectionGeneration;Ljava/lang/Long;Ljava/lang/Boolean;Lat/bernhardberger/tvheadend/htsp/connection/HtspServerFacts;ILjava/lang/Object;)Lat/bernhardberger/tvheadend/htsp/connection/HtspLiveConnection;
+	public final fun copy (Lat/bernhardberger/tvheadend/htsp/connection/HtspConnectionGeneration;JLjava/lang/Boolean;Lat/bernhardberger/tvheadend/htsp/connection/HtspServerFacts;)Lat/bernhardberger/tvheadend/htsp/connection/HtspLiveConnection;
+	public static synthetic fun copy$default (Lat/bernhardberger/tvheadend/htsp/connection/HtspLiveConnection;Lat/bernhardberger/tvheadend/htsp/connection/HtspConnectionGeneration;JLjava/lang/Boolean;Lat/bernhardberger/tvheadend/htsp/connection/HtspServerFacts;ILjava/lang/Object;)Lat/bernhardberger/tvheadend/htsp/connection/HtspLiveConnection;
 	public fun equals (Ljava/lang/Object;)Z
 	public final fun getDvrAccess ()Ljava/lang/Boolean;
 	public final fun getGeneration ()Lat/bernhardberger/tvheadend/htsp/connection/HtspConnectionGeneration;
-	public final fun getProtocolVersion ()Ljava/lang/Long;
+	public final fun getProtocolVersion ()J
 	public final fun getServerFacts ()Lat/bernhardberger/tvheadend/htsp/connection/HtspServerFacts;
 	public fun hashCode ()I
 	public fun toString ()Ljava/lang/String;

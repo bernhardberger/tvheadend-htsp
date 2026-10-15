@@ -76,10 +76,14 @@ public data class HtspTransportFailure(
     public val kind: HtspTransportFailureKind,
 )
 
-/** One live, opaque protocol generation and its bounded handshake observations. */
+/**
+ * One live, opaque protocol generation and its bounded handshake observations.
+ *
+ * @property protocolVersion negotiated HTSP version from the successful hello exchange.
+ */
 public data class HtspLiveConnection(
     public val generation: HtspConnectionGeneration,
-    public val protocolVersion: Long?,
+    public val protocolVersion: Long,
     public val dvrAccess: Boolean?,
     public val serverFacts: HtspServerFacts,
 )
