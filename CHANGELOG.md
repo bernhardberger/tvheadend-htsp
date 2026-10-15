@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+- **BREAKING:** add terminal `HtspConnectionState.Closed`. Owner-global close and
+  successful generation-fenced close publish Closed; stale generation close is a
+  no-op. Later connects return `Failed(CLOSED)` via the new transport failure kind;
+  requests retain `HtspResult.TransportUnavailable`. Owner close emits no failure event.
+- **BREAKING:** `HtspConnectionState.Connected(host, port, connection)` now carries
+  its `HtspLiveConnection` atomically. Remove `HtspConnection.liveConnection` and
+  Connected's duplicated `protocolVersion`/`dvrAccess`; read these and generation
+  through `Connected.connection` instead.
+- **BREAKING:** `HtspTransportEvent.ConnectionFailure.generation` is non-null.
+
 - **BREAKING:** malformed metadata is skipped without tearing down the connection.
   Add payload-free `HtspTransportEvent.MalformedMetadata(generation, count)`;
   adjacent pending reports coalesce and consume one metadata event slot, with

@@ -38,7 +38,7 @@ internal class HtspServiceConnectionAdmissionTest : HtspServiceLifecycleFixture(
                 val outcome = service.connect(HtspEndpoint("127.0.0.1", server.port)) as HtspConnectOutcome.Failed
                 assertEquals(HtspTransportFailureKind.INCOMPATIBLE_SERVER, outcome.failure.kind)
                 assertEquals(HtspConnectionState.Error(outcome.failure), service.connectionState.value)
-                assertNull(service.liveConnection.value)
+                assertNull(service.currentLiveConnection)
                 assertTrue(socket.isClosed)
             }
         }
@@ -53,7 +53,7 @@ internal class HtspServiceConnectionAdmissionTest : HtspServiceLifecycleFixture(
                 val outcome = service.connect(HtspEndpoint("127.0.0.1", server.port)) as HtspConnectOutcome.Failed
                 assertEquals(HtspTransportFailureKind.INCOMPATIBLE_SERVER, outcome.failure.kind)
                 assertEquals(HtspConnectionState.Error(outcome.failure), service.connectionState.value)
-                assertNull(service.liveConnection.value)
+                assertNull(service.currentLiveConnection)
                 assertTrue(socket.isClosed)
             }
         }
@@ -122,7 +122,7 @@ internal class HtspServiceConnectionAdmissionTest : HtspServiceLifecycleFixture(
                         withTimeout(1_000L) { stale.await() })
                     val connected = withTimeout(1_000L) { replacement.await() }
                         as HtspConnectOutcome.Connected
-                    assertSame(connected.connection, service.liveConnection.value)
+                    assertSame(connected.connection, service.currentLiveConnection)
                     assertEquals(1, serviceOwnedJobCount(service))
 
                     replacementServer.sendServerMessage("channelAdd", channelFixture(22L))
@@ -176,21 +176,21 @@ internal class HtspServiceConnectionAdmissionTest : HtspServiceLifecycleFixture(
                     }
                     withTimeout(1_000L) { replacementAdmitted.await() }
 
-                    assertNull(service.liveConnection.value)
+                    assertNull(service.currentLiveConnection)
                     assertTrue(!service.isCurrent(old))
                     assertTrue(!service.isCurrent(old))
-                    assertNull(service.liveConnection.value)
+                    assertNull(service.currentLiveConnection)
 
                     val newest = service.connect(HtspEndpoint("127.0.0.1", firstServer.port))
                         as HtspConnectOutcome.Connected
                     assertTrue(!service.isCurrent(old))
                     assertTrue(!service.isCurrent(old))
-                    assertSame(newest.connection, service.liveConnection.value)
+                    assertSame(newest.connection, service.currentLiveConnection)
 
                     resumeReplacement.complete(Unit)
                     assertEquals(HtspConnectOutcome.Failed(HtspTransportFailure(HtspTransportFailureKind.SUPERSEDED)),
                         withTimeout(1_000L) { replacement.await() })
-                    assertSame(newest.connection, service.liveConnection.value)
+                    assertSame(newest.connection, service.currentLiveConnection)
                     service.disconnect(newest.connection.generation)
                 }
             }
@@ -241,7 +241,7 @@ internal class HtspServiceConnectionAdmissionTest : HtspServiceLifecycleFixture(
                         resumeForced.complete(Unit)
                         assertEquals(HtspConnectOutcome.Failed(HtspTransportFailure(HtspTransportFailureKind.SUPERSEDED)),
                             withTimeout(1_000L) { forced.await() })
-                        assertSame(newest.connection, service.liveConnection.value)
+                        assertSame(newest.connection, service.currentLiveConnection)
                         newestServer.replyToCapturedPostHandshakeRequest()
                         assertEquals(
                             "newestRequest",

@@ -69,7 +69,7 @@ internal class HtspServiceHandshakeFactsTest : HtspServiceLifecycleFixture() {
                 assertEquals(listOf("hello"), server.handshakeMethods)
                 assertEquals(1L, server.authenticateRequestReceived.count)
                 assertTrue(server.handshakeFields.values.none { "username" in it || "digest" in it })
-                assertNull(service.liveConnection.value)
+                assertNull(service.currentLiveConnection)
                 service.disconnect()
             }
         }
@@ -226,7 +226,7 @@ internal class HtspServiceHandshakeFactsTest : HtspServiceLifecycleFixture() {
                 ))
 
                 val state = service.connectionState.value as HtspConnectionState.Connected
-                assertEquals(true, state.dvrAccess)
+                assertEquals(true, state.connection.dvrAccess)
                 assertEquals(listOf("hello", "authenticate"), server.handshakeMethods)
                 // No credentials configured: authenticate must stay bare so the server
                 // keeps the address-based anonymous rights.
@@ -304,7 +304,7 @@ internal class HtspServiceHandshakeFactsTest : HtspServiceLifecycleFixture() {
                 assertEquals(1L, facts.uiLevel)
                 assertEquals("de_DE", facts.uiLanguage)
                 // Existing DVR-capability derivation remains independent of the observation.
-                assertEquals(true, state.dvrAccess)
+                assertEquals(true, state.connection.dvrAccess)
 
                 mutableCapabilities += "mutated-after-decode"
                 assertEquals(listOf("timeshift", "htsp"), facts.serverCapabilities)

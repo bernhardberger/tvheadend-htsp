@@ -131,7 +131,7 @@ internal class HtspSpeedReplyIntegrationTest {
                 val pauseEventObserved = observation.awaitSpeed(PAUSED_SPEED)
                 val pauseTimeshiftObserved = observation.awaitTimeshiftAfterSpeed(PAUSED_SPEED)
 
-                val resumeResult = if (connection.liveConnection.value?.generation === live.generation) {
+                val resumeResult = if (connection.currentLiveConnection?.generation === live.generation) {
                     connection.subscriptionSpeed(
                         subscriptionId = SUBSCRIPTION_ID,
                         speed = NORMAL_SPEED,
@@ -167,7 +167,7 @@ internal class HtspSpeedReplyIntegrationTest {
                 )
                 assertSame(
                     live.generation,
-                    connection.liveConnection.value?.generation,
+                    connection.currentLiveConnection?.generation,
                     "Speed controls must preserve the live generation",
                 )
                 assertTrue(connection.isCurrent(live.generation), "Speed-control generation must remain current")
@@ -181,7 +181,7 @@ internal class HtspSpeedReplyIntegrationTest {
                         if (
                             subscribed &&
                             currentGeneration != null &&
-                            connection.liveConnection.value?.generation === currentGeneration
+                            connection.currentLiveConnection?.generation === currentGeneration
                         ) {
                             cleanupAcknowledged = connection.unsubscribe(
                                 subscriptionId = SUBSCRIPTION_ID,

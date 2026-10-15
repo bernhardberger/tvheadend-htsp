@@ -27,11 +27,10 @@ public interface HtspConnection {
      * Current lifecycle state; StateFlow may conflate transitions. A transport Error stays
      * until connect/disconnect/close. A failed connect reports through its outcome and
      * this state only; [HtspTransportEvent.ConnectionFailure] is the authoritative signal
-     * for unsolicited failures of live generations.
+     * for unsolicited failures of live generations. Connected carries its live connection
+     * atomically; Closed is terminal and never emits a ConnectionFailure for the owner close.
      */
     public val connectionState: StateFlow<HtspConnectionState>
-
-    public val liveConnection: StateFlow<HtspLiveConnection?>
 
     /**
      * Metadata and connection failures with replay zero and one bounded queue per collector.
@@ -84,6 +83,7 @@ public interface HtspConnection {
      * Executes one typed request. [timeoutMs] covers handshake/write serialization,
      * dispatch, socket write/flush, and the reply wait. Caller cancellation propagates;
      * a stale [expectedGeneration] before dispatch returns [HtspResult.TransportUnavailable].
+     * A closed client also returns TransportUnavailable; inspect [connectionState] for Closed.
      * A completed reply is returned unchanged even after generation replacement.
      */
     public suspend fun <R> execute(
@@ -95,6 +95,7 @@ public interface HtspConnection {
     /**
      * Starts or reuses a connection according to [endpoint] identity and [options].
      * Returns its own successful snapshot, or Failed(SUPERSEDED) if superseded before success.
+     * A call admitted after terminal close returns Failed(CLOSED).
      * Only cancellation of the calling coroutine propagates as cancellation.
      */
     public suspend fun connect(
@@ -127,6 +128,8 @@ public interface HtspConnection {
      * invalidates that generation, even if the attempt fails.
      * Reusing a live connection does not replace its generation. Owners wanting unconditional
      * terminal shutdown must call close() without an expected generation.
+     * Both successful variants publish [HtspConnectionState.Closed]; a stale expected generation
+     * leaves state untouched. Use [disconnect] for a reconnectable Disconnected state.
      * Cleanup completes even for a cancelled caller; only caller cancellation may then throw
      * CancellationException.
      */

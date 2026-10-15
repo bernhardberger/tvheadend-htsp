@@ -40,9 +40,12 @@ class TerminalLifecycleGateTest {
             assertEquals(1L, admitted.get(1, TimeUnit.SECONDS))
             assertEquals(2L, terminal.get(1, TimeUnit.SECONDS) ?: fail("Close must win"))
             assertTrue(closeCompleted.await(1, TimeUnit.SECONDS))
-            assertThrows(IllegalStateException::class.java) {
+            val rejected = assertThrows(TerminalLifecycleClosedException::class.java) {
                 gate.admit { fail("Admission block must not run") }
             }
+            assertEquals(HtspTransportFailureKind.CLOSED, typedTransportFailure(rejected).kind)
+            assertThrows(TerminalLifecycleClosedException::class.java) { gate.checkOpen() }
+            assertEquals(null, gate.close<Unit> { fail("Close block must not run twice") })
         } finally {
             releaseAdmission.countDown()
             executor.shutdownNow()

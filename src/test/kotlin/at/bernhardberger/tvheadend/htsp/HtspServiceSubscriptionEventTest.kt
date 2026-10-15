@@ -1651,7 +1651,7 @@ internal class HtspServiceSubscriptionEventTest : HtspServiceLifecycleFixture() 
                     events.filterIsInstance<HtspSubscriptionEvent.Speed>()
                         .map { event -> event.message.speed },
                 )
-                assertSame(live.connection.generation, service.liveConnection.value?.generation)
+                assertSame(live.connection.generation, service.currentLiveConnection?.generation)
 
                 server.sendServerMessage("subscriptionStop", statusFields(37L, "stopped"))
                 service.close()

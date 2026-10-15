@@ -148,7 +148,7 @@ internal class HtspServiceTypedEventTest : HtspServiceLifecycleFixture() {
                     assertFalse(malformed.toString().contains(it))
                 }
                 assertEquals(72L, ((events[2] as HtspTransportEvent.ServerMessage).message as HtspChannelAddMessage).channel.channelId)
-                assertSame(generation, service.liveConnection.value?.generation)
+                assertSame(generation, service.currentLiveConnection?.generation)
                 assertTrue(service.connectionState.value is HtspConnectionState.Connected)
                 collector.cancelAndJoin()
                 service.close()
@@ -166,7 +166,7 @@ internal class HtspServiceTypedEventTest : HtspServiceLifecycleFixture() {
                     afterPublicationCurrencyCheck = { queued.countDown() },
                 )
                 service.connect(HtspEndpoint("127.0.0.1", server.port))
-                val generation = service.liveConnection.value?.generation
+                val generation = service.currentLiveConnection?.generation
                 val sync = async(start = CoroutineStart.UNDISPATCHED) {
                     service.enableAsyncMetadataAwaitingInitialSync()
                 }
@@ -177,7 +177,7 @@ internal class HtspServiceTypedEventTest : HtspServiceLifecycleFixture() {
                     server.sendServerMessage("initialSyncCompleted")
                     assertTrue(queued.await(2L, TimeUnit.SECONDS))
                     assertSame(expected, withTimeout(2_000L) { sync.await() })
-                    assertSame(generation, service.liveConnection.value?.generation)
+                    assertSame(generation, service.currentLiveConnection?.generation)
                 } finally {
                     sync.cancelAndJoin()
                     service.close()
@@ -239,7 +239,7 @@ internal class HtspServiceTypedEventTest : HtspServiceLifecycleFixture() {
                 assertNull(autorec.creator)
                 assertTrue(events[1].message is HtspChannelAddMessage)
                 assertTrue(events.last().message is HtspInitialSyncCompletedMessage)
-                assertTrue(service.liveConnection.value != null)
+                assertTrue(service.currentLiveConnection != null)
 
                 collector.cancelAndJoin()
                 service.disconnect()
@@ -285,7 +285,7 @@ internal class HtspServiceTypedEventTest : HtspServiceLifecycleFixture() {
                 assertNull(timerec.startMinutesSinceMidnight)
                 assertNull(timerec.stopMinutesSinceMidnight)
                 assertTrue(events.last().message is HtspChannelAddMessage)
-                assertTrue(service.liveConnection.value != null)
+                assertTrue(service.currentLiveConnection != null)
 
                 collector.cancelAndJoin()
                 service.disconnect()

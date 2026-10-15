@@ -160,7 +160,7 @@ internal class HtspNearLiveIntegrationTest {
             assertEquals(0, metadata.connectionFailures(), "Near-live skip must not fail the transport")
             assertSame(
                 live.generation,
-                connection.liveConnection.value?.generation,
+                connection.currentLiveConnection?.generation,
                 "Near-live skip must preserve the live generation",
             )
             assertTrue(connection.isCurrent(live.generation), "Near-live generation must remain current")
@@ -173,7 +173,7 @@ internal class HtspNearLiveIntegrationTest {
                     if (
                         subscribed &&
                         currentGeneration != null &&
-                        connection.liveConnection.value?.generation === currentGeneration
+                        connection.currentLiveConnection?.generation === currentGeneration
                     ) {
                         cleanupAcknowledged = connection.unsubscribe(
                             subscriptionId = SUBSCRIPTION_ID,

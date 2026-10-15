@@ -4,19 +4,18 @@ package at.bernhardberger.tvheadend.htsp.connection
 public sealed class HtspConnectionState {
     /** No transport is currently connected or connecting. */
     public data object Disconnected : HtspConnectionState()
+    /** Terminal owner close; this client cannot reconnect. */
+    public data object Closed : HtspConnectionState()
     /** A connection attempt is in progress for the recorded host and port. */
     public data class Connecting(val host: String, val port: Int) : HtspConnectionState()
     /**
-     * @param protocolVersion Negotiated HTSP `htspversion`, a unitless version number;
-     * null means unknown (pinned htsp_server.c:1474–1487).
-     * @param dvrAccess HTSP `ACCESS_HTSP_RECORDER` from authenticate (version ≥ 26).
-     * null when unauthenticated or the field was not returned.
+     * One atomic snapshot of the endpoint and its live generation, including handshake facts.
+     * @param connection The live connection belonging to this state snapshot.
      */
     public data class Connected(
         val host: String,
         val port: Int,
-        val protocolVersion: Int?,
-        val dvrAccess: Boolean? = null,
+        val connection: HtspLiveConnection,
     ) : HtspConnectionState()
     /** A connection attempt or active transport failed. */
     public data class Error(val failure: HtspTransportFailure) : HtspConnectionState()

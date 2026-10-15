@@ -2,9 +2,17 @@ package at.bernhardberger.tvheadend.protocolconsumer
 
 import at.bernhardberger.tvheadend.htsp.connection.HtspConnection
 import at.bernhardberger.tvheadend.htsp.connection.HtspConnectionGeneration
+import at.bernhardberger.tvheadend.htsp.connection.HtspConnectionState
+import at.bernhardberger.tvheadend.htsp.connection.HtspConnectOutcome
+import at.bernhardberger.tvheadend.htsp.connection.HtspEndpoint
+import at.bernhardberger.tvheadend.htsp.connection.HtspLiveConnection
 import at.bernhardberger.tvheadend.htsp.connection.HtspResult
+import at.bernhardberger.tvheadend.htsp.connection.HtspServerFacts
 import at.bernhardberger.tvheadend.htsp.connection.HtspSubscriptionEvent
 import at.bernhardberger.tvheadend.htsp.connection.HtspSubscriptionTermination
+import at.bernhardberger.tvheadend.htsp.connection.HtspTransportEvent
+import at.bernhardberger.tvheadend.htsp.connection.HtspTransportFailure
+import at.bernhardberger.tvheadend.htsp.connection.HtspTransportFailureKind
 import at.bernhardberger.tvheadend.htsp.connection.createHtspConnection
 import at.bernhardberger.tvheadend.htsp.messages.HtspTimerecEntryAddMessage
 import at.bernhardberger.tvheadend.htsp.messages.HtspTimeshiftStatusMessage
@@ -21,10 +29,42 @@ import at.bernhardberger.tvheadend.htsp.requests.subscriptionSkipNearLive
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 class StagedExecuteRuntimeTest {
+    @Test
+    fun terminalClosedStateAndFailureKindAreAvailableFromTheStagedArtifact(): Unit = runBlocking {
+        val connection = createHtspConnection(Dispatchers.Unconfined)
+        assertTrue(connection.close())
+        assertSame(HtspConnectionState.Closed, connection.connectionState.value)
+        assertEquals(
+            HtspConnectOutcome.Failed(HtspTransportFailure(HtspTransportFailureKind.CLOSED)),
+            connection.connect(HtspEndpoint("127.0.0.1", 9982)),
+        )
+        assertSame(HtspResult.TransportUnavailable, connection.getSysTime())
+        assertFalse(connection.disconnect())
+        assertFalse(connection.close())
+        assertSame(HtspConnectionState.Closed, connection.connectionState.value)
+    }
+
+    @Test
+    fun connectedSnapshotAndNonNullFailureGenerationSupportConsumerConstructedTokens() {
+        val generation = HtspConnectionGeneration()
+        val live = HtspLiveConnection(generation, 44, true, HtspServerFacts())
+        val state = HtspConnectionState.Connected("fixture", 9982, live)
+        assertSame(live, state.connection)
+        assertSame(generation, state.connection.generation)
+        val failure = HtspTransportEvent.ConnectionFailure(
+            HtspTransportFailure(HtspTransportFailureKind.TRANSPORT_UNAVAILABLE),
+            generation,
+        )
+        val failedGeneration: HtspConnectionGeneration = failure.generation
+        assertSame(generation, failedGeneration)
+    }
+
     @Test
     fun correctedTimerecShapeIsAvailableFromTheStagedArtifact() {
         val allChannel = HtspTimerecEntryAddMessage(

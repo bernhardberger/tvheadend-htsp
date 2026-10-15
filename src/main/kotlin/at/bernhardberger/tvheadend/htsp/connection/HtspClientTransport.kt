@@ -65,6 +65,8 @@ public enum class HtspTransportFailureKind {
     INCOMPATIBLE_SERVER,
     ZERO_CHANNELS,
     TRANSPORT_UNAVAILABLE,
+    /** The owner terminally closed this client before the operation was admitted. */
+    CLOSED,
     /** A newer connection attempt, disconnect, or owner close superseded this attempt. */
     SUPERSEDED,
     /** The server reports a protocol version below [MINIMUM_HTSP_PROTOCOL_VERSION]. */
@@ -114,7 +116,7 @@ public sealed interface HtspTransportEvent {
     /** An unsolicited failure of an established live generation, never a failed connect attempt. */
     public data class ConnectionFailure(
         public val failure: HtspTransportFailure,
-        override val generation: HtspConnectionGeneration?,
+        override val generation: HtspConnectionGeneration,
     ) : HtspTransportEvent
 
     /**
@@ -224,6 +226,7 @@ internal class HtspAuthenticationRejectedException : Exception()
 internal fun typedTransportFailure(error: Throwable): HtspTransportFailure {
     val chain = generateSequence(error as Throwable?) { current -> current.cause }.toList()
     val kind = when {
+        chain.any { it is TerminalLifecycleClosedException } -> HtspTransportFailureKind.CLOSED
         chain.any { it is MetadataPermissionDeniedException } ->
             HtspTransportFailureKind.PERMISSION_DENIED
         chain.any { it is UnknownHostException } -> HtspTransportFailureKind.HOST_NOT_FOUND

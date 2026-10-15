@@ -14,14 +14,13 @@ internal class HtspAttemptMonitor(
     private val _state = MutableStateFlow<HtspConnectionState>(HtspConnectionState.Disconnected)
     val connectionState: StateFlow<HtspConnectionState> = _state.asStateFlow()
 
-    private val _liveConnection = MutableStateFlow<HtspLiveConnection?>(null)
-    val liveConnection: StateFlow<HtspLiveConnection?> = _liveConnection.asStateFlow()
-
     private val connectionAttemptLock = Any()
     private val pendingWakeups = linkedSetOf<Channel<Unit>>()
     private val pendingReplies = mutableListOf<Pair<CompletableDeferred<HtspWireMessage>, HtspWireMessage>>()
-    internal data class StateSnapshot(val version: Long, val state: HtspConnectionState, val live: HtspLiveConnection?)
-    private var internalState = StateSnapshot(0L, HtspConnectionState.Disconnected, null)
+    internal data class StateSnapshot(val version: Long, val state: HtspConnectionState) {
+        val live: HtspLiveConnection? get() = (state as? HtspConnectionState.Connected)?.connection
+    }
+    private var internalState = StateSnapshot(0L, HtspConnectionState.Disconnected)
     private var pendingState: StateSnapshot? = null
     private val statePublicationMonitor = Any()
     private var publishedStateVersion = 0L
@@ -31,11 +30,10 @@ internal class HtspAttemptMonitor(
         return internalState
     }
 
-    fun recordStateLocked(state: HtspConnectionState, live: HtspLiveConnection? = null) {
+    fun recordStateLocked(state: HtspConnectionState) {
         val previous = stateLocked()
-        check((state is HtspConnectionState.Connected) == (live != null))
-        if (previous.state == state && previous.live == live) return
-        internalState = StateSnapshot(previous.version + 1L, state, live)
+        if (previous.state == state) return
+        internalState = StateSnapshot(previous.version + 1L, state)
         pendingState = internalState
     }
 
@@ -45,16 +43,7 @@ internal class HtspAttemptMonitor(
         kotlin.synchronized(statePublicationMonitor) {
             if (snapshot.version <= publishedStateVersion) return
             publishedStateVersion = snapshot.version
-            // Native StateFlows cannot be updated atomically as a pair. This ordering
-            // never exposes Connected with no live connection. A reentrant callback may
-            // publish a newer snapshot in either setter: never apply the older tail then.
-            if (snapshot.live == null) {
-                _state.value = snapshot.state
-                if (publishedStateVersion == snapshot.version) _liveConnection.value = null
-            } else {
-                _liveConnection.value = snapshot.live
-                if (publishedStateVersion == snapshot.version) _state.value = snapshot.state
-            }
+            _state.value = snapshot.state
         }
     }
 

@@ -64,14 +64,12 @@ internal class HtspReviewDeliveryRegressionTest : HtspServiceLifecycleFixture() 
     }
 
     @Test
-    fun nativeStateFlowsRunOnSubscriptionBeforeReplay(): Unit = runBlocking {
+    fun nativeConnectionStateRunsOnSubscriptionBeforeReplay(): Unit = runBlocking {
         val service = service()
         try {
-            for (flow in listOf(service.connectionState, service.liveConnection)) {
-                val order = mutableListOf<String>()
-                flow.onSubscription { order += "subscription" }.onEach { order += "replay" }.first()
-                assertEquals(listOf("subscription", "replay"), order)
-            }
+            val order = mutableListOf<String>()
+            service.connectionState.onSubscription { order += "subscription" }.onEach { order += "replay" }.first()
+            assertEquals(listOf("subscription", "replay"), order)
         } finally {
             service.close()
         }
@@ -112,7 +110,7 @@ internal class HtspReviewDeliveryRegressionTest : HtspServiceLifecycleFixture() 
                     withTimeout(2_000L) { first.await() }
                 }
                 assertEquals(newer, service.connectionState.value)
-                assertNull(service.liveConnection.value)
+                assertNull(service.currentLiveConnection)
             }
             assertEquals((1..20).map { it * 2 }, observed)
         } finally {
@@ -161,14 +159,12 @@ internal class HtspReviewDeliveryRegressionTest : HtspServiceLifecycleFixture() 
     }
 
     @Test
-    fun unconfinedDisconnectDuringEitherStatePublicationConvergesWithoutDeadlock(): Unit = runBlocking {
-        for (fromLiveConnection in listOf(false, true)) {
+    fun unconfinedDisconnectDuringStatePublicationConvergesWithoutDeadlock(): Unit = runBlocking {
             FakeHtspServer(respondToHello = true).use { server ->
                 val service = service()
                 val disconnected = CompletableDeferred<Boolean>()
                 val observer = launch(Dispatchers.Unconfined, start = CoroutineStart.UNDISPATCHED) {
-                    if (fromLiveConnection) service.liveConnection.first { it != null }
-                    else service.connectionState.first { it is HtspConnectionState.Connected }
+                    service.connectionState.first { it is HtspConnectionState.Connected }
                     disconnected.complete(service.disconnect())
                 }
                 try {
@@ -176,14 +172,13 @@ internal class HtspReviewDeliveryRegressionTest : HtspServiceLifecycleFixture() 
                     assertTrue(withTimeout(2_000L) { disconnected.await() })
                     withTimeout(2_000L) { connect.await() }
                     assertEquals(HtspConnectionState.Disconnected, service.connectionState.value)
-                    assertNull(service.liveConnection.value)
+                    assertNull(service.currentLiveConnection)
                     assertEquals(service.currentConnectionState(), service.connectionState.value)
                 } finally {
                     observer.cancelAndJoin()
                     service.close()
                 }
             }
-        }
     }
 
     @Test
@@ -193,7 +188,6 @@ internal class HtspReviewDeliveryRegressionTest : HtspServiceLifecycleFixture() 
             service.connect(HtspEndpoint("127.0.0.1", server.port))
             val lock = service.attemptLockForTest()
             val stateReady = CompletableDeferred<Unit>()
-            val liveReady = CompletableDeferred<Unit>()
             val state = async(Dispatchers.Unconfined, start = CoroutineStart.UNDISPATCHED) {
                 service.connectionState.onEach {
                     assertFalse(Thread.holdsLock(lock))
@@ -202,21 +196,12 @@ internal class HtspReviewDeliveryRegressionTest : HtspServiceLifecycleFixture() 
                     .first { it is HtspConnectionState.Error }
                 Thread.holdsLock(lock)
             }
-            val live = async(Dispatchers.Unconfined, start = CoroutineStart.UNDISPATCHED) {
-                service.liveConnection.onEach {
-                    assertFalse(Thread.holdsLock(lock))
-                    if (it != null) liveReady.complete(Unit)
-                }.first { it == null }
-                Thread.holdsLock(lock)
-            }
             try {
-                withTimeout(2_000L) { stateReady.await(); liveReady.await() }
+                withTimeout(2_000L) { stateReady.await() }
                 server.closeClientTransport()
                 assertFalse(withTimeout(2_000L) { state.await() }, "state collector ran under lifecycle lock")
-                assertFalse(withTimeout(2_000L) { live.await() }, "live collector ran under lifecycle lock")
             } finally {
                 state.cancelAndJoin()
-                live.cancelAndJoin()
                 service.close()
             }
         }
@@ -311,7 +296,7 @@ internal class HtspReviewDeliveryRegressionTest : HtspServiceLifecycleFixture() 
                 assertInstanceOf(HtspResult.Ok::class.java, service.execute(GetProfilesRequest(), timeoutMs = 2_000L))
                 server.sendServerMessage("muxpkt", muxPacketFields(2, subscriptionId = 2L))
                 withTimeout(2_000L) { other.await() }
-                assertNotNull(service.liveConnection.value)
+                assertNotNull(service.currentLiveConnection)
             } finally {
                 release.countDown()
                 collector.cancelAndJoin()
@@ -480,7 +465,7 @@ internal class HtspReviewDeliveryRegressionTest : HtspServiceLifecycleFixture() 
                 assertTrue(queued.await(2, TimeUnit.SECONDS))
                 // Polling the queue takes the lock, so collection waits for that publication to finish.
                 assertSame(HtspResult.TransportUnavailable, withTimeout(2_000L) { sync.await() })
-                assertNotNull(service.liveConnection.value)
+                assertNotNull(service.currentLiveConnection)
             } finally {
                 sync.cancelAndJoin()
                 service.close()

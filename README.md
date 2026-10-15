@@ -257,21 +257,24 @@ are returned unchanged even if their generation was replaced in flight.
 means stale or no-op. Disconnect after close returns false; cleanup still completes
 for cancelled callers. Connects superseded by another connect, disconnect, or owner close return
 `Failed(SUPERSEDED)`. Only caller cancellation propagates as cancellation.
+Both owner-global `close()` and successful `close(currentGeneration)` publish
+terminal `Closed`; later connects return `Failed(CLOSED)`. A stale generation
+close leaves the replacement untouched. Owner close emits no `ConnectionFailure`.
 After failure, lifecycle `Error` remains until connect/disconnect/close, but
 StateFlow may conflate transitions. Failed connects return their outcome to the
 caller and sticky Error to observers, with no failure event. `ConnectionFailure`
 reports only unsolicited failures of live generations and is authoritative.
 
-The state properties are native StateFlows: synchronous `value` reads may briefly
+`connectionState` is a native StateFlow: synchronous `value` reads may briefly
 lag internal state, but publication is eventual and older snapshots never replace
 newer ones. The library never invokes consumer code under its lifecycle or queue
 locks. `Dispatchers.Unconfined` (or another immediate dispatcher) can run consumers
 on library threads, including the transport reader: do not block them. A blocking
 immediate consumer can delay delivery to others, including another thread publishing
 state; blocking on another lifecycle operation from an immediate state consumer can
-deadlock. Use a real dispatcher for consumers. `connectionState` and `liveConnection`
-are not an atomic read pair: route requests through `liveConnection.value` and its
-`generation`, and never `!!` it because `connectionState` read `Connected`.
+deadlock. Use a real dispatcher for consumers. `Connected(host, port, connection)`
+atomically carries its live connection, including generation and handshake facts.
+Route requests through that connection's `generation` fence.
 
 The `events` flow has an independent bounded queue per collector. Immutable
 decoded messages may be shared; queue saturation never blocks the reader,

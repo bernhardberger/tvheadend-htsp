@@ -70,7 +70,6 @@ internal open class `HtspService-internal`(
 ) : HtspRequestTransport, HtspConnection {
     private val attemptMonitor = HtspAttemptMonitor(beforeStatePublication)
     override val connectionState: StateFlow<HtspConnectionState> = attemptMonitor.connectionState
-    override val liveConnection: StateFlow<HtspLiveConnection?> = attemptMonitor.liveConnection
 
     private val metadataCollectors = mutableSetOf<HtspMetadataEventBuffer>()
     override val events: Flow<HtspTransportEvent> = flow {
@@ -303,12 +302,9 @@ internal open class `HtspService-internal`(
 
                     publishConnectedState(
                             attemptId = attemptId,
-                            state = HtspConnectionState.Connected(
-                                host = endpoint.host,
-                                port = endpoint.port,
-                                protocolVersion = handshake?.version,
-                                dvrAccess = dvrAccess,
-                            ),
+                            endpoint = endpoint,
+                            protocolVersion = handshake?.version,
+                            dvrAccess = dvrAccess,
                             serverFacts = serverFacts,
                             connectionIdentity = requestedIdentity,
                         ) ?: attemptMonitor.withAttemptLock {
@@ -739,7 +735,11 @@ internal open class `HtspService-internal`(
     }
 
     internal fun beginClose(): Long? = attemptMonitor.withAttemptLock {
-        lifecycle.close { beginConnectionAttempt(HtspSubscriptionTermination.LOCAL_RETIREMENT) }
+        lifecycle.close {
+            beginConnectionAttempt(HtspSubscriptionTermination.LOCAL_RETIREMENT).also {
+                attemptMonitor.recordStateLocked(HtspConnectionState.Closed)
+            }
+        }
     }
 
     internal suspend fun finishClose(attemptId: Long) {
@@ -750,7 +750,7 @@ internal open class `HtspService-internal`(
                     disconnectInternal(
                         t = CancellationException("HTSP service closed"),
                         attemptId = attemptId,
-                        publishState = true,
+                        publishState = false,
                         termination = HtspSubscriptionTermination.LOCAL_RETIREMENT,
                     )
                 }
@@ -957,9 +957,10 @@ internal open class `HtspService-internal`(
                         typedTransportFailure(failure)
                     }
                     attemptMonitor.recordStateLocked(HtspConnectionState.Error(typedFailure))
-                    if (protocolGeneration?.established == true) typedEvent = HtspTransportEvent.ConnectionFailure(
+                    val generation = protocolGeneration
+                    if (generation?.established == true) typedEvent = HtspTransportEvent.ConnectionFailure(
                         failure = typedFailure,
-                        generation = protocolGeneration?.token,
+                        generation = generation.token,
                     )
                 }
             terminateSubscriptionStreamsLocked(protocolGeneration, termination)
@@ -1000,7 +1001,7 @@ internal open class `HtspService-internal`(
     private fun HtspTransportEvent.matchesCurrentGenerationLocked(): Boolean = when (this) {
         is HtspTransportEvent.ServerMessage -> protocolGeneration?.token === generation
         is HtspTransportEvent.ConnectionFailure ->
-            generation == null || protocolGeneration?.token === generation
+            protocolGeneration?.token === generation
         else -> false
     }
 
@@ -1245,8 +1246,7 @@ internal open class `HtspService-internal`(
                     serviceGeneration.protocolVersion = version
                     liveServerFacts = facts
                     attemptMonitor.recordStateLocked(
-                        connectedState.copy(protocolVersion = version),
-                        live.copy(protocolVersion = version, serverFacts = facts),
+                        connectedState.copy(connection = live.copy(protocolVersion = version, serverFacts = facts)),
                     )
                 }
                 request is AuthenticateRequest && result is HtspResult.Ok -> {
@@ -1256,14 +1256,15 @@ internal open class `HtspService-internal`(
                     val dvrAccess = if ((handshake?.version ?: 0) > 25) auth.dvr else null
                     liveServerFacts = facts
                     attemptMonitor.recordStateLocked(
-                        connectedState.copy(dvrAccess = dvrAccess),
-                        live.copy(dvrAccess = dvrAccess, serverFacts = facts),
+                        connectedState.copy(connection = live.copy(dvrAccess = dvrAccess, serverFacts = facts)),
                     )
                 }
                 request is AuthenticateRequest && result === HtspResult.AccessDenied -> {
                     val facts = (liveServerFacts ?: HtspServerFacts()).withoutAuthenticateObservations()
                     liveServerFacts = facts
-                    attemptMonitor.recordStateLocked(connectedState.copy(dvrAccess = null), live.copy(dvrAccess = null, serverFacts = facts))
+                    attemptMonitor.recordStateLocked(
+                        connectedState.copy(connection = live.copy(dvrAccess = null, serverFacts = facts)),
+                    )
                 }
             }
         }
@@ -1306,7 +1307,9 @@ internal open class `HtspService-internal`(
 
     private fun publishConnectedState(
         attemptId: Long,
-        state: HtspConnectionState.Connected,
+        endpoint: HtspEndpoint,
+        protocolVersion: Int?,
+        dvrAccess: Boolean?,
         serverFacts: HtspServerFacts,
         connectionIdentity: HtspConnectionIdentity,
     ): HtspLiveConnection? = attemptMonitor.withAttemptLock {
@@ -1319,11 +1322,11 @@ internal open class `HtspService-internal`(
         generation.established = true
         val live = HtspLiveConnection(
             generation = generation.token,
-            protocolVersion = state.protocolVersion,
-            dvrAccess = state.dvrAccess,
+            protocolVersion = protocolVersion,
+            dvrAccess = dvrAccess,
             serverFacts = serverFacts,
         )
-        attemptMonitor.recordStateLocked(state, live)
+        attemptMonitor.recordStateLocked(HtspConnectionState.Connected(endpoint.host, endpoint.port, live))
         live
     }
 

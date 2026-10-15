@@ -8,7 +8,7 @@ internal class `TerminalLifecycleGate-internal`(
     private var closed = false
 
     fun <T> admit(block: () -> T): T = synchronized(lock) {
-        check(!closed) { closedMessage }
+        if (closed) throw TerminalLifecycleClosedException(closedMessage)
         block()
     }
 
@@ -20,9 +20,13 @@ internal class `TerminalLifecycleGate-internal`(
 
     fun checkOpen() {
         synchronized(lock) {
-            check(!closed) { closedMessage }
+            if (closed) throw TerminalLifecycleClosedException(closedMessage)
         }
     }
 }
 
 internal typealias TerminalLifecycleGate = `TerminalLifecycleGate-internal`
+
+internal class `TerminalLifecycleClosedException-internal`(message: String) : IllegalStateException(message)
+
+internal typealias TerminalLifecycleClosedException = `TerminalLifecycleClosedException-internal`

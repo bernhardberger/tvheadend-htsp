@@ -324,12 +324,12 @@ class HtspConnectionSocketFactoryTest {
         val connection = createHtspConnection(Dispatchers.IO, socketFactory = { socket })
         try {
             assertTrue(connection.connect(HtspEndpoint("127.0.0.1", 9_982)) is HtspConnectOutcome.Connected)
-            val generation = requireNotNull(connection.liveConnection.value).generation
+            val generation = requireNotNull(connection.currentLiveConnection).generation
 
             assertSame(HtspResult.TransportUnavailable, connection.getSysTime())
             assertTrue(socket.isClosed)
             assertTrue(connection.isCurrent(generation))
-            assertNull(connection.liveConnection.value)
+            assertNull(connection.currentLiveConnection)
             assertSame(HtspResult.TransportUnavailable, connection.getSysTime())
             assertEquals(1, socket.postHandshakeWriteAttempts.get())
             assertEquals(listOf("hello", "authenticate"), socket.requests().map { it.method })
@@ -413,7 +413,7 @@ class HtspConnectionSocketFactoryTest {
                         assertTrue(runCatching { call.await() }.exceptionOrNull() is CancellationException)
                     }
                     assertTrue(socket.isClosed)
-                    assertNull(connection.liveConnection.value)
+                    assertNull(connection.currentLiveConnection)
                     assertSame(HtspResult.TransportUnavailable, connection.getSysTime())
                     withTimeout(1_000L) { reader.join() }
                     if (!ownedTimeout) {
@@ -469,7 +469,7 @@ class HtspConnectionSocketFactoryTest {
                 withTimeout(1_000L) { queued.cancelAndJoin() }
             }
             assertTrue(!socket.isClosed)
-            assertTrue(connection.liveConnection.value != null)
+            assertTrue(connection.currentLiveConnection != null)
             assertEquals(1, socket.postHandshakeWriteAttempts.get())
             released.countDown()
             assertTrue(withTimeout(1_000L) { writer.await() } is HtspResult.Ok)
@@ -516,7 +516,7 @@ class HtspConnectionSocketFactoryTest {
             val connection = createHtspConnection(dispatcher, socketFactory = { socket })
             try {
                 assertTrue(connection.connect(HtspEndpoint("127.0.0.1", 9_982)) is HtspConnectOutcome.Connected)
-                val generation = requireNotNull(connection.liveConnection.value).generation
+                val generation = requireNotNull(connection.currentLiveConnection).generation
                 armed.set(true)
                 val request = async(Dispatchers.IO) {
                     connection.getSysTime(timeoutMs = if (ownedTimeout) 500L else 2_000L)
@@ -604,7 +604,7 @@ class HtspConnectionSocketFactoryTest {
             }
             try {
                 assertTrue(connection.connect(HtspEndpoint("127.0.0.1", 9_982)) is HtspConnectOutcome.Connected)
-                val generation = requireNotNull(connection.liveConnection.value).generation
+                val generation = requireNotNull(connection.currentLiveConnection).generation
                 val holder = thread(name = "hold-htsp-admission") {
                     check(dispatchReached.await(3, TimeUnit.SECONDS))
                     synchronized(connection.attemptLockForTest()) {
@@ -620,7 +620,7 @@ class HtspConnectionSocketFactoryTest {
                 holder.join(1_000L)
                 assertSame(HtspResult.Timeout, withTimeout(1_000L) { request.await() })
                 assertEquals(listOf("hello", "authenticate"), socket.requests().map { it.method })
-                assertTrue(connection.liveConnection.value != null)
+                assertTrue(connection.currentLiveConnection != null)
             } finally {
                 release.countDown()
                 connection.close()
@@ -727,7 +727,7 @@ class HtspConnectionSocketFactoryTest {
             withTimeout(1_000L) { call.join() }
             assertTrue(socket.isClosed)
             assertNull(socket.connectThread)
-            assertNull(connection.liveConnection.value)
+            assertNull(connection.currentLiveConnection)
         } finally {
             released.countDown()
             connection.close()

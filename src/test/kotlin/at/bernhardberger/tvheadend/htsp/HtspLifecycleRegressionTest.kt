@@ -123,12 +123,12 @@ internal class HtspLifecycleRegressionTest : HtspServiceLifecycleFixture() {
                 runBlocking {
                     val connect = async { service.connect(HtspEndpoint("127.0.0.1", first.port)) }
                     withTimeout(1_000L) { captured.await() }
-                    val old = service.liveConnection.value
+                    val old = service.currentLiveConnection
                     val newer = service.connect(HtspEndpoint("127.0.0.1", second.port)) as HtspConnectOutcome.Connected
                     resume.complete(Unit)
                     assertSame(old, (connect.await() as HtspConnectOutcome.Connected).connection)
                     assertNotSame(old, newer.connection)
-                    assertSame(newer.connection, service.liveConnection.value)
+                    assertSame(newer.connection, service.currentLiveConnection)
                     service.close()
                 }
             }
@@ -202,7 +202,7 @@ internal class HtspLifecycleRegressionTest : HtspServiceLifecycleFixture() {
                 }
                 owner.join()
                 assertTrue(socket.isClosed)
-                assertNull(service.liveConnection.value)
+                assertNull(service.currentLiveConnection)
                 assertFalse(service.disconnect())
                 if (close) {
                     val job = HtspService::class.java.getDeclaredField("serviceJob").apply { isAccessible = true }.get(service) as Job
@@ -291,12 +291,9 @@ internal class HtspLifecycleRegressionTest : HtspServiceLifecycleFixture() {
                 service.connect(HtspEndpoint("127.0.0.1", server.port))
                 assertTrue(reading.await(2, TimeUnit.SECONDS))
                 val reader = serviceReaderJob(service)
-                val pairs = java.util.concurrent.CopyOnWriteArrayList<Pair<HtspConnectionState, HtspLiveConnection?>>()
+                val states = java.util.concurrent.CopyOnWriteArrayList<HtspConnectionState>()
                 val stateObserver = launch(Dispatchers.Unconfined, start = CoroutineStart.UNDISPATCHED) {
-                    service.connectionState.collect { pairs += it to service.liveConnection.value }
-                }
-                val liveObserver = launch(Dispatchers.Unconfined, start = CoroutineStart.UNDISPATCHED) {
-                    service.liveConnection.collect { pairs += service.connectionState.value to it }
+                    service.connectionState.collect { states += it }
                 }
                 try {
                     failWrites.set(writeFailure)
@@ -308,17 +305,19 @@ internal class HtspLifecycleRegressionTest : HtspServiceLifecycleFixture() {
                     val failure = HtspTransportFailure(if (writeFailure) HtspTransportFailureKind.TRANSPORT_UNAVAILABLE
                         else HtspTransportFailureKind.CONNECTION_TIMEOUT)
                     assertEquals(HtspConnectionState.Error(failure), service.connectionState.value)
-                    assertNull(service.liveConnection.value)
+                    assertNull(service.currentLiveConnection)
                     assertTrue(failures.isEmpty(), "Reader has not yet run failAll")
                     resumeReader.countDown()
                     withTimeout(2_000L) { reader.join() }
                     assertEquals(listOf(failure), failures.map { it.failure })
                     assertEquals(HtspConnectionState.Error(failure), service.connectionState.value)
-                    assertTrue(pairs.none { (state, live) -> state is HtspConnectionState.Connected && live == null })
+                    assertTrue(states.first() is HtspConnectionState.Connected)
+                    assertEquals(HtspConnectionState.Error(failure), states.last())
+                    val generation: HtspConnectionGeneration = failures.single().generation
+                    assertSame((states.first() as HtspConnectionState.Connected).connection.generation, generation)
                 } finally {
                     resumeReader.countDown()
                     stateObserver.cancelAndJoin()
-                    liveObserver.cancelAndJoin()
                     service.close()
                 }
             }
@@ -380,7 +379,7 @@ internal class HtspLifecycleRegressionTest : HtspServiceLifecycleFixture() {
                 val newer = (service.connect(HtspEndpoint("127.0.0.1", second.port)) as HtspConnectOutcome.Connected).connection
                 resume.complete(Unit)
                 assertFalse(disconnect.await())
-                assertSame(newer, service.liveConnection.value)
+                assertSame(newer, service.currentLiveConnection)
                 service.close()
             }
         }

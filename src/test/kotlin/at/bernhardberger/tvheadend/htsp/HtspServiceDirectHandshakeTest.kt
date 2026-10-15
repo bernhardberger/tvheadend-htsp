@@ -13,6 +13,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -190,6 +191,7 @@ internal class HtspServiceDirectHandshakeTest : HtspServiceLifecycleFixture() {
                     service.events.first { it is HtspTransportEvent.ConnectionFailure }
                         as HtspTransportEvent.ConnectionFailure
                 }
+                val generation = requireNotNull(service.currentLiveConnection).generation
                 val errorState = async(Dispatchers.Unconfined, start = CoroutineStart.UNDISPATCHED) {
                     service.connectionState.first { it is HtspConnectionState.Error }
                 }
@@ -200,8 +202,11 @@ internal class HtspServiceDirectHandshakeTest : HtspServiceLifecycleFixture() {
                 val failure = HtspTransportFailure(HtspTransportFailureKind.UNSUPPORTED_SERVER_VERSION)
                 assertEquals(HtspConnectionState.Error(failure), withTimeout(1_000) { errorState.await() })
                 assertEquals(HtspConnectionState.Error(failure), service.connectionState.value)
-                assertNull(service.liveConnection.value)
-                assertEquals(failure, withTimeout(1_000) { failureEvent.await() }.failure)
+                assertNull(service.currentLiveConnection)
+                val event = withTimeout(1_000) { failureEvent.await() }
+                assertEquals(failure, event.failure)
+                val failedGeneration: HtspConnectionGeneration = event.generation
+                assertSame(generation, failedGeneration)
                 service.disconnect()
             }
         }
@@ -244,7 +249,7 @@ internal class HtspServiceDirectHandshakeTest : HtspServiceLifecycleFixture() {
                     HtspResult.TransportUnavailable,
                     withTimeout(1_000) { service.execute(HelloRequest(36L, "floor-client"), timeoutMs = 1_000) },
                 )
-                assertNull(service.liveConnection.value)
+                assertNull(service.currentLiveConnection)
                 assertTrue(service.connectionState.value is HtspConnectionState.Error)
                 assertTrue(failures.isEmpty())
                 // A second handshake is not trapped behind the first call's handshake mutex.
@@ -296,7 +301,7 @@ internal class HtspServiceDirectHandshakeTest : HtspServiceLifecycleFixture() {
                 assertTrue(withTimeout(1_000) { call.await() } is HtspResult.Ok)
                 service.close()
                 assertTrue(states.none { it is HtspConnectionState.Error })
-                assertEquals(HtspConnectionState.Disconnected, states.last())
+                assertEquals(HtspConnectionState.Closed, states.last())
                 assertTrue(failures.isEmpty())
                 stateCollector.cancel()
                 eventCollector.cancel()
@@ -323,7 +328,11 @@ internal class HtspServiceDirectHandshakeTest : HtspServiceLifecycleFixture() {
                     HtspConnectOptions(connectTimeoutMs = 1_000, responseTimeoutMs = 1_000, socketReadTimeoutMs = 50),
                     HtspClientIdentity.Default,
                 ))
-                val generation = requireNotNull(service.liveConnection.value).generation
+                val before = service.connectionState.value as HtspConnectionState.Connected
+                val generation = before.connection.generation
+                val snapshots = async(Dispatchers.Unconfined, start = CoroutineStart.UNDISPATCHED) {
+                    withTimeout(2_000L) { service.connectionState.take(2).toList() }
+                }
 
                 assertEquals(
                     HtspResult.Ok(
@@ -354,15 +363,20 @@ internal class HtspServiceDirectHandshakeTest : HtspServiceLifecycleFixture() {
                         key != "method" && key != "seq"
                     },
                 )
-                val live = requireNotNull(service.liveConnection.value)
+                val live = requireNotNull(service.currentLiveConnection)
                 assertSame(generation, live.generation)
                 assertEquals(36, live.protocolVersion)
                 assertEquals("recaptured-server", live.serverFacts.serverName)
                 assertEquals(true, live.serverFacts.dvr)
                 assertEquals(true, live.dvrAccess)
                 val state = service.connectionState.value as HtspConnectionState.Connected
-                assertEquals(36, state.protocolVersion)
-                assertEquals(true, state.dvrAccess)
+                assertSame(live, state.connection)
+                assertEquals(36, state.connection.protocolVersion)
+                assertEquals(true, state.connection.dvrAccess)
+                assertEquals(listOf(before, state), snapshots.await())
+                assertSame(generation, before.connection.generation)
+                assertEquals(43, before.connection.protocolVersion)
+                assertTrue(before.connection.serverFacts.serverName != "recaptured-server")
                 assertSame(
                     HtspResult.NotSupported,
                     service.execute(
@@ -401,7 +415,7 @@ internal class HtspServiceDirectHandshakeTest : HtspServiceLifecycleFixture() {
                     HtspConnectOptions(connectTimeoutMs = 1_000, responseTimeoutMs = 1_000, socketReadTimeoutMs = 50),
                     HtspClientIdentity.Default,
                 ))
-                val before = requireNotNull(service.liveConnection.value)
+                val before = requireNotNull(service.currentLiveConnection)
 
                 assertEquals(
                     HtspResult.Ok(
@@ -432,7 +446,7 @@ internal class HtspServiceDirectHandshakeTest : HtspServiceLifecycleFixture() {
                         key != "method" && key != "seq"
                     },
                 )
-                val after = requireNotNull(service.liveConnection.value)
+                val after = requireNotNull(service.currentLiveConnection)
                 assertSame(before.generation, after.generation)
                 assertEquals(before.protocolVersion, after.protocolVersion)
                 assertEquals("stable-server", after.serverFacts.serverName)
@@ -442,7 +456,7 @@ internal class HtspServiceDirectHandshakeTest : HtspServiceLifecycleFixture() {
                 assertEquals(true, after.dvrAccess)
                 assertEquals(
                     true,
-                    (service.connectionState.value as HtspConnectionState.Connected).dvrAccess,
+                    (service.connectionState.value as HtspConnectionState.Connected).connection.dvrAccess,
                 )
                 service.disconnect()
             }
@@ -469,14 +483,14 @@ internal class HtspServiceDirectHandshakeTest : HtspServiceLifecycleFixture() {
                     HtspConnectOptions(connectTimeoutMs = 1_000, responseTimeoutMs = 1_000, socketReadTimeoutMs = 50),
                     HtspClientIdentity.Default,
                 ))
-                val before = requireNotNull(service.liveConnection.value)
+                val before = requireNotNull(service.currentLiveConnection)
 
                 assertSame(
                     HtspResult.AccessDenied,
                     service.authenticate(1_000L, before.generation),
                 )
 
-                val after = requireNotNull(service.liveConnection.value)
+                val after = requireNotNull(service.currentLiveConnection)
                 assertSame(before.generation, after.generation)
                 assertEquals(before.protocolVersion, after.protocolVersion)
                 assertEquals("preserved-server", after.serverFacts.serverName)
@@ -484,7 +498,7 @@ internal class HtspServiceDirectHandshakeTest : HtspServiceLifecycleFixture() {
                 assertNull(after.serverFacts.streaming)
                 assertNull(after.serverFacts.dvr)
                 assertNull(after.dvrAccess)
-                assertNull((service.connectionState.value as HtspConnectionState.Connected).dvrAccess)
+                assertNull((service.connectionState.value as HtspConnectionState.Connected).connection.dvrAccess)
                 service.disconnect()
             }
         }
@@ -509,7 +523,7 @@ internal class HtspServiceDirectHandshakeTest : HtspServiceLifecycleFixture() {
                     HtspConnectOptions(connectTimeoutMs = 1_000, responseTimeoutMs = 1_000, socketReadTimeoutMs = 50),
                     HtspClientIdentity.Default,
                 ))
-                val generation = requireNotNull(service.liveConnection.value).generation
+                val generation = requireNotNull(service.currentLiveConnection).generation
                 val ordinary = async(Dispatchers.IO) {
                     service.getProfiles(timeoutMs = 5_000L, expectedGeneration = generation)
                 }
@@ -524,7 +538,7 @@ internal class HtspServiceDirectHandshakeTest : HtspServiceLifecycleFixture() {
                     HtspResult.Ok(GetProfilesResponse(null)),
                     withTimeout(1_000L) { ordinary.await() },
                 )
-                assertSame(generation, service.liveConnection.value?.generation)
+                assertSame(generation, service.currentLiveConnection?.generation)
                 service.disconnect()
             }
         }
@@ -550,7 +564,7 @@ internal class HtspServiceDirectHandshakeTest : HtspServiceLifecycleFixture() {
                     HtspConnectOptions(connectTimeoutMs = 1_000, responseTimeoutMs = 1_000, socketReadTimeoutMs = 50),
                     HtspClientIdentity.Default,
                 ))
-                val generation = requireNotNull(service.liveConnection.value).generation
+                val generation = requireNotNull(service.currentLiveConnection).generation
                 val ordinary = async(Dispatchers.IO) {
                     service.getProfiles(timeoutMs = 5_000L, expectedGeneration = generation)
                 }
@@ -566,7 +580,7 @@ internal class HtspServiceDirectHandshakeTest : HtspServiceLifecycleFixture() {
                     HtspResult.Ok(GetProfilesResponse(null)),
                     withTimeout(1_000L) { ordinary.await() },
                 )
-                assertSame(generation, service.liveConnection.value?.generation)
+                assertSame(generation, service.currentLiveConnection?.generation)
                 service.disconnect()
             }
         }
@@ -607,7 +621,7 @@ internal class HtspServiceDirectHandshakeTest : HtspServiceLifecycleFixture() {
                     HtspConnectOptions(connectTimeoutMs = 1_000, responseTimeoutMs = 1_000, socketReadTimeoutMs = 50),
                     HtspClientIdentity.Default,
                 ))
-                val generation = requireNotNull(service.liveConnection.value).generation
+                val generation = requireNotNull(service.currentLiveConnection).generation
                 val first = async(Dispatchers.IO) {
                     service.hello(36L, "first-client", 5_000L, generation)
                 }
@@ -634,7 +648,7 @@ internal class HtspServiceDirectHandshakeTest : HtspServiceLifecycleFixture() {
                 )
                 assertTrue(second.await() is HtspResult.Ok)
 
-                val live = requireNotNull(service.liveConnection.value)
+                val live = requireNotNull(service.currentLiveConnection)
                 assertSame(generation, live.generation)
                 assertEquals(37, live.protocolVersion)
                 assertEquals("second-direct-hello", live.serverFacts.serverName)
@@ -679,7 +693,7 @@ internal class HtspServiceDirectHandshakeTest : HtspServiceLifecycleFixture() {
                     HtspConnectOptions(connectTimeoutMs = 1_000, responseTimeoutMs = 1_000, socketReadTimeoutMs = 50),
                     HtspClientIdentity.Default,
                 ))
-                val generation = requireNotNull(service.liveConnection.value).generation
+                val generation = requireNotNull(service.currentLiveConnection).generation
                 val first = async(Dispatchers.IO) {
                     service.authenticate(5_000L, generation)
                 }
@@ -706,7 +720,7 @@ internal class HtspServiceDirectHandshakeTest : HtspServiceLifecycleFixture() {
                 )
                 assertTrue(second.await() is HtspResult.Ok)
 
-                val live = requireNotNull(service.liveConnection.value)
+                val live = requireNotNull(service.currentLiveConnection)
                 assertSame(generation, live.generation)
                 assertEquals(false, live.serverFacts.admin)
                 assertEquals(true, live.serverFacts.dvr)
@@ -748,7 +762,7 @@ internal class HtspServiceDirectHandshakeTest : HtspServiceLifecycleFixture() {
                     HtspConnectOptions(connectTimeoutMs = 1_000, responseTimeoutMs = 1_000, socketReadTimeoutMs = 50),
                     HtspClientIdentity.Default,
                 ))
-                val generation = requireNotNull(service.liveConnection.value).generation
+                val generation = requireNotNull(service.currentLiveConnection).generation
                 val first = async(Dispatchers.IO) {
                     service.hello(44L, "first-client", 5_000L, generation)
                 }
@@ -761,7 +775,7 @@ internal class HtspServiceDirectHandshakeTest : HtspServiceLifecycleFixture() {
                 val cancellation = runCatching { waiting.await() }.exceptionOrNull()
                 assertTrue(cancellation is CancellationException)
                 assertSame(HtspResult.Timeout, service.authenticate(50L, generation))
-                assertTrue(service.liveConnection.value != null)
+                assertTrue(service.currentLiveConnection != null)
                 assertTrue(!server.awaitPostHandshakeRequestCount(2, 150L))
                 assertTrue(service.isCurrent(generation))
 
@@ -814,7 +828,7 @@ internal class HtspServiceDirectHandshakeTest : HtspServiceLifecycleFixture() {
                     HtspConnectOptions(connectTimeoutMs = 1_000, responseTimeoutMs = 1_000, socketReadTimeoutMs = 50),
                     HtspClientIdentity.Default,
                 ))
-                val generation = requireNotNull(service.liveConnection.value).generation
+                val generation = requireNotNull(service.currentLiveConnection).generation
                 val subscription = async(start = CoroutineStart.UNDISPATCHED) {
                     service.subscriptionEvents(38L, generation).toList()
                 }
@@ -822,8 +836,7 @@ internal class HtspServiceDirectHandshakeTest : HtspServiceLifecycleFixture() {
                 assertSame(HtspResult.Timeout, service.hello(44L, "timeout-client", 100L, generation))
                 assertTrue(server.awaitPostHandshakeRequestCount(1, 1_000L))
                 assertTrue(service.isCurrent(generation))
-                assertNull(service.liveConnection.value)
-                assertNull(service.liveConnection.value)
+                assertNull(service.currentLiveConnection)
                 assertSame(HtspResult.TransportUnavailable, service.getProfiles())
                 assertEquals(
                     listOf(
@@ -854,7 +867,7 @@ internal class HtspServiceDirectHandshakeTest : HtspServiceLifecycleFixture() {
                     HtspConnectOptions(connectTimeoutMs = 1_000, responseTimeoutMs = 1_000, socketReadTimeoutMs = 50),
                     HtspClientIdentity.Default,
                 ))
-                val generation = requireNotNull(service.liveConnection.value).generation
+                val generation = requireNotNull(service.currentLiveConnection).generation
                 val observedCancellation = CompletableDeferred<Throwable>()
                 val call = launch(Dispatchers.IO) {
                     try {
@@ -870,8 +883,7 @@ internal class HtspServiceDirectHandshakeTest : HtspServiceLifecycleFixture() {
                 call.join()
                 assertTrue(withTimeout(1_000L) { observedCancellation.await() } is CancellationException)
                 assertTrue(service.isCurrent(generation))
-                assertNull(service.liveConnection.value)
-                assertNull(service.liveConnection.value)
+                assertNull(service.currentLiveConnection)
                 assertSame(HtspResult.TransportUnavailable, service.getProfiles())
                 assertEquals(1, server.postHandshakeMethods().size)
                 withTimeout(1_000L) {
@@ -896,15 +908,14 @@ internal class HtspServiceDirectHandshakeTest : HtspServiceLifecycleFixture() {
                     HtspConnectOptions(connectTimeoutMs = 1_000, responseTimeoutMs = 1_000, socketReadTimeoutMs = 50),
                     HtspClientIdentity.Default,
                 ))
-                val generation = requireNotNull(service.liveConnection.value).generation
+                val generation = requireNotNull(service.currentLiveConnection).generation
                 val subscription = async(start = CoroutineStart.UNDISPATCHED) {
                     service.subscriptionEvents(39L, generation).toList()
                 }
 
                 assertEquals(HtspResult.MalformedReply, service.hello(44L, "malformed-client", 1_000L, generation))
                 assertTrue(service.isCurrent(generation))
-                assertNull(service.liveConnection.value)
-                assertNull(service.liveConnection.value)
+                assertNull(service.currentLiveConnection)
                 assertSame(HtspResult.TransportUnavailable, service.getProfiles())
                 assertEquals(
                     listOf(
@@ -941,7 +952,7 @@ internal class HtspServiceDirectHandshakeTest : HtspServiceLifecycleFixture() {
                     HtspConnectOptions(connectTimeoutMs = 1_000, responseTimeoutMs = 1_000, socketReadTimeoutMs = 50),
                     HtspClientIdentity.Default,
                 ))
-                val generation = requireNotNull(service.liveConnection.value).generation
+                val generation = requireNotNull(service.currentLiveConnection).generation
 
                 val result = service.hello(
                     protocolVersion = 0xffff_ffffL,
@@ -952,11 +963,11 @@ internal class HtspServiceDirectHandshakeTest : HtspServiceLifecycleFixture() {
                 assertTrue(result is HtspResult.Ok)
                 assertEquals(0xffff_ffffL, (result as HtspResult.Ok).value.protocolVersion)
                 assertEquals(HtspBinary(recapturedChallenge), result.value.challenge)
-                val live = requireNotNull(service.liveConnection.value)
+                val live = requireNotNull(service.currentLiveConnection)
                 assertSame(generation, live.generation)
                 assertNull(live.protocolVersion)
                 assertEquals("u32-server", live.serverFacts.serverName)
-                assertNull((service.connectionState.value as HtspConnectionState.Connected).protocolVersion)
+                assertNull((service.connectionState.value as HtspConnectionState.Connected).connection.protocolVersion)
                 assertSame(HtspResult.NotSupported, service.getSysTime(expectedGeneration = generation))
                 assertEquals(listOf("hello"), server.postHandshakeMethods())
                 service.disconnect()
@@ -999,7 +1010,7 @@ internal class HtspServiceDirectHandshakeTest : HtspServiceLifecycleFixture() {
                         HtspConnectOptions(connectTimeoutMs = 1_000, responseTimeoutMs = 1_000, socketReadTimeoutMs = 50),
                         HtspClientIdentity.Default,
                     ))
-                    val staleGeneration = requireNotNull(service.liveConnection.value).generation
+                    val staleGeneration = requireNotNull(service.currentLiveConnection).generation
                     val staleHello = async(Dispatchers.IO) {
                         runCatching {
                             service.hello(36L, "stale-client", 1_000L, staleGeneration)
@@ -1012,11 +1023,11 @@ internal class HtspServiceDirectHandshakeTest : HtspServiceLifecycleFixture() {
                         HtspConnectOptions(connectTimeoutMs = 1_000, responseTimeoutMs = 1_000, socketReadTimeoutMs = 50),
                         HtspClientIdentity.Default,
                     ))
-                    val replacement = requireNotNull(service.liveConnection.value)
+                    val replacement = requireNotNull(service.currentLiveConnection)
                     resumeRecapture.complete(Unit)
 
                     assertTrue(withTimeout(1_000L) { staleHello.await() } is HtspResult.Ok)
-                    val current = requireNotNull(service.liveConnection.value)
+                    val current = requireNotNull(service.currentLiveConnection)
                     assertSame(replacement.generation, current.generation)
                     assertEquals(43, current.protocolVersion)
                     assertEquals("replacement-server", current.serverFacts.serverName)

@@ -48,7 +48,7 @@ internal class HtspServiceRequestTimeoutTest : HtspServiceLifecycleFixture() {
                     HtspConnectOptions(),
                     HtspClientIdentity.Default,
                 ))
-                val generation = requireNotNull(service.liveConnection.value).generation
+                val generation = requireNotNull(service.currentLiveConnection).generation
                 val events = async(start = CoroutineStart.UNDISPATCHED) {
                     service.subscriptionEvents(47L, generation).toList()
                 }
@@ -60,7 +60,7 @@ internal class HtspServiceRequestTimeoutTest : HtspServiceLifecycleFixture() {
 
                 assertSame(HtspResult.TransportUnavailable, withTimeout(1_000L) { request.await() })
                 assertTrue(service.isCurrent(generation))
-                assertNull(service.liveConnection.value)
+                assertNull(service.currentLiveConnection)
                 assertSame(HtspResult.TransportUnavailable, service.getProfiles(expectedGeneration = generation))
                 assertEquals(
                     listOf(HtspSubscriptionEvent.Terminated(HtspSubscriptionTermination.REMOTE_EOF)),
@@ -93,7 +93,7 @@ internal class HtspServiceRequestTimeoutTest : HtspServiceLifecycleFixture() {
                     HtspConnectOptions(),
                     HtspClientIdentity.Default,
                 ))
-                val generation = requireNotNull(service.liveConnection.value).generation
+                val generation = requireNotNull(service.currentLiveConnection).generation
                 val failure = async(start = CoroutineStart.UNDISPATCHED) {
                     service.events.first { it is HtspTransportEvent.ConnectionFailure }
                 }
@@ -101,7 +101,7 @@ internal class HtspServiceRequestTimeoutTest : HtspServiceLifecycleFixture() {
                 withTimeout(1_000L) { recaptureReached.await() }
                 server.closeClientTransport()
                 withTimeout(1_000L) { failure.await() }
-                assertNull(service.liveConnection.value)
+                assertNull(service.currentLiveConnection)
                 resumeRecapture.complete(Unit)
                 assertEquals(HtspResult.Ok(GetProfilesResponse(null)), withTimeout(1_000L) { request.await() })
                 assertTrue(service.isCurrent(generation))
@@ -183,9 +183,9 @@ internal class HtspServiceRequestTimeoutTest : HtspServiceLifecycleFixture() {
                     clock.set(300_000_000L)
                     val previousCycle = readCycles.get()
                     withTimeout(1_000L) {
-                        while (readCycles.get() == previousCycle && service.liveConnection.value != null) delay(1L)
+                        while (readCycles.get() == previousCycle && service.currentLiveConnection != null) delay(1L)
                     }
-                    assertNotNull(service.liveConnection.value)
+                    assertNotNull(service.currentLiveConnection)
                     assertTrue(!request.isCompleted)
                     assertEquals(emptyList<String>(), server.postHandshakeMethods())
                     release.countDown()
@@ -237,7 +237,7 @@ internal class HtspServiceRequestTimeoutTest : HtspServiceLifecycleFixture() {
                     )
                     val transportFailure = withTimeout(1_000L) { failure.await() } as HtspTransportEvent.ConnectionFailure
                     assertEquals(HtspTransportFailureKind.CONNECTION_TIMEOUT, transportFailure.failure.kind)
-                    assertNull(service.liveConnection.value)
+                    assertNull(service.currentLiveConnection)
                     request?.let { assertSame(HtspResult.TransportUnavailable, withTimeout(1_000L) { it.await() }) }
                 } finally {
                     service.close()
@@ -404,7 +404,7 @@ internal class HtspServiceRequestTimeoutTest : HtspServiceLifecycleFixture() {
                 withTimeout(1_000L) {
                     service.connectionState.first { state -> state is HtspConnectionState.Error }
                 }
-                assertNull(service.liveConnection.value)
+                assertNull(service.currentLiveConnection)
             }
         }
     }
@@ -557,10 +557,10 @@ internal class HtspServiceRequestTimeoutTest : HtspServiceLifecycleFixture() {
                 assertTrue(server.postHandshakeRequestReceived.await(1, TimeUnit.SECONDS))
                 request.cancelAndJoin()
 
-                assertNotNull(service.liveConnection.value)
+                assertNotNull(service.currentLiveConnection)
                 assertEquals(attemptId, service.currentConnectionAttemptId())
                 service.disconnect()
-                assertNull(service.liveConnection.value)
+                assertNull(service.currentLiveConnection)
                 assertEquals(attemptId + 1L, service.currentConnectionAttemptId())
             }
         }

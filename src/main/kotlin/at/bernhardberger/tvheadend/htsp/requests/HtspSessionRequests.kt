@@ -253,7 +253,7 @@ public suspend fun HtspConnection.enableAsyncMetadataAwaitingInitialSync(
 ): HtspResult<Unit> {
     require(timeoutMs > 0L) { "timeoutMs must be positive" }
     currentCoroutineContext().ensureActive()
-    val generation = liveConnection.value?.generation
+    val generation = (connectionState.value as? HtspConnectionState.Connected)?.connection?.generation
         ?: return HtspResult.TransportUnavailable
     if (expectedGeneration != null && expectedGeneration !== generation) {
         return HtspResult.TransportUnavailable
@@ -292,7 +292,9 @@ public suspend fun HtspConnection.enableAsyncMetadataAwaitingInitialSync(
                 }
             }
             val generationObserver = launch(start = CoroutineStart.UNDISPATCHED) {
-                liveConnection.first { connection -> connection?.generation !== generation }
+                connectionState.first { state ->
+                    (state as? HtspConnectionState.Connected)?.connection?.generation !== generation
+                }
                 terminal.complete(HtspResult.TransportUnavailable)
             }
             val acknowledgement = async(start = CoroutineStart.UNDISPATCHED) {
@@ -322,7 +324,7 @@ public suspend fun HtspConnection.enableAsyncMetadataAwaitingInitialSync(
                             }
                             if (terminalBeforeMarker) {
                                 terminal.await()
-                            } else if (liveConnection.value?.generation !== generation) {
+                            } else if ((connectionState.value as? HtspConnectionState.Connected)?.connection?.generation !== generation) {
                                 HtspResult.TransportUnavailable
                             } else if (terminal.isCompleted) {
                                 terminal.await()

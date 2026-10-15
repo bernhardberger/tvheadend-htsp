@@ -120,7 +120,8 @@ generation fence before request dispatch instead returns `HtspResult.TransportUn
 `disconnect` and `close` return Boolean: true means this call changed state, false
 means a stale fence or nothing to do. Disconnect retires an attempt/transport or
 clears sticky Error to Disconnected; already disconnected or closed returns false.
-Close returns true only on the first actual close, including from Disconnected.
+Close returns true only on the first actual close, including from Disconnected,
+and publishes terminal `HtspConnectionState.Closed`.
 Both decide atomically with transport retirement and leave replacements untouched.
 Disconnect keeps the current generation, as does plain transport loss, so
 `close(generation)` can still close the service after either event. A later admitted
@@ -128,6 +129,12 @@ connect attempt invalidates that generation, even if the attempt fails.
 A reused live connection does not replace its generation. A stale `close(generation)`
 does not terminally close the service; owners wanting unconditional terminal shutdown
 must call `close()` without a generation.
+Both `close()` and a successful `close(currentGeneration)` terminally close the
+client. Later `connect` calls return `Failed(CLOSED)` without changing `Closed`;
+`disconnect` and repeated `close` calls return false. Request calls still return
+the existing `HtspResult.TransportUnavailable` (which has no failure-kind payload);
+use `connectionState` to distinguish terminal closure from a reconnectable disconnect.
+Owner close does not emit `ConnectionFailure`.
 Cleanup completes even for an already-cancelled caller, then propagates caller cancellation.
 A connect superseded by another connect, disconnect, or owner close
 returns `HtspConnectOutcome.Failed` with `SUPERSEDED`, not cancellation.
@@ -146,8 +153,9 @@ not after a server-acknowledged mutation.
 Use generation identities to reject stale application work in consumer-owned
 serialization.
 To migrate from removed `commitIfCurrent`/`commitIfLive`, snapshot
-`liveConnection.value`, compare its `generation`, and tag application state with
-that generation under application-owned serialization.
+`connectionState.value`, take `connection` when it is `HtspConnectionState.Connected`,
+compare its `generation`, and tag application state with that generation under
+application-owned serialization.
 
 Socket creation, DNS resolution, connect, and writes run on the supplied I/O
 dispatcher; it must accommodate concurrent blocking reader and writer work, such
@@ -171,21 +179,21 @@ remain idle indefinitely.
 ## Metadata and subscription event streams
 
 `HtspConnection.connectionState` exposes the service-owned current lifecycle as
-a native hot `StateFlow<HtspConnectionState>`; `liveConnection` is also a native
-StateFlow, including `onSubscription` semantics. Synchronous `value` reads may
-briefly lag internal truth. Publication is eventual, never backwards: older
-snapshots cannot replace newer ones. The two flows are not an atomic read pair;
-publication orders them so `Connected` is never exposed with a null live connection
-at any single instant, but two separate reads (or `combine` on a multi-threaded
-dispatcher) can still observe `Connected` followed by a null live connection. Route
-requests through `liveConnection.value` and its `generation`; never `!!` it because
-`connectionState` read `Connected`.
+a native hot `StateFlow<HtspConnectionState>`, including `onSubscription` semantics.
+`Connected(host, port, connection)` carries its non-null `HtspLiveConnection` in
+the same atomic snapshot. Read `generation`, `protocolVersion`, `dvrAccess`, and
+`serverFacts` through that `connection`; there is no separate `liveConnection` flow.
+Re-hello and authenticate updates replace the Connected snapshot atomically with
+the updated connection facts. Synchronous `value` reads may briefly lag internal
+truth. Publication is eventual, never backwards: older snapshots cannot replace
+newer ones. Route requests using the captured connection's `generation` fence.
 StateFlow conflation
 applies, so consumers should treat it as current state rather than an audit log
 of every short-lived transition. After transport failure, `Error(failure)` stays
 until the next `connect`, `disconnect`, or `close`. The unbudgeted
-`ConnectionFailure` event reports unsolicited failures only of established live
-generations (including direct-hello rejection). Failed connect attempts report only
+`ConnectionFailure` event carries a non-null `generation` and reports unsolicited
+failures only of established live generations (including direct-hello rejection).
+Failed connect attempts report only
 their `HtspConnectOutcome.Failed` to the caller and sticky Error to state observers,
 not a ConnectionFailure event. Live failure events are authoritative, not a count of
 observed state transitions. Failure transitions directly to Error without an intermediate

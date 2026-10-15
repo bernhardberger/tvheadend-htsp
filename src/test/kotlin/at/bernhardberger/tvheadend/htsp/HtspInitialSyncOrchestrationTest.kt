@@ -135,6 +135,31 @@ internal class HtspInitialSyncOrchestrationTest {
     }
 
     @Test
+    fun connectedReplacementAloneCancelsPendingSyncAcknowledgement() = runTest {
+        val connection = ScriptedConnection(HtspConnectionGeneration())
+        val requestStarted = CompletableDeferred<Unit>()
+        val requestCancelled = CompletableDeferred<Unit>()
+        connection.executeScript = { _, _, _ ->
+            requestStarted.complete(Unit)
+            try {
+                awaitCancellation()
+            } finally {
+                requestCancelled.complete(Unit)
+            }
+        }
+        val result = async(start = CoroutineStart.UNDISPATCHED) {
+            connection.enableAsyncMetadataAwaitingInitialSync()
+        }
+
+        requestStarted.await()
+        connection.replace(HtspConnectionGeneration())
+
+        assertSame(HtspResult.TransportUnavailable, result.await())
+        assertTrue(requestCancelled.isCompleted)
+        assertEquals(0, connection.eventSource.subscriptionCount.value)
+    }
+
+    @Test
     fun transportLossReturnsTypedFailureAndCallerCancellationPropagates() = runTest {
         val transportLoss = ScriptedConnection(HtspConnectionGeneration())
         val requestStarted = CompletableDeferred<Unit>()
@@ -226,7 +251,7 @@ internal class HtspInitialSyncOrchestrationTest {
 
         assertSame(HtspResult.MalformedReply, result.await())
         assertTrue(requestCancelled.isCompleted)
-        assertSame(generation, connection.liveConnection.value?.generation)
+        assertSame(generation, connection.currentLiveConnection?.generation)
         assertEquals(0, connection.eventSource.subscriptionCount.value)
     }
 
@@ -290,13 +315,10 @@ internal class HtspInitialSyncOrchestrationTest {
     ) : HtspConnection {
         val eventSource = MutableSharedFlow<HtspTransportEvent>()
         private var currentLive: HtspLiveConnection? = liveConnection(generation)
-        private val observedLive = MutableStateFlow(currentLive)
+        private val observedState = MutableStateFlow<HtspConnectionState>(connectedState())
         var currentGeneration: HtspConnectionGeneration = generation
             private set
         private var messageSequence = 0L
-
-        override val connectionState: StateFlow<HtspConnectionState> =
-            MutableStateFlow(HtspConnectionState.Disconnected)
 
         lateinit var executeScript: suspend ScriptedConnection.(
             EnableAsyncMetadataRequest,
@@ -304,15 +326,15 @@ internal class HtspInitialSyncOrchestrationTest {
             HtspConnectionGeneration?,
         ) -> HtspResult<HtspEmptyResponse>
 
-        override val liveConnection: StateFlow<HtspLiveConnection?> = object : StateFlow<HtspLiveConnection?> {
-            override val value: HtspLiveConnection?
-                get() = currentLive
+        override val connectionState: StateFlow<HtspConnectionState> = object : StateFlow<HtspConnectionState> {
+            override val value: HtspConnectionState
+                get() = connectedState()
 
-            override val replayCache: List<HtspLiveConnection?>
-                get() = listOf(currentLive)
+            override val replayCache: List<HtspConnectionState>
+                get() = listOf(value)
 
-            override suspend fun collect(collector: FlowCollector<HtspLiveConnection?>): Nothing =
-                observedLive.collect(collector)
+            override suspend fun collect(collector: FlowCollector<HtspConnectionState>): Nothing =
+                observedState.collect(collector)
         }
         override val events: Flow<HtspTransportEvent> = eventSource
 
@@ -342,7 +364,7 @@ internal class HtspInitialSyncOrchestrationTest {
             currentGeneration === generation
 
         override suspend fun disconnect(expectedGeneration: HtspConnectionGeneration?): Boolean {
-            if ((expectedGeneration != null && expectedGeneration !== currentGeneration) || liveConnection.value == null) return false
+            if ((expectedGeneration != null && expectedGeneration !== currentGeneration) || currentLive == null) return false
             updateLive(null)
             return true
         }
@@ -371,14 +393,23 @@ internal class HtspInitialSyncOrchestrationTest {
             currentLive = liveConnection(generation)
         }
 
+        fun replace(generation: HtspConnectionGeneration) {
+            replaceWithDelayedObservation(generation)
+            observedState.value = connectedState()
+        }
+
         fun loseTransport() {
             updateLive(null)
         }
 
         private fun updateLive(connection: HtspLiveConnection?) {
             currentLive = connection
-            observedLive.value = connection
+            observedState.value = connectedState()
         }
+
+        private fun connectedState(): HtspConnectionState = currentLive?.let {
+            HtspConnectionState.Connected("fixture", 9982, it)
+        } ?: if (closed) HtspConnectionState.Closed else HtspConnectionState.Disconnected
 
         private fun liveConnection(generation: HtspConnectionGeneration): HtspLiveConnection =
             HtspLiveConnection(
