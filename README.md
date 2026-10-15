@@ -7,9 +7,9 @@
 
 A Kotlin/JVM client for HTSP, the binary protocol that
 [TVHeadend](https://github.com/tvheadend/tvheadend) servers use for channels,
-EPG data, recordings and live streams. You work with typed requests, replies and
-server messages on coroutines and flows instead of raw method names and field
-maps.
+EPG (electronic programme guide) data, DVR (digital video recorder) recordings
+and live streams. You work with typed requests, replies and server messages on
+coroutines and flows instead of raw method names and field maps.
 
 Every server round trip returns a typed outcome. An access denial, a timeout or
 a lost connection is a value you handle, not an exception you catch, and

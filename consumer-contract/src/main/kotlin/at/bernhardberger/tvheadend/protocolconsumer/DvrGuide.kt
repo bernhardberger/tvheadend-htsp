@@ -34,6 +34,7 @@ import at.bernhardberger.tvheadend.htsp.requests.deleteDvrEntry
 import at.bernhardberger.tvheadend.htsp.requests.fileClose
 import at.bernhardberger.tvheadend.htsp.requests.fileOpen
 import at.bernhardberger.tvheadend.htsp.requests.fileRead
+import at.bernhardberger.tvheadend.htsp.requests.getDvrConfigs
 import at.bernhardberger.tvheadend.htsp.requests.stopDvrEntry
 import at.bernhardberger.tvheadend.htsp.requests.updateAutorecEntry
 import at.bernhardberger.tvheadend.htsp.requests.updateDvrEntry
@@ -156,6 +157,48 @@ suspend fun deleteRecording(
     entryId: Long,
 ): HtspResult<DeleteDvrEntryResponse> =
     connection.deleteDvrEntry(entryId, expectedGeneration = live.generation)
+// endregion
+
+// region rename-keep-config
+sealed interface RenameOutcome {
+    /** The server acknowledged the update; watch the book for the result. */
+    data object Acknowledged : RenameOutcome
+
+    /** The entry has no configuration, or `getDvrConfigs` does not list it. Nothing was sent. */
+    data object ConfigNotFound : RenameOutcome
+
+    /** Several configurations share the entry's configuration name. Nothing was sent. */
+    data object ConfigNameNotUnique : RenameOutcome
+
+    /** `getDvrConfigs` or the update failed. */
+    data class Failed(val failure: HtspFailure) : RenameOutcome
+}
+
+suspend fun renameKeepingConfig(
+    connection: HtspConnection,
+    live: HtspLiveConnection,
+    entry: HtspDvrEntry,
+    title: String,
+): RenameOutcome {
+    val configUuid = entry.dvrConfigUuid ?: return RenameOutcome.ConfigNotFound
+    val configs = when (val result = connection.getDvrConfigs(expectedGeneration = live.generation)) {
+        is HtspResult.Ok -> result.value.configurations.orEmpty()
+        is HtspFailure -> return RenameOutcome.Failed(result)
+    }
+    val config = configs.firstOrNull { it.dvrConfigUuid == configUuid } ?: return RenameOutcome.ConfigNotFound
+    if (configs.count { it.name == config.name } > 1) return RenameOutcome.ConfigNameNotUnique
+    return when (
+        val result = connection.updateDvrEntry(
+            entryId = entry.entryId,
+            configName = config.name,
+            title = title,
+            expectedGeneration = live.generation,
+        )
+    ) {
+        is HtspResult.Ok -> RenameOutcome.Acknowledged
+        is HtspFailure -> RenameOutcome.Failed(result)
+    }
+}
 // endregion
 
 // region await-state

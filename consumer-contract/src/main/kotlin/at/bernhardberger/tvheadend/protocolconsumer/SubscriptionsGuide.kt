@@ -23,6 +23,7 @@ import kotlinx.coroutines.launch
 class StreamHandler(
     private val onStarted: (HtspSubscriptionStartMessage) -> Unit,
     private val onPacket: (HtspMuxPacketMessage) -> Unit,
+    /** Gets the `Terminated` reason, or null when the flow completed without one. */
     private val onEnded: (HtspSubscriptionTermination?) -> Unit,
 ) {
     /** The latest timeshift status, which `subscriptionSkipNearLive` needs. */
@@ -31,6 +32,11 @@ class StreamHandler(
 
     /** Streams that have had a keyframe since the last start or gap. */
     private val synced = mutableSetOf<Long>()
+
+    private var termination: HtspSubscriptionTermination? = null
+
+    /** Call once the flow has completed, after the last `handle`. */
+    fun flowCompleted() = onEnded(termination)
 
     fun handle(event: HtspSubscriptionEvent) {
         when (event) {
@@ -46,7 +52,7 @@ class StreamHandler(
             }
             is HtspSubscriptionEvent.Dropped -> synced.clear()
             is HtspSubscriptionEvent.Timeshift -> timeshift = event.message
-            is HtspSubscriptionEvent.Terminated -> onEnded(event.reason)
+            is HtspSubscriptionEvent.Terminated -> termination = event.reason
             else -> Unit
         }
     }
@@ -63,6 +69,7 @@ suspend fun CoroutineScope.startStream(
 ): Job? {
     val collector = launch(start = CoroutineStart.UNDISPATCHED) {
         connection.subscriptionEvents(subscriptionId, live.generation).collect(handler::handle)
+        handler.flowCompleted()
     }
     val result = connection.subscribe(
         subscriptionId = subscriptionId,

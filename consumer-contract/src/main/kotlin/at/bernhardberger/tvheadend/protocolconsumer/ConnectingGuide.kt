@@ -53,11 +53,20 @@ fun adviceFor(kind: HtspTransportFailureKind): String = when (kind) {
 // endregion
 
 // region failure-policy
-enum class FailureAction { CHECK_ACCESS, RETRY_LATER, RECONNECT, UNSUPPORTED, REJECTED, REVIEW_SERVER_STATE }
+enum class FailureAction {
+    CHECK_ACCESS,
+    RETRY_LATER,
+    RETRY_IF_REPEATABLE,
+    RECONNECT,
+    UNSUPPORTED,
+    REJECTED,
+    REVIEW_SERVER_STATE,
+}
 
 fun actionFor(failure: HtspFailure): FailureAction = when (failure) {
     HtspResult.AccessDenied -> FailureAction.CHECK_ACCESS
-    HtspResult.ConnectionLimit, HtspResult.Timeout -> FailureAction.RETRY_LATER
+    HtspResult.ConnectionLimit -> FailureAction.RETRY_LATER
+    HtspResult.Timeout -> FailureAction.RETRY_IF_REPEATABLE
     HtspResult.TransportUnavailable -> FailureAction.RECONNECT
     HtspResult.NotSupported -> FailureAction.UNSUPPORTED
     HtspResult.MalformedReply -> FailureAction.REVIEW_SERVER_STATE

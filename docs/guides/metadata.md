@@ -78,6 +78,13 @@ collector decides whether the state is complete. Callers must not run two of
 these helpers at once on the same generation, because the marker carries no
 request sequence.
 
+The helper returning is not the point at which your own state is ready. Your
+collector may still be working through messages ahead of the marker, so publish
+"ready" from the collector instead. `ChannelDirectory`, shown below, sets
+`ready` when it processes `HtspInitialSyncCompletedMessage` for its generation,
+and the UI waits for that flag. It says the marker arrived, not that every row
+did; `incomplete` still decides whether to trust the state.
+
 The options select what the server sends:
 
 - `epg` turns EPG events on or off. Left null, it keeps the server's current
@@ -128,6 +135,11 @@ generations, looks like this:
 class ChannelDirectory(private val generation: HtspConnectionGeneration) {
     private val channels = mutableMapOf<Long, HtspChannel>()
     private val tags = mutableMapOf<Long, HtspTag>()
+    private val events = mutableMapOf<Long, HtspEvent>()
+    private val readyState = MutableStateFlow(false)
+
+    /** True once this store has processed the initial sync marker of its generation. */
+    val ready: StateFlow<Boolean> get() = readyState
 
     /** True once this generation lost or could not decode metadata. */
     var incomplete = false
@@ -166,11 +178,17 @@ class ChannelDirectory(private val generation: HtspConnectionGeneration) {
                     }
             }
             is HtspTagDeleteMessage -> tags.remove(message.tagId)
+            is HtspEventAddMessage -> events[message.event.eventId] = message.event
+            is HtspEventUpdateMessage -> events[message.event.eventId] = message.event
+            is HtspEventDeleteMessage -> events.remove(message.eventId)
+            is HtspInitialSyncCompletedMessage -> readyState.value = true
             else -> Unit
         }
     }
 
     fun channel(channelId: Long): HtspChannel? = channels[channelId]
+
+    fun event(eventId: Long): HtspEvent? = events[eventId]
 }
 ```
 
@@ -185,6 +203,55 @@ structurally, copy their lists into immutable snapshots, and keep `toString()`
 output redacted, but what to keep, index and persist is application code. The
 [decision record](../adr/0002-entity-model-and-update-semantics.md) explains the
 update rules and why the store stays out of the library.
+
+## Now and next with programme titles
+
+A channel and its `HtspChannelNowNextMessage` carry event ids, not titles. To
+show what is on, keep the EPG events as well. `ChannelDirectory` above stores
+them by event id: `HtspEventAddMessage` and
+`HtspEventUpdateMessage` each carry the full event and replace the stored one,
+and `HtspEventDeleteMessage` removes it. `HtspChannel.currentEventId` and
+`nextEventId` then join a channel to its events, and zero means the channel has
+no such event:
+
+<!-- source: consumer-contract/src/main/kotlin/at/bernhardberger/tvheadend/protocolconsumer/MetadataGuide.kt#now-next -->
+```kotlin
+sealed interface Programme {
+    /** The channel has no such event; the server sent id zero. */
+    data object None : Programme
+
+    /** The channel names an event that has not arrived (yet). */
+    data class Pending(val eventId: Long) : Programme
+
+    data class Known(val event: HtspEvent) : Programme
+}
+
+fun ChannelDirectory.programme(eventId: Long): Programme =
+    if (eventId == 0L) Programme.None else event(eventId)?.let { Programme.Known(it) } ?: Programme.Pending(eventId)
+
+fun Programme.label(): String = when (this) {
+    Programme.None -> "Nothing scheduled"
+    is Programme.Pending -> "Loading"
+    is Programme.Known -> event.title ?: "Untitled"
+}
+
+fun ChannelDirectory.nowNext(channelId: Long): Pair<Programme, Programme>? =
+    channel(channelId)?.let { programme(it.currentEventId) to programme(it.nextEventId) }
+```
+
+A channel can name an event the store does not hold yet, because the ids and the
+events are separate messages and the event may come later in the sync or may
+have been dropped by an overflow. `Pending` keeps that apart from `None`, so
+the UI can show a placeholder and fill in the title when the event arrives,
+instead of reporting an empty slot. `HtspEvent.title` is nullable, so `label`
+has a fallback for that too.
+
+This needs EPG events on the connection. The `syncChannels` helper above passes
+`epg = false`; on the pinned server the channel messages still carry the event
+ids, but the events are only pushed when EPG is on, so every id would stay
+`Pending`. Sync with `epg = true`, or leave `epg` null on a server that already
+has it on. The index holds every event the server pushes, which is the cost
+described in [Large EPG syncs](#large-epg-syncs).
 
 ## Buffers and overflow
 
@@ -276,9 +343,11 @@ suspend fun resync(
 }
 ```
 
-Do not wait for `initialSyncCompleted` after an overflow. It is the last message
-of the sync, so it may be one of the dropped ones. The sync helper does not
-wait: it returns `TransportUnavailable` as soon as its own generation overflows.
+`resync` returns the directory as soon as the helper does, so show it only once
+`directory.ready` is true. Do not wait for `initialSyncCompleted` after an
+overflow, though. It is the last message of the sync, so it may be one of the
+dropped ones. The sync helper does not wait: it returns `TransportUnavailable`
+as soon as its own generation overflows.
 
 ## Large EPG syncs
 

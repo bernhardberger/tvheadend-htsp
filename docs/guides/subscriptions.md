@@ -35,6 +35,7 @@ suspend fun CoroutineScope.startStream(
 ): Job? {
     val collector = launch(start = CoroutineStart.UNDISPATCHED) {
         connection.subscriptionEvents(subscriptionId, live.generation).collect(handler::handle)
+        handler.flowCompleted()
     }
     val result = connection.subscribe(
         subscriptionId = subscriptionId,
@@ -110,8 +111,8 @@ sent them. The type is open, so keep an `else` branch.
 
 | Event | Meaning |
 |---|---|
-| `Started` | stream list, source information and codec metadata; may repeat |
-| `Packet` | one mux packet, in committed server order |
+| `Started` | stream list, source information and codec metadata (the codec header bytes of the first stream that has them); may repeat |
+| `Packet` | one mux packet, a chunk of one elementary stream such as the video or an audio track, in committed server order |
 | `Stopped` | the stream was interrupted |
 | `Status` | the subscription's current status and error |
 | `Grace` | the subscription's grace interval |
@@ -124,13 +125,17 @@ sent them. The type is open, so keep an `else` branch.
 | `Dropped` | packets this client could not deliver; see [below](#overflow-and-dropped-packets) |
 | `Terminated` | the final event of the flow |
 
-A handler that follows the rules in this guide stays small:
+A handler that follows the rules in this guide stays small. It keeps track of
+keyframes: an `I` frame can be decoded without other frames, while `P` and `B`
+frames depend on them, so a decoder can only start a stream cleanly at a
+keyframe.
 
 <!-- source: consumer-contract/src/main/kotlin/at/bernhardberger/tvheadend/protocolconsumer/SubscriptionsGuide.kt#stream-handler -->
 ```kotlin
 class StreamHandler(
     private val onStarted: (HtspSubscriptionStartMessage) -> Unit,
     private val onPacket: (HtspMuxPacketMessage) -> Unit,
+    /** Gets the `Terminated` reason, or null when the flow completed without one. */
     private val onEnded: (HtspSubscriptionTermination?) -> Unit,
 ) {
     /** The latest timeshift status, which `subscriptionSkipNearLive` needs. */
@@ -139,6 +144,11 @@ class StreamHandler(
 
     /** Streams that have had a keyframe since the last start or gap. */
     private val synced = mutableSetOf<Long>()
+
+    private var termination: HtspSubscriptionTermination? = null
+
+    /** Call once the flow has completed, after the last `handle`. */
+    fun flowCompleted() = onEnded(termination)
 
     fun handle(event: HtspSubscriptionEvent) {
         when (event) {
@@ -154,7 +164,7 @@ class StreamHandler(
             }
             is HtspSubscriptionEvent.Dropped -> synced.clear()
             is HtspSubscriptionEvent.Timeshift -> timeshift = event.message
-            is HtspSubscriptionEvent.Terminated -> onEnded(event.reason)
+            is HtspSubscriptionEvent.Terminated -> termination = event.reason
             else -> Unit
         }
     }
@@ -187,9 +197,14 @@ queued. A flow also ends without it:
 | `REMOTE_EOF`, `IO_FAILURE`, `FRAMING_FAILURE`, `TIMEOUT`, `MALFORMED_MESSAGE`, `PUBLICATION_FAILURE`, `INTERNAL_FAILURE` | the transport failed; `connectionState` and `ConnectionFailure` have the details |
 
 A `Terminated` follows even a `Stopped`. The reason enum is open, so keep an
-`else` branch. Cancelling the collector cancels the flow like any collection and
-propagates as cancellation; it does not end the subscription on the server. Send
-`unsubscribe` for that:
+`else` branch.
+
+`StreamHandler` reports every end that happens. `startStream` calls
+`flowCompleted()` when `collect` returns, and `onEnded` then receives the
+`Terminated` reason, or null when the flow completed without one, as it does
+after a successful `unsubscribe`. Cancelling the collector cancels the flow like
+any collection and propagates as cancellation, so `onEnded` is not called. It
+does not end the subscription on the server either. Send `unsubscribe` for that:
 
 <!-- source: consumer-contract/src/main/kotlin/at/bernhardberger/tvheadend/protocolconsumer/SubscriptionsGuide.kt#stop -->
 ```kotlin

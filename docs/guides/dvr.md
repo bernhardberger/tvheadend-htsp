@@ -110,8 +110,9 @@ A few `HtspDvrEntry` properties are worth knowing:
 - `startEpochSeconds` and `stopEpochSeconds` are the scheduled times, and
   `startExtraMinutes` and `stopExtraMinutes` the padding on either side.
 - `error` and `subscriptionError` carry the server's error text, if any. It is
-  display text, not a code. `streamErrors` and `dataErrors` are present only
-  when they are nonzero.
+  display text, not a code, with one exception this guide relies on:
+  [`File missing`](#deleting-a-recording-whose-file-is-gone). `streamErrors`
+  and `dataErrors` are present only when they are nonzero.
 - `files` lists the recording files, each an `HtspDvrRecordingFile` with a
   relative `path`, start and stop times, `sizeBytes` and stream details in
   `info`. It is null when the server sent no file list. `dataSizeBytes` is the
@@ -215,10 +216,65 @@ an upcoming recording always resets its DVR configuration, and a missing
 `configName` selects the default one (`src/htsp_server.c:2197`,
 `src/dvr/dvr_db.c:2517-2518`). To keep the configuration, pass its name from
 `getDvrConfigs()`, not the `dvrConfigUuid` on the entry: the server looks the
-value up by name only, and an unknown value also selects the default. For an
-account restricted to a list of DVR configurations, the server passes an
+value up by name only, and an unknown value also selects the default. This
+renames an upcoming recording and keeps its configuration:
+
+<!-- source: consumer-contract/src/main/kotlin/at/bernhardberger/tvheadend/protocolconsumer/DvrGuide.kt#rename-keep-config -->
+```kotlin
+sealed interface RenameOutcome {
+    /** The server acknowledged the update; watch the book for the result. */
+    data object Acknowledged : RenameOutcome
+
+    /** The entry has no configuration, or `getDvrConfigs` does not list it. Nothing was sent. */
+    data object ConfigNotFound : RenameOutcome
+
+    /** Several configurations share the entry's configuration name. Nothing was sent. */
+    data object ConfigNameNotUnique : RenameOutcome
+
+    /** `getDvrConfigs` or the update failed. */
+    data class Failed(val failure: HtspFailure) : RenameOutcome
+}
+
+suspend fun renameKeepingConfig(
+    connection: HtspConnection,
+    live: HtspLiveConnection,
+    entry: HtspDvrEntry,
+    title: String,
+): RenameOutcome {
+    val configUuid = entry.dvrConfigUuid ?: return RenameOutcome.ConfigNotFound
+    val configs = when (val result = connection.getDvrConfigs(expectedGeneration = live.generation)) {
+        is HtspResult.Ok -> result.value.configurations.orEmpty()
+        is HtspFailure -> return RenameOutcome.Failed(result)
+    }
+    val config = configs.firstOrNull { it.dvrConfigUuid == configUuid } ?: return RenameOutcome.ConfigNotFound
+    if (configs.count { it.name == config.name } > 1) return RenameOutcome.ConfigNameNotUnique
+    return when (
+        val result = connection.updateDvrEntry(
+            entryId = entry.entryId,
+            configName = config.name,
+            title = title,
+            expectedGeneration = live.generation,
+        )
+    ) {
+        is HtspResult.Ok -> RenameOutcome.Acknowledged
+        is HtspFailure -> RenameOutcome.Failed(result)
+    }
+}
+```
+
+The entry carries only the configuration's UUID, so the function finds the
+configuration with that UUID in the `getDvrConfigs()` list and sends its name.
+It sends nothing when the entry names no configuration, when the list does not
+contain it, or when two configurations share the name, because the name would
+then not identify the one to keep. Each of those comes back as a value the
+caller can act on, for example by asking the person which configuration to use.
+`Acknowledged` means only that the server accepted the request; see
+[below](#ok-acknowledges-the-request).
+
+For an account restricted to a list of DVR configurations, the server passes an
 identifier where it looks up a name, so the entry ends up on the default
-configuration either way.
+configuration either way. The library sends the name you give it and the lookup
+happens on the server, so it cannot prevent that.
 
 The other three differ in what they do to the recording, and the
 server decides by the recording's state. On the pinned server (HTSP 44):
@@ -285,9 +341,13 @@ val HtspDvrEntry.fileMissing: Boolean
     get() = state == "completed" && error == "File missing"
 ```
 
-The text is the server's literal at the pinned revision, not a documented code.
-If you show these entries as deleted, treat a vanished file as the same
-outcome and let the server's retention remove the entry later.
+This is the one place the guide compares `error`, and it works because the
+pinned server writes that exact string. It writes it as a plain literal, not
+through the translation call it uses for the error text of its replies, so it
+does not change with the connection's language. It is still not a documented
+code: a later server could reword or translate it, and then `fileMissing`
+stops matching. If you show these entries as deleted, treat a vanished file as
+the same outcome and let the server's retention remove the entry later.
 
 ## Autorec and timerec rules
 

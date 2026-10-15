@@ -185,7 +185,7 @@ problems never throw. Match on the cases, or use the helpers `getOrNull`,
 | `ConnectionLimit` | access denied because the server's connection limit is reached | retry later |
 | `ServerError` | the server refused the request and may say why | show the reason, do not retry blindly |
 | `NotSupported` | the negotiated version is below the request's minimum, or the server does not know the method | treat the feature as unavailable |
-| `Timeout` | no reply within `timeoutMs`; this does not prove the server did nothing | retry later if the request is safe to repeat |
+| `Timeout` | no reply within `timeoutMs`; this does not prove the server did nothing | repeat a request that is safe to repeat; otherwise read the state back first |
 | `TransportUnavailable` | no usable connection, or the generation fence was stale | reconnect |
 | `MalformedReply` | a reply arrived but could not be decoded | do not retry blindly |
 
@@ -193,17 +193,32 @@ One decision per failure is often all a caller needs:
 
 <!-- source: consumer-contract/src/main/kotlin/at/bernhardberger/tvheadend/protocolconsumer/ConnectingGuide.kt#failure-policy -->
 ```kotlin
-enum class FailureAction { CHECK_ACCESS, RETRY_LATER, RECONNECT, UNSUPPORTED, REJECTED, REVIEW_SERVER_STATE }
+enum class FailureAction {
+    CHECK_ACCESS,
+    RETRY_LATER,
+    RETRY_IF_REPEATABLE,
+    RECONNECT,
+    UNSUPPORTED,
+    REJECTED,
+    REVIEW_SERVER_STATE,
+}
 
 fun actionFor(failure: HtspFailure): FailureAction = when (failure) {
     HtspResult.AccessDenied -> FailureAction.CHECK_ACCESS
-    HtspResult.ConnectionLimit, HtspResult.Timeout -> FailureAction.RETRY_LATER
+    HtspResult.ConnectionLimit -> FailureAction.RETRY_LATER
+    HtspResult.Timeout -> FailureAction.RETRY_IF_REPEATABLE
     HtspResult.TransportUnavailable -> FailureAction.RECONNECT
     HtspResult.NotSupported -> FailureAction.UNSUPPORTED
     HtspResult.MalformedReply -> FailureAction.REVIEW_SERVER_STATE
     is HtspResult.ServerError -> FailureAction.REJECTED
 }
 ```
+
+`RETRY_IF_REPEATABLE` is the decision for `Timeout`, and the function cannot
+finish it, because it does not see the request. Repeat a read such as
+`getDiskSpace`. For a request that changes state, treat it like
+`REVIEW_SERVER_STATE` and check the state first, because the server may have
+acted.
 
 Three of these deserve a closer look.
 

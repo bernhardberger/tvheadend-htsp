@@ -30,6 +30,7 @@ import kotlinx.coroutines.withContext
 enum class ProtocolFailurePolicy {
     CHECK_ACCESS,
     RETRY_LATER,
+    RETRY_IF_REPEATABLE,
     RECONNECT,
     UNSUPPORTED,
     REJECTED,
@@ -131,7 +132,7 @@ suspend fun runProtocolQuickStart(
 private fun policyFor(failure: HtspFailure): ProtocolFailurePolicy = when (failure) {
     HtspResult.AccessDenied -> ProtocolFailurePolicy.CHECK_ACCESS
     HtspResult.ConnectionLimit -> ProtocolFailurePolicy.RETRY_LATER
-    HtspResult.Timeout -> ProtocolFailurePolicy.RETRY_LATER
+    HtspResult.Timeout -> ProtocolFailurePolicy.RETRY_IF_REPEATABLE // Read state back first if it changes state.
     HtspResult.TransportUnavailable -> ProtocolFailurePolicy.RECONNECT
     HtspResult.NotSupported -> ProtocolFailurePolicy.UNSUPPORTED
     HtspResult.MalformedReply -> ProtocolFailurePolicy.REVIEW_SERVER_STATE // Do not blindly retry.
