@@ -76,6 +76,8 @@ suspend fun startStream(
         connection.subscriptionEvents(subscriptionId, live.generation).collect(handler::handle)
         handler.flowCompleted()
     }
+    // Inactive here means registration failed, for example on a reused id.
+    val registered = collector.isActive
     val result = try {
         connection.subscribe(
             subscriptionId = subscriptionId,
@@ -85,7 +87,7 @@ suspend fun startStream(
         )
     } catch (e: Throwable) {
         collector.cancel()
-        if (e is CancellationException) {
+        if (e is CancellationException && registered) {
             // Cancelled while waiting: the request may already have reached the server.
             withContext(NonCancellable) {
                 connection.unsubscribe(subscriptionId, expectedGeneration = live.generation)

@@ -363,9 +363,8 @@ if the sync fails or the caller is cancelled. Call `stop()` on the last session
 when you are done with the connection.
 
 `resync` returns the session as soon as the helper does, so show its directory
-only once
-`directory.ready` is true. Do not wait for `initialSyncCompleted` after an
-overflow, though. It is the last message of the sync, so it may be one of the
+only once `directory.ready` is true. Do not wait for `initialSyncCompleted`
+after an overflow, though. It is the last message of the sync, so it may be one of the
 dropped ones. The sync helper does not wait: it returns `TransportUnavailable`
 as soon as its own generation overflows.
 

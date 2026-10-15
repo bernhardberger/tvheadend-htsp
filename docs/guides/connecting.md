@@ -232,8 +232,9 @@ Three of these deserve a closer look.
 - `Timeout` covers the whole call: capturing the connection, writing the
   request, and waiting for the reply. A timeout of an ordinary request leaves the
   connection live, unless it strikes while the request is only partly written;
-  then the connection is dropped, as with cancellation below. An enclosing `withTimeout` is different: it cancels the call,
-  which propagates as cancellation instead of returning `Timeout`.
+  then the connection is dropped, as with cancellation below. An enclosing
+  `withTimeout` is different: it cancels the call, which propagates as
+  cancellation instead of returning `Timeout`.
 
 DVR requests add one more rule. A refused DVR change comes back as
 `ServerError`, and `Ok` means the server acknowledged the request, not that the

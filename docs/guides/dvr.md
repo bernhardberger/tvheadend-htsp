@@ -511,7 +511,7 @@ Close in a `finally` block, wrapped in `NonCancellable`, so a download cancelled
 after the open still releases its handle. Two cases are not covered. If the
 caller is cancelled while `fileOpen` waits for its reply, the server may already
 have opened a handle whose id you never see. And this close is best effort: its
-result is not checked. Either way the handle stays open until the connection
+result is not checked. Either way the handle may stay open until the connection
 ends, when the server closes all of them (`src/htsp_server.c:3669-3670`). If
 that matters, download over a connection of its own and close it when you are
 done. Passing the generation to each call stops a request
