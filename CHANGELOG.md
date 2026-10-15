@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+- **BREAKING:** `UpdateAutorecEntryRequest`, `UpdateTimerecEntryRequest`, and their
+  `HtspConnection` extensions require a non-null `channel`. Updates always set
+  the restriction: pass the current `HtspRecordingRuleChannel.Id` to retain it,
+  or explicit `Any` to clear it (encoded by omitting wire `channelId`).
+
 - **BREAKING:** add terminal `HtspConnectionState.Closed`. Owner-global close and
   successful generation-fenced close publish Closed; stale generation close is a
   no-op. Later connects return `Failed(CLOSED)` via the new transport failure kind;

@@ -81,7 +81,7 @@ class HtspProtocolCoreTest {
             val cases = listOf(
                 UpdateDvrEntryRequest(1L, enabled = flag) to listOf("enabled"),
                 AddAutorecEntryRequest("title", fullText = flag, mergeText = flag) to listOf("fulltext", "mergetext"),
-                UpdateAutorecEntryRequest("id", fullText = flag, mergeText = flag) to listOf("fulltext", "mergetext"),
+                UpdateAutorecEntryRequest("id", HtspRecordingRuleChannel.Any, fullText = flag, mergeText = flag) to listOf("fulltext", "mergetext"),
                 EpgQueryRequest("query", full = flag) to listOf("full"),
                 EnableAsyncMetadataRequest(epg = flag) to listOf("epg"),
                 SubscribeRequest(1L, SubscribeChannel.Id(2L), ninetyKhz = flag) to listOf("90khz"),
@@ -901,10 +901,10 @@ class HtspProtocolCoreTest {
             CancelDvrEntryRequest(0L),
             DeleteDvrEntryRequest(0L),
             AddAutorecEntryRequest(""),
-            UpdateAutorecEntryRequest(""),
+            UpdateAutorecEntryRequest("", HtspRecordingRuleChannel.Any),
             DeleteAutorecEntryRequest(""),
             AddTimerecEntryRequest(""),
-            UpdateTimerecEntryRequest(""),
+            UpdateTimerecEntryRequest("", HtspRecordingRuleChannel.Any),
             DeleteTimerecEntryRequest(""),
             GetDvrCutpointsRequest(0L),
             GetTicketRequest(GetTicketSelector.Channel(0L)),
@@ -1109,10 +1109,10 @@ class HtspProtocolCoreTest {
             CancelDvrEntryRequest(1L),
             DeleteDvrEntryRequest(1L),
             AddAutorecEntryRequest("x"),
-            UpdateAutorecEntryRequest("x"),
+            UpdateAutorecEntryRequest("x", HtspRecordingRuleChannel.Any),
             DeleteAutorecEntryRequest("x"),
             AddTimerecEntryRequest("x"),
-            UpdateTimerecEntryRequest("x"),
+            UpdateTimerecEntryRequest("x", HtspRecordingRuleChannel.Any),
             DeleteTimerecEntryRequest("x"),
         )
 
@@ -1196,6 +1196,28 @@ class HtspProtocolCoreTest {
     }
 
     @Test
+    fun recordingRuleUpdatesAlwaysSetExplicitChannelRestriction() {
+        val autorec = UpdateAutorecEntryRequest("rule", HtspRecordingRuleChannel.Any, priority = 2L)
+        val timerec = UpdateTimerecEntryRequest("rule", HtspRecordingRuleChannel.Any, priority = 2L)
+        val anyFields = linkedMapOf("id" to "rule", "priority" to 2L)
+        assertEquals(anyFields, HtspRequestCodecs.encode(autorec))
+        assertEquals(anyFields, HtspRequestCodecs.encode(timerec))
+
+        listOf(0L, 0xffff_ffffL).forEach { channelId ->
+            val channel = HtspRecordingRuleChannel.Id(channelId)
+            val channelFields = linkedMapOf("id" to "rule", "channelId" to channelId, "priority" to 2L)
+            val selectedAutorec = UpdateAutorecEntryRequest("rule", channel, priority = 2L)
+            val selectedTimerec = UpdateTimerecEntryRequest("rule", channel, priority = 2L)
+            assertEquals(channelFields, HtspRequestCodecs.encode(selectedAutorec))
+            assertEquals(channelFields, HtspRequestCodecs.encode(selectedTimerec))
+            assertEquals(selectedAutorec, autorec.copy(channel = channel))
+            assertEquals(selectedTimerec, timerec.copy(channel = channel))
+            assertEquals(anyFields, HtspRequestCodecs.encode(selectedAutorec.copy(channel = HtspRecordingRuleChannel.Any)))
+            assertEquals(anyFields, HtspRequestCodecs.encode(selectedTimerec.copy(channel = HtspRecordingRuleChannel.Any)))
+        }
+    }
+
+    @Test
     fun recordingRuleRequestsPreserveExactFamilyShapesSelectorsVersionsAndRanges() {
         assertEquals(
             linkedMapOf("title" to ""),
@@ -1203,7 +1225,7 @@ class HtspProtocolCoreTest {
         )
         assertEquals(
             linkedMapOf("id" to "", "title" to "updated"),
-            HtspRequestCodecs.encode(UpdateAutorecEntryRequest(id = "", title = "updated")),
+            HtspRequestCodecs.encode(UpdateAutorecEntryRequest(id = "", channel = HtspRecordingRuleChannel.Any, title = "updated")),
         )
         assertEquals(
             linkedMapOf("id" to ""),
@@ -1215,7 +1237,7 @@ class HtspProtocolCoreTest {
         )
         assertEquals(
             linkedMapOf("id" to "", "title" to "updated"),
-            HtspRequestCodecs.encode(UpdateTimerecEntryRequest(id = "", title = "updated")),
+            HtspRequestCodecs.encode(UpdateTimerecEntryRequest(id = "", channel = HtspRecordingRuleChannel.Any, title = "updated")),
         )
         assertEquals(
             linkedMapOf("id" to ""),
@@ -1283,8 +1305,8 @@ class HtspProtocolCoreTest {
         assertEquals(18, AddAutorecEntryRequest("x", name = "").minimumProtocolVersion)
         assertEquals(19, AddAutorecEntryRequest("x", enabled = true).minimumProtocolVersion)
         assertEquals(20, AddAutorecEntryRequest("x", fullText = false).minimumProtocolVersion)
-        assertEquals(39, UpdateAutorecEntryRequest("x", broadcastType = 0L).minimumProtocolVersion)
-        assertEquals(42, UpdateAutorecEntryRequest("x", comment = "").minimumProtocolVersion)
+        assertEquals(39, UpdateAutorecEntryRequest("x", HtspRecordingRuleChannel.Any, broadcastType = 0L).minimumProtocolVersion)
+        assertEquals(42, UpdateAutorecEntryRequest("x", HtspRecordingRuleChannel.Any, comment = "").minimumProtocolVersion)
 
         assertEquals(
             linkedMapOf(
@@ -1322,8 +1344,8 @@ class HtspProtocolCoreTest {
         )
         assertEquals(18, AddTimerecEntryRequest("x").minimumProtocolVersion)
         assertEquals(19, AddTimerecEntryRequest("x", directory = "").minimumProtocolVersion)
-        assertEquals(25, UpdateTimerecEntryRequest("x").minimumProtocolVersion)
-        assertEquals(42, UpdateTimerecEntryRequest("x", comment = "").minimumProtocolVersion)
+        assertEquals(25, UpdateTimerecEntryRequest("x", HtspRecordingRuleChannel.Any).minimumProtocolVersion)
+        assertEquals(42, UpdateTimerecEntryRequest("x", HtspRecordingRuleChannel.Any, comment = "").minimumProtocolVersion)
 
         listOf<() -> Unit>(
             { HtspRecordingRuleChannel.Id(-1L) },
@@ -1358,9 +1380,9 @@ class HtspProtocolCoreTest {
             connection.call(AddTimerecEntryRequest("")),
         )
         val acknowledgements = listOf(
-            UpdateAutorecEntryRequest("") to UpdateAutorecEntryResponse,
+            UpdateAutorecEntryRequest("", HtspRecordingRuleChannel.Any) to UpdateAutorecEntryResponse,
             DeleteAutorecEntryRequest("") to DeleteAutorecEntryResponse,
-            UpdateTimerecEntryRequest("") to UpdateTimerecEntryResponse,
+            UpdateTimerecEntryRequest("", HtspRecordingRuleChannel.Any) to UpdateTimerecEntryResponse,
             DeleteTimerecEntryRequest("") to DeleteTimerecEntryResponse,
         )
         acknowledgements.forEach { (request, response) ->
@@ -1391,7 +1413,7 @@ class HtspProtocolCoreTest {
 
         transport.version = 24
         val before = transport.dispatches
-        assertSame(HtspResult.NotSupported, connection.call(UpdateAutorecEntryRequest("x")))
+        assertSame(HtspResult.NotSupported, connection.call(UpdateAutorecEntryRequest("x", HtspRecordingRuleChannel.Any)))
         assertEquals(before, transport.dispatches)
     }
 

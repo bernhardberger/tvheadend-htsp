@@ -157,9 +157,9 @@ class HtspConnectionSocketFactoryTest {
         val directory = "/directory-secret-sentinel"
         val copiedDirectory = "/copied-directory-secret-sentinel"
         val addAutorec = AddAutorecEntryRequest("title", directory = directory)
-        val updateAutorec = UpdateAutorecEntryRequest("id", directory = directory)
+        val updateAutorec = UpdateAutorecEntryRequest("id", HtspRecordingRuleChannel.Any, directory = directory)
         val addTimerec = AddTimerecEntryRequest("title", directory = directory)
-        val updateTimerec = UpdateTimerecEntryRequest("id", directory = directory)
+        val updateTimerec = UpdateTimerecEntryRequest("id", HtspRecordingRuleChannel.Any, directory = directory)
         val requests = listOf(
             addAutorec, addAutorec.copy(), addAutorec.copy(directory = copiedDirectory),
             updateAutorec, updateAutorec.copy(), updateAutorec.copy(directory = copiedDirectory),

@@ -150,7 +150,7 @@ internal object `HtspRequestCodecs-internal` {
             .putIfNotNull("daysOfWeek", request.daysOfWeekMask)
 
         is UpdateAutorecEntryRequest -> linkedMapOf<String, Any?>("id" to request.id)
-            .putRecordingRuleChannel(request.channel)
+            .putRecordingRuleChannel(request.channel.takeUnless { it == HtspRecordingRuleChannel.Any })
             .putIfNotNull("minduration", request.minDurationSeconds)
             .putIfNotNull("maxduration", request.maxDurationSeconds)
             .putIfNotNull("fulltext", request.fullText?.toWireFlag())
@@ -191,7 +191,7 @@ internal object `HtspRequestCodecs-internal` {
             .putIfNotNull("daysOfWeek", request.daysOfWeekMask)
 
         is UpdateTimerecEntryRequest -> linkedMapOf<String, Any?>("id" to request.id)
-            .putRecordingRuleChannel(request.channel)
+            .putRecordingRuleChannel(request.channel.takeUnless { it == HtspRecordingRuleChannel.Any })
             .putIfNotNull("start", request.startMinutesSinceMidnight)
             .putIfNotNull("stop", request.stopMinutesSinceMidnight)
             .putIfNotNull("enabled", request.enabled?.toWireFlag())

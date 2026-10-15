@@ -46,13 +46,13 @@ class HtspPreReleaseSliceTest {
     fun requestAndSocketBounds() {
         listOf(0L, 1439L).forEach {
             AddTimerecEntryRequest("title", startMinutesSinceMidnight = it, stopMinutesSinceMidnight = it)
-            UpdateTimerecEntryRequest("id", startMinutesSinceMidnight = it, stopMinutesSinceMidnight = it)
+            UpdateTimerecEntryRequest("id", HtspRecordingRuleChannel.Any, startMinutesSinceMidnight = it, stopMinutesSinceMidnight = it)
         }
         listOf(-1L, 1440L, 4_294_967_295L).forEach {
             assertThrows(IllegalArgumentException::class.java) { AddTimerecEntryRequest("title", startMinutesSinceMidnight = it) }
             assertThrows(IllegalArgumentException::class.java) { AddTimerecEntryRequest("title", stopMinutesSinceMidnight = it) }
-            assertThrows(IllegalArgumentException::class.java) { UpdateTimerecEntryRequest("id", startMinutesSinceMidnight = it) }
-            assertThrows(IllegalArgumentException::class.java) { UpdateTimerecEntryRequest("id", stopMinutesSinceMidnight = it) }
+            assertThrows(IllegalArgumentException::class.java) { UpdateTimerecEntryRequest("id", HtspRecordingRuleChannel.Any, startMinutesSinceMidnight = it) }
+            assertThrows(IllegalArgumentException::class.java) { UpdateTimerecEntryRequest("id", HtspRecordingRuleChannel.Any, stopMinutesSinceMidnight = it) }
         }
         listOf(1, 16 * 1024 * 1024).forEach { HtspConnectOptions(socketBufferBytes = it) }
         listOf(0, 16 * 1024 * 1024 + 1).forEach {

@@ -13,7 +13,7 @@ public sealed interface HtspRecordingRuleChannel {
         }
     }
 
-    /** Encodes the signed `-1` any-channel sentinel; update requests may also clear a channel by omitting it. */
+    /** Selects any channel: adds encode signed `-1`; updates omit `channelId` to clear the restriction. */
     public data object Any : HtspRecordingRuleChannel
 }
 
@@ -86,11 +86,12 @@ public data class AddAutorecEntryRequest(
 
 /**
  * Identifies an automatic recording rule and carries optional matching and policy changes.
- * Omitting [channel] clears the server channel restriction to any channel (src/htsp_server.c:700–703).
+ * Updates always set the channel restriction: supply the current [channel] to retain it, or
+ * [HtspRecordingRuleChannel.Any] to clear it by omitting wire `channelId` (src/htsp_server.c:700–703).
  */
 public data class UpdateAutorecEntryRequest(
     public val id: String,
-    public val channel: HtspRecordingRuleChannel? = null,
+    public val channel: HtspRecordingRuleChannel,
     public val minDurationSeconds: Long? = null,
     public val maxDurationSeconds: Long? = null,
     /** HTSP `fulltext`: 0/1 search flag; null omits it (pinned htsp_server.c:608-609). */
@@ -172,11 +173,12 @@ public data class AddTimerecEntryRequest(
 
 /**
  * Identifies a time-based recording rule and carries optional interval and policy changes.
- * Omitting [channel] clears the server channel restriction to any channel (src/htsp_server.c:700–703).
+ * Updates always set the channel restriction: supply the current [channel] to retain it, or
+ * [HtspRecordingRuleChannel.Any] to clear it by omitting wire `channelId` (src/htsp_server.c:700–703).
  */
 public data class UpdateTimerecEntryRequest(
     public val id: String,
-    public val channel: HtspRecordingRuleChannel? = null,
+    public val channel: HtspRecordingRuleChannel,
     public val startMinutesSinceMidnight: Long? = null,
     public val stopMinutesSinceMidnight: Long? = null,
     public val enabled: Boolean? = null,
@@ -268,10 +270,10 @@ public suspend fun HtspConnection.addAutorecEntry(
         expectedGeneration = expectedGeneration,
     )
 
-/** Requests a change to the identified automatic recording rule using only the supplied selector and policy fields. */
+/** Updates the automatic recording rule, always setting [channel]; use [HtspRecordingRuleChannel.Any] to clear it. */
 public suspend fun HtspConnection.updateAutorecEntry(
     id: String,
-    channel: HtspRecordingRuleChannel? = null,
+    channel: HtspRecordingRuleChannel,
     minDurationSeconds: Long? = null,
     maxDurationSeconds: Long? = null,
     fullText: Boolean? = null,
@@ -380,10 +382,10 @@ public suspend fun HtspConnection.addTimerecEntry(
         expectedGeneration = expectedGeneration,
     )
 
-/** Requests a change to the identified time-based recording rule with the supplied interval and policy fields. */
+/** Updates the time-based recording rule, always setting [channel]; use [HtspRecordingRuleChannel.Any] to clear it. */
 public suspend fun HtspConnection.updateTimerecEntry(
     id: String,
-    channel: HtspRecordingRuleChannel? = null,
+    channel: HtspRecordingRuleChannel,
     startMinutesSinceMidnight: Long? = null,
     stopMinutesSinceMidnight: Long? = null,
     enabled: Boolean? = null,

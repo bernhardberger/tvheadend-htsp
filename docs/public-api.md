@@ -345,9 +345,14 @@ If the report itself overflows, the observer instead gets the existing
 observing malformed reports after initial sync; reconnecting alone may encounter
 the same bad metadata again. Recovery policy belongs to the consumer.
 
-Autorec/timerec updates are not sparse patches for the channel: omitting `channel`
-clears it on the server (pinned `src/htsp_server.c`, lines 700–703). Send the channel
-when it must remain selected.
+Autorec/timerec updates always set the channel restriction. Both update request
+constructors and their `HtspConnection` extensions require a non-null
+`HtspRecordingRuleChannel`: pass the current `Id` to retain the restriction, or
+explicit `Any` to clear it. `Any` omits wire `channelId`; a concrete `Id` sends it.
+The pinned handlers start with a null channel and resolve a supplied non-negative
+`channelId` (`src/htsp_server.c:2360–2383,2471–2494`); the shared converter always
+writes the resolved channel UUID or an empty restriction on updates
+(`src/htsp_server.c:700–703`). There is no wire-level "unchanged" channel option.
 
 Each subscription id may also be sent in only one `subscribe` request per
 connection generation; local reuse throws `IllegalStateException` without
