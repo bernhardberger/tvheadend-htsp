@@ -2,11 +2,12 @@ package at.bernhardberger.tvheadend.htsp.model
 
 import at.bernhardberger.tvheadend.htsp.wire.immutableSnapshot
 import at.bernhardberger.tvheadend.htsp.wire.HtspFieldReader
+import at.bernhardberger.tvheadend.htsp.wire.orderedFields
 import java.util.Collections
 
 /**
  * Immutable ordered programme credits for event and EPG replies.
- * The codec currently keeps the last role per name: HTSP maps are decoded to Kotlin maps.
+ * A person credited in several roles appears once per role, in wire order.
  * Produced by src/epggrab/module/xmltv.c:726–740, sent as `credits` by
  * src/htsp_server.c:1373–1374 and `cred` by src/epg.c:1766–1768.
  */
@@ -77,8 +78,9 @@ internal fun decodeProgrammeCredits(
     fail: () -> Nothing,
 ): HtspProgrammeCredits? {
     if (!fields.containsKey(name)) return null
-    val source = HtspFieldReader(fields, fail).requiredObject(name)
-    val entries = source.entries.map { (key, value) ->
+    // Not requiredObject: its copy would lose the repeated names the producer appends.
+    val source = fields[name] as? Map<*, *> ?: fail()
+    val entries = source.orderedFields().map { (key, value) ->
         HtspProgrammeCredit(key as? String ?: fail(), value as? String ?: fail())
     }
     return HtspProgrammeCredits(entries)

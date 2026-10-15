@@ -229,7 +229,7 @@ class HtspPreReleaseSliceTest {
     }
 
     @Test
-    fun creditListSupportsRepeatedNamesWhileWireMapKeepsFirstRole() {
+    fun creditListKeepsEveryRoleOfRepeatedNamesFromTheWire() {
         val entries = mutableListOf(HtspProgrammeCredit("Person", "actor"), HtspProgrammeCredit("Person", "director"))
         val credits = HtspProgrammeCredits(entries)
         entries.clear()
@@ -249,12 +249,20 @@ class HtspPreReleaseSliceTest {
             }
             return output.toByteArray()
         }
-        val body = field(1, "credits", field(3, "Person", "actor".toByteArray()) +
-            field(3, "Person", "director".toByteArray()))
-        val frame = ByteBuffer.allocate(4 + body.size).putInt(body.size).put(body).array()
+        val creditFields = field(1, "credits", field(3, "Person", "actor".toByteArray()) +
+            field(3, "Other", "writer".toByteArray()) + field(3, "Person", "director".toByteArray()))
+        val event = field(3, "method", "eventAdd".toByteArray()) + field(2, "eventId", byteArrayOf(7)) +
+            field(2, "start", byteArrayOf(1)) + field(2, "stop", byteArrayOf(2)) + creditFields
+        val frame = ByteBuffer.allocate(4 + event.size).putInt(event.size).put(event).array()
         val decoded = HtspCodec.readMessage(frame.inputStream())
-        assertEquals(listOf(HtspProgrammeCredit("Person", "actor")),
-            decodeProgrammeCredits(decoded.fields, "credits") { error("malformed") }!!.entries)
+        val expected = listOf(
+            HtspProgrammeCredit("Person", "actor"), HtspProgrammeCredit("Other", "writer"),
+            HtspProgrammeCredit("Person", "director"),
+        )
+        assertEquals("actor", (decoded.fields["credits"] as Map<*, *>)["Person"])
+        assertEquals(expected, decodeProgrammeCredits(decoded.fields, "credits") { error("malformed") }!!.entries)
+        val message = (decodeHtspServerMessage(decoded.fields) as HtspServerMessageDecoded).message as HtspEventAddMessage
+        assertEquals(expected, message.event.credits!!.entries)
     }
 
     private fun channelFields(hbbtv: Any): Map<String, Any?> = mapOf(

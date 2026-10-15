@@ -336,9 +336,9 @@ to `epg_object_serialize` there rather than expanded in the HTSP sender.
   `getEvents`, full `epgQuery`, `eventAdd`, and `eventUpdate`. Category and keyword
   are ordered string lists; credits are immutable
   ordered `HtspProgrammeCredit` lists (`src/htsp_server.c:1373–1374`).
-  The producer can append repeated names (`src/epggrab/module/xmltv.c:727,740`),
-  but the codec currently keeps the last role per name because nested HTSP maps
-  use Kotlin maps. The public list can represent repeated names without a later API change.
+  The producer appends one field per person and role, so names can repeat
+  (`src/epggrab/module/xmltv.c:727,740`); the list keeps every entry in wire
+  order, unlike other maps, where the first field per name wins.
   All paths require `eventId`, `start`, and `stop`; channel is conditional
   (`src/htsp_server.c:1339–1343`). Full updates replace the previous event,
   including absent optional fields. All paths pass the negotiated version to

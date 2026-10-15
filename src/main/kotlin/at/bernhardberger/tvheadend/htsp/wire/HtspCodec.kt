@@ -32,7 +32,7 @@ internal object `HtspCodec-internal` {
     fun readMessage(input: InputStream): HtspWireMessage {
         val reader = FrameReader(input)
         val end = reader.readRootEnd()
-        val fields = LinkedHashMap<String, Any?>()
+        val fields = HtspWireMap()
         decodeMap(reader, fields, end = end, depth = 0)
         return HtspWireMessage(fields)
     }
@@ -48,16 +48,14 @@ internal object `HtspCodec-internal` {
         return frame.array()
     }
 
-    private fun decodeMap(r: FrameReader, out: MutableMap<String, Any?>, end: Int, depth: Int) {
+    private fun decodeMap(r: FrameReader, out: HtspWireMap, end: Int, depth: Int) {
         if (depth > MAX_NESTING_DEPTH) {
             throw HtspFramingException("nesting exceeds limit", r.byteOffset)
         }
         while (r.byteOffset < end) {
             val name = r.readFieldHeader(end)
             val value = decodeValue(r, depth, name)
-            // Upstream htsmsg_field_find returns the first field with a name; subscriptionStart
-            // repeats top-level meta once per stream with codec headers.
-            if (name != null) out.putIfAbsent(name, value)
+            if (name != null) out.addField(name, value)
         }
     }
 
@@ -79,7 +77,7 @@ internal object `HtspCodec-internal` {
         }
 
         return when (type) {
-            FieldType.MAP -> LinkedHashMap<String, Any?>().also { decodeMap(r, it, r.byteOffset + dataLen, depth + 1) }
+            FieldType.MAP -> HtspWireMap().also { decodeMap(r, it, r.byteOffset + dataLen, depth + 1) }
             FieldType.LIST -> ArrayList<Any?>().also { decodeList(r, it, r.byteOffset + dataLen, depth + 1) }
             FieldType.S64 -> r.readS64(dataLen)
             FieldType.STR -> r.readString(dataLen, what = "string")

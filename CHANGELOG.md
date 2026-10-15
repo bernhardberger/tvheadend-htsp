@@ -10,6 +10,8 @@
   matching upstream lookup, without a stream association.
 - **BREAKING:** duplicate map keys in decoded frames now keep the first value
   instead of the last, at every depth, matching upstream `htsmsg_field_find`.
+- Fixed programme credits dropping roles: a person credited in several roles
+  now yields one `HtspProgrammeCredit` per role, in wire order.
 - Fixed autorec entity `start` and `startWindow` decoding to preserve all
   non-negative s32 values; `-1` stays null and values below -1 are malformed.
   Request-side time validation remains `0..1439`.
