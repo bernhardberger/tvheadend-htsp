@@ -113,11 +113,9 @@ Without an explicit error, missing or wrong-typed `success`, integers other than
 `AddDvrEntryResponse.entryId` is required; update, stop, cancel, and delete return
 acknowledgement objects. `HtspDvrMutationResponse` is a memberless marker.
 `Ok` means the server acknowledged the request, not that the recording state
-has already changed; observe DVR metadata updates for that state. For example, a
-server whose DVR log retention outlives a completed recording's file answers an
-acknowledged `deleteDvrEntry` with a `dvrEntryUpdate` whose `error` is
-`File missing` (pinned `src/htsp_server.c:1175`) instead of `dvrEntryDelete`;
-the entry remains until retention removes it.
+has already changed; observe DVR metadata updates for that state. An
+acknowledged `deleteDvrEntry` can leave the entry in place; see
+[deleting a recording whose file is gone](guides/dvr.md#deleting-a-recording-whose-file-is-gone).
 
 ## Cancellation stays cancellation
 
@@ -286,10 +284,9 @@ approximately the sum of all budgets plus one maximum frame per subscription plu
 the largest metadata queue. This excludes heap and decoded-object overhead; it is
 not an exact heap guarantee. A legal HTSP frame body is at most 32 MiB.
 
-A full EPG sync can overflow a slow consumer: roughly 150 channels × 7–14 days
-can mean 26k–84k events and 15–100 MB on the wire. Use `epgMaxTimeEpochSeconds`,
-`epg = false` plus paged `getEvents`, or consumer-side batching. XMLTV imports
-also cause `eventUpdate` bursts. After `MetadataOverflow`, do not keep waiting
+A full EPG sync can overflow a slow consumer; see
+[large EPG syncs](guides/metadata.md#large-epg-syncs) for sizes and mitigations.
+After `MetadataOverflow`, do not keep waiting
 for `initialSyncCompleted`: it is the last sync message and may have been dropped.
 A second `enableAsyncMetadata` on a live connection only resends EPG; full
 recovery requires consumer-owned reconnect plus full sync, with backoff. The

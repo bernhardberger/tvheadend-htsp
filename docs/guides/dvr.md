@@ -262,7 +262,8 @@ which is why retrying `addDvrEntry` blindly can create a second recording. The
 On the pinned server, a delete removes the file first and then removes the
 entry only if its retention has run out. Otherwise the entry stays in the
 list, now without a file, and the server sends a `HtspDvrEntryUpdateMessage`
-whose `error` is `File missing`, not a `HtspDvrEntryDeleteMessage`. The
+whose `error` is `File missing` (pinned `src/htsp_server.c:1175`), not a
+`HtspDvrEntryDeleteMessage`. The
 same text appears on any finished recording whose file disappeared. So an
 acknowledged `deleteDvrEntry` can end in either message, and a book that waits
 only for the delete message can wait forever:
