@@ -11,7 +11,14 @@ import java.net.UnknownHostException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 
-/** Network endpoint used by the typed HTSP transport. Endpoint and credentials are never rendered. */
+/**
+ * Network endpoint used by the typed HTSP transport. Endpoint and credentials are never rendered.
+ *
+ * @property host server host name or address to connect to
+ * @property port TCP port of the server's HTSP service
+ * @property username account name sent in `authenticate`; credentials are sent only when both username and password are non-blank, otherwise the server applies its anonymous rights
+ * @property password account password used to answer the `authenticate` challenge; never sent in clear
+ */
 public class HtspEndpoint(
     public val host: String,
     public val port: Int,
@@ -25,7 +32,16 @@ public class HtspEndpoint(
 /** Minimum supported server protocol version. Raising it requires a major release; lowering it is compatible. */
 public const val MINIMUM_HTSP_PROTOCOL_VERSION: Long = 36
 
-/** Connection timeouts and socket bounds, all durations in milliseconds. */
+/**
+ * Connection timeouts and socket bounds, all durations in milliseconds.
+ *
+ * @property connectTimeoutMs maximum time to wait for the TCP connect; in `1..Int.MAX_VALUE`
+ * @property responseTimeoutMs maximum time to wait for each handshake reply; positive
+ * @property socketReadTimeoutMs socket read timeout, after which a blocked read fails as a timeout; in `1..Int.MAX_VALUE`
+ * @property socketBufferBytes size in bytes of the buffered socket input and output streams; in `1..16777216`
+ * @property requestedProtocolVersion HTSP version offered in `hello` (`htspversion`); the connection uses the lower of it and the server's version
+ * @property forceReconnect `true` replaces a live connection to the same endpoint instead of reusing it
+ */
 public data class HtspConnectOptions(
     public val connectTimeoutMs: Long = 10_000L,
     public val responseTimeoutMs: Long = 5_000L,
@@ -55,14 +71,27 @@ public data class HtspConnectOptions(
  * Minor releases may add entries; keep an `else` branch when matching.
  */
 public enum class HtspTransportFailureKind {
+    /** The server rejected the supplied credentials. */
     AUTHENTICATION_REJECTED,
+
+    /** The host name did not resolve. */
     HOST_NOT_FOUND,
+
+    /** The server refused the TCP connection. */
     CONNECTION_REFUSED,
+
+    /** A connect, read, or request timeout expired. */
     CONNECTION_TIMEOUT,
+
+    /** No network route to the host exists. */
     NETWORK_UNREACHABLE,
+
     /** The server violated the supported protocol, rather than merely reporting an older version. */
     INCOMPATIBLE_SERVER,
+
+    /** Any other transport failure not covered by a more specific kind. */
     TRANSPORT_UNAVAILABLE,
+
     /** The owner terminally closed this client before the operation was admitted. */
     CLOSED,
     /** A newer connection attempt, disconnect, or owner close superseded this attempt. */
@@ -71,7 +100,11 @@ public enum class HtspTransportFailureKind {
     UNSUPPORTED_SERVER_VERSION,
 }
 
-/** Bounded transport-failure classification with no implementation exception payload. */
+/**
+ * Bounded transport-failure classification with no implementation exception payload.
+ *
+ * @property kind category of the failure
+ */
 public data class HtspTransportFailure(
     public val kind: HtspTransportFailureKind,
 )
@@ -79,7 +112,10 @@ public data class HtspTransportFailure(
 /**
  * One live, opaque protocol generation and its bounded handshake observations.
  *
- * @property protocolVersion negotiated HTSP version from the successful hello exchange.
+ * @property generation identity of this live protocol generation
+ * @property protocolVersion negotiated HTSP version, the lower of the requested and server versions
+ * @property dvrAccess whether authentication granted `dvr` access; `null` when the reply omitted it or a later `authenticate` sent through [HtspConnection.execute] was denied
+ * @property serverFacts server identity and access observations from the handshake
  */
 public data class HtspLiveConnection(
     public val generation: HtspConnectionGeneration,
@@ -90,9 +126,17 @@ public data class HtspLiveConnection(
 
 /** Typed outcome of one connection attempt. */
 public sealed interface HtspConnectOutcome {
-    /** A connection attempt that established one live opaque generation. */
+    /**
+     * A connection attempt that established one live opaque generation.
+     *
+     * @property connection the established live connection
+     */
     public data class Connected(public val connection: HtspLiveConnection) : HtspConnectOutcome
-    /** A connection attempt reduced to one bounded transport failure. */
+    /**
+     * A connection attempt reduced to one bounded transport failure.
+     *
+     * @property failure why the attempt failed
+     */
     public data class Failed(public val failure: HtspTransportFailure) : HtspConnectOutcome
 }
 
@@ -101,9 +145,14 @@ public sealed interface HtspConnectOutcome {
  * Minor releases may add subtypes; keep an `else` branch.
  */
 public sealed interface HtspTransportEvent {
+    /** Generation that produced this event. */
     public val generation: HtspConnectionGeneration?
 
-    /** One typed asynchronous server message observed on its source generation. */
+    /**
+     * One typed asynchronous server message observed on its source generation.
+     *
+     * @property message the decoded server message
+     */
     public data class ServerMessage(
         public val message: HtspMetadataMessage,
         override val generation: HtspConnectionGeneration,
@@ -115,7 +164,11 @@ public sealed interface HtspTransportEvent {
         }
     }
 
-    /** An unsolicited failure of an established live generation, never a failed connect attempt. */
+    /**
+     * An unsolicited failure of an established live generation, never a failed connect attempt.
+     *
+     * @property failure why the live generation failed
+     */
     public data class ConnectionFailure(
         public val failure: HtspTransportFailure,
         override val generation: HtspConnectionGeneration,
@@ -162,6 +215,11 @@ public sealed interface HtspTransportEvent {
  * budgets. Malformed-metadata reports consume one metadata event slot and no frame bytes;
  * overflow/drop markers and connection failures are unbudgeted. Defaults may change in minor
  * releases; pass explicit values for fixed limits. There is no connection-wide cap or time ceiling.
+ *
+ * @property metadataQueueBytes retained server frame bytes allowed per metadata collector; in `1048576..1073741824`
+ * @property metadataQueueEvents events allowed per metadata collector; in `256..1048576`
+ * @property subscriptionQueueBytes retained server frame bytes allowed per subscription; in `1048576..1073741824`
+ * @property subscriptionQueueEvents events allowed per subscription; in `256..1048576`
  */
 @ConsistentCopyVisibility
 public data class HtspEventBufferOptions private constructor(

@@ -15,8 +15,11 @@ public sealed interface HtspApiContainer : HtspApiValue
 public class HtspApiObject private constructor(entries: Array<out Pair<String, HtspApiValue>>) : HtspApiContainer {
     private val values: Map<String, HtspApiValue> =
         Collections.unmodifiableMap(linkedMapOf(*entries))
+    /** Number of entries. */
     public val size: Int
         get() = values.size
+
+    /** Unmodifiable view of the keys, in insertion order. */
     public val keys: Set<String>
         get() = values.keys
 
@@ -45,6 +48,7 @@ public class HtspApiObject private constructor(entries: Array<out Pair<String, H
 @HtspJsonApi
 public class HtspApiList private constructor(values: Array<out HtspApiValue>) : HtspApiContainer {
     private val values: Array<out HtspApiValue> = values.copyOf()
+    /** Number of elements. */
     public val size: Int
         get() = values.size
 
@@ -72,19 +76,28 @@ public class HtspApiList private constructor(values: Array<out HtspApiValue>) : 
 /** Exact UTF-8 string value. */
 @HtspJsonApi
 @JvmInline
-public value class HtspApiString(public val value: String) : HtspApiValue {
+public value class HtspApiString(
+    /** The string value. */
+    public val value: String,
+) : HtspApiValue {
     override fun toString(): String = "HtspApiString(<redacted>)"
 }
 
 /** Exact signed 64-bit integer value. */
 @HtspJsonApi
 @JvmInline
-public value class HtspApiLong(public val value: Long) : HtspApiValue
+public value class HtspApiLong(
+    /** The signed 64-bit integer value. */
+    public val value: Long,
+) : HtspApiValue
 
 /** Exact HTSP boolean value. */
 @HtspJsonApi
 @JvmInline
-public value class HtspApiBoolean(public val value: Boolean) : HtspApiValue
+public value class HtspApiBoolean(
+    /** The boolean value. */
+    public val value: Boolean,
+) : HtspApiValue
 
 /** Defensive arbitrary-width binary value. */
 @HtspJsonApi

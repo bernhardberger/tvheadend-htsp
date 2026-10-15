@@ -20,7 +20,11 @@ public data class ApiRequest(
 /** Finite successful JSON API reply: either a typed container payload or an explicit absence of payload. */
 @HtspJsonApi
 public sealed interface ApiResponse {
-    /** Contains the recursively typed map or list returned by a successful JSON API call. */
+    /**
+     * Contains the recursively typed map or list returned by a successful JSON API call.
+     *
+     * @property value the `response` payload
+     */
     @HtspJsonApi
     public data class Payload(public val value: HtspApiContainer) : ApiResponse
 

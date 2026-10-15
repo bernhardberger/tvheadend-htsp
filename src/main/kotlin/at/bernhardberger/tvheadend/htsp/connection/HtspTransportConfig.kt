@@ -10,6 +10,7 @@ public data class HtspClientIdentity(
     val clientVersion: String,
 ) {
     public companion object {
+        /** Identity used when none is supplied: client name `Kotlin HTSP client`, version `unknown`. */
         public val Default: HtspClientIdentity = HtspClientIdentity(
             clientName = "Kotlin HTSP client",
             clientVersion = "unknown",
@@ -23,7 +24,10 @@ public data class HtspClientIdentity(
  * Minor releases may add entries; keep an `else` branch when matching.
  */
 public enum class HtspLogLevel {
+    /** A recoverable or degraded condition. */
     WARNING,
+
+    /** A failed operation. */
     ERROR,
 }
 
@@ -33,6 +37,7 @@ public fun interface HtspLogger {
     public fun log(level: HtspLogLevel, message: String, cause: Throwable?)
 
     public companion object {
+        /** Logger that discards every diagnostic. */
         public val None: HtspLogger = HtspLogger { _, _, _ -> }
     }
 }
