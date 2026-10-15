@@ -121,6 +121,7 @@ public sealed interface HtspTransportEvent {
      * Metadata discarded for this collector; recover the consumer's state explicitly.
      * [droppedCount] counts losses only for [generation]. Losses after reconnect start
      * a separate marker; each generation has at most one pending marker.
+     * A discarded [MalformedMetadata] contributes its skipped-message count.
      */
     public data class MetadataOverflow(
         override val generation: HtspConnectionGeneration,
@@ -130,13 +131,33 @@ public sealed interface HtspTransportEvent {
             require(droppedCount > 0L) { "droppedCount must be positive" }
         }
     }
+
+    /**
+     * Malformed metadata skipped on [generation], whose consumer state is now incomplete.
+     * The connection stays live. Carries only [generation] and the positive skipped-message
+     * [count], never method names, fields, identifiers or server text; [toString] redacts generation.
+     * Adjacent pending reports for the same generation coalesce without crossing other queued
+     * events. Each report occupies one metadata event slot and retains no frame bytes.
+     * If it cannot fit, [MetadataOverflow] counts the loss before later admitted messages.
+     */
+    public data class MalformedMetadata(
+        override val generation: HtspConnectionGeneration,
+        public val count: Long,
+    ) : HtspTransportEvent {
+        init {
+            require(count > 0L) { "count must be positive" }
+        }
+
+        override fun toString(): String = "MalformedMetadata(generation=<redacted>, count=$count)"
+    }
 }
 
 /**
  * Per-collector metadata and per-subscription queue budgets. Bytes account for retained
  * server frame bodies, not exact heap usage. Subscription packets and controls share both
- * budgets. Markers are outside the budgets. Defaults may change in minor releases; pass
- * explicit values for fixed limits. There is no connection-wide cap or time ceiling.
+ * budgets. Malformed-metadata reports consume one metadata event slot and no frame bytes;
+ * overflow/drop markers and connection failures are unbudgeted. Defaults may change in minor
+ * releases; pass explicit values for fixed limits. There is no connection-wide cap or time ceiling.
  */
 @ConsistentCopyVisibility
 public data class HtspEventBufferOptions private constructor(

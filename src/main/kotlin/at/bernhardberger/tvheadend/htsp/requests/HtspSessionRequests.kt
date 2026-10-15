@@ -234,6 +234,11 @@ public suspend fun HtspConnection.enableAsyncMetadata(
  * [timeoutMs] is one deadline covering both the acknowledgement and sync marker.
  * Overflow of this observer's generation returns [HtspResult.TransportUnavailable]
  * promptly: the sync is incomplete even though the transport may remain live.
+ * [HtspTransportEvent.MalformedMetadata] for this generation before its sync marker
+ * promptly returns [HtspResult.MalformedReply]: the asynchronous response is incomplete
+ * because metadata could not be decoded, not because the server refused or transport failed.
+ * A malformed report after the marker does not invalidate this sync result; stateful
+ * consumers must still observe it and treat the generation's state as incomplete.
  * @param lastUpdateEpochSeconds HTSP `lastUpdate`, epoch seconds; 0 means never synchronized, so the server sends all eligible metadata; null omits it.
  * @param epgMaxTimeEpochSeconds HTSP `epgMaxTime`, epoch seconds; zero means unlimited, null omits it.
  * See [EnableAsyncMetadataRequest] for pinned source evidence.
@@ -276,6 +281,11 @@ public suspend fun HtspConnection.enableAsyncMetadataAwaitingInitialSync(
                         }
                         is HtspTransportEvent.MetadataOverflow -> {
                             if (event.generation === generation) terminal.complete(HtspResult.TransportUnavailable)
+                        }
+                        is HtspTransportEvent.MalformedMetadata -> {
+                            if (event.generation === generation && !marker.isCompleted) {
+                                terminal.complete(HtspResult.MalformedReply)
+                            }
                         }
                         else -> Unit
                     }

@@ -837,7 +837,11 @@ internal open class `HtspService-internal`(
                                                 ?.recordDropped(1L)
                                         MalformedSubscriptionMessage.ControlOrEnvelope ->
                                             throw HtspIncompatibleServerException()
-                                        null -> throw HtspIncompatibleServerException()
+                                        null -> {
+                                            val event = HtspTransportEvent.MalformedMetadata(currentGeneration.token, 1L)
+                                            afterPublicationCurrencyCheck(event)
+                                            metadataCollectors.forEach { it.offer(event, 0L) }
+                                        }
                                     }
                                 }
                                 HtspServerMessageUnknownMethod -> Unit

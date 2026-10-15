@@ -277,12 +277,14 @@ internal class HtspNearLiveIntegrationTest {
                     }
                     changed.trySend(Unit)
                 }
-                is HtspTransportEvent.ConnectionFailure -> {
+                is HtspTransportEvent.ConnectionFailure,
+                is HtspTransportEvent.MalformedMetadata -> {
                     if (event.generation === generation) {
                         synchronized(lock) { failures += 1 }
                         changed.trySend(Unit)
                     }
                 }
+                else -> Unit
             }
         }
 

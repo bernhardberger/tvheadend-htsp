@@ -18,8 +18,10 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertSame
+import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.util.concurrent.CountDownLatch
@@ -90,36 +92,96 @@ internal class HtspServiceTypedEventTest : HtspServiceLifecycleFixture() {
     }
 
     @Test
-    fun malformedRecognizedMetadataFailsTransportWhileUnknownMessagesRemainCompatible() {
+    fun malformedMetadataCoalescesBeforeLaterMetadataAndSyncWithoutClosingTransport() {
         FakeHtspServer(respondToHello = true).use { server ->
-            val service = service()
+            val syncPublished = CompletableDeferred<Unit>()
+            val service = service(afterPublicationCurrencyCheck = { event ->
+                if (event is HtspTransportEvent.ServerMessage && event.message === HtspInitialSyncCompletedMessage) {
+                    syncPublished.complete(Unit)
+                }
+            })
             runBlocking {
-                service.connect(HtspEndpoint("127.0.0.1", server.port))
+                val connected = service.connect(HtspEndpoint("127.0.0.1", server.port)) as HtspConnectOutcome.Connected
+                val generation = connected.connection.generation
                 val events = CopyOnWriteArrayList<HtspTransportEvent>()
+                val firstReceived = CompletableDeferred<Unit>()
+                val releaseCollector = CompletableDeferred<Unit>()
+                val syncReceived = CompletableDeferred<Unit>()
                 val collector = launch(start = CoroutineStart.UNDISPATCHED) {
-                    service.events.collect { event -> events += event }
+                    service.events.collect { event ->
+                        events += event
+                        if (events.size == 1) {
+                            firstReceived.complete(Unit)
+                            releaseCollector.await()
+                        }
+                        if (event is HtspTransportEvent.ServerMessage && event.message === HtspInitialSyncCompletedMessage) {
+                            syncReceived.complete(Unit)
+                        }
+                    }
                 }
 
                 server.sendServerMessage("futureMetadata", mapOf("value" to 1L))
                 server.sendServerMessage("channelAdd", channelFixture(71L))
-                server.sendServerMessage("channelAdd", mapOf("channelId" to "malformed"))
-                withTimeout(1_000L) {
-                    while (events.none { it is HtspTransportEvent.ConnectionFailure }) delay(1L)
+                withTimeout(1_000L) { firstReceived.await() }
+                repeat(2) {
+                    server.sendServerMessage("channelAdd", mapOf("channelId" to "private-invalid-id", "channelName" to "private-name"))
                 }
+                server.sendServerMessage("channelAdd", channelFixture(72L))
+                server.sendServerMessage("initialSyncCompleted")
+                withTimeout(1_000L) { syncPublished.await() }
+                releaseCollector.complete(Unit)
+                withTimeout(1_000L) { syncReceived.await() }
 
                 assertEquals(
                     listOf(
                         HtspTransportEvent.ServerMessage::class,
-                        HtspTransportEvent.ConnectionFailure::class,
+                        HtspTransportEvent.MalformedMetadata::class,
+                        HtspTransportEvent.ServerMessage::class,
+                        HtspTransportEvent.ServerMessage::class,
                     ),
                     events.map { event -> event::class },
                 )
-                assertEquals(
-                    HtspTransportFailureKind.INCOMPATIBLE_SERVER,
-                    (events.last() as HtspTransportEvent.ConnectionFailure).failure.kind,
-                )
+                val malformed = events[1] as HtspTransportEvent.MalformedMetadata
+                assertEquals(HtspTransportEvent.MalformedMetadata(generation, 2L), malformed)
+                assertSame(generation, malformed.generation)
+                listOf("channelAdd", "channelId", "channelName", "private-invalid-id", "private-name").forEach {
+                    assertFalse(malformed.toString().contains(it))
+                }
+                assertEquals(72L, ((events[2] as HtspTransportEvent.ServerMessage).message as HtspChannelAddMessage).channel.channelId)
+                assertSame(generation, service.liveConnection.value?.generation)
+                assertTrue(service.connectionState.value is HtspConnectionState.Connected)
                 collector.cancelAndJoin()
                 service.close()
+            }
+        }
+    }
+
+    @Test
+    fun initialSyncCannotSucceedAfterMalformedMetadataEvenWhenItsReportOverflows() = runBlocking {
+        listOf(1 to HtspResult.TransportUnavailable, 3 to HtspResult.MalformedReply).forEach { (capacity, expected) ->
+            FakeHtspServer(respondToHello = true, postHandshakeReplyPlan = listOf(emptyMap())).use { server ->
+                val queued = CountDownLatch(3)
+                val service = service(
+                    metadataEventBufferCapacity = capacity,
+                    afterPublicationCurrencyCheck = { queued.countDown() },
+                )
+                service.connect(HtspEndpoint("127.0.0.1", server.port))
+                val generation = service.liveConnection.value?.generation
+                val sync = async(start = CoroutineStart.UNDISPATCHED) {
+                    service.enableAsyncMetadataAwaitingInitialSync()
+                }
+                try {
+                    // Hold the observer's dispatcher until all three publications have begun.
+                    server.sendServerMessage("channelAdd", channelFixture(71L))
+                    server.sendServerMessage("channelAdd", mapOf("channelId" to "malformed"))
+                    server.sendServerMessage("initialSyncCompleted")
+                    assertTrue(queued.await(2L, TimeUnit.SECONDS))
+                    assertSame(expected, withTimeout(2_000L) { sync.await() })
+                    assertSame(generation, service.liveConnection.value?.generation)
+                } finally {
+                    sync.cancelAndJoin()
+                    service.close()
+                }
             }
         }
     }
@@ -494,6 +556,17 @@ internal class HtspServiceTypedEventTest : HtspServiceLifecycleFixture() {
                 HtspTransportEvent.ServerMessage(message, generation, messageSequence = 0L)
             }.exceptionOrNull() is IllegalArgumentException,
         )
+    }
+
+    @Test
+    fun malformedMetadataValidatesCountAndRedactsGeneration() {
+        val generation = HtspConnectionGeneration()
+        val event = HtspTransportEvent.MalformedMetadata(generation, 1L)
+        assertEquals("MalformedMetadata(generation=<redacted>, count=1)", event.toString())
+        listOf(0L, -1L).forEach { count ->
+            assertThrows(IllegalArgumentException::class.java) { HtspTransportEvent.MalformedMetadata(generation, count) }
+            assertThrows(IllegalArgumentException::class.java) { event.copy(count = count) }
+        }
     }
 
     @Test

@@ -89,6 +89,9 @@ The closed request failure cases are:
   server may have performed the request: a subscribe may have created a server-side
   subscription, and its stream stays open (send unsubscribe if it is not wanted).
   Do not blindly retry non-idempotent requests such as `addDvrEntry`.
+  Initial-sync orchestration also returns `MalformedReply` when malformed metadata
+  precedes its generation's sync marker: the asynchronous response could not be
+  fully decoded, even though the transport remains usable.
 
 Subscribe streams terminate with `SUBSCRIBE_REJECTED` for classified server rejections
 (`ServerError`, `AccessDenied`, `ConnectionLimit`, `NotSupported`), not for
@@ -198,8 +201,9 @@ publishing state, and an immediate state consumer that blocks on another lifecyc
 operation (for example `runBlocking { close() }`) can deadlock. Prefer a real
 dispatcher for consumer code.
 
-`HtspConnection.events` has replay zero and carries metadata server messages and
-connection failures and overflow markers. `HtspTransportEvent.ServerMessage.message`
+`HtspConnection.events` has replay zero and carries metadata server messages,
+connection failures, overflow markers and malformed-metadata reports.
+`HtspTransportEvent.ServerMessage.message`
 is an `HtspMetadataMessage`; subscription stream messages are excluded from this
 sealed hierarchy. Minor releases may add metadata subtypes, so keep an `else`
 branch when matching. Every collector has its own bounded
@@ -210,6 +214,23 @@ at the first loss position, after earlier queued events and before later admitte
 events. Losses after reconnect start a new marker for the new generation; the old
 marker stays in its original position. Delivery then continues. `ConnectionFailure`
 and `MetadataOverflow` are outside the budget and are never dropped.
+
+Malformed metadata is skipped without closing the connection and reported as
+`MalformedMetadata(generation, count)`. It carries only the generation and positive
+skipped-message count, with no method name, fields, identifiers or server text;
+`toString()` redacts the generation. Stateful consumers (such as caches) must treat
+this as **this generation's state is incomplete**. Later valid metadata still arrives.
+Envelope faults and malformed subscription controls still close the connection;
+malformed mux packets keep their ordered `Dropped` behavior.
+
+Adjacent pending malformed reports for the same generation coalesce into one queue
+entry, without crossing other queued events. Each entry consumes one metadata event
+slot and zero frame bytes because the malformed payload is not retained. Coalescing
+requires no additional budget, even when the queue is full. A report that cannot fit
+is discarded into `MetadataOverflow`, adding its skipped-message count to
+`droppedCount` at the existing first-loss position. Thus either the malformed report
+or an overflow marker is observed before any later admitted message, including
+`initialSyncCompleted`. Different generations never share a malformed report.
 
 Pass `HtspEventBufferOptions` to `createHtspConnection`, not to `connect`.
 Defaults are 8 MiB and 8192 events per metadata collector and per subscription.
@@ -303,6 +324,18 @@ acknowledgement is retained. One timeout covers both phases and returns
 `HtspResult.Timeout`; caller cancellation remains
 cancellation; a stale generation returns `TransportUnavailable`. Because the marker has no request sequence, callers must serialize
 this orchestration within a connection generation.
+
+A `MalformedMetadata` report for the observed generation **before** its completion
+marker promptly returns `HtspResult.MalformedReply`, including while the
+acknowledgement is pending. This reuses the decoding-failure category: the
+asynchronous response is incomplete, not a server refusal or transport failure
+(ADR 0001 D5 adds no failure categories). A report after the marker does not change
+that sync result, even if the acknowledgement is still pending; a successful
+acknowledgement is still required. Reports for other generations are ignored.
+If the report itself overflows, the observer instead gets the existing
+`TransportUnavailable` overflow outcome. Consumers maintaining state must continue
+observing malformed reports after initial sync; reconnecting alone may encounter
+the same bad metadata again. Recovery policy belongs to the consumer.
 
 Autorec/timerec updates are not sparse patches for the channel: omitting `channel`
 clears it on the server (pinned `src/htsp_server.c`, lines 700–703). Send the channel

@@ -202,6 +202,88 @@ internal class HtspInitialSyncOrchestrationTest {
         assertEquals(HtspResult.Ok(Unit), result.await())
     }
 
+    @Test
+    fun malformedMetadataBeforeMarkerCancelsPendingAcknowledgementWithMalformedReply() = runTest {
+        val generation = HtspConnectionGeneration()
+        val connection = ScriptedConnection(generation)
+        val requestStarted = CompletableDeferred<Unit>()
+        val requestCancelled = CompletableDeferred<Unit>()
+        connection.executeScript = { _, _, _ ->
+            requestStarted.complete(Unit)
+            try {
+                awaitCancellation()
+            } finally {
+                requestCancelled.complete(Unit)
+            }
+        }
+        val result = async(start = CoroutineStart.UNDISPATCHED) {
+            connection.enableAsyncMetadataAwaitingInitialSync()
+        }
+
+        requestStarted.await()
+        connection.eventSource.emit(HtspTransportEvent.MalformedMetadata(generation, 2L))
+        connection.emitInitialSync(generation)
+
+        assertSame(HtspResult.MalformedReply, result.await())
+        assertTrue(requestCancelled.isCompleted)
+        assertSame(generation, connection.liveConnection.value?.generation)
+        assertEquals(0, connection.eventSource.subscriptionCount.value)
+    }
+
+    @Test
+    fun malformedMetadataBeforeMarkerAfterSuccessfulAcknowledgementStillFailsSync() = runTest {
+        val generation = HtspConnectionGeneration()
+        val connection = ScriptedConnection(generation)
+        connection.executeScript = { _, _, _ -> HtspResult.Ok(HtspEmptyResponse) }
+        val result = async(start = CoroutineStart.UNDISPATCHED) {
+            connection.enableAsyncMetadataAwaitingInitialSync()
+        }
+
+        connection.eventSource.emit(HtspTransportEvent.MalformedMetadata(generation, 1L))
+        connection.emitInitialSync(generation)
+
+        assertSame(HtspResult.MalformedReply, result.await())
+        assertEquals(0, connection.eventSource.subscriptionCount.value)
+    }
+
+    @Test
+    fun malformedMetadataAfterMarkerDoesNotInvalidateSyncWhileAcknowledgementIsPending() = runTest {
+        val generation = HtspConnectionGeneration()
+        val connection = ScriptedConnection(generation)
+        val reportsSent = CompletableDeferred<Unit>()
+        val acknowledgement = CompletableDeferred<Unit>()
+        connection.executeScript = { _, _, _ ->
+            emitInitialSync(generation)
+            eventSource.emit(HtspTransportEvent.MalformedMetadata(generation, 3L))
+            reportsSent.complete(Unit)
+            acknowledgement.await()
+            HtspResult.Ok(HtspEmptyResponse)
+        }
+        val result = async(start = CoroutineStart.UNDISPATCHED) {
+            connection.enableAsyncMetadataAwaitingInitialSync()
+        }
+
+        reportsSent.await()
+        assertFalse(result.isCompleted)
+        acknowledgement.complete(Unit)
+        assertEquals(HtspResult.Ok(Unit), result.await())
+        assertEquals(0, connection.eventSource.subscriptionCount.value)
+    }
+
+    @Test
+    fun malformedMetadataForAnotherGenerationCannotInvalidateCurrentSync() = runTest {
+        val generation = HtspConnectionGeneration()
+        val connection = ScriptedConnection(generation)
+        connection.executeScript = { _, _, _ ->
+            eventSource.emit(HtspTransportEvent.MalformedMetadata(HtspConnectionGeneration(), 1L))
+            emitInitialSync(generation)
+            HtspResult.Ok(HtspEmptyResponse)
+        }
+
+        assertEquals(HtspResult.Ok(Unit), connection.enableAsyncMetadataAwaitingInitialSync())
+        assertEquals(0, connection.eventSource.subscriptionCount.value)
+    }
+
     @OptIn(ExperimentalForInheritanceCoroutinesApi::class)
     private class ScriptedConnection(
         generation: HtspConnectionGeneration,

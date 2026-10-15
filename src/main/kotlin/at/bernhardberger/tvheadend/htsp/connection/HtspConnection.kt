@@ -40,6 +40,10 @@ public interface HtspConnection {
      * decoded events may be shared across queues. A full queue drops newest metadata and reports [HtspTransportEvent.MetadataOverflow]
      * before later admitted events; connection failures and overflow markers are unbudgeted.
      * At most one pending overflow marker per generation coalesces only that generation's losses.
+     * [HtspTransportEvent.MalformedMetadata] reports skipped metadata without closing the connection;
+     * stateful consumers must treat that generation's state as incomplete. Adjacent pending reports
+     * for the same generation coalesce, consuming one event slot and no frame bytes. If full, the
+     * queue counts their skipped messages in its overflow marker instead.
      * Budget defaults may change; pass [HtspEventBufferOptions] for fixed limits.
      * Recovery (including reconnect and full sync with backoff) belongs to the consumer.
      */

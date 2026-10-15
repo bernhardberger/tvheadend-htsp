@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+- **BREAKING:** malformed metadata is skipped without tearing down the connection.
+  Add payload-free `HtspTransportEvent.MalformedMetadata(generation, count)`;
+  adjacent pending reports coalesce and consume one metadata event slot, with
+  overflow reported through `MetadataOverflow`. Stateful consumers must treat the
+  generation's state as incomplete. Envelope and subscription-control faults still
+  close the connection; malformed mux packets still report dropped counts.
+- Initial-sync waits now return the existing `HtspResult.MalformedReply` when a
+  malformed-metadata report for their generation precedes `initialSyncCompleted`;
+  later reports do not invalidate a completed sync. Overflow keeps the existing
+  `TransportUnavailable` outcome.
+
 - **BREAKING:** narrow `HtspTransportEvent.ServerMessage.message` to the sealed
   `HtspMetadataMessage` hierarchy. Metadata messages implement this subtype;
   subscription messages remain `HtspServerMessage` only. Minor releases may add

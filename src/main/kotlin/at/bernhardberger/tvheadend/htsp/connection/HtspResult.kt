@@ -31,6 +31,8 @@ public sealed interface HtspResult<out R> {
     /**
      * A reply arrived but could not be decoded: an envelope field was malformed or the typed
      * decoder could not map the reply to the protocol model. Carries no text or throwable.
+     * Initial-sync orchestration also returns this when malformed asynchronous metadata
+     * precedes the sync marker: the response is incomplete even though the transport stays live.
      *
      * The server may have performed the request. A subscribe may have created a server-side
      * subscription; its stream stays open, so send unsubscribe if it is not wanted. Do not

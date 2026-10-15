@@ -16,36 +16,52 @@ internal class HtspMetadataEventBuffer(
     private var overflow: Entry? = null
 
     internal fun offer(event: HtspTransportEvent, frameBodyBytes: Long) {
-        if (event is HtspTransportEvent.ServerMessage &&
-            (size >= capacity || bytes + frameBodyBytes > byteCapacity)
-        ) {
-            val pending = overflow
-            val marker = pending?.event as? HtspTransportEvent.MetadataOverflow
-            if (marker != null && marker.generation === event.generation) {
-                pending.event = marker.copy(droppedCount = Math.addExact(marker.droppedCount, 1L))
-            } else {
-                overflow = Entry(HtspTransportEvent.MetadataOverflow(event.generation, 1L), 0L).also(queue::addLast)
+        val retainedBytes = if (event is HtspTransportEvent.ServerMessage) frameBodyBytes else 0L
+        val tail = queue.peekLast()
+        val malformed = tail?.event as? HtspTransportEvent.MalformedMetadata
+        when {
+            event is HtspTransportEvent.MalformedMetadata && malformed?.generation === event.generation -> {
+                tail.event = malformed.copy(count = Math.addExact(malformed.count, event.count))
             }
-        } else {
-            val retainedBytes = if (event is HtspTransportEvent.ServerMessage) frameBodyBytes else 0L
-            queue.addLast(Entry(event, retainedBytes))
-            if (event is HtspTransportEvent.ServerMessage) {
-                size++
-                bytes += retainedBytes
+            event.isBudgeted() && (size >= capacity || bytes + retainedBytes > byteCapacity) -> {
+                recordOverflow(
+                    checkNotNull(event.generation),
+                    if (event is HtspTransportEvent.MalformedMetadata) event.count else 1L,
+                )
+            }
+            else -> {
+                queue.addLast(Entry(event, retainedBytes))
+                if (event.isBudgeted()) {
+                    size++
+                    bytes += retainedBytes
+                }
             }
         }
         wakeup(eventsAvailable)
     }
 
+    private fun recordOverflow(generation: HtspConnectionGeneration, count: Long) {
+        val pending = overflow
+        val marker = pending?.event as? HtspTransportEvent.MetadataOverflow
+        if (marker != null && marker.generation === generation) {
+            pending.event = marker.copy(droppedCount = Math.addExact(marker.droppedCount, count))
+        } else {
+            overflow = Entry(HtspTransportEvent.MetadataOverflow(generation, count), 0L).also(queue::addLast)
+        }
+    }
+
     internal fun poll(): HtspTransportEvent? {
         val entry = queue.pollFirst() ?: return null
         if (entry === overflow) overflow = null
-        if (entry.event is HtspTransportEvent.ServerMessage) {
+        if (entry.event.isBudgeted()) {
             size--
             bytes -= entry.bytes
         }
         return entry.event
     }
+
+    private fun HtspTransportEvent.isBudgeted(): Boolean =
+        this is HtspTransportEvent.ServerMessage || this is HtspTransportEvent.MalformedMetadata
 
     private class Entry(var event: HtspTransportEvent, val bytes: Long)
 }
