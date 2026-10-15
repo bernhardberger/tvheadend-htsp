@@ -80,7 +80,11 @@ DVR policy.
 ## Protocol quirks and version notes
 
 `subscriptionStart` can contain duplicate top-level `meta` keys
-(`src/htsp_server.c:4370–4372`); the codec keeps the last value.
+(`src/htsp_server.c:4370–4374`; v36 :4219–4223). For every duplicate map key,
+at any depth, the codec keeps the first value, matching upstream
+`htsmsg_field_find` (`src/htsmsg.c:171–182`), which every `htsmsg_get_*` lookup
+uses. The decoded `meta` is therefore the codec header of the first stream that
+has one, with no stream association on the wire; nested stream `meta` is ignored.
 
 - Wire BOOL is true only for exactly one nonzero data byte; every other length
   decodes false (`src/htsmsg_binary.c:133–135,146–147`). The binary format has no double
@@ -177,8 +181,8 @@ to `epg_object_serialize` there rather than expanded in the HTSP sender.
   empty reply, and other failures to the literal `N_("Bad request")`, not backend
   error text. These messages are untrusted display text, not stable codes.
 - DVR mutations require `success: 1` for typed success. `addDvrEntry` emits
-  `id` plus `success: 1` in pinned `src/htsp_server.c:2128-2129`; the decoder's
-  `dvrId` fallback is compatibility-only, not emitted by the pinned server.
+  `id` plus `success: 1` in pinned `src/htsp_server.c:2128-2129`; the decoder
+  requires `id`. The unevidenced `dvrId` alias is ignored and cannot replace it.
   Its failure branch at lines 2132-2133 emits `success: 0` plus the fixed
   `error: "Could not add dvrEntry"`. `updateDvrEntry`, `stopDvrEntry`,
   `cancelDvrEntry`, and `deleteDvrEntry` return `htsp_success()` at lines
@@ -410,7 +414,7 @@ nullable; present malformed values remain errors. Line numbers refer to pinned
 | Channel | `channelId`, `channelNumber`, `channelName`, `eventId`, `nextEventId`, `services`, `tags` | :859–925 |
 | Tag | `tagId`, `tagIndex`, `tagName`, `tagTitledIcon` | :932–958 |
 | Event | `eventId`, `start`, `stop` | :1339–1343 |
-| DVR entry | `id`, `enabled`, `start`, `stop`, `startExtra`, `stopExtra`, `retention`, `removal`, `priority`, `contentType`, `ageRating`, `state` | :977–1015,1190; DVR age rating introduced v36 |
+| DVR entry | `id`, `enabled`, `start`, `stop`, `startExtra`, `stopExtra`, `retention`, `removal`, `priority`, `contentType`, `state` | :977–1014,1190; v36 :953–1125 |
 | Autorec | `id`, `enabled`, `maxDuration`, `minDuration`, `retention`, `removal`, `daysOfWeek`, `approxTime`, `start`, `startWindow`, `priority`, `startExtra`, `stopExtra`, `dupDetect`, `maxCount` | :1215–1245 |
 | Timerec | `id`, `enabled`, `daysOfWeek`, `retention`, `removal`, `priority`, `start`, `stop` | :1280–1293; required times use -1 for unset |
 
@@ -422,6 +426,11 @@ autorec/timerec comments use `htsmsg_add_str2` (:1247,1294); configuration UUIDs
 (:1153–1154,1263–1264,1306–1307). Tag members are an inclusion exception:
 `channelIds == null` means not included, and empty means included with no members
 (:948–958; initial-sync omission/inclusion :1709,1719).
+
+DVR `ageRating` is nullable: v36's builder (:953–1125) never emits it, whereas
+v44 emits it unconditionally (:1015), without an `htsp_version` gate. Its
+absence therefore cannot be rejected based on the negotiated protocol version.
+Present malformed values still fail decoding.
 
 `channelUpdate` containing `channelName` must validate the full channel. Without
 it, only `{channelId,eventId,nextEventId}` plus `method` is accepted and yields
@@ -448,10 +457,13 @@ the exact sparse shapes above reject unknown keys. Event `category` is a list,
 and episode ordinals/counts are flat, separately named fields (:706–725 / :711–730).
 
 Autorec `approxTime`, `start`, and `startWindow` are required wire s32 values;
-`-1` means unset and decodes to null, otherwise valid minutes are `0..1439`
-(v36 :1151–1163; v44 :1228–1240). `approxTime` is the circular midpoint of a
-set start/window pair, or unset when either bound is unset. This matches timerec
-entity unset-time semantics.
+`-1` means unset and decodes to null (v36 :1151–1163; v44 :1228–1240).
+`start` and `startWindow` preserve every non-negative s32 value, including values
+above 1439: the update path forwards them (:646–648), and the builder only maps
+negative values to -1 (:1239–1240). Values below -1 are malformed. `approxTime`
+remains in `0..1439`: it is the circular midpoint modulo 1440 of a set
+start/window pair, or unset when either bound is unset. Request-side time
+validation remains `0..1439`.
 
 ## Maintenance
 

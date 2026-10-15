@@ -15,9 +15,10 @@ parameters keep their stdlib names: `HtspBinary.size` and
 `stopExtraMinutes`, and `playPositionSeconds`.
 
 Timerec request and entity times of day are `Int?` minutes since midnight.
-Requests accept `0..1439`; null omits the field. Autorec entity `approxTime`,
-`start`, and `startWindow` likewise use nullable minutes in `0..1439`. For both
-rule entities, required wire times of `-1` decode to null (unset).
+Requests accept `0..1439`; null omits the field. Autorec entity `approxTime`
+uses nullable minutes in `0..1439`, while `start` and `startWindow` preserve
+all non-negative s32 values sent by the server, including values above 1439.
+For both rule entities, required wire times of `-1` decode to null (unset).
 All public protocol-version quantities are `Long` (nullable when
 unknown), including connect options, live connections, request minimum versions,
 and `MINIMUM_HTSP_PROTOCOL_VERSION`, following the u32 mapping without narrowing.

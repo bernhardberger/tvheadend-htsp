@@ -1,6 +1,7 @@
 package at.bernhardberger.tvheadend.htsp
 
 import at.bernhardberger.tvheadend.htsp.wire.*
+import at.bernhardberger.tvheadend.htsp.messages.*
 
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
@@ -161,17 +162,35 @@ class HtspCodecTest {
     }
 
     @Test
-    fun duplicateMapKeysRemainLastWinsAndListNamesRemainIgnored() {
+    fun duplicateMapKeysKeepFirstValueLikeHtsmsgAndListNamesRemainIgnored() {
         val duplicates = field(3, "same", "first".encodeToByteArray()) +
             field(3, "same", "last".encodeToByteArray()) + field(3, "", "ignored".encodeToByteArray())
         val body = duplicates + field(1, "map", duplicates) + field(5, "list", duplicates) +
             field(1, "nested", field(2, "seq", byteArrayOf(1, 0, 0, 0, 0, 0, 0, 0, 99)))
         val decoded = HtspCodec.readMessage(frame(body).inputStream())
-        assertEquals("last", decoded.fields["same"])
-        assertEquals(mapOf("same" to "last"), decoded.fields["map"])
+        assertEquals("first", decoded.fields["same"])
+        assertEquals(mapOf("same" to "first"), decoded.fields["map"])
         assertEquals(listOf("first", "last", "ignored"), decoded.fields["list"])
         assertEquals(mapOf("seq" to 1L), decoded.fields["nested"])
         assertEquals(setOf("same", "map", "list", "nested"), decoded.fields.keys)
+    }
+
+    @Test
+    fun repeatedSubscriptionStartMetaDecodesFirstCodecHeader() {
+        val first = byteArrayOf(1, 2, 3)
+        val last = byteArrayOf(4, 5)
+        val duplicates = field(4, "meta", first) + field(4, "meta", last)
+        val envelope = field(3, "method", "subscriptionStart".encodeToByteArray()) + field(2, "subscriptionId", byteArrayOf(1))
+        listOf(envelope + duplicates, duplicates + envelope).forEach { body ->
+            val decoded = HtspCodec.readMessage(frame(body).inputStream())
+            val message = (decodeHtspServerMessage(decoded.fields) as HtspServerMessageDecoded).message
+                as HtspSubscriptionStartMessage
+            assertArrayEquals(first, message.codecMetadata!!.toByteArray())
+        }
+        val malformedFirst = field(3, "meta", "invalid".encodeToByteArray()) + field(4, "meta", last) +
+            field(3, "method", "subscriptionStart".encodeToByteArray()) + field(2, "subscriptionId", byteArrayOf(1))
+        assertEquals(HtspServerMessageMalformedKnownMessage,
+            decodeHtspServerMessage(HtspCodec.readMessage(frame(malformedFirst).inputStream()).fields))
     }
 
     @Test

@@ -259,28 +259,29 @@ class HtspServerMessageTest {
     }
 
     @Test
-    fun subscriptionStreamMetadataAndTimeshiftSpeedDecodeStrictlyAndDefensively() {
+    fun subscriptionMetadataIsTopLevelAndNestedMetaIsIgnored() {
         val metadata = byteArrayOf(1, 2, 3)
-        val start = decodeMessage(
-            mapOf(
-                "method" to "subscriptionStart",
-                "subscriptionId" to 1L,
-                "streams" to listOf(mapOf("index" to 2L, "type" to "H264", "meta" to metadata)),
-            ),
-        ) as HtspSubscriptionStartMessage
+        val fields = minimalFixture("subscriptionStart") +
+            ("streams" to listOf(mapOf("index" to 2L, "type" to "H264")))
+        val expected = decodeMessage(fields)
+        listOf(metadata, "bad", null).forEach { nested ->
+            assertEquals(expected, decodeMessage(fields +
+                ("streams" to listOf(mapOf("index" to 2L, "type" to "H264", "meta" to nested)))))
+        }
+        val start = decodeMessage(fields + ("meta" to metadata)) as HtspSubscriptionStartMessage
         metadata[0] = 9
-        assertTrue(start.streams!!.single().codecMetadata!!.toByteArray().contentEquals(byteArrayOf(1, 2, 3)))
+        assertTrue(start.codecMetadata!!.toByteArray().contentEquals(byteArrayOf(1, 2, 3)))
+        assertMalformed(fields + ("meta" to "bad"))
+    }
 
+    @Test
+    fun timeshiftSpeedDecodesStrictly() {
         val timeshift = decodeMessage(
             minimalFixture("timeshiftStatus") + ("speed" to Int.MIN_VALUE.toLong()),
         ) as HtspTimeshiftStatusMessage
         assertEquals(Int.MIN_VALUE, timeshift.speed)
         assertEquals(null, (decodeMessage(minimalFixture("timeshiftStatus")) as HtspTimeshiftStatusMessage).speed)
 
-        assertMalformed(
-            minimalFixture("subscriptionStart") +
-                ("streams" to listOf(mapOf("index" to 0L, "type" to "H264", "meta" to "bad"))),
-        )
         assertMalformed(minimalFixture("timeshiftStatus") + ("speed" to Int.MAX_VALUE.toLong() + 1L))
         assertMalformed(minimalFixture("timeshiftStatus") + ("speed" to 1))
     }

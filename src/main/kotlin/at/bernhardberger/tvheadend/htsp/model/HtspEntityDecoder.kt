@@ -78,7 +78,7 @@ internal class `HtspEntityDecoder-internal`(
             stopEpochSeconds = requiredS64("stop"), startExtraMinutes = requiredS64("startExtra"),
             stopExtraMinutes = requiredS64("stopExtra"), retentionDays = requiredU32("retention"),
             removalDays = requiredU32("removal"), priority = requiredU32("priority"),
-            contentType = requiredU32("contentType"), ageRating = requiredU32("ageRating"),
+            contentType = requiredU32("contentType"), ageRating = optionalU32("ageRating"),
             ratingLabel = optionalString("ratingLabel"), ratingIcon = optionalString("ratingIcon"),
             ratingAuthority = optionalString("ratingAuthority"), ratingCountry = optionalString("ratingCountry"),
             playCount = optionalU32("playcount"),
@@ -128,8 +128,8 @@ internal class `HtspEntityDecoder-internal`(
             retentionDays = requiredU32("retention"), removalDays = requiredU32("removal"),
             daysOfWeekMask = requiredU32("daysOfWeek"),
             approximateStartMinutesSinceMidnight = fields.ruleMinutes("approxTime"),
-            startMinutesSinceMidnight = fields.ruleMinutes("start"),
-            startWindowEndMinutesSinceMidnight = fields.ruleMinutes("startWindow"),
+            startMinutesSinceMidnight = fields.ruleMinutes("start", Int.MAX_VALUE),
+            startWindowEndMinutesSinceMidnight = fields.ruleMinutes("startWindow", Int.MAX_VALUE),
             priority = requiredU32("priority"), startExtraMinutes = requiredS64("startExtra"),
             stopExtraMinutes = requiredS64("stopExtra"), duplicateDetection = requiredU32("dupDetect"),
             maximumRecordingCount = requiredU32("maxCount"),
@@ -157,9 +157,9 @@ internal class `HtspEntityDecoder-internal`(
     private fun Map<*, *>.versionedUuid(name: String): String? =
         if (protocolVersion >= 41) reader().requiredString(name) else reader().optionalString(name)
 
-    private fun Map<*, *>.ruleMinutes(name: String): Int? = when (val value = reader().requiredS32(name)) {
+    private fun Map<*, *>.ruleMinutes(name: String, maximum: Int = 1439): Int? = when (val value = reader().requiredS32(name)) {
         -1 -> null
-        in 0..1439 -> value
+        in 0..maximum -> value
         else -> malformed()
     }
 }

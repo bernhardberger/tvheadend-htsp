@@ -44,9 +44,10 @@ layer is `tvheadend-sdk`.
   defensive list snapshots and redacted `toString`.
 - **E3: requiredness.** A property is non-null only when every supported server
   version (HTSP 36 through 44) always emits it in the full builder. Fields
-  introduced later are checked against the negotiated version, as the request
-  decoders already do (for example `channelIdStr` from v41). Every other
-  property is nullable and null means "not set".
+  gated upstream by `htsp_version` are checked against the negotiated version
+  (for example `channelIdStr` from v41). DVR `ageRating` has no such gate and
+  is absent on older supported servers, so it remains nullable at every version.
+  Every other conditional property is nullable and null means "not set".
 - **E4: update semantics.** Add and full Update messages are thin wrappers
   around the same entity, and a full Update replaces the stored entity: a null
   property means the server no longer sets it. `HtspTag.members` is the

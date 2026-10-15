@@ -84,7 +84,7 @@ public data class HtspQueueStatusMessage(
     override fun toString(): String = "HtspQueueStatusMessage(<redacted>)"
 }
 
-/** One stream descriptor with index and codec type plus optional language, video, audio, radio-data, and codec metadata fields. */
+/** One stream descriptor with index and codec type plus optional language, video, audio, and radio-data fields. */
 public data class HtspSubscriptionStream(
     public val streamIndex: Long,
     public val streamType: String,
@@ -103,7 +103,6 @@ public data class HtspSubscriptionStream(
     public val sampleRate: Long?,
     /** HTSP `rds_uecp`: optional 0/1 RDS UECP flag (pinned htsp_server.c:4367). */
     public val rdsUecp: Boolean?,
-    public val codecMetadata: HtspBinary? = null,
 ) {
     init {
         requireU32("streamIndex", streamIndex)
@@ -147,6 +146,7 @@ public data class HtspSubscriptionStartMessage private constructor(
     public val subscriptionId: Long,
     public val streams: List<HtspSubscriptionStream>? = null,
     public val sourceInfo: HtspSubscriptionSourceInfo? = null,
+    /** Codec header bytes of the first stream that has them; there is no stream association on the wire. */
     public val codecMetadata: HtspBinary? = null,
     private val immutableSnapshot: Unit,
 ) : HtspServerMessage {

@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+- **BREAKING:** `HtspDvrEntry.ageRating` is nullable because older supported
+  servers omit it; malformed present ratings still fail decoding.
+- **BREAKING:** remove `HtspSubscriptionStream.codecMetadata`. Codec headers
+  are emitted only as top-level `subscriptionStart.meta`; the retained
+  `HtspSubscriptionStartMessage.codecMetadata` exposes the first such field,
+  matching upstream lookup, without a stream association.
+- **BREAKING:** duplicate map keys in decoded frames now keep the first value
+  instead of the last, at every depth, matching upstream `htsmsg_field_find`.
+- Fixed autorec entity `start` and `startWindow` decoding to preserve all
+  non-negative s32 values; `-1` stays null and values below -1 are malformed.
+  Request-side time validation remains `0..1439`.
+
 - Fixed nested value rendering to redact recording paths, subscription identifiers,
   server status/error text, endpoints, and metadata payloads.
 - Fixed connect cancellation checks for reused connections and failure outcomes,
@@ -63,7 +75,8 @@
   HTSP 36–44. UUIDs are required from v41 and autorec `broadcastType` from v39;
   conditional fields remain nullable. Timerec wire `start`/`stop` are required,
   with -1 represented as null. Autorec entity `approxTime`, `start`, and
-  `startWindow` also map -1 to nullable `Int` properties; set times use `0..1439`.
+  `startWindow` also map -1 to nullable `Int` properties; `approxTime` uses
+  `0..1439`, while start/window bounds preserve all non-negative s32 values.
 - **BREAKING:** autorec/timerec entity `configId` is now `dvrConfigUuid`, matching
   the DVR entity.
 - **BREAKING:** remove unevidenced entity/message aliases; only field names

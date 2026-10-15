@@ -229,7 +229,7 @@ class HtspPreReleaseSliceTest {
     }
 
     @Test
-    fun creditListSupportsRepeatedNamesWhileWireMapKeepsLastRole() {
+    fun creditListSupportsRepeatedNamesWhileWireMapKeepsFirstRole() {
         val entries = mutableListOf(HtspProgrammeCredit("Person", "actor"), HtspProgrammeCredit("Person", "director"))
         val credits = HtspProgrammeCredits(entries)
         entries.clear()
@@ -253,7 +253,7 @@ class HtspPreReleaseSliceTest {
             field(3, "Person", "director".toByteArray()))
         val frame = ByteBuffer.allocate(4 + body.size).putInt(body.size).put(body).array()
         val decoded = HtspCodec.readMessage(frame.inputStream())
-        assertEquals(listOf(HtspProgrammeCredit("Person", "director")),
+        assertEquals(listOf(HtspProgrammeCredit("Person", "actor")),
             decodeProgrammeCredits(decoded.fields, "credits") { error("malformed") }!!.entries)
     }
 

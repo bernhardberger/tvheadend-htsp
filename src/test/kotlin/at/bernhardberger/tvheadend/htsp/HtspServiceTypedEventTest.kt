@@ -187,7 +187,7 @@ internal class HtspServiceTypedEventTest : HtspServiceLifecycleFixture() {
     }
 
     @Test
-    fun v36AutorecAddWithoutBroadcastTypeSurvivesAsyncMetadataSync() {
+    fun v36MetadataWithoutBroadcastTypeOrDvrAgeRatingSurvivesAsyncMetadataSync() {
         FakeHtspServer(
             respondToHello = true,
             helloReplyFields = mapOf("htspversion" to 36L, "challenge" to ByteArray(32)),
@@ -204,7 +204,9 @@ internal class HtspServiceTypedEventTest : HtspServiceLifecycleFixture() {
                     }
                 }
 
-                assertTrue(service.execute(EnableAsyncMetadataRequest()) is HtspResult.Ok)
+                val sync = async(start = CoroutineStart.UNDISPATCHED) {
+                    service.enableAsyncMetadataAwaitingInitialSync()
+                }
                 server.sendServerMessage(
                     "autorecEntryAdd",
                     mapOf(
@@ -226,10 +228,14 @@ internal class HtspServiceTypedEventTest : HtspServiceLifecycleFixture() {
                     ),
                 )
                 server.sendServerMessage("channelAdd", channelFixture(74L))
+                listOf("dvrEntryAdd", "dvrEntryUpdate").forEach { method ->
+                    server.sendServerMessage(method, metadataFixture(method) - "method" - "idStr" - "ageRating")
+                }
                 server.sendServerMessage("initialSyncCompleted")
 
+                assertEquals(HtspResult.Ok(Unit), withTimeout(1_000L) { sync.await() })
                 withTimeout(1_000L) {
-                    while (events.size < 3) delay(1L)
+                    while (events.size < 5) delay(1L)
                 }
                 val autorec = (events.first().message as HtspAutorecEntryAddMessage).entry
                 assertNull(autorec.broadcastType)
@@ -238,6 +244,8 @@ internal class HtspServiceTypedEventTest : HtspServiceLifecycleFixture() {
                 assertNull(autorec.owner)
                 assertNull(autorec.creator)
                 assertTrue(events[1].message is HtspChannelAddMessage)
+                assertNull((events[2].message as HtspDvrEntryAddMessage).entry.ageRating)
+                assertNull((events[3].message as HtspDvrEntryUpdateMessage).entry.ageRating)
                 assertTrue(events.last().message is HtspInitialSyncCompletedMessage)
                 assertTrue(service.currentLiveConnection != null)
 

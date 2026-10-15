@@ -90,6 +90,10 @@ class HtspMessageDataClassTest {
 
         val autorec = decoder.autorecEntry(metadataFixture("autorecEntryAdd"))
         val timerec = decoder.timerecEntry(metadataFixture("timerecEntryAdd"))
+        assertEquals(1440, autorec.copy(startMinutesSinceMidnight = 1440).startMinutesSinceMidnight)
+        assertEquals(Int.MAX_VALUE,
+            autorec.copy(startWindowEndMinutesSinceMidnight = Int.MAX_VALUE).startWindowEndMinutesSinceMidnight)
+        assertEquals(null, dvr.copy(ageRating = null).ageRating)
         listOf<() -> Unit>(
             { channel.copy(channelId = -1L) }, { channel.copy(channelNumber = -1L) },
             { channel.copy(currentEventId = -1L) }, { channel.copy(tagIds = listOf(-1L)) },
@@ -99,7 +103,8 @@ class HtspMessageDataClassTest {
             { dvr.copy(entryId = -1L) }, { dvr.copy(channelId = -1L) },
             { autorec.copy(maximumRecordingCount = -1L) }, { autorec.copy(channelId = -1L) },
             { autorec.copy(approximateStartMinutesSinceMidnight = -1) },
-            { autorec.copy(startMinutesSinceMidnight = 1440) },
+            { autorec.copy(approximateStartMinutesSinceMidnight = 1440) },
+            { autorec.copy(startMinutesSinceMidnight = -1) },
             { autorec.copy(startWindowEndMinutesSinceMidnight = -2) },
             { timerec.copy(channelId = -1L) }, { timerec.copy(channelId = 0x1_0000_0000L) },
             { timerec.copy(startMinutesSinceMidnight = -1) }, { timerec.copy(stopMinutesSinceMidnight = 1440) },
@@ -129,18 +134,18 @@ class HtspMessageDataClassTest {
 
     @Test
     fun subscriptionStartUsesBinaryContentSemanticsThroughNestedCopies() {
-        fun stream(bytes: ByteArray) = HtspSubscriptionStream(
-            0L, "AAC", null, null, null, null, null, null, null, null, null, null, null, null, null, HtspBinary(bytes),
+        fun stream(index: Long) = HtspSubscriptionStream(
+            index, "AAC", null, null, null, null, null, null, null, null, null, null, null, null, null,
         )
-        val first = HtspSubscriptionStartMessage(1L, streams = listOf(stream(byteArrayOf(1, 2))),
+        val first = HtspSubscriptionStartMessage(1L, streams = listOf(stream(0L)),
             codecMetadata = HtspBinary(byteArrayOf(3, 4)))
-        val second = HtspSubscriptionStartMessage(1L, streams = listOf(stream(byteArrayOf(1, 2))),
+        val second = HtspSubscriptionStartMessage(1L, streams = listOf(stream(0L)),
             codecMetadata = HtspBinary(byteArrayOf(3, 4)))
         assertEquals(first, second)
         assertEquals(first.hashCode(), second.hashCode())
         assertEquals(first, first.copy())
         assertUnmodifiable(first.streams!!)
-        val streams = mutableListOf(stream(byteArrayOf(5, 6)))
+        val streams = mutableListOf(stream(1L))
         val copy = first.copy(streams = streams)
         streams.clear()
         assertEquals(1, copy.streams!!.size)

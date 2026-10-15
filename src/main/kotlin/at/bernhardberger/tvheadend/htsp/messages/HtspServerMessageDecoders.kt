@@ -244,7 +244,6 @@ private fun decodeSubscriptionStream(fields: Map<*, *>, clock: HtspTimestampCloc
             aspectNumerator = optionalU32("aspect_num"), aspectDenominator = optionalU32("aspect_den"),
             audioType = optionalU32("audio_type"), audioVersion = optionalU32("audio_version"),
             channelCount = optionalU32("channels"), sampleRate = optionalU32("rate"), rdsUecp = optionalFlag("rds_uecp"),
-            codecMetadata = optionalBinary("meta")?.let(::HtspBinary),
         )
     }
 

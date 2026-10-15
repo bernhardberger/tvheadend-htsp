@@ -21,9 +21,9 @@ public data class HtspAutorecEntry private constructor(
     public val daysOfWeekMask: Long,
     /** Approximate time in 0..1439; null means wire -1, unset (:1236–1238). */
     public val approximateStartMinutesSinceMidnight: Int?,
-    /** Start time in 0..1439; null means wire -1, unset (:1239). */
+    /** Non-negative start minutes as sent, without a 1439 cap; null means wire -1, unset (:1239). */
     public val startMinutesSinceMidnight: Int?,
-    /** Window end in 0..1439; null means wire -1, unset (:1240). */
+    /** Non-negative window-end minutes as sent, without a 1439 cap; null means wire -1, unset (:1240). */
     public val startWindowEndMinutesSinceMidnight: Int?,
     /** Priority code (:1241). */
     public val priority: Long,
@@ -134,9 +134,10 @@ public data class HtspAutorecEntry private constructor(
     )
 
     init {
+        approximateStartMinutesSinceMidnight?.let { require(it in 0..1439) }
         listOfNotNull(
-            approximateStartMinutesSinceMidnight, startMinutesSinceMidnight, startWindowEndMinutesSinceMidnight,
-        ).forEach { require(it in 0..1439) { "automatic rule time must be in 0..1439" } }
+            startMinutesSinceMidnight, startWindowEndMinutesSinceMidnight,
+        ).forEach { require(it >= 0) { "automatic rule time must be non-negative" } }
         listOfNotNull(
             maxDurationSeconds, minDurationSeconds, retentionDays, removalDays, daysOfWeekMask,
             priority, duplicateDetection, maximumRecordingCount, broadcastType, channelId,

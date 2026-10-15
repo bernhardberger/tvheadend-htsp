@@ -38,8 +38,8 @@ public data class HtspDvrEntry private constructor(
     public val priority: Long,
     /** Content code, including zero (:1014). */
     public val contentType: Long,
-    /** Always-emitted age rating, introduced in v36 (:1015). */
-    public val ageRating: Long,
+    /** Age rating (:1015); absent on servers that predate DVR age ratings. */
+    public val ageRating: Long?,
     /** Parental display label when enabled and set (:1017–1074). */
     public val ratingLabel: String?,
     /** Parental icon when enabled and set (:1017–1074). */
@@ -126,7 +126,7 @@ public data class HtspDvrEntry private constructor(
         removalDays: Long,
         priority: Long,
         contentType: Long,
-        ageRating: Long,
+        ageRating: Long? = null,
         ratingLabel: String? = null,
         ratingIcon: String? = null,
         ratingAuthority: String? = null,
@@ -188,7 +188,7 @@ public data class HtspDvrEntry private constructor(
         removalDays: Long = this.removalDays,
         priority: Long = this.priority,
         contentType: Long = this.contentType,
-        ageRating: Long = this.ageRating,
+        ageRating: Long? = this.ageRating,
         ratingLabel: String? = this.ratingLabel,
         ratingIcon: String? = this.ratingIcon,
         ratingAuthority: String? = this.ratingAuthority,

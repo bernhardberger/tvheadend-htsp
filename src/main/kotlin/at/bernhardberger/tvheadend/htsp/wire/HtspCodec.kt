@@ -55,7 +55,9 @@ internal object `HtspCodec-internal` {
         while (r.byteOffset < end) {
             val name = r.readFieldHeader(end)
             val value = decodeValue(r, depth, name)
-            if (name != null) out[name] = value
+            // Upstream htsmsg_field_find returns the first field with a name; subscriptionStart
+            // repeats top-level meta once per stream with codec headers.
+            if (name != null) out.putIfAbsent(name, value)
         }
     }
 

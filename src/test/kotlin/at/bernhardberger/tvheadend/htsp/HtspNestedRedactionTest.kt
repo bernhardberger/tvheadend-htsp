@@ -62,9 +62,9 @@ internal class HtspNestedRedactionTest {
     fun subscriptionDescriptorsRedactSourceAndCodecMetadata() {
         val source = HtspSubscriptionSourceInfo(secret, secret, secret, secret, secret, secret, secret, secret, secret, secret)
         val stream = HtspSubscriptionStream(
-            0L, secret, secret, null, null, null, null, null, null, null, null, null, null, null, null, payload,
+            0L, secret, secret, null, null, null, null, null, null, null, null, null, null, null, null,
         )
-        val start = HtspSubscriptionStartMessage(subscriptionId, listOf(stream), source)
+        val start = HtspSubscriptionStartMessage(subscriptionId, listOf(stream), source, codecMetadata = payload)
         for (value in listOf(source, stream, start, HtspSubscriptionEvent.Started(start))) {
             assertRedacted(value, secret, subscriptionId.toString())
         }
