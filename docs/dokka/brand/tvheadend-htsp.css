@@ -43,6 +43,19 @@
     color: var(--brand-link-color);
 }
 
+/*
+ * Dokka shows the module name (the URL slug) in the header; show the display
+ * name instead. Screen readers keep the link's own text.
+ */
+.library-name--link {
+    font-size: 0;
+}
+
+.library-name--link::after {
+    content: "Tvheadend HTSP for Kotlin" / "";
+    font: 550 16px/24px var(--brand-heading-font);
+}
+
 .filter-section .platform-tag.jvm-like[data-active],
 .platform-tags .platform-tag.jvm-like {
     --platform-tag-color: #79D1FF;
