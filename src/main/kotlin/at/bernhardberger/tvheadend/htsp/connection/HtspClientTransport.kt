@@ -56,14 +56,12 @@ public data class HtspConnectOptions(
  */
 public enum class HtspTransportFailureKind {
     AUTHENTICATION_REJECTED,
-    PERMISSION_DENIED,
     HOST_NOT_FOUND,
     CONNECTION_REFUSED,
     CONNECTION_TIMEOUT,
     NETWORK_UNREACHABLE,
     /** The server violated the supported protocol, rather than merely reporting an older version. */
     INCOMPATIBLE_SERVER,
-    ZERO_CHANNELS,
     TRANSPORT_UNAVAILABLE,
     /** The owner terminally closed this client before the operation was admitted. */
     CLOSED,
@@ -227,8 +225,6 @@ internal fun typedTransportFailure(error: Throwable): HtspTransportFailure {
     val chain = generateSequence(error as Throwable?) { current -> current.cause }.toList()
     val kind = when {
         chain.any { it is TerminalLifecycleClosedException } -> HtspTransportFailureKind.CLOSED
-        chain.any { it is MetadataPermissionDeniedException } ->
-            HtspTransportFailureKind.PERMISSION_DENIED
         chain.any { it is UnknownHostException } -> HtspTransportFailureKind.HOST_NOT_FOUND
         chain.any { it is NoRouteToHostException } -> HtspTransportFailureKind.NETWORK_UNREACHABLE
         chain.any { it is HtspIncompatibleServerException } ->
@@ -249,8 +245,6 @@ internal inline fun <T> transportOutcome(block: () -> T): HtspResult<T> = try {
     HtspResult.Ok(block())
 } catch (cancelled: CancellationException) {
     throw cancelled
-} catch (_: MetadataPermissionDeniedException) {
-    HtspResult.AccessDenied
 } catch (_: SocketTimeoutException) {
     HtspResult.Timeout
 } catch (_: HtspRequestTimeoutException) {

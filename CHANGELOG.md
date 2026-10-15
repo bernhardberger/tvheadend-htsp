@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+- **BREAKING:** remove `HtspTransportFailureKind.PERMISSION_DENIED` and
+  `ZERO_CHANNELS`, which were never produced. Server access refusals remain
+  `HtspResult.AccessDenied`.
 - **BREAKING:** `HtspDvrEntry.ageRating` stays nullable for v36 sessions whose
   server omits it, but is required from negotiated v37. Malformed present ratings
   fail decoding at every version.
@@ -57,10 +60,11 @@
   overflow reported through `MetadataOverflow`. Stateful consumers must treat the
   generation's state as incomplete. Envelope and subscription-control faults still
   close the connection; malformed mux packets still report dropped counts.
-- Initial-sync waits now return the existing `HtspResult.MalformedReply` when a
-  malformed-metadata report for their generation precedes `initialSyncCompleted`;
-  later reports do not invalidate a completed sync. Overflow keeps the existing
-  `TransportUnavailable` outcome.
+- **BREAKING:** initial-sync waits return `HtspResult.Ok(Unit)` after a successful
+  acknowledgement and the generation's `initialSyncCompleted`, despite skipped
+  malformed metadata. Stateful consumers must observe malformed reports in their
+  own event collector. Malformed acknowledgements still return `MalformedReply`;
+  overflow keeps the existing `TransportUnavailable` outcome.
 
 - **BREAKING:** narrow `HtspTransportEvent.ServerMessage.message` to the sealed
   `HtspMetadataMessage` hierarchy. Metadata messages implement this subtype;

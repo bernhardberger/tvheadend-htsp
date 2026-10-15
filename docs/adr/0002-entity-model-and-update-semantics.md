@@ -76,8 +76,11 @@ layer is `tvheadend-sdk`.
 - **E6: malformed metadata.** A malformed metadata message no longer closes the
   connection. It is skipped and reported through a payload-free,
   generation-scoped transport event with a count. The event is coalesced and
-  counted against the metadata budget. It ends a pending initial-sync wait as
-  incomplete, before any later `initialSyncCompleted` is processed. Envelope
+  counted against the metadata budget. Initial-sync waits ignore these reports
+  and return `Ok` after a successful acknowledgement and the generation's
+  `initialSyncCompleted` marker. A deterministic bad row would block every retry,
+  while the caller's active collector already receives the report (or an overflow
+  marker) in order and must treat that generation's state as incomplete. Envelope
   and subscription-control faults still close the connection.
 - **E7: metadata hierarchy.** A sealed sub-interface `HtspMetadataMessage`
   types `HtspTransportEvent.ServerMessage.message`. Like `HtspServerMessage`,

@@ -157,8 +157,8 @@ internal class HtspServiceTypedEventTest : HtspServiceLifecycleFixture() {
     }
 
     @Test
-    fun initialSyncCannotSucceedAfterMalformedMetadataEvenWhenItsReportOverflows() = runBlocking {
-        listOf(1 to HtspResult.TransportUnavailable, 3 to HtspResult.MalformedReply).forEach { (capacity, expected) ->
+    fun malformedMetadataBeforeMarkerSucceedsUnlessObserverOverflowsAndReachesCallerInOrder() = runBlocking {
+        listOf(1 to HtspResult.TransportUnavailable, 3 to HtspResult.Ok(Unit)).forEach { (capacity, expected) ->
             FakeHtspServer(respondToHello = true, postHandshakeReplyPlan = listOf(emptyMap())).use { server ->
                 val queued = CountDownLatch(3)
                 val service = service(
@@ -167,6 +167,10 @@ internal class HtspServiceTypedEventTest : HtspServiceLifecycleFixture() {
                 )
                 service.connect(HtspEndpoint("127.0.0.1", server.port))
                 val generation = service.currentLiveConnection?.generation
+                val events = CopyOnWriteArrayList<HtspTransportEvent>()
+                val collector = launch(start = CoroutineStart.UNDISPATCHED) {
+                    service.events.collect { events += it }
+                }
                 val sync = async(start = CoroutineStart.UNDISPATCHED) {
                     service.enableAsyncMetadataAwaitingInitialSync()
                 }
@@ -176,10 +180,21 @@ internal class HtspServiceTypedEventTest : HtspServiceLifecycleFixture() {
                     server.sendServerMessage("channelAdd", mapOf("channelId" to "malformed"))
                     server.sendServerMessage("initialSyncCompleted")
                     assertTrue(queued.await(2L, TimeUnit.SECONDS))
-                    assertSame(expected, withTimeout(2_000L) { sync.await() })
+                    assertEquals(expected, withTimeout(2_000L) { sync.await() })
+                    if (capacity == 3) {
+                        withTimeout(2_000L) {
+                            while (events.size < 3) delay(1L)
+                        }
+                        assertTrue((events[0] as HtspTransportEvent.ServerMessage).message is HtspChannelAddMessage)
+                        assertEquals(HtspTransportEvent.MalformedMetadata(checkNotNull(generation), 1L), events[1])
+                        val marker = events[2] as HtspTransportEvent.ServerMessage
+                        assertSame(HtspInitialSyncCompletedMessage, marker.message)
+                        assertSame(generation, marker.generation)
+                    }
                     assertSame(generation, service.currentLiveConnection?.generation)
                 } finally {
                     sync.cancelAndJoin()
+                    collector.cancelAndJoin()
                     service.close()
                 }
             }

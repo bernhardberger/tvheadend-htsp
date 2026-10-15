@@ -314,13 +314,6 @@ internal object `HtspAuthenticationPolicy-internal` {
 
 internal typealias HtspAuthenticationPolicy = `HtspAuthenticationPolicy-internal`
 
-/** Exact internal marker for an explicitly denied initial metadata exchange. */
-internal class `MetadataPermissionDeniedException-internal` :
-    IllegalStateException("HTSP metadata permission denied")
-
-internal typealias MetadataPermissionDeniedException =
-    `MetadataPermissionDeniedException-internal`
-
 internal data class `HtspCapturedGeneration-internal`(
     val token: HtspConnectionGeneration,
     val protocolVersion: Long?,

@@ -580,11 +580,9 @@ public final class at/bernhardberger/tvheadend/htsp/connection/HtspTransportFail
 	public static final field HOST_NOT_FOUND Lat/bernhardberger/tvheadend/htsp/connection/HtspTransportFailureKind;
 	public static final field INCOMPATIBLE_SERVER Lat/bernhardberger/tvheadend/htsp/connection/HtspTransportFailureKind;
 	public static final field NETWORK_UNREACHABLE Lat/bernhardberger/tvheadend/htsp/connection/HtspTransportFailureKind;
-	public static final field PERMISSION_DENIED Lat/bernhardberger/tvheadend/htsp/connection/HtspTransportFailureKind;
 	public static final field SUPERSEDED Lat/bernhardberger/tvheadend/htsp/connection/HtspTransportFailureKind;
 	public static final field TRANSPORT_UNAVAILABLE Lat/bernhardberger/tvheadend/htsp/connection/HtspTransportFailureKind;
 	public static final field UNSUPPORTED_SERVER_VERSION Lat/bernhardberger/tvheadend/htsp/connection/HtspTransportFailureKind;
-	public static final field ZERO_CHANNELS Lat/bernhardberger/tvheadend/htsp/connection/HtspTransportFailureKind;
 	public static fun getEntries ()Lkotlin/enums/EnumEntries;
 	public static fun valueOf (Ljava/lang/String;)Lat/bernhardberger/tvheadend/htsp/connection/HtspTransportFailureKind;
 	public static fun values ()[Lat/bernhardberger/tvheadend/htsp/connection/HtspTransportFailureKind;

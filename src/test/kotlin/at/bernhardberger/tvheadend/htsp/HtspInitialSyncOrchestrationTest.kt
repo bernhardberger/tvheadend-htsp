@@ -228,18 +228,15 @@ internal class HtspInitialSyncOrchestrationTest {
     }
 
     @Test
-    fun malformedMetadataBeforeMarkerCancelsPendingAcknowledgementWithMalformedReply() = runTest {
+    fun malformedMetadataBeforeMarkerStillWaitsForSuccessfulAcknowledgement() = runTest {
         val generation = HtspConnectionGeneration()
         val connection = ScriptedConnection(generation)
         val requestStarted = CompletableDeferred<Unit>()
-        val requestCancelled = CompletableDeferred<Unit>()
+        val acknowledgement = CompletableDeferred<Unit>()
         connection.executeScript = { _, _, _ ->
             requestStarted.complete(Unit)
-            try {
-                awaitCancellation()
-            } finally {
-                requestCancelled.complete(Unit)
-            }
+            acknowledgement.await()
+            HtspResult.Ok(HtspEmptyResponse)
         }
         val result = async(start = CoroutineStart.UNDISPATCHED) {
             connection.enableAsyncMetadataAwaitingInitialSync()
@@ -249,14 +246,15 @@ internal class HtspInitialSyncOrchestrationTest {
         connection.eventSource.emit(HtspTransportEvent.MalformedMetadata(generation, 2L))
         connection.emitInitialSync(generation)
 
-        assertSame(HtspResult.MalformedReply, result.await())
-        assertTrue(requestCancelled.isCompleted)
+        assertFalse(result.isCompleted)
+        acknowledgement.complete(Unit)
+        assertEquals(HtspResult.Ok(Unit), result.await())
         assertSame(generation, connection.currentLiveConnection?.generation)
         assertEquals(0, connection.eventSource.subscriptionCount.value)
     }
 
     @Test
-    fun malformedMetadataBeforeMarkerAfterSuccessfulAcknowledgementStillFailsSync() = runTest {
+    fun malformedMetadataBeforeMarkerAfterSuccessfulAcknowledgementStillCompletesSync() = runTest {
         val generation = HtspConnectionGeneration()
         val connection = ScriptedConnection(generation)
         connection.executeScript = { _, _, _ -> HtspResult.Ok(HtspEmptyResponse) }
@@ -265,9 +263,10 @@ internal class HtspInitialSyncOrchestrationTest {
         }
 
         connection.eventSource.emit(HtspTransportEvent.MalformedMetadata(generation, 1L))
+        assertFalse(result.isCompleted)
         connection.emitInitialSync(generation)
 
-        assertSame(HtspResult.MalformedReply, result.await())
+        assertEquals(HtspResult.Ok(Unit), result.await())
         assertEquals(0, connection.eventSource.subscriptionCount.value)
     }
 

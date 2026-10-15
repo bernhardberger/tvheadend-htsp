@@ -100,9 +100,6 @@ The closed request failure cases are:
   server may have performed the request: a subscribe may have created a server-side
   subscription, and its stream stays open (send unsubscribe if it is not wanted).
   Do not blindly retry non-idempotent requests such as `addDvrEntry`.
-  Initial-sync orchestration also returns `MalformedReply` when malformed metadata
-  precedes its generation's sync marker: the asynchronous response could not be
-  fully decoded, even though the transport remains usable.
 
 Subscribe streams terminate with `SUBSCRIBE_REJECTED` for classified server rejections
 (`ServerError`, `AccessDenied`, `ConnectionLimit`, `NotSupported`), not for
@@ -344,17 +341,16 @@ acknowledgement is retained. One timeout covers both phases and returns
 cancellation; a stale generation returns `TransportUnavailable`. Because the marker has no request sequence, callers must serialize
 this orchestration within a connection generation.
 
-A `MalformedMetadata` report for the observed generation **before** its completion
-marker promptly returns `HtspResult.MalformedReply`, including while the
-acknowledgement is pending. This reuses the decoding-failure category: the
-asynchronous response is incomplete, not a server refusal or transport failure
-(ADR 0001 D5 adds no failure categories). A report after the marker does not change
-that sync result, even if the acknowledgement is still pending; a successful
-acknowledgement is still required. Reports for other generations are ignored.
-If the report itself overflows, the observer instead gets the existing
-`TransportUnavailable` overflow outcome. Consumers maintaining state must continue
-observing malformed reports after initial sync; reconnecting alone may encounter
-the same bad metadata again. Recovery policy belongs to the consumer.
+Initial-sync waits ignore `MalformedMetadata` reports and return `HtspResult.Ok(Unit)`
+once the acknowledgement is Ok and the observed generation's completion marker arrives.
+A malformed acknowledgement still returns `MalformedReply`. The caller's own `events`
+collector must already be active: it receives malformed reports (or `MetadataOverflow`
+if its queue fills) before any later admitted marker. Stateful consumers must observe
+these events and treat that generation's state as incomplete, before and after initial
+sync. The helper does not wait for the caller's collector to process them. If the
+helper's own observer overflows, it still returns `TransportUnavailable`. Reconnecting
+alone may encounter the same deterministic bad metadata again; recovery policy belongs
+to the consumer.
 
 Autorec/timerec updates always set the channel restriction. Both update request
 constructors and their `HtspConnection` extensions require a non-null
