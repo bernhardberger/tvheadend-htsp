@@ -1,0 +1,6 @@
+- [ ] The commit subject follows Conventional Commits; an incompatible change uses `!` and adds a `BREAKING` entry to `CHANGELOG.md`.
+- [ ] A behaviour change comes with a focused regression test.
+- [ ] `./gradlew build check` passes.
+- [ ] A public API change regenerates `api/htsp.api` with `updateKotlinAbi`; it is never edited by hand.
+- [ ] New public declarations have KDoc.
+- [ ] Docs and guides match the change; protocol changes cite the pinned upstream evidence.

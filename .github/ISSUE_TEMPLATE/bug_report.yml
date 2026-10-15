@@ -1,0 +1,49 @@
+name: Bug report
+description: The library behaves differently from its documentation or from the server.
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Don't paste credentials, hostnames, IP addresses, tickets or recording paths.** Redact logs and stack traces before you attach them.
+
+        For a security problem, use the [security policy](https://github.com/bernhardberger/tvheadend-htsp/security/policy) instead of an issue.
+  - type: input
+    id: library-version
+    attributes:
+      label: Library version
+      description: For example `1.0.0-beta.1`, or the commit if you build from source.
+    validations:
+      required: true
+  - type: input
+    id: server-version
+    attributes:
+      label: TVHeadend server version
+      description: Include the server's HTSP version if you know it.
+  - type: input
+    id: platform
+    attributes:
+      label: JVM and platform
+      description: For example `Temurin 21 on Linux x86_64`, or the Android API level.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Outcome or failure kind
+      description: The `HtspResult` case, `HtspTransportFailureKind` or subscription termination reason you saw, if any.
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Minimal reproduction
+      description: The smallest code and server setup that shows the problem.
+      render: kotlin

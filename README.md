@@ -119,6 +119,8 @@ the connection.
 - [Versioning and compatibility](docs/versioning.md)
 - [Release policy](docs/releasing.md)
 - [Change history](CHANGELOG.md)
+- [Contributing](CONTRIBUTING.md)
+- [Security policy](SECURITY.md)
 - [HTSP protocol reference](docs/htsp-protocol/README.md)
 - [Documentation index](docs/README.md)
 

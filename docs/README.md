@@ -32,6 +32,10 @@ Guides for people using the library, and references for people working on it.
 
 ## Repository internals
 
+- [`CONTRIBUTING.md`](../CONTRIBUTING.md): building, testing, the rules most
+  changes run into, and how to report bugs.
+- [`SECURITY.md`](../SECURITY.md): how to report a vulnerability privately and
+  what counts as one.
 - [`../AGENTS.md`](../AGENTS.md): engineering rules and invariants for
   contributors and coding agents; `.opencode/` holds an optional reviewer agent
   and Kotlin and writing skills.

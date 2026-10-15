@@ -1,0 +1,23 @@
+name: Feature request
+description: Ask for support for something HTSP offers that the library doesn't expose yet.
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The library covers what the HTSP protocol offers. User interfaces, playback and caching belong to the applications built on it.
+  - type: textarea
+    id: use-case
+    attributes:
+      label: Use case
+      description: What you are trying to do, and what stops you today.
+    validations:
+      required: true
+  - type: input
+    id: htsp-method
+    attributes:
+      label: HTSP method or field
+      description: The method or wire field involved, if you know it.
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives you tried
