@@ -6,9 +6,8 @@
   server status/error text, endpoints, and metadata payloads.
 - Fixed connect cancellation checks for reused connections and failure outcomes,
   preserving caller cancellation without retiring a reused shared connection.
-
-- Fixed nested value rendering to redact recording paths, subscription identifiers,
-  server status/error text, endpoints, and metadata payloads.
+- Fixed empty subscription-skip and file-close acknowledgements to accept the
+  validated `noaccess: 0` envelope field while still rejecting unexpected payloads.
 
 - **BREAKING:** timerec add/update request and extension minutes-since-midnight
   parameters/properties are `Int?`, matching entity and autorec times of day.

@@ -413,7 +413,7 @@ internal object `HtspRequestCodecs-internal` {
         is SubscriptionSeekRequest -> HtspEmptyResponse
 
         is SubscriptionSkipRequest -> {
-            if (fields.keys.any { it != "seq" }) malformedReply()
+            if (fields.keys.any { it != "seq" && it != "noaccess" }) malformedReply()
             HtspEmptyResponse
         }
 
@@ -499,7 +499,7 @@ internal object `HtspRequestCodecs-internal` {
     }
 
     private fun decodeFileClose(fields: Map<String, Any?>): FileCloseResponse {
-        if (fields.keys.any { it != "seq" }) malformedReply()
+        if (fields.keys.any { it != "seq" && it != "noaccess" }) malformedReply()
         return FileCloseResponse
     }
 
