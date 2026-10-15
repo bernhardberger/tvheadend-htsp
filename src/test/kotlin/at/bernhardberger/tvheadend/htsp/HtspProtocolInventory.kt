@@ -53,17 +53,18 @@ internal val typedHtspRequestCatalog = listOf(
 internal data class HtspServerMessageInventoryEntry(
     val method: String,
     val messageType: String,
+    val sparseMessageType: String? = null,
 )
 
 internal val typedHtspServerMessageInventory = listOf(
     HtspServerMessageInventoryEntry("channelAdd", "HtspChannelAddMessage"),
-    HtspServerMessageInventoryEntry("channelUpdate", "HtspChannelUpdateMessage"),
+    HtspServerMessageInventoryEntry("channelUpdate", "HtspChannelUpdateMessage", "HtspChannelNowNextMessage"),
     HtspServerMessageInventoryEntry("channelDelete", "HtspChannelDeleteMessage"),
     HtspServerMessageInventoryEntry("tagAdd", "HtspTagAddMessage"),
     HtspServerMessageInventoryEntry("tagUpdate", "HtspTagUpdateMessage"),
     HtspServerMessageInventoryEntry("tagDelete", "HtspTagDeleteMessage"),
     HtspServerMessageInventoryEntry("dvrEntryAdd", "HtspDvrEntryAddMessage"),
-    HtspServerMessageInventoryEntry("dvrEntryUpdate", "HtspDvrEntryUpdateMessage"),
+    HtspServerMessageInventoryEntry("dvrEntryUpdate", "HtspDvrEntryUpdateMessage", "HtspDvrEntryStatsMessage"),
     HtspServerMessageInventoryEntry("dvrEntryDelete", "HtspDvrEntryDeleteMessage"),
     HtspServerMessageInventoryEntry("autorecEntryAdd", "HtspAutorecEntryAddMessage"),
     HtspServerMessageInventoryEntry("autorecEntryUpdate", "HtspAutorecEntryUpdateMessage"),

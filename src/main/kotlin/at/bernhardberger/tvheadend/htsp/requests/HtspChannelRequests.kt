@@ -1,33 +1,9 @@
 package at.bernhardberger.tvheadend.htsp.requests
 
 import at.bernhardberger.tvheadend.htsp.connection.*
+import at.bernhardberger.tvheadend.htsp.model.HtspChannel
 import at.bernhardberger.tvheadend.htsp.wire.*
 
-/** One channel service with name, type, content code, optional conditional-access data, and optional provider name. */
-public data class HtspChannelService(
-    public val name: String,
-    public val type: String,
-    public val content: Long,
-    public val conditionalAccessId: Long?,
-    public val conditionalAccessName: String?,
-    public val providerName: String?,
-    /** HbbTV application sections, when sent (src/htsp_server.c:911–913). */
-    public val hbbtv: HtspHbbtvApplications? = null,
-)
-
-/** A complete channel reply with identity, numbering, display data, current and next event IDs, services, and tag IDs. */
-public data class HtspChannel(
-    public val channelId: Long,
-    public val channelUuid: String?,
-    public val channelNumber: Long,
-    public val channelNumberMinor: Long?,
-    public val channelName: String,
-    public val channelIcon: String?,
-    public val currentEventId: Long,
-    public val nextEventId: Long,
-    public val services: List<HtspChannelService>,
-    public val tagIds: List<Long>,
-)
 /** Contains the complete channel selected by `getChannel`. */
 public data class GetChannelResponse(public val channel: HtspChannel)
 /** Selects one channel by complete unsigned [channelId]. */

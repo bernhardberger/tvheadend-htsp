@@ -35,7 +35,7 @@ internal class HtspReviewDeliveryRegressionTest : HtspServiceLifecycleFixture() 
                     }
                     val notifications = async(Dispatchers.IO) {
                         start.await()
-                        repeat(count) { id -> server.sendServerMessage("channelAdd", mapOf("channelId" to id)) }
+                        repeat(count) { id -> server.sendServerMessage("channelAdd", channelFixture(id.toLong())) }
                     }
                     try {
                         start.complete(Unit)
@@ -275,7 +275,7 @@ internal class HtspReviewDeliveryRegressionTest : HtspServiceLifecycleFixture() 
                 service.subscriptionEvents(1L).first().also { assertFalse(Thread.holdsLock(lock)) }
             }
             try {
-                server.sendServerMessage("channelAdd", mapOf("channelId" to 1L))
+                server.sendServerMessage("channelAdd", channelFixture(1L))
                 assertTrue(entered.await(2, TimeUnit.SECONDS))
                 withTimeout(2_000L) { first.await() }
                 assertInstanceOf(HtspResult.Ok::class.java, service.execute(GetProfilesRequest(), timeoutMs = 2_000L))
@@ -335,9 +335,9 @@ internal class HtspReviewDeliveryRegressionTest : HtspServiceLifecycleFixture() 
                     }
                 }
                 val observed = async(start = CoroutineStart.UNDISPATCHED) { service.events.take(2).toList() }
-                first.sendServerMessage("channelAdd", mapOf("channelId" to 1L))
+                first.sendServerMessage("channelAdd", channelFixture(1L))
                 val newer = withTimeout(2_000L) { reconnected.await() }
-                second.sendServerMessage("channelAdd", mapOf("channelId" to 2L))
+                second.sendServerMessage("channelAdd", channelFixture(2L))
                 assertEquals(listOf(old, newer), withTimeout(2_000L) { observed.await() }.map { it.generation })
                 reconnecting.join()
                 service.close()
@@ -446,8 +446,8 @@ internal class HtspReviewDeliveryRegressionTest : HtspServiceLifecycleFixture() 
     fun serviceBudgetsFrameBodiesWithoutCountingFourByteHeaders(): Unit = runBlocking {
         val budget = 1024L * 1024L
         val encoded = java.io.ByteArrayOutputStream()
-        encoded.write(at.bernhardberger.tvheadend.htsp.wire.HtspCodec.encode("channelAdd", mapOf("channelId" to 1L, "channelName" to "")))
-        val fields = mapOf("channelId" to 1L, "channelName" to "x".repeat(budget.toInt() - (encoded.size() - 4)))
+        encoded.write(at.bernhardberger.tvheadend.htsp.wire.HtspCodec.encode("channelAdd", channelFixture(1L) + ("channelName" to "")))
+        val fields = channelFixture(1L) + ("channelName" to "x".repeat(budget.toInt() - (encoded.size() - 4)))
         encoded.reset()
         encoded.write(at.bernhardberger.tvheadend.htsp.wire.HtspCodec.encode("channelAdd", fields))
         assertEquals(budget + 4L, encoded.size().toLong())
@@ -476,7 +476,7 @@ internal class HtspReviewDeliveryRegressionTest : HtspServiceLifecycleFixture() 
             val sync = async(start = CoroutineStart.UNDISPATCHED) { service.enableAsyncMetadataAwaitingInitialSync(timeoutMs = 30_000L) }
             try {
                 // Keep the collector's dispatcher blocked until the final publication starts.
-                repeat(3) { server.sendServerMessage("channelAdd", mapOf("channelId" to it.toLong())) }
+                repeat(3) { server.sendServerMessage("channelAdd", channelFixture(it.toLong())) }
                 assertTrue(queued.await(2, TimeUnit.SECONDS))
                 // Polling the queue takes the lock, so collection waits for that publication to finish.
                 assertSame(HtspResult.TransportUnavailable, withTimeout(2_000L) { sync.await() })

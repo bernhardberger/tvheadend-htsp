@@ -101,7 +101,7 @@ internal class HtspServiceTypedEventTest : HtspServiceLifecycleFixture() {
                 }
 
                 server.sendServerMessage("futureMetadata", mapOf("value" to 1L))
-                server.sendServerMessage("channelAdd", mapOf("channelId" to 71L))
+                server.sendServerMessage("channelAdd", channelFixture(71L))
                 server.sendServerMessage("channelAdd", mapOf("channelId" to "malformed"))
                 withTimeout(1_000L) {
                     while (events.none { it is HtspTransportEvent.ConnectionFailure }) delay(1L)
@@ -163,13 +163,13 @@ internal class HtspServiceTypedEventTest : HtspServiceLifecycleFixture() {
                         "maxCount" to 0L,
                     ),
                 )
-                server.sendServerMessage("channelAdd", mapOf("channelId" to 74L))
+                server.sendServerMessage("channelAdd", channelFixture(74L))
                 server.sendServerMessage("initialSyncCompleted")
 
                 withTimeout(1_000L) {
                     while (events.size < 3) delay(1L)
                 }
-                val autorec = events.first().message as HtspAutorecEntryAddMessage
+                val autorec = (events.first().message as HtspAutorecEntryAddMessage).entry
                 assertNull(autorec.broadcastType)
                 assertNull(autorec.comment)
                 assertNull(autorec.name)
@@ -211,12 +211,12 @@ internal class HtspServiceTypedEventTest : HtspServiceLifecycleFixture() {
                         "stop" to -1L,
                     ),
                 )
-                server.sendServerMessage("channelAdd", mapOf("channelId" to 75L))
+                server.sendServerMessage("channelAdd", channelFixture(75L))
 
                 withTimeout(1_000L) {
                     while (events.size < 2) delay(1L)
                 }
-                val timerec = events.first().message as HtspTimerecEntryAddMessage
+                val timerec = (events.first().message as HtspTimerecEntryAddMessage).entry
                 assertNull(timerec.name)
                 assertNull(timerec.title)
                 assertNull(timerec.channelId)
@@ -333,10 +333,7 @@ internal class HtspServiceTypedEventTest : HtspServiceLifecycleFixture() {
 
                 server.sendServerMessage(
                     "channelAdd",
-                    mapOf(
-                        "channelId" to 72L,
-                        "seq" to pendingSequence.toLong(),
-                    ),
+                    channelFixture(72L) + ("seq" to pendingSequence.toLong()),
                 )
 
                 assertEquals(
@@ -362,10 +359,7 @@ internal class HtspServiceTypedEventTest : HtspServiceLifecycleFixture() {
 
                 server.sendServerMessage(
                     "channelAdd",
-                    mapOf(
-                        "channelId" to 73L,
-                        "seq" to "malformed",
-                    ),
+                    channelFixture(73L) + ("seq" to "malformed"),
                 )
 
                 assertEquals(
@@ -522,7 +516,7 @@ internal class HtspServiceTypedEventTest : HtspServiceLifecycleFixture() {
                         as HtspConnectOutcome.Connected
                     firstServer.sendServerMessage(
                         "channelAdd",
-                        mapOf("channelId" to 51L),
+                        channelFixture(51L),
                     )
                     withTimeout(1_000L) { while (events.size < 1) delay(1L) }
 
@@ -532,12 +526,12 @@ internal class HtspServiceTypedEventTest : HtspServiceLifecycleFixture() {
                     runCatching {
                         firstServer.sendServerMessage(
                             "channelAdd",
-                            mapOf("channelId" to 52L),
+                            channelFixture(52L),
                         )
                     }
                     replacementServer.sendServerMessage(
                         "channelAdd",
-                        mapOf("channelId" to 53L),
+                        channelFixture(53L),
                     )
                     withTimeout(1_000L) { while (events.size < 2) delay(1L) }
                     delay(50L)
@@ -547,7 +541,7 @@ internal class HtspServiceTypedEventTest : HtspServiceLifecycleFixture() {
                     assertEquals(events[0].messageSequence, events[1].messageSequence)
                     assertTrue(events[0].messageSequence > 0L)
                     assertTrue(events.none { event ->
-                        (event.message as? HtspChannelAddMessage)?.channelId == 52L
+                        (event.message as? HtspChannelAddMessage)?.channel?.channelId == 52L
                     })
                     collector.cancelAndJoin()
                     service.disconnect(replacement.connection.generation)
@@ -592,7 +586,7 @@ internal class HtspServiceTypedEventTest : HtspServiceLifecycleFixture() {
                     }
 
                     try {
-                        firstServer.sendServerMessage("channelAdd", mapOf("channelId" to 55L))
+                        firstServer.sendServerMessage("channelAdd", channelFixture(55L))
                     } catch (_: java.net.SocketException) {
                         // Replacement closes this peer: either the kernel accepts the stale write
                         // or rejects it with a socket error. Neither path may publish the event.
@@ -602,7 +596,7 @@ internal class HtspServiceTypedEventTest : HtspServiceLifecycleFixture() {
                         events.none { event ->
                             event is HtspTransportEvent.ServerMessage &&
                                 event.message is HtspChannelAddMessage &&
-                                event.message.channelId == 55L
+                                event.message.channel.channelId == 55L
                         }
                     )
 

@@ -1,4 +1,4 @@
-package at.bernhardberger.tvheadend.htsp.requests
+package at.bernhardberger.tvheadend.htsp.model
 
 import at.bernhardberger.tvheadend.htsp.wire.immutableSnapshot
 import at.bernhardberger.tvheadend.htsp.wire.HtspFieldReader
@@ -19,21 +19,33 @@ public class HtspProgrammeCredits(entries: List<HtspProgrammeCredit>) {
     override fun toString(): String = "HtspProgrammeCredits(<redacted>)"
 }
 
-/** One programme credit; a person can have several roles. */
-public data class HtspProgrammeCredit(public val name: String, public val role: String) {
+/** One programme credit from pinned htsp_server.c:1373–1374; a person can have several roles. */
+public data class HtspProgrammeCredit(
+    /** Person name, the key of the wire credits map. */
+    public val name: String,
+    /** Role label, the value of the wire credits map. */
+    public val role: String,
+) {
     override fun toString(): String = "HtspProgrammeCredit(<redacted>)"
 }
 
 /** Localized HbbTV application title (src/input/mpegts/dvb_psi_hbbtv.c:104–108). */
-public data class HtspHbbtvTitle(public val name: String, public val language: String? = null)
+public data class HtspHbbtvTitle(
+    /** Localized application name, wire `name`. */
+    public val name: String,
+    /** Language when available, wire `lang`. */
+    public val language: String? = null,
+)
 
 /**
  * Application metadata published to channel-service consumers (src/input/mpegts/dvb_psi_hbbtv.c:139–150).
+ * Sent as service `hbbtv` by pinned htsp_server.c:911–913.
  * Legacy service configuration may omit fields; absent or invalid scalars decode as null
  * and unusable titles are skipped (src/service.c:1788–1794).
  */
 public class HtspHbbtvApplication(
     titles: List<HtspHbbtvTitle>,
+    /** Application URL when available, wire `url`. */
     public val url: String? = null,
     /** Server visibility string: none, apps, reserved, or all; future strings are retained. */
     public val visibility: String? = null,

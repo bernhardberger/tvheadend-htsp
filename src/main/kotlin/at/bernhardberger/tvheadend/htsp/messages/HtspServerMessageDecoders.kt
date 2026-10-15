@@ -1,397 +1,135 @@
 package at.bernhardberger.tvheadend.htsp.messages
 
-import at.bernhardberger.tvheadend.htsp.requests.*
+import at.bernhardberger.tvheadend.htsp.model.HtspEntityDecoder
 import at.bernhardberger.tvheadend.htsp.wire.*
 
-private val CHANNEL_NUMBER_KEYS = listOf("channelNumber", "number", "lcn", "channelNum", "channelno")
-private val CHANNEL_TAG_KEYS = listOf("tagIds", "tags", "channelTags")
-private val TAG_ID_KEYS = listOf("tagId", "id")
-private val TAG_NAME_KEYS = listOf("tagName", "name")
-private val TAG_INDEX_KEYS = listOf("tagIndex", "index")
-private val DVR_ID_KEYS = listOf("id", "dvrId")
-private val DVR_CHANNEL_KEYS = listOf("channelId", "channel")
-private val DVR_ERROR_KEYS = listOf("error", "statusError")
-private val DVR_PLAY_POSITION_KEYS = listOf("playposition", "playPosition")
-private val DVR_PLAY_COUNT_KEYS = listOf("playcount", "playCount")
-private val DVR_FILE_PATH_KEYS = listOf("filename", "path")
-private val EVENT_ID_KEYS = listOf("eventId", "id")
-private val EVENT_CHANNEL_KEYS = listOf("channelId", "channel")
-private val EVENT_START_KEYS = listOf("start", "startTime")
-private val EVENT_STOP_KEYS = listOf("stop", "stopTime")
-private val EVENT_TITLE_KEYS = listOf("title", "eventTitle", "name")
-private val EVENT_CONTENT_KEYS = listOf("contentType", "content")
 private val SUBSCRIPTION_ID_KEYS = listOf("subscriptionId", "id")
 private val STATUS_KEYS = listOf("state", "status")
 private val SUBSCRIPTION_ERROR_KEYS = listOf("subscriptionError", "error")
-private const val TIMEREC_MINUTES_PER_DAY = 24 * 60
+private val NOW_NEXT_FIELDS = setOf("method", "channelId", "eventId", "nextEventId")
+private val DVR_STATS_FIELDS = setOf(
+    "method", "id", "idStr", "state", "duplicate", "error", "subscriptionError", "streamErrors", "dataErrors", "dataSize",
+    // Retained historical aliases; not emitted by the pinned builder.
+    "dvrId", "status", "statusError",
+)
 
 private class `HtspServerMessageMappingException-internal` : IllegalArgumentException()
-
-private typealias HtspServerMessageMappingException =
-    `HtspServerMessageMappingException-internal`
-
-@JvmSynthetic
-internal fun decodeChannelAdd(fields: Map<String, Any?>): HtspServerMessage = HtspChannelAddMessage(
-    channelId = fields.requiredU32("channelId"),
-    channelUuid = fields.optionalString("channelIdStr"),
-    channelNumber = fields.optionalServerAliasU32(CHANNEL_NUMBER_KEYS),
-    channelNumberMinor = fields.optionalU32("channelNumberMinor"),
-    channelName = fields.optionalString("channelName"),
-    channelIcon = fields.optionalString("channelIcon"),
-    currentEventId = fields.optionalU32("eventId"),
-    nextEventId = fields.optionalU32("nextEventId"),
-    services = fields.optionalObjectList("services", ::decodeServerChannelService),
-    tagIds = fields.optionalServerAliasU32List(CHANNEL_TAG_KEYS),
-)
+private typealias HtspServerMessageMappingException = `HtspServerMessageMappingException-internal`
+private fun malformed(): Nothing = throw HtspServerMessageMappingException()
+private fun entities(version: Int): HtspEntityDecoder = HtspEntityDecoder(version, ::malformed)
 
 @JvmSynthetic
-internal fun decodeChannelUpdate(fields: Map<String, Any?>): HtspServerMessage = HtspChannelUpdateMessage(
-    channelId = fields.requiredU32("channelId"),
-    channelUuid = fields.optionalString("channelIdStr"),
-    channelNumber = fields.optionalServerAliasU32(CHANNEL_NUMBER_KEYS),
-    channelNumberMinor = fields.optionalU32("channelNumberMinor"),
-    channelName = fields.optionalString("channelName"),
-    channelIcon = fields.optionalString("channelIcon"),
-    currentEventId = fields.optionalU32("eventId"),
-    nextEventId = fields.optionalU32("nextEventId"),
-    services = fields.optionalObjectList("services", ::decodeServerChannelService),
-    tagIds = fields.optionalServerAliasU32List(CHANNEL_TAG_KEYS),
-)
+internal fun decodeChannelAdd(fields: Map<String, Any?>, version: Int): HtspServerMessage =
+    HtspChannelAddMessage(entities(version).channel(fields))
+
+@JvmSynthetic
+internal fun decodeChannelUpdate(fields: Map<String, Any?>, version: Int): HtspServerMessage {
+    if (fields.containsKey("channelName")) return HtspChannelUpdateMessage(entities(version).channel(fields))
+    if (fields.keys.any { it !in NOW_NEXT_FIELDS }) malformed()
+    return fields.server().run {
+        HtspChannelNowNextMessage(requiredU32("channelId"), requiredU32("eventId"), requiredU32("nextEventId"))
+    }
+}
 
 @JvmSynthetic
 internal fun decodeChannelDelete(fields: Map<String, Any?>): HtspServerMessage =
-    HtspChannelDeleteMessage(fields.requiredU32("channelId"))
+    HtspChannelDeleteMessage(fields.server().requiredU32("channelId"))
 
 @JvmSynthetic
-internal fun decodeTagAdd(fields: Map<String, Any?>): HtspServerMessage = HtspTagAddMessage(
-    tagId = fields.requiredServerAliasU32(TAG_ID_KEYS),
-    tagUuid = fields.optionalString("tagIdStr"),
-    tagIndex = fields.optionalServerAliasU32(TAG_INDEX_KEYS),
-    tagName = fields.optionalServerAliasString(TAG_NAME_KEYS),
-    tagIcon = fields.optionalString("tagIcon"),
-    tagTitledIcon = fields.optionalU32("tagTitledIcon"),
-    channelIds = fields.optionalU32List("members"),
-)
+internal fun decodeTagAdd(fields: Map<String, Any?>, version: Int): HtspServerMessage =
+    HtspTagAddMessage(entities(version).tag(fields))
 
 @JvmSynthetic
-internal fun decodeTagUpdate(fields: Map<String, Any?>): HtspServerMessage = HtspTagUpdateMessage(
-    tagId = fields.requiredServerAliasU32(TAG_ID_KEYS),
-    tagUuid = fields.optionalString("tagIdStr"),
-    tagIndex = fields.optionalServerAliasU32(TAG_INDEX_KEYS),
-    tagName = fields.optionalServerAliasString(TAG_NAME_KEYS),
-    tagIcon = fields.optionalString("tagIcon"),
-    tagTitledIcon = fields.optionalU32("tagTitledIcon"),
-    channelIds = fields.optionalU32List("members"),
-)
+internal fun decodeTagUpdate(fields: Map<String, Any?>, version: Int): HtspServerMessage =
+    HtspTagUpdateMessage(entities(version).tag(fields))
 
 @JvmSynthetic
 internal fun decodeTagDelete(fields: Map<String, Any?>): HtspServerMessage =
-    HtspTagDeleteMessage(fields.requiredServerAliasU32(TAG_ID_KEYS))
+    HtspTagDeleteMessage(fields.requiredAliasU32(listOf("tagId", "id")))
 
 @JvmSynthetic
-internal fun decodeDvrEntryAdd(fields: Map<String, Any?>): HtspServerMessage = HtspDvrEntryAddMessage(
-    entryId = fields.requiredServerAliasU32(DVR_ID_KEYS),
-    entryUuid = fields.optionalString("idStr"),
-    enabled = fields.optionalFlag("enabled"),
-    channelId = fields.optionalServerAliasU32(DVR_CHANNEL_KEYS),
-    channelName = fields.optionalString("channelName"),
-    eventId = fields.optionalU32("eventId"),
-    autorecEntryUuid = fields.optionalString("autorecId"),
-    timerecEntryUuid = fields.optionalString("timerecId"),
-    startEpochSeconds = fields.optionalS64("start"),
-    stopEpochSeconds = fields.optionalS64("stop"),
-    startExtraMinutes = fields.optionalS64("startExtra"),
-    stopExtraMinutes = fields.optionalS64("stopExtra"),
-    retentionDays = fields.optionalU32("retention"),
-    removalDays = fields.optionalU32("removal"),
-    priority = fields.optionalU32("priority"),
-    contentType = fields.optionalU32("contentType"),
-    ageRating = fields.optionalU32("ageRating"),
-    ratingLabel = fields.optionalString("ratingLabel"),
-    ratingIcon = fields.optionalString("ratingIcon"),
-    ratingAuthority = fields.optionalString("ratingAuthority"),
-    ratingCountry = fields.optionalString("ratingCountry"),
-    playCount = fields.optionalServerAliasU32(DVR_PLAY_COUNT_KEYS),
-    playPositionSeconds = fields.optionalServerAliasU32(DVR_PLAY_POSITION_KEYS),
-    seasonNumber = fields.optionalU32("seasonNumber"),
-    seasonCount = fields.optionalU32("seasonCount"),
-    episodeOnscreen = fields.optionalString("episode"),
-    episodeNumber = fields.optionalU32("episodeNumber"),
-    episodeCount = fields.optionalU32("episodeCount"),
-    partNumber = fields.optionalU32("partNumber"),
-    partCount = fields.optionalU32("partCount"),
-    title = fields.optionalString("title"),
-    description = fields.optionalString("description"),
-    summary = fields.optionalString("summary"),
-    subtitle = fields.optionalString("subtitle"),
-    owner = fields.optionalString("owner"),
-    creator = fields.optionalString("creator"),
-    comment = fields.optionalString("comment"),
-    image = fields.optionalString("image"),
-    fanartImage = fields.optionalString("fanartImage"),
-    copyrightYear = fields.optionalU32("copyrightYear"),
-    files = fields.optionalObjectList("files", ::decodeDvrRecordingFile),
-    path = fields.optionalString("path"),
-    dvrConfigUuid = fields.optionalString("configId"),
-    duplicate = fields.optionalFlag("duplicate"),
-    state = fields.optionalServerAliasString(STATUS_KEYS),
-    error = fields.optionalServerAliasString(DVR_ERROR_KEYS),
-    subscriptionError = fields.optionalString("subscriptionError"),
-    streamErrors = fields.optionalU32("streamErrors"),
-    dataErrors = fields.optionalU32("dataErrors"),
-    dataSizeBytes = fields.optionalS64("dataSize"),
-)
+internal fun decodeDvrEntryAdd(fields: Map<String, Any?>, version: Int): HtspServerMessage =
+    HtspDvrEntryAddMessage(entities(version).dvrEntry(fields))
 
 @JvmSynthetic
-internal fun decodeDvrEntryUpdate(fields: Map<String, Any?>): HtspServerMessage = HtspDvrEntryUpdateMessage(
-    entryId = fields.requiredServerAliasU32(DVR_ID_KEYS),
-    entryUuid = fields.optionalString("idStr"),
-    enabled = fields.optionalFlag("enabled"),
-    channelId = fields.optionalServerAliasU32(DVR_CHANNEL_KEYS),
-    channelName = fields.optionalString("channelName"),
-    eventId = fields.optionalU32("eventId"),
-    autorecEntryUuid = fields.optionalString("autorecId"),
-    timerecEntryUuid = fields.optionalString("timerecId"),
-    startEpochSeconds = fields.optionalS64("start"),
-    stopEpochSeconds = fields.optionalS64("stop"),
-    startExtraMinutes = fields.optionalS64("startExtra"),
-    stopExtraMinutes = fields.optionalS64("stopExtra"),
-    retentionDays = fields.optionalU32("retention"),
-    removalDays = fields.optionalU32("removal"),
-    priority = fields.optionalU32("priority"),
-    contentType = fields.optionalU32("contentType"),
-    ageRating = fields.optionalU32("ageRating"),
-    ratingLabel = fields.optionalString("ratingLabel"),
-    ratingIcon = fields.optionalString("ratingIcon"),
-    ratingAuthority = fields.optionalString("ratingAuthority"),
-    ratingCountry = fields.optionalString("ratingCountry"),
-    playCount = fields.optionalServerAliasU32(DVR_PLAY_COUNT_KEYS),
-    playPositionSeconds = fields.optionalServerAliasU32(DVR_PLAY_POSITION_KEYS),
-    seasonNumber = fields.optionalU32("seasonNumber"),
-    seasonCount = fields.optionalU32("seasonCount"),
-    episodeOnscreen = fields.optionalString("episode"),
-    episodeNumber = fields.optionalU32("episodeNumber"),
-    episodeCount = fields.optionalU32("episodeCount"),
-    partNumber = fields.optionalU32("partNumber"),
-    partCount = fields.optionalU32("partCount"),
-    title = fields.optionalString("title"),
-    description = fields.optionalString("description"),
-    summary = fields.optionalString("summary"),
-    subtitle = fields.optionalString("subtitle"),
-    owner = fields.optionalString("owner"),
-    creator = fields.optionalString("creator"),
-    comment = fields.optionalString("comment"),
-    image = fields.optionalString("image"),
-    fanartImage = fields.optionalString("fanartImage"),
-    copyrightYear = fields.optionalU32("copyrightYear"),
-    files = fields.optionalObjectList("files", ::decodeDvrRecordingFile),
-    path = fields.optionalString("path"),
-    dvrConfigUuid = fields.optionalString("configId"),
-    duplicate = fields.optionalFlag("duplicate"),
-    state = fields.optionalServerAliasString(STATUS_KEYS),
-    error = fields.optionalServerAliasString(DVR_ERROR_KEYS),
-    subscriptionError = fields.optionalString("subscriptionError"),
-    streamErrors = fields.optionalU32("streamErrors"),
-    dataErrors = fields.optionalU32("dataErrors"),
-    dataSizeBytes = fields.optionalS64("dataSize"),
-)
+internal fun decodeDvrEntryUpdate(fields: Map<String, Any?>, version: Int): HtspServerMessage {
+    if (fields.containsKey("enabled")) return HtspDvrEntryUpdateMessage(entities(version).dvrEntry(fields))
+    if (fields.keys.any { it !in DVR_STATS_FIELDS }) malformed()
+    return fields.server().run {
+        HtspDvrEntryStatsMessage(
+            entryId = fields.requiredAliasU32(listOf("id", "dvrId")),
+            entryUuid = if (version >= 41) requiredString("idStr") else optionalString("idStr"),
+            state = fields.optionalAliasString(STATUS_KEYS) ?: malformed(), duplicate = optionalFlag("duplicate"),
+            error = fields.optionalAliasString(listOf("error", "statusError")),
+            subscriptionError = optionalString("subscriptionError"), streamErrors = optionalU32("streamErrors"),
+            dataErrors = optionalU32("dataErrors"), dataSizeBytes = optionalS64("dataSize"),
+        )
+    }
+}
 
 @JvmSynthetic
 internal fun decodeDvrEntryDelete(fields: Map<String, Any?>): HtspServerMessage =
-    HtspDvrEntryDeleteMessage(fields.requiredServerAliasU32(DVR_ID_KEYS))
+    HtspDvrEntryDeleteMessage(fields.requiredAliasU32(listOf("id", "dvrId")))
 
 @JvmSynthetic
-internal fun decodeAutorecEntryAdd(fields: Map<String, Any?>): HtspServerMessage =
-    HtspAutorecEntryAddMessage(
-        id = fields.requiredString("id"),
-        enabled = fields.requiredFlag("enabled"),
-        maxDurationSeconds = fields.requiredU32("maxDuration"),
-        minDurationSeconds = fields.requiredU32("minDuration"),
-        retentionDays = fields.requiredU32("retention"),
-        removalDays = fields.requiredU32("removal"),
-        daysOfWeekMask = fields.requiredU32("daysOfWeek"),
-        approximateStartMinutesSinceMidnight = fields.requiredS32("approxTime"),
-        startMinutesSinceMidnight = fields.requiredS32("start"),
-        startWindowEndMinutesSinceMidnight = fields.requiredS32("startWindow"),
-        priority = fields.requiredU32("priority"),
-        startExtraMinutes = fields.requiredS64("startExtra"),
-        stopExtraMinutes = fields.requiredS64("stopExtra"),
-        duplicateDetection = fields.requiredU32("dupDetect"),
-        maximumRecordingCount = fields.requiredU32("maxCount"),
-        broadcastType = fields.optionalU32("broadcastType"),
-        comment = fields.optionalString("comment"),
-        title = fields.optionalString("title"),
-        fullText = fields.optionalFlag("fulltext"),
-        mergeText = fields.optionalFlag("mergetext"),
-        name = fields.optionalString("name"),
-        directory = fields.optionalString("directory"),
-        owner = fields.optionalString("owner"),
-        creator = fields.optionalString("creator"),
-        channelId = fields.optionalU32("channel"),
-        seriesLinkUri = fields.optionalString("serieslinkUri"),
-        configId = fields.optionalString("configId"),
-    )
+internal fun decodeAutorecEntryAdd(fields: Map<String, Any?>, version: Int): HtspServerMessage =
+    HtspAutorecEntryAddMessage(entities(version).autorecEntry(fields))
 
 @JvmSynthetic
-internal fun decodeAutorecEntryUpdate(fields: Map<String, Any?>): HtspServerMessage =
-    HtspAutorecEntryUpdateMessage(
-        id = fields.requiredString("id"),
-        enabled = fields.optionalFlag("enabled"),
-        maxDurationSeconds = fields.optionalU32("maxDuration"),
-        minDurationSeconds = fields.optionalU32("minDuration"),
-        retentionDays = fields.optionalU32("retention"),
-        removalDays = fields.optionalU32("removal"),
-        daysOfWeekMask = fields.optionalU32("daysOfWeek"),
-        approximateStartMinutesSinceMidnight = fields.optionalS32("approxTime"),
-        startMinutesSinceMidnight = fields.optionalS32("start"),
-        startWindowEndMinutesSinceMidnight = fields.optionalS32("startWindow"),
-        priority = fields.optionalU32("priority"),
-        startExtraMinutes = fields.optionalS64("startExtra"),
-        stopExtraMinutes = fields.optionalS64("stopExtra"),
-        duplicateDetection = fields.optionalU32("dupDetect"),
-        maximumRecordingCount = fields.optionalU32("maxCount"),
-        broadcastType = fields.optionalU32("broadcastType"),
-        comment = fields.optionalString("comment"),
-        title = fields.optionalString("title"),
-        fullText = fields.optionalFlag("fulltext"),
-        mergeText = fields.optionalFlag("mergetext"),
-        name = fields.optionalString("name"),
-        directory = fields.optionalString("directory"),
-        owner = fields.optionalString("owner"),
-        creator = fields.optionalString("creator"),
-        channelId = fields.optionalU32("channel"),
-        seriesLinkUri = fields.optionalString("serieslinkUri"),
-        configId = fields.optionalString("configId"),
-    )
+internal fun decodeAutorecEntryUpdate(fields: Map<String, Any?>, version: Int): HtspServerMessage =
+    HtspAutorecEntryUpdateMessage(entities(version).autorecEntry(fields))
 
 @JvmSynthetic
 internal fun decodeAutorecEntryDelete(fields: Map<String, Any?>): HtspServerMessage =
-    HtspAutorecEntryDeleteMessage(fields.requiredString("id"))
+    HtspAutorecEntryDeleteMessage(fields.server().requiredString("id"))
 
 @JvmSynthetic
-internal fun decodeTimerecEntryAdd(fields: Map<String, Any?>): HtspServerMessage =
-    HtspTimerecEntryAddMessage(
-        id = fields.requiredString("id"),
-        enabled = fields.requiredFlag("enabled"),
-        name = fields.optionalString("name"),
-        title = fields.optionalString("title"),
-        channelId = fields.optionalU32("channel"),
-        startMinutesSinceMidnight = fields.requiredTimerecMinutes("start"),
-        stopMinutesSinceMidnight = fields.requiredTimerecMinutes("stop"),
-        daysOfWeekMask = fields.optionalU32("daysOfWeek"),
-        priority = fields.optionalU32("priority"),
-        retentionDays = fields.optionalU32("retention"),
-        removalDays = fields.optionalU32("removal"),
-        directory = fields.optionalString("directory"),
-        owner = fields.optionalString("owner"),
-        creator = fields.optionalString("creator"),
-        configId = fields.optionalString("configId"),
-        comment = fields.optionalString("comment"),
-    )
+internal fun decodeTimerecEntryAdd(fields: Map<String, Any?>, version: Int): HtspServerMessage =
+    HtspTimerecEntryAddMessage(entities(version).timerecEntry(fields))
 
 @JvmSynthetic
-internal fun decodeTimerecEntryUpdate(fields: Map<String, Any?>): HtspServerMessage =
-    HtspTimerecEntryUpdateMessage(
-        id = fields.requiredString("id"),
-        enabled = fields.optionalFlag("enabled"),
-        name = fields.optionalString("name"),
-        title = fields.optionalString("title"),
-        channelId = fields.optionalU32("channel"),
-        startMinutesSinceMidnight = fields.optionalTimerecMinutes("start"),
-        stopMinutesSinceMidnight = fields.optionalTimerecMinutes("stop"),
-        daysOfWeekMask = fields.optionalU32("daysOfWeek"),
-        priority = fields.optionalU32("priority"),
-        retentionDays = fields.optionalU32("retention"),
-        removalDays = fields.optionalU32("removal"),
-        directory = fields.optionalString("directory"),
-        owner = fields.optionalString("owner"),
-        creator = fields.optionalString("creator"),
-        configId = fields.optionalString("configId"),
-        comment = fields.optionalString("comment"),
-    )
+internal fun decodeTimerecEntryUpdate(fields: Map<String, Any?>, version: Int): HtspServerMessage =
+    HtspTimerecEntryUpdateMessage(entities(version).timerecEntry(fields))
 
 @JvmSynthetic
 internal fun decodeTimerecEntryDelete(fields: Map<String, Any?>): HtspServerMessage =
-    HtspTimerecEntryDeleteMessage(fields.requiredString("id"))
+    HtspTimerecEntryDeleteMessage(fields.server().requiredString("id"))
 
 @JvmSynthetic
-internal fun decodeEventAdd(fields: Map<String, Any?>): HtspServerMessage =
-    HtspEventAddMessage(
-        event = decodeServerEvent(fields),
-        genre = fields.optionalServerEventGenre(),
-        episodeId = fields.optionalU32("episodeId"),
-        seriesLinkId = fields.optionalServerAliasU32(listOf("serieslinkId", "seriesLinkId")),
-    )
+internal fun decodeEventAdd(fields: Map<String, Any?>, version: Int): HtspServerMessage =
+    HtspEventAddMessage(entities(version).event(fields))
 
 @JvmSynthetic
-internal fun decodeEventUpdate(fields: Map<String, Any?>): HtspServerMessage = HtspEventUpdateMessage(
-    eventId = fields.requiredServerAliasU32(EVENT_ID_KEYS),
-    channelId = fields.optionalServerAliasU32(EVENT_CHANNEL_KEYS),
-    startEpochSeconds = fields.optionalServerAliasS64(EVENT_START_KEYS),
-    stopEpochSeconds = fields.optionalServerAliasS64(EVENT_STOP_KEYS),
-    title = fields.optionalServerAliasString(EVENT_TITLE_KEYS),
-    subtitle = fields.optionalString("subtitle"),
-    summary = fields.optionalString("summary"),
-    description = fields.optionalString("description"),
-    genre = fields.optionalServerEventGenre(),
-    categories = fields.optionalServerEventCategories(),
-    keywords = fields.optionalStringList("keyword"),
-    seriesLinkUri = fields.optionalString("serieslinkUri"),
-    episodeUri = fields.optionalString("episodeUri"),
-    contentType = fields.optionalServerAliasU32(EVENT_CONTENT_KEYS),
-    ageRating = fields.optionalU32("ageRating"),
-    ratingLabel = fields.optionalString("ratingLabel"),
-    ratingIcon = fields.optionalString("ratingIcon"),
-    ratingAuthority = fields.optionalString("ratingAuthority"),
-    ratingCountry = fields.optionalString("ratingCountry"),
-    starRating = fields.optionalU32("starRating"),
-    copyrightYear = fields.optionalU32("copyrightYear"),
-    firstAiredEpochSeconds = fields.optionalS64("firstAired"),
-    isNew = fields.optionalFlag("isNew"),
-    seasonNumber = fields.optionalServerEventU32(listOf("seasonNumber", "season"), listOf("seasonNumber", "season")),
-    seasonCount = fields.optionalServerEventU32(listOf("seasonCount"), listOf("seasonCount", "count")),
-    episodeNumber = fields.optionalServerEventU32(listOf("episodeNumber"), listOf("episodeNumber", "number")),
-    episodeCount = fields.optionalServerEventU32(listOf("episodeCount"), listOf("episodeCount", "count")),
-    partNumber = fields.optionalServerEventU32(listOf("partNumber", "part"), listOf("partNumber", "part")),
-    partCount = fields.optionalServerEventU32(listOf("partCount"), listOf("partCount")),
-    episodeOnscreen = fields.optionalString("episodeOnscreen"),
-    episodeId = fields.optionalU32("episodeId"),
-    seriesLinkId = fields.optionalServerAliasU32(listOf("serieslinkId", "seriesLinkId")),
-    image = fields.optionalString("image"),
-    dvrId = fields.optionalU32("dvrId"),
-    nextEventId = fields.optionalU32("nextEventId"),
-    credits = decodeProgrammeCredits(fields, "credits") { throw HtspServerMessageMappingException() },
-)
+internal fun decodeEventUpdate(fields: Map<String, Any?>, version: Int): HtspServerMessage =
+    HtspEventUpdateMessage(entities(version).event(fields))
 
 @JvmSynthetic
 internal fun decodeEventDelete(fields: Map<String, Any?>): HtspServerMessage =
-    HtspEventDeleteMessage(fields.requiredServerAliasU32(EVENT_ID_KEYS))
+    HtspEventDeleteMessage(fields.requiredAliasU32(listOf("eventId", "id")))
 
 @JvmSynthetic
-internal fun decodeInitialSyncCompleted(fields: Map<String, Any?>): HtspServerMessage =
-    HtspInitialSyncCompletedMessage
+internal fun decodeInitialSyncCompleted(fields: Map<String, Any?>): HtspServerMessage = HtspInitialSyncCompletedMessage
 
 @JvmSynthetic
 internal fun decodeMuxPacket(
     fields: Map<String, Any?>,
     timestampClockForSubscription: (Long) -> HtspTimestampClock,
     ownedPayload: ByteArray?,
-): HtspServerMessage {
-    val subscriptionId = fields.requiredU32("subscriptionId")
+): HtspServerMessage = fields.server().run {
+    val subscriptionId = requiredU32("subscriptionId")
     val clock = timestampClockForSubscription(subscriptionId)
-    return try {
-        val payload = fields.requiredBinary("payload")
+    try {
+        val payload = requiredBinary("payload")
         HtspMuxPacketMessage(
             subscriptionId = subscriptionId,
-            frameType = when (val frameType = fields.optionalS64("frametype")) {
+            frameType = when (val frameType = optionalS64("frametype")) {
                 null, 0L -> -1L
                 else -> frameType
             },
-            streamIndex = fields.requiredU32("stream"),
-            decodingTimeUs = fields.optionalS64("dts")?.let(clock::toMicroseconds),
-            presentationTimeUs = fields.optionalS64("pts")?.let(clock::toMicroseconds),
-            durationUs = clock.toMicroseconds(fields.requiredU32("duration")),
-            commercialAdvice = fields.optionalU32("com")?.let {
+            streamIndex = requiredU32("stream"), decodingTimeUs = optionalS64("dts")?.let(clock::toMicroseconds),
+            presentationTimeUs = optionalS64("pts")?.let(clock::toMicroseconds),
+            durationUs = clock.toMicroseconds(requiredU32("duration")),
+            commercialAdvice = optionalU32("com")?.let {
                 when (it) {
                     0L -> HtspCommercialAdvice.UNKNOWN
                     1L -> HtspCommercialAdvice.YES
@@ -399,14 +137,10 @@ internal fun decodeMuxPacket(
                     else -> HtspCommercialAdvice.UNRECOGNIZED
                 }
             },
-            payload = if (payload === ownedPayload) {
-                HtspBinary.takeOwnership(payload)
-            } else {
-                HtspBinary(payload)
-            },
+            payload = if (payload === ownedPayload) HtspBinary.takeOwnership(payload) else HtspBinary(payload),
         )
     } catch (_: ArithmeticException) {
-        throw HtspServerMessageMappingException()
+        malformed()
     }
 }
 
@@ -414,367 +148,122 @@ internal fun decodeMuxPacket(
 internal fun decodeQueueStatus(
     fields: Map<String, Any?>,
     timestampClockForSubscription: (Long) -> HtspTimestampClock = { HtspTimestampClock.MICROSECONDS },
-): HtspServerMessage = HtspQueueStatusMessage(
-    subscriptionId = fields.requiredU32("subscriptionId"),
-    packetCount = fields.requiredU32("packets"),
-    byteCount = fields.requiredU32("bytes"),
-    delayUs = fields.optionalS64("delay")?.let {
-        timestampClockForSubscription(fields.requiredU32("subscriptionId")).normalizedMicroseconds(it)
-    },
-    bFrameDropCount = fields.requiredU32("Bdrops"),
-    pFrameDropCount = fields.requiredU32("Pdrops"),
-    iFrameDropCount = fields.requiredU32("Idrops"),
-    errorCount = fields.optionalU32("errors"),
-)
+): HtspServerMessage = fields.server().run {
+    HtspQueueStatusMessage(
+        subscriptionId = requiredU32("subscriptionId"), packetCount = requiredU32("packets"),
+        byteCount = requiredU32("bytes"), delayUs = optionalS64("delay")?.let {
+            timestampClockForSubscription(requiredU32("subscriptionId")).normalizedMicroseconds(it)
+        },
+        bFrameDropCount = requiredU32("Bdrops"), pFrameDropCount = requiredU32("Pdrops"),
+        iFrameDropCount = requiredU32("Idrops"), errorCount = optionalU32("errors"),
+    )
+}
 
 @JvmSynthetic
 internal fun decodeSubscriptionStart(
     fields: Map<String, Any?>,
     timestampClockForSubscription: (Long) -> HtspTimestampClock = { HtspTimestampClock.MICROSECONDS },
-): HtspServerMessage =
+): HtspServerMessage = fields.server().run {
     HtspSubscriptionStartMessage(
-        subscriptionId = fields.requiredServerAliasU32(SUBSCRIPTION_ID_KEYS),
-        streams = fields.optionalObjectList("streams") {
-            decodeSubscriptionStream(it, timestampClockForSubscription(fields.requiredServerAliasU32(SUBSCRIPTION_ID_KEYS)))
+        subscriptionId = fields.requiredAliasU32(SUBSCRIPTION_ID_KEYS),
+        streams = optionalObjectList("streams") {
+            decodeSubscriptionStream(it, timestampClockForSubscription(fields.requiredAliasU32(SUBSCRIPTION_ID_KEYS)))
         },
-        sourceInfo = if (fields.containsKey("sourceinfo")) {
-            decodeSubscriptionSourceInfo(fields.requiredObject("sourceinfo"))
-        } else {
-            null
-        },
-        codecMetadata = fields.optionalBinary("meta")?.let(::HtspBinary),
-        status = fields.optionalServerAliasString(STATUS_KEYS),
-        subscriptionError = fields.optionalServerAliasString(SUBSCRIPTION_ERROR_KEYS),
+        sourceInfo = if (contains("sourceinfo")) decodeSubscriptionSourceInfo(requiredObject("sourceinfo")) else null,
+        codecMetadata = optionalBinary("meta")?.let(::HtspBinary), status = fields.optionalAliasString(STATUS_KEYS),
+        subscriptionError = fields.optionalAliasString(SUBSCRIPTION_ERROR_KEYS),
     )
+}
 
 @JvmSynthetic
-internal fun decodeSubscriptionStop(fields: Map<String, Any?>): HtspServerMessage =
-    HtspSubscriptionStopMessage(
-        subscriptionId = fields.requiredServerAliasU32(SUBSCRIPTION_ID_KEYS),
-        status = fields.optionalServerAliasString(STATUS_KEYS),
-        subscriptionError = fields.optionalServerAliasString(SUBSCRIPTION_ERROR_KEYS),
-    )
-
-@JvmSynthetic
-internal fun decodeSubscriptionGrace(fields: Map<String, Any?>): HtspServerMessage =
-    HtspSubscriptionGraceMessage(
-        subscriptionId = fields.requiredU32("subscriptionId"),
-        graceTimeoutSeconds = fields.requiredU32("graceTimeout"),
-    )
-
-@JvmSynthetic
-internal fun decodeSubscriptionStatus(fields: Map<String, Any?>): HtspServerMessage =
-    HtspSubscriptionStatusMessage(
-        subscriptionId = fields.requiredServerAliasU32(SUBSCRIPTION_ID_KEYS),
-        status = fields.optionalServerAliasString(STATUS_KEYS),
-        subscriptionError = fields.optionalServerAliasString(SUBSCRIPTION_ERROR_KEYS),
-    )
-
-@JvmSynthetic
-internal fun decodeSignalStatus(fields: Map<String, Any?>): HtspServerMessage = HtspSignalStatusMessage(
-    subscriptionId = fields.requiredU32("subscriptionId"),
-    frontendStatus = fields.optionalString("feStatus"),
-    relativeSnr = fields.optionalU32("feSNR"),
-    absoluteSnr = fields.optionalS64("feAbsoluteSNR"),
-    relativeSignal = fields.optionalU32("feSignal"),
-    absoluteSignal = fields.optionalS64("feAbsoluteSignal"),
-    bitErrorRate = fields.optionalU32("feBER"),
-    uncorrectedBlockCount = fields.optionalU32("feUNC"),
+internal fun decodeSubscriptionStop(fields: Map<String, Any?>): HtspServerMessage = HtspSubscriptionStopMessage(
+    subscriptionId = fields.requiredAliasU32(SUBSCRIPTION_ID_KEYS), status = fields.optionalAliasString(STATUS_KEYS),
+    subscriptionError = fields.optionalAliasString(SUBSCRIPTION_ERROR_KEYS),
 )
 
 @JvmSynthetic
-internal fun decodeDescrambleInfo(fields: Map<String, Any?>): HtspServerMessage =
+internal fun decodeSubscriptionGrace(fields: Map<String, Any?>): HtspServerMessage = fields.server().run {
+    HtspSubscriptionGraceMessage(requiredU32("subscriptionId"), requiredU32("graceTimeout"))
+}
+
+@JvmSynthetic
+internal fun decodeSubscriptionStatus(fields: Map<String, Any?>): HtspServerMessage = HtspSubscriptionStatusMessage(
+    subscriptionId = fields.requiredAliasU32(SUBSCRIPTION_ID_KEYS), status = fields.optionalAliasString(STATUS_KEYS),
+    subscriptionError = fields.optionalAliasString(SUBSCRIPTION_ERROR_KEYS),
+)
+
+@JvmSynthetic
+internal fun decodeSignalStatus(fields: Map<String, Any?>): HtspServerMessage = fields.server().run {
+    HtspSignalStatusMessage(
+        subscriptionId = requiredU32("subscriptionId"), frontendStatus = optionalString("feStatus"),
+        relativeSnr = optionalU32("feSNR"), absoluteSnr = optionalS64("feAbsoluteSNR"),
+        relativeSignal = optionalU32("feSignal"), absoluteSignal = optionalS64("feAbsoluteSignal"),
+        bitErrorRate = optionalU32("feBER"), uncorrectedBlockCount = optionalU32("feUNC"),
+    )
+}
+
+@JvmSynthetic
+internal fun decodeDescrambleInfo(fields: Map<String, Any?>): HtspServerMessage = fields.server().run {
     HtspDescrambleInfoMessage(
-        subscriptionId = fields.requiredU32("subscriptionId"),
-        pid = fields.requiredU32("pid"),
-        conditionalAccessId = fields.requiredU32("caid"),
-        providerId = fields.requiredU32("provid"),
-        ecmTime = fields.requiredU32("ecmtime"),
-        hopCount = fields.requiredU32("hops"),
-        cardSystem = fields.optionalString("cardsystem"),
-        reader = fields.optionalString("reader"),
-        source = fields.optionalString("from"),
-        protocol = fields.optionalString("protocol"),
+        subscriptionId = requiredU32("subscriptionId"), pid = requiredU32("pid"),
+        conditionalAccessId = requiredU32("caid"), providerId = requiredU32("provid"),
+        ecmTime = requiredU32("ecmtime"), hopCount = requiredU32("hops"), cardSystem = optionalString("cardsystem"),
+        reader = optionalString("reader"), source = optionalString("from"), protocol = optionalString("protocol"),
     )
+}
 
 @JvmSynthetic
-internal fun decodeSubscriptionSpeed(fields: Map<String, Any?>): HtspServerMessage =
-    HtspSubscriptionSpeedMessage(
-        subscriptionId = fields.requiredU32("subscriptionId"),
-        speed = fields.requiredS32("speed"),
-    )
+internal fun decodeSubscriptionSpeed(fields: Map<String, Any?>): HtspServerMessage = fields.server().run {
+    HtspSubscriptionSpeedMessage(requiredU32("subscriptionId"), requiredS32("speed"))
+}
 
 @JvmSynthetic
-internal fun decodeTimeshiftStatus(fields: Map<String, Any?>): HtspServerMessage =
+internal fun decodeTimeshiftStatus(fields: Map<String, Any?>): HtspServerMessage = fields.server().run {
     HtspTimeshiftStatusMessage(
-        subscriptionId = fields.requiredU32("subscriptionId"),
-        full = fields.requiredFlag("full"),
-        shift = fields.requiredS64("shift"),
-        start = fields.optionalS64("start"),
-        end = fields.optionalS64("end"),
-        speed = fields.optionalS32("speed"),
+        subscriptionId = requiredU32("subscriptionId"), full = requiredFlag("full"), shift = requiredS64("shift"),
+        start = optionalS64("start"), end = optionalS64("end"), speed = optionalS32("speed"),
     )
+}
 
 @JvmSynthetic
-internal fun decodeSubscriptionSkip(fields: Map<String, Any?>): HtspServerMessage =
+internal fun decodeSubscriptionSkip(fields: Map<String, Any?>): HtspServerMessage = fields.server().run {
     HtspSubscriptionSkipMessage(
-        subscriptionId = fields.requiredU32("subscriptionId"),
-        absolute = fields.optionalFlag("absolute"),
-        error = fields.optionalFlag("error"),
-        time = fields.optionalS64("time"),
-        sizeBytes = fields.optionalS64("size"),
-    )
-
-private fun decodeServerChannelService(fields: Map<*, *>): HtspChannelService = fields.server().run {
-    HtspChannelService(
-        name = requiredString("name"),
-        type = requiredString("type"),
-        content = requiredU32("content"),
-        conditionalAccessId = optionalU32("caid"),
-        conditionalAccessName = optionalString("caname"),
-        providerName = optionalString("providername"),
-        hbbtv = decodeHbbtvApplications(fields) { throw HtspServerMessageMappingException() },
+        subscriptionId = requiredU32("subscriptionId"), absolute = optionalFlag("absolute"), error = optionalFlag("error"),
+        time = optionalS64("time"), sizeBytes = optionalS64("size"),
     )
 }
 
-private fun decodeDvrRecordingFile(fields: Map<*, *>): HtspDvrRecordingFile = fields.server().run {
-    HtspDvrRecordingFile(
-        fileId = optionalU32("id"),
-        path = fields.optionalServerAliasString(DVR_FILE_PATH_KEYS),
-        startEpochSeconds = optionalS64("start"),
-        stopEpochSeconds = optionalS64("stop"),
-        sizeBytes = optionalS64("size"),
-        info = if (contains("info")) {
-            val entries = value("info") as? List<*> ?: throw HtspServerMessageMappingException()
-            HtspDvrRecordingInfo(entries.map { entry ->
-                // DVR logs retain arbitrary legacy stream maps (src/dvr/dvr_db.c:1108; 3362–3367).
-                // Preserve positions even for non-map entries: position is the only stream identity.
-                decodeDvrRecordingStream(entry as? Map<*, *> ?: emptyMap<Any?, Any?>())
-            })
-        } else null,
-    )
-}
-
-private fun decodeDvrRecordingStream(fields: Map<*, *>): HtspDvrRecordingStream = fields.server().run {
-    HtspDvrRecordingStream(
-        type = observedString("type"),
-        language = observedString("language"),
-        audioType = observedU32("audio_type"),
-        audioVersion = observedU32("audio_version"),
-        width = observedU32("width"),
-        height = observedU32("height"),
-        frameDurationUs = observedU32("duration")?.let(HtspTimestampClock.NINETY_KHZ::toMicroseconds),
-        aspectNumerator = observedU32("aspect_num"),
-        aspectDenominator = observedU32("aspect_den"),
-        compositionId = observedU32("composition_id"),
-        ancillaryId = observedU32("ancillary_id"),
-    )
-}
-
-private fun decodeServerEvent(fields: Map<*, *>): HtspEvent = HtspEvent(
-    eventId = fields.requiredServerAliasU32(EVENT_ID_KEYS),
-    channelId = fields.optionalServerAliasU32(EVENT_CHANNEL_KEYS),
-    startEpochSeconds = fields.requiredServerAliasS64(EVENT_START_KEYS),
-    stopEpochSeconds = fields.requiredServerAliasS64(EVENT_STOP_KEYS),
-    title = fields.optionalServerAliasString(EVENT_TITLE_KEYS),
-    subtitle = fields.optionalString("subtitle"),
-    summary = fields.optionalString("summary"),
-    description = fields.optionalString("description"),
-    categories = fields.optionalServerEventCategories(),
-    keywords = fields.optionalStringList("keyword"),
-    seriesLinkUri = fields.optionalString("serieslinkUri"),
-    episodeUri = fields.optionalString("episodeUri"),
-    contentType = fields.optionalServerAliasU32(EVENT_CONTENT_KEYS),
-    ageRating = fields.optionalU32("ageRating"),
-    ratingLabel = fields.optionalString("ratingLabel"),
-    ratingIcon = fields.optionalString("ratingIcon"),
-    ratingAuthority = fields.optionalString("ratingAuthority"),
-    ratingCountry = fields.optionalString("ratingCountry"),
-    starRating = fields.optionalU32("starRating"),
-    copyrightYear = fields.optionalU32("copyrightYear"),
-    firstAiredEpochSeconds = fields.optionalS64("firstAired"),
-    isNew = fields.optionalFlag("isNew"),
-    seasonNumber = fields.optionalServerEventU32(listOf("seasonNumber", "season"), listOf("seasonNumber", "season")),
-    seasonCount = fields.optionalServerEventU32(listOf("seasonCount"), listOf("seasonCount", "count")),
-    episodeNumber = fields.optionalServerEventU32(listOf("episodeNumber"), listOf("episodeNumber", "number")),
-    episodeCount = fields.optionalServerEventU32(listOf("episodeCount"), listOf("episodeCount", "count")),
-    partNumber = fields.optionalServerEventU32(listOf("partNumber", "part"), listOf("partNumber", "part")),
-    partCount = fields.optionalServerEventU32(listOf("partCount"), listOf("partCount")),
-    episodeOnscreen = fields.optionalString("episodeOnscreen"),
-    image = fields.optionalString("image"),
-    dvrId = fields.optionalU32("dvrId"),
-    nextEventId = fields.optionalU32("nextEventId"),
-    credits = decodeProgrammeCredits(fields, "credits") { throw HtspServerMessageMappingException() },
-)
-
-private fun decodeSubscriptionStream(fields: Map<*, *>, clock: HtspTimestampClock): HtspSubscriptionStream = fields.server().run {
-    HtspSubscriptionStream(
-        streamIndex = requiredU32("index"),
-        streamType = requiredString("type"),
-        language = optionalString("language"),
-        compositionId = optionalU32("composition_id"),
-        ancillaryId = optionalU32("ancillary_id"),
-        width = optionalU32("width"),
-        height = optionalU32("height"),
-        frameDurationUs = optionalU32("duration")?.let(clock::normalizedMicroseconds),
-        aspectNumerator = optionalU32("aspect_num"),
-        aspectDenominator = optionalU32("aspect_den"),
-        audioType = optionalU32("audio_type"),
-        audioVersion = optionalU32("audio_version"),
-        channelCount = optionalU32("channels"),
-        sampleRate = optionalU32("rate"),
-        rdsUecp = optionalFlag("rds_uecp"),
-        codecMetadata = optionalBinary("meta")?.let(::HtspBinary),
-    )
-}
+private fun decodeSubscriptionStream(fields: Map<*, *>, clock: HtspTimestampClock): HtspSubscriptionStream =
+    fields.server().run {
+        HtspSubscriptionStream(
+            streamIndex = requiredU32("index"), streamType = requiredString("type"), language = optionalString("language"),
+            compositionId = optionalU32("composition_id"), ancillaryId = optionalU32("ancillary_id"),
+            width = optionalU32("width"), height = optionalU32("height"),
+            frameDurationUs = optionalU32("duration")?.let(clock::normalizedMicroseconds),
+            aspectNumerator = optionalU32("aspect_num"), aspectDenominator = optionalU32("aspect_den"),
+            audioType = optionalU32("audio_type"), audioVersion = optionalU32("audio_version"),
+            channelCount = optionalU32("channels"), sampleRate = optionalU32("rate"), rdsUecp = optionalFlag("rds_uecp"),
+            codecMetadata = optionalBinary("meta")?.let(::HtspBinary),
+        )
+    }
 
 private fun HtspTimestampClock.normalizedMicroseconds(value: Long): Long = try {
     toMicroseconds(value)
 } catch (_: ArithmeticException) {
-    throw HtspServerMessageMappingException()
+    malformed()
 }
 
 private fun decodeSubscriptionSourceInfo(fields: Map<*, *>): HtspSubscriptionSourceInfo = fields.server().run {
     HtspSubscriptionSourceInfo(
-        adapterUuid = optionalString("adapter_uuid"),
-        muxUuid = optionalString("mux_uuid"),
-        networkUuid = optionalString("network_uuid"),
-        adapter = optionalString("adapter"),
-        mux = optionalString("mux"),
-        network = optionalString("network"),
-        networkType = optionalString("network_type"),
-        provider = optionalString("provider"),
-        service = optionalString("service"),
-        satellitePosition = optionalString("satpos"),
+        adapterUuid = optionalString("adapter_uuid"), muxUuid = optionalString("mux_uuid"),
+        networkUuid = optionalString("network_uuid"), adapter = optionalString("adapter"), mux = optionalString("mux"),
+        network = optionalString("network"), networkType = optionalString("network_type"), provider = optionalString("provider"),
+        service = optionalString("service"), satellitePosition = optionalString("satpos"),
     )
 }
 
-private fun Map<*, *>.requiredTimerecMinutes(name: String): Int? =
-    when (val value = requiredS32(name)) {
-        -1 -> null
-        in 0 until TIMEREC_MINUTES_PER_DAY -> value
-        else -> throw HtspServerMessageMappingException()
-    }
-
-private fun Map<*, *>.optionalTimerecMinutes(name: String): Int? =
-    if (containsKey(name)) requiredTimerecMinutes(name) else null
-
-private fun Map<*, *>.server(): HtspFieldReader =
-    HtspFieldReader(this) { throw HtspServerMessageMappingException() }
-
-private fun Map<*, *>.firstPresentServerName(names: List<String>): String? =
-    names.firstOrNull(::containsKey)
-
-private fun Map<*, *>.requiredServerAliasS64(names: List<String>): Long =
-    requiredS64(firstPresentServerName(names) ?: throw HtspServerMessageMappingException())
-
-private fun Map<*, *>.optionalServerAliasS64(names: List<String>): Long? =
-    firstPresentServerName(names)?.let(::requiredS64)
-
-private fun Map<*, *>.requiredServerAliasU32(names: List<String>): Long =
-    requiredU32(firstPresentServerName(names) ?: throw HtspServerMessageMappingException())
-
-private fun Map<*, *>.optionalServerAliasU32(names: List<String>): Long? =
-    firstPresentServerName(names)?.let(::requiredU32)
-
-private fun Map<*, *>.requiredServerAliasString(names: List<String>): String =
-    requiredString(firstPresentServerName(names) ?: throw HtspServerMessageMappingException())
-
-private fun Map<*, *>.optionalServerAliasString(names: List<String>): String? =
-    firstPresentServerName(names)?.let(::requiredString)
-
-private fun Map<*, *>.optionalServerAliasU32List(names: List<String>): List<Long>? =
-    firstPresentServerName(names)?.let(::requiredU32List)
-
-private fun Map<*, *>.optionalServerEventGenre(): String? {
-    if (containsKey("genre")) return requiredString("genre")
-    if (!containsKey("category")) return null
-    return when (this["category"]) {
-        is String -> requiredString("category")
-        is List<*> -> null
-        else -> throw HtspServerMessageMappingException()
-    }
-}
-
-private fun Map<*, *>.optionalServerEventCategories(): List<String>? {
-    if (!containsKey("category")) return null
-    return when (this["category"]) {
-        is String -> null
-        is List<*> -> requiredStringList("category")
-        else -> throw HtspServerMessageMappingException()
-    }
-}
-
-private fun Map<*, *>.optionalServerEventU32(
-    topLevelNames: List<String>,
-    nestedNames: List<String>,
-): Long? {
-    optionalServerAliasU32(topLevelNames)?.let { return it }
-    if (!containsKey("episode")) return null
-    return requiredObject("episode").optionalServerAliasU32(nestedNames)
-}
-
-private fun Map<*, *>.requiredS64(name: String): Long =
-    server().requiredS64(name)
-
-private fun Map<*, *>.optionalS64(name: String): Long? =
-    server().optionalS64(name)
-
-private fun Map<*, *>.requiredS32(name: String): Int = server().requiredS32(name)
-
-private fun Map<*, *>.optionalS32(name: String): Int? =
-    server().optionalS32(name)
-
-private fun Map<*, *>.requiredBoundedInt(name: String, range: IntRange): Int =
-    server().requiredBoundedInt(name, range)
-
-private fun Map<*, *>.optionalBoundedInt(name: String, range: IntRange): Int? =
-    server().optionalBoundedInt(name, range)
-
-private fun Map<*, *>.requiredFlag(name: String): Boolean = server().requiredFlag(name)
-
-private fun Map<*, *>.optionalFlag(name: String): Boolean? =
-    server().optionalFlag(name)
-
-private fun Map<*, *>.requiredU32(name: String): Long = server().requiredU32(name)
-
-private fun Map<*, *>.optionalU32(name: String): Long? =
-    server().optionalU32(name)
-
-private fun Map<*, *>.requiredString(name: String): String =
-    server().requiredString(name)
-
-private fun Map<*, *>.optionalString(name: String): String? =
-    server().optionalString(name)
-
-private fun Map<*, *>.requiredBinary(name: String): ByteArray =
-    server().requiredBinary(name)
-
-private fun Map<*, *>.optionalBinary(name: String): ByteArray? =
-    server().optionalBinary(name)
-
-private fun Map<*, *>.requiredObject(name: String): Map<*, *> =
-    server().requiredObject(name)
-
-private fun Map<*, *>.requiredU32List(name: String): List<Long> = server().requiredU32List(name)
-
-private fun Map<*, *>.optionalU32List(name: String): List<Long>? =
-    server().optionalU32List(name)
-
-private fun Map<*, *>.requiredStringList(name: String): List<String> =
-    server().requiredStringList(name)
-
-private fun Map<*, *>.optionalStringList(name: String): List<String>? =
-    server().optionalStringList(name)
-
-private fun <T> Map<*, *>.requiredObjectList(
-    name: String,
-    mapper: (Map<*, *>) -> T,
-): List<T> {
-    return server().requiredObjectList(name, mapper)
-}
-
-private fun <T> Map<*, *>.optionalObjectList(
-    name: String,
-    mapper: (Map<*, *>) -> T,
-): List<T>? = server().optionalObjectList(name, mapper)
+private fun Map<*, *>.server(): HtspFieldReader = HtspFieldReader(this, ::malformed)
+private fun Map<*, *>.requiredAliasU32(names: List<String>): Long =
+    server().requiredU32(names.firstOrNull(::containsKey) ?: malformed())
+private fun Map<*, *>.optionalAliasString(names: List<String>): String? =
+    names.firstOrNull(::containsKey)?.let { server().requiredString(it) }

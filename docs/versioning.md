@@ -38,6 +38,11 @@ runtime support, or release readiness.
 Pre-release versions (`X.Y.Z-alpha.N`, `-beta.N`, `-rc.N`) are previews of
 `X.Y.Z` and promise no compatibility with each other or with the final release.
 
+The unreleased [ADR 0002](adr/0002-entity-model-and-update-semantics.md) entity
+redesign uses this pre-release window: moved model types, entity-wrapping
+messages and replace-on-full update semantics are source, binary and behavioral
+breaks. See the Unreleased changelog and the [metadata migration contract](public-api.md#metadata-snapshots-and-sparse-updates).
+
 ## Stable 1.x policy
 
 From `1.0.0`, stable releases follow Semantic Versioning. A patch release fixes

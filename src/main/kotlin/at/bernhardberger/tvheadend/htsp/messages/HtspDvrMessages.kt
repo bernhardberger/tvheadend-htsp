@@ -1,842 +1,91 @@
 package at.bernhardberger.tvheadend.htsp.messages
 
-import at.bernhardberger.tvheadend.htsp.wire.immutableSnapshot
+import at.bernhardberger.tvheadend.htsp.model.HtspAutorecEntry
+import at.bernhardberger.tvheadend.htsp.model.HtspDvrEntry
+import at.bernhardberger.tvheadend.htsp.model.HtspTimerecEntry
 import at.bernhardberger.tvheadend.htsp.wire.requireU32
 
-/**
- * Stream details in recording-file `info` (src/dvr/dvr_rec.c:1465–1513).
- * Fields are optional because DVR logs are reloaded without schema validation
- * (src/dvr/dvr_db.c:1108–1110). Missing, wrongly typed, or out-of-domain fields
- * decode as null. Non-map stream elements become all-null placeholders so later
- * streams retain their positions.
- */
-public data class HtspDvrRecordingStream(
-    public val type: String? = null,
-    public val language: String? = null,
-    public val audioType: Long? = null,
-    public val audioVersion: Long? = null,
-    public val width: Long? = null,
-    public val height: Long? = null,
-    /** Wire `duration` in 90 kHz ticks, normalized to microseconds (src/parsers/parsers.c:1055). */
-    public val frameDurationUs: Long? = null,
-    public val aspectNumerator: Long? = null,
-    public val aspectDenominator: Long? = null,
-    public val compositionId: Long? = null,
-    public val ancillaryId: Long? = null,
-)
+/** Full recording add (pinned htsp_server.c:965–1202). */
+public data class HtspDvrEntryAddMessage(
+    /** Complete recording snapshot. */
+    public val entry: HtspDvrEntry,
+) : HtspServerMessage
 
-/** Immutable recording-stream list available to recording-file consumers. */
-public class HtspDvrRecordingInfo(streams: List<HtspDvrRecordingStream>) {
-    /** Ordered snapshot from HTSP `info` (src/htsp_server.c:1133–1135). */
-    public val streams: List<HtspDvrRecordingStream> = streams.immutableSnapshot()
-    override fun equals(other: Any?): Boolean = other is HtspDvrRecordingInfo && streams == other.streams
-    override fun hashCode(): Int = streams.hashCode()
-    override fun toString(): String = "HtspDvrRecordingInfo(<redacted>)"
-}
+/** Full replacement recording update (pinned htsp_server.c:965–1202). */
+public data class HtspDvrEntryUpdateMessage(
+    /** Complete recording snapshot; absent optional fields clear previous values. */
+    public val entry: HtspDvrEntry,
+) : HtspServerMessage
 
-/** One bounded recording-file entry with optional file identity, path, time range, and byte size. */
-public data class HtspDvrRecordingFile(
-    public val fileId: Long?,
-    public val path: String?,
-    /** HTSP `start`, epoch seconds; null means absent (htsp_server.c:1136–1137). */
-    public val startEpochSeconds: Long?,
-    /** HTSP `stop`, epoch seconds; null means absent (htsp_server.c:1138–1139). */
-    public val stopEpochSeconds: Long?,
-    public val sizeBytes: Long?,
-    /** Stream metadata, if present (src/htsp_server.c:1133–1135). */
-    public val info: HtspDvrRecordingInfo? = null,
-) {
-    init {
-        fileId?.let { requireU32("fileId", it) }
-    }
-}
-
-/** Carries a DVR-entry add message whose only required identity field is [entryId]; nullable schedule, metadata, state, progress, error, and file fields were absent when null. */
-@ConsistentCopyVisibility
-public data class HtspDvrEntryAddMessage private constructor(
+/** Statistics-only recording update from htsp_build_dvrentry(statsonly=1), :977–980,1157–1200. */
+public data class HtspDvrEntryStatsMessage(
+    /** Unsigned recording identity (:977). */
     public val entryId: Long,
-    public val entryUuid: String? = null,
-    /** HTSP `enabled`: optional 0/1 flag (pinned htsp_server.c:981). */
-    public val enabled: Boolean? = null,
-    public val channelId: Long? = null,
-    public val channelName: String? = null,
-    public val eventId: Long? = null,
-    public val autorecEntryUuid: String? = null,
-    public val timerecEntryUuid: String? = null,
-    /** HTSP `start`, epoch seconds; null means absent (htsp_server.c:996). */
-    public val startEpochSeconds: Long? = null,
-    /** HTSP `stop`, epoch seconds; null means absent (htsp_server.c:997). */
-    public val stopEpochSeconds: Long? = null,
-    public val startExtraMinutes: Long? = null,
-    public val stopExtraMinutes: Long? = null,
-    public val retentionDays: Long? = null,
-    public val removalDays: Long? = null,
-    public val priority: Long? = null,
-    public val contentType: Long? = null,
-    public val ageRating: Long? = null,
-    public val ratingLabel: String? = null,
-    public val ratingIcon: String? = null,
-    public val ratingAuthority: String? = null,
-    public val ratingCountry: String? = null,
-    public val playCount: Long? = null,
-    public val playPositionSeconds: Long? = null,
-    public val seasonNumber: Long? = null,
-    public val episodeNumber: Long? = null,
-    public val episodeCount: Long? = null,
-    public val partNumber: Long? = null,
-    public val partCount: Long? = null,
-    public val title: String? = null,
-    public val description: String? = null,
-    public val summary: String? = null,
-    public val subtitle: String? = null,
-    public val owner: String? = null,
-    public val creator: String? = null,
-    public val comment: String? = null,
-    public val image: String? = null,
-    public val fanartImage: String? = null,
-    public val copyrightYear: Long? = null,
-    public val files: List<HtspDvrRecordingFile>? = null,
-    public val path: String? = null,
-    public val dvrConfigUuid: String? = null,
-    /** HTSP `duplicate`: optional 0/1 duplicate flag (pinned htsp_server.c:1188). */
+    /** Recording UUID, required on the wire at v41+ (:978). */
+    public val entryUuid: String?,
+    /** Always-emitted recording state (:1190). */
+    public val state: String,
+    /** Only emitted for upcoming recordings (:1187–1188). */
     public val duplicate: Boolean? = null,
-    public val state: String? = null,
+    /** Recording error when present (:1191–1192). */
     public val error: String? = null,
+    /** Subscription error when present (:1193–1194). */
     public val subscriptionError: String? = null,
+    /** Stream errors, only when nonzero (:1195–1196). */
     public val streamErrors: Long? = null,
+    /** Data errors, only when nonzero (:1197–1198). */
     public val dataErrors: Long? = null,
+    /** Known file size for recording or completed entries (:1163,1173,1199–1200). */
     public val dataSizeBytes: Long? = null,
-    /** Season total emitted by src/htsp_server.c:714–730,1105. */
-    public val seasonCount: Long? = null,
-    /** Episode display text, HTSP `episode` (src/htsp_server.c:730,1105). */
-    public val episodeOnscreen: String? = null,
-    private val immutableSnapshot: Unit,
 ) : HtspServerMessage {
-    public constructor(
-        entryId: Long,
-        entryUuid: String? = null,
-        enabled: Boolean? = null,
-        channelId: Long? = null,
-        channelName: String? = null,
-        eventId: Long? = null,
-        autorecEntryUuid: String? = null,
-        timerecEntryUuid: String? = null,
-        startEpochSeconds: Long? = null,
-        stopEpochSeconds: Long? = null,
-        startExtraMinutes: Long? = null,
-        stopExtraMinutes: Long? = null,
-        retentionDays: Long? = null,
-        removalDays: Long? = null,
-        priority: Long? = null,
-        contentType: Long? = null,
-        ageRating: Long? = null,
-        ratingLabel: String? = null,
-        ratingIcon: String? = null,
-        ratingAuthority: String? = null,
-        ratingCountry: String? = null,
-        playCount: Long? = null,
-        playPositionSeconds: Long? = null,
-        seasonNumber: Long? = null,
-        episodeNumber: Long? = null,
-        episodeCount: Long? = null,
-        partNumber: Long? = null,
-        partCount: Long? = null,
-        title: String? = null,
-        description: String? = null,
-        summary: String? = null,
-        subtitle: String? = null,
-        owner: String? = null,
-        creator: String? = null,
-        comment: String? = null,
-        image: String? = null,
-        fanartImage: String? = null,
-        copyrightYear: Long? = null,
-        files: List<HtspDvrRecordingFile>? = null,
-        path: String? = null,
-        dvrConfigUuid: String? = null,
-        duplicate: Boolean? = null,
-        state: String? = null,
-        error: String? = null,
-        subscriptionError: String? = null,
-        streamErrors: Long? = null,
-        dataErrors: Long? = null,
-        dataSizeBytes: Long? = null,
-        seasonCount: Long? = null,
-        episodeOnscreen: String? = null,
-    ) : this(
-        entryId = entryId,
-        entryUuid = entryUuid,
-        enabled = enabled,
-        channelId = channelId,
-        channelName = channelName,
-        eventId = eventId,
-        autorecEntryUuid = autorecEntryUuid,
-        timerecEntryUuid = timerecEntryUuid,
-        startEpochSeconds = startEpochSeconds,
-        stopEpochSeconds = stopEpochSeconds,
-        startExtraMinutes = startExtraMinutes,
-        stopExtraMinutes = stopExtraMinutes,
-        retentionDays = retentionDays,
-        removalDays = removalDays,
-        priority = priority,
-        contentType = contentType,
-        ageRating = ageRating,
-        ratingLabel = ratingLabel,
-        ratingIcon = ratingIcon,
-        ratingAuthority = ratingAuthority,
-        ratingCountry = ratingCountry,
-        playCount = playCount,
-        playPositionSeconds = playPositionSeconds,
-        seasonNumber = seasonNumber,
-        episodeNumber = episodeNumber,
-        episodeCount = episodeCount,
-        partNumber = partNumber,
-        partCount = partCount,
-        title = title,
-        description = description,
-        summary = summary,
-        subtitle = subtitle,
-        owner = owner,
-        creator = creator,
-        comment = comment,
-        image = image,
-        fanartImage = fanartImage,
-        copyrightYear = copyrightYear,
-        files = files?.immutableSnapshot(),
-        path = path,
-        dvrConfigUuid = dvrConfigUuid,
-        duplicate = duplicate,
-        state = state,
-        error = error,
-        subscriptionError = subscriptionError,
-        streamErrors = streamErrors,
-        dataErrors = dataErrors,
-        dataSizeBytes = dataSizeBytes,
-        seasonCount = seasonCount,
-        episodeOnscreen = episodeOnscreen,
-        immutableSnapshot = Unit,
-    )
-
-    /** Returns a validated copy with an immutable snapshot of replacement files. */
-    public fun copy(
-        entryId: Long = this.entryId,
-        entryUuid: String? = this.entryUuid,
-        enabled: Boolean? = this.enabled,
-        channelId: Long? = this.channelId,
-        channelName: String? = this.channelName,
-        eventId: Long? = this.eventId,
-        autorecEntryUuid: String? = this.autorecEntryUuid,
-        timerecEntryUuid: String? = this.timerecEntryUuid,
-        startEpochSeconds: Long? = this.startEpochSeconds,
-        stopEpochSeconds: Long? = this.stopEpochSeconds,
-        startExtraMinutes: Long? = this.startExtraMinutes,
-        stopExtraMinutes: Long? = this.stopExtraMinutes,
-        retentionDays: Long? = this.retentionDays,
-        removalDays: Long? = this.removalDays,
-        priority: Long? = this.priority,
-        contentType: Long? = this.contentType,
-        ageRating: Long? = this.ageRating,
-        ratingLabel: String? = this.ratingLabel,
-        ratingIcon: String? = this.ratingIcon,
-        ratingAuthority: String? = this.ratingAuthority,
-        ratingCountry: String? = this.ratingCountry,
-        playCount: Long? = this.playCount,
-        playPositionSeconds: Long? = this.playPositionSeconds,
-        seasonNumber: Long? = this.seasonNumber,
-        episodeNumber: Long? = this.episodeNumber,
-        episodeCount: Long? = this.episodeCount,
-        partNumber: Long? = this.partNumber,
-        partCount: Long? = this.partCount,
-        title: String? = this.title,
-        description: String? = this.description,
-        summary: String? = this.summary,
-        subtitle: String? = this.subtitle,
-        owner: String? = this.owner,
-        creator: String? = this.creator,
-        comment: String? = this.comment,
-        image: String? = this.image,
-        fanartImage: String? = this.fanartImage,
-        copyrightYear: Long? = this.copyrightYear,
-        files: List<HtspDvrRecordingFile>? = this.files,
-        path: String? = this.path,
-        dvrConfigUuid: String? = this.dvrConfigUuid,
-        duplicate: Boolean? = this.duplicate,
-        state: String? = this.state,
-        error: String? = this.error,
-        subscriptionError: String? = this.subscriptionError,
-        streamErrors: Long? = this.streamErrors,
-        dataErrors: Long? = this.dataErrors,
-        dataSizeBytes: Long? = this.dataSizeBytes,
-        seasonCount: Long? = this.seasonCount,
-        episodeOnscreen: String? = this.episodeOnscreen,
-    ): HtspDvrEntryAddMessage = HtspDvrEntryAddMessage(
-        entryId = entryId,
-        entryUuid = entryUuid,
-        enabled = enabled,
-        channelId = channelId,
-        channelName = channelName,
-        eventId = eventId,
-        autorecEntryUuid = autorecEntryUuid,
-        timerecEntryUuid = timerecEntryUuid,
-        startEpochSeconds = startEpochSeconds,
-        stopEpochSeconds = stopEpochSeconds,
-        startExtraMinutes = startExtraMinutes,
-        stopExtraMinutes = stopExtraMinutes,
-        retentionDays = retentionDays,
-        removalDays = removalDays,
-        priority = priority,
-        contentType = contentType,
-        ageRating = ageRating,
-        ratingLabel = ratingLabel,
-        ratingIcon = ratingIcon,
-        ratingAuthority = ratingAuthority,
-        ratingCountry = ratingCountry,
-        playCount = playCount,
-        playPositionSeconds = playPositionSeconds,
-        seasonNumber = seasonNumber,
-        episodeNumber = episodeNumber,
-        episodeCount = episodeCount,
-        partNumber = partNumber,
-        partCount = partCount,
-        title = title,
-        description = description,
-        summary = summary,
-        subtitle = subtitle,
-        owner = owner,
-        creator = creator,
-        comment = comment,
-        image = image,
-        fanartImage = fanartImage,
-        copyrightYear = copyrightYear,
-        files = files,
-        path = path,
-        dvrConfigUuid = dvrConfigUuid,
-        duplicate = duplicate,
-        state = state,
-        error = error,
-        subscriptionError = subscriptionError,
-        streamErrors = streamErrors,
-        dataErrors = dataErrors,
-        dataSizeBytes = dataSizeBytes,
-        seasonCount = seasonCount,
-        episodeOnscreen = episodeOnscreen,
-    )
-
-    override fun toString(): String = "HtspDvrEntryAddMessage(<redacted>)"
-
     init {
         requireU32("entryId", entryId)
-        channelId?.let { requireU32("channelId", it) }
-        eventId?.let { requireU32("eventId", it) }
-        retentionDays?.let { requireU32("retentionDays", it) }
-        removalDays?.let { requireU32("removalDays", it) }
-        priority?.let { requireU32("priority", it) }
-        contentType?.let { requireU32("contentType", it) }
-        ageRating?.let { requireU32("ageRating", it) }
-        playCount?.let { requireU32("playCount", it) }
-        playPositionSeconds?.let { requireU32("playPositionSeconds", it) }
-        seasonNumber?.let { requireU32("seasonNumber", it) }
-        seasonCount?.let { requireU32("seasonCount", it) }
-        episodeNumber?.let { requireU32("episodeNumber", it) }
-        episodeCount?.let { requireU32("episodeCount", it) }
-        partNumber?.let { requireU32("partNumber", it) }
-        partCount?.let { requireU32("partCount", it) }
-        copyrightYear?.let { requireU32("copyrightYear", it) }
         streamErrors?.let { requireU32("streamErrors", it) }
         dataErrors?.let { requireU32("dataErrors", it) }
     }
+    override fun toString(): String = "HtspDvrEntryStatsMessage(<redacted>)"
 }
 
-/** Carries one DVR-entry update; nullable schedule, metadata, progress, state, error, and file properties were absent when null. */
-@ConsistentCopyVisibility
-public data class HtspDvrEntryUpdateMessage private constructor(
-    public val entryId: Long,
-    public val entryUuid: String? = null,
-    /** HTSP `enabled`: optional 0/1 flag (pinned htsp_server.c:981). */
-    public val enabled: Boolean? = null,
-    public val channelId: Long? = null,
-    public val channelName: String? = null,
-    public val eventId: Long? = null,
-    public val autorecEntryUuid: String? = null,
-    public val timerecEntryUuid: String? = null,
-    /** HTSP `start`, epoch seconds; null means absent (htsp_server.c:996). */
-    public val startEpochSeconds: Long? = null,
-    /** HTSP `stop`, epoch seconds; null means absent (htsp_server.c:997). */
-    public val stopEpochSeconds: Long? = null,
-    public val startExtraMinutes: Long? = null,
-    public val stopExtraMinutes: Long? = null,
-    public val retentionDays: Long? = null,
-    public val removalDays: Long? = null,
-    public val priority: Long? = null,
-    public val contentType: Long? = null,
-    public val ageRating: Long? = null,
-    public val ratingLabel: String? = null,
-    public val ratingIcon: String? = null,
-    public val ratingAuthority: String? = null,
-    public val ratingCountry: String? = null,
-    public val playCount: Long? = null,
-    public val playPositionSeconds: Long? = null,
-    public val seasonNumber: Long? = null,
-    public val episodeNumber: Long? = null,
-    public val episodeCount: Long? = null,
-    public val partNumber: Long? = null,
-    public val partCount: Long? = null,
-    public val title: String? = null,
-    public val description: String? = null,
-    public val summary: String? = null,
-    public val subtitle: String? = null,
-    public val owner: String? = null,
-    public val creator: String? = null,
-    public val comment: String? = null,
-    public val image: String? = null,
-    public val fanartImage: String? = null,
-    public val copyrightYear: Long? = null,
-    public val files: List<HtspDvrRecordingFile>? = null,
-    public val path: String? = null,
-    public val dvrConfigUuid: String? = null,
-    /** HTSP `duplicate`: optional 0/1 duplicate flag (pinned htsp_server.c:1188). */
-    public val duplicate: Boolean? = null,
-    public val state: String? = null,
-    public val error: String? = null,
-    public val subscriptionError: String? = null,
-    public val streamErrors: Long? = null,
-    public val dataErrors: Long? = null,
-    public val dataSizeBytes: Long? = null,
-    /** Season total emitted by src/htsp_server.c:714–730,1105. */
-    public val seasonCount: Long? = null,
-    /** Episode display text, HTSP `episode` (src/htsp_server.c:730,1105). */
-    public val episodeOnscreen: String? = null,
-    private val immutableSnapshot: Unit,
-) : HtspServerMessage {
-    public constructor(
-        entryId: Long,
-        entryUuid: String? = null,
-        enabled: Boolean? = null,
-        channelId: Long? = null,
-        channelName: String? = null,
-        eventId: Long? = null,
-        autorecEntryUuid: String? = null,
-        timerecEntryUuid: String? = null,
-        startEpochSeconds: Long? = null,
-        stopEpochSeconds: Long? = null,
-        startExtraMinutes: Long? = null,
-        stopExtraMinutes: Long? = null,
-        retentionDays: Long? = null,
-        removalDays: Long? = null,
-        priority: Long? = null,
-        contentType: Long? = null,
-        ageRating: Long? = null,
-        ratingLabel: String? = null,
-        ratingIcon: String? = null,
-        ratingAuthority: String? = null,
-        ratingCountry: String? = null,
-        playCount: Long? = null,
-        playPositionSeconds: Long? = null,
-        seasonNumber: Long? = null,
-        episodeNumber: Long? = null,
-        episodeCount: Long? = null,
-        partNumber: Long? = null,
-        partCount: Long? = null,
-        title: String? = null,
-        description: String? = null,
-        summary: String? = null,
-        subtitle: String? = null,
-        owner: String? = null,
-        creator: String? = null,
-        comment: String? = null,
-        image: String? = null,
-        fanartImage: String? = null,
-        copyrightYear: Long? = null,
-        files: List<HtspDvrRecordingFile>? = null,
-        path: String? = null,
-        dvrConfigUuid: String? = null,
-        duplicate: Boolean? = null,
-        state: String? = null,
-        error: String? = null,
-        subscriptionError: String? = null,
-        streamErrors: Long? = null,
-        dataErrors: Long? = null,
-        dataSizeBytes: Long? = null,
-        seasonCount: Long? = null,
-        episodeOnscreen: String? = null,
-    ) : this(
-        entryId = entryId,
-        entryUuid = entryUuid,
-        enabled = enabled,
-        channelId = channelId,
-        channelName = channelName,
-        eventId = eventId,
-        autorecEntryUuid = autorecEntryUuid,
-        timerecEntryUuid = timerecEntryUuid,
-        startEpochSeconds = startEpochSeconds,
-        stopEpochSeconds = stopEpochSeconds,
-        startExtraMinutes = startExtraMinutes,
-        stopExtraMinutes = stopExtraMinutes,
-        retentionDays = retentionDays,
-        removalDays = removalDays,
-        priority = priority,
-        contentType = contentType,
-        ageRating = ageRating,
-        ratingLabel = ratingLabel,
-        ratingIcon = ratingIcon,
-        ratingAuthority = ratingAuthority,
-        ratingCountry = ratingCountry,
-        playCount = playCount,
-        playPositionSeconds = playPositionSeconds,
-        seasonNumber = seasonNumber,
-        episodeNumber = episodeNumber,
-        episodeCount = episodeCount,
-        partNumber = partNumber,
-        partCount = partCount,
-        title = title,
-        description = description,
-        summary = summary,
-        subtitle = subtitle,
-        owner = owner,
-        creator = creator,
-        comment = comment,
-        image = image,
-        fanartImage = fanartImage,
-        copyrightYear = copyrightYear,
-        files = files?.immutableSnapshot(),
-        path = path,
-        dvrConfigUuid = dvrConfigUuid,
-        duplicate = duplicate,
-        state = state,
-        error = error,
-        subscriptionError = subscriptionError,
-        streamErrors = streamErrors,
-        dataErrors = dataErrors,
-        dataSizeBytes = dataSizeBytes,
-        seasonCount = seasonCount,
-        episodeOnscreen = episodeOnscreen,
-        immutableSnapshot = Unit,
-    )
-
-    /** Returns a validated copy with an immutable snapshot of replacement files. */
-    public fun copy(
-        entryId: Long = this.entryId,
-        entryUuid: String? = this.entryUuid,
-        enabled: Boolean? = this.enabled,
-        channelId: Long? = this.channelId,
-        channelName: String? = this.channelName,
-        eventId: Long? = this.eventId,
-        autorecEntryUuid: String? = this.autorecEntryUuid,
-        timerecEntryUuid: String? = this.timerecEntryUuid,
-        startEpochSeconds: Long? = this.startEpochSeconds,
-        stopEpochSeconds: Long? = this.stopEpochSeconds,
-        startExtraMinutes: Long? = this.startExtraMinutes,
-        stopExtraMinutes: Long? = this.stopExtraMinutes,
-        retentionDays: Long? = this.retentionDays,
-        removalDays: Long? = this.removalDays,
-        priority: Long? = this.priority,
-        contentType: Long? = this.contentType,
-        ageRating: Long? = this.ageRating,
-        ratingLabel: String? = this.ratingLabel,
-        ratingIcon: String? = this.ratingIcon,
-        ratingAuthority: String? = this.ratingAuthority,
-        ratingCountry: String? = this.ratingCountry,
-        playCount: Long? = this.playCount,
-        playPositionSeconds: Long? = this.playPositionSeconds,
-        seasonNumber: Long? = this.seasonNumber,
-        episodeNumber: Long? = this.episodeNumber,
-        episodeCount: Long? = this.episodeCount,
-        partNumber: Long? = this.partNumber,
-        partCount: Long? = this.partCount,
-        title: String? = this.title,
-        description: String? = this.description,
-        summary: String? = this.summary,
-        subtitle: String? = this.subtitle,
-        owner: String? = this.owner,
-        creator: String? = this.creator,
-        comment: String? = this.comment,
-        image: String? = this.image,
-        fanartImage: String? = this.fanartImage,
-        copyrightYear: Long? = this.copyrightYear,
-        files: List<HtspDvrRecordingFile>? = this.files,
-        path: String? = this.path,
-        dvrConfigUuid: String? = this.dvrConfigUuid,
-        duplicate: Boolean? = this.duplicate,
-        state: String? = this.state,
-        error: String? = this.error,
-        subscriptionError: String? = this.subscriptionError,
-        streamErrors: Long? = this.streamErrors,
-        dataErrors: Long? = this.dataErrors,
-        dataSizeBytes: Long? = this.dataSizeBytes,
-        seasonCount: Long? = this.seasonCount,
-        episodeOnscreen: String? = this.episodeOnscreen,
-    ): HtspDvrEntryUpdateMessage = HtspDvrEntryUpdateMessage(
-        entryId = entryId,
-        entryUuid = entryUuid,
-        enabled = enabled,
-        channelId = channelId,
-        channelName = channelName,
-        eventId = eventId,
-        autorecEntryUuid = autorecEntryUuid,
-        timerecEntryUuid = timerecEntryUuid,
-        startEpochSeconds = startEpochSeconds,
-        stopEpochSeconds = stopEpochSeconds,
-        startExtraMinutes = startExtraMinutes,
-        stopExtraMinutes = stopExtraMinutes,
-        retentionDays = retentionDays,
-        removalDays = removalDays,
-        priority = priority,
-        contentType = contentType,
-        ageRating = ageRating,
-        ratingLabel = ratingLabel,
-        ratingIcon = ratingIcon,
-        ratingAuthority = ratingAuthority,
-        ratingCountry = ratingCountry,
-        playCount = playCount,
-        playPositionSeconds = playPositionSeconds,
-        seasonNumber = seasonNumber,
-        episodeNumber = episodeNumber,
-        episodeCount = episodeCount,
-        partNumber = partNumber,
-        partCount = partCount,
-        title = title,
-        description = description,
-        summary = summary,
-        subtitle = subtitle,
-        owner = owner,
-        creator = creator,
-        comment = comment,
-        image = image,
-        fanartImage = fanartImage,
-        copyrightYear = copyrightYear,
-        files = files,
-        path = path,
-        dvrConfigUuid = dvrConfigUuid,
-        duplicate = duplicate,
-        state = state,
-        error = error,
-        subscriptionError = subscriptionError,
-        streamErrors = streamErrors,
-        dataErrors = dataErrors,
-        dataSizeBytes = dataSizeBytes,
-        seasonCount = seasonCount,
-        episodeOnscreen = episodeOnscreen,
-    )
-
-    override fun toString(): String = "HtspDvrEntryUpdateMessage(<redacted>)"
-
-    init {
-        requireU32("entryId", entryId)
-        channelId?.let { requireU32("channelId", it) }
-        eventId?.let { requireU32("eventId", it) }
-        retentionDays?.let { requireU32("retentionDays", it) }
-        removalDays?.let { requireU32("removalDays", it) }
-        priority?.let { requireU32("priority", it) }
-        contentType?.let { requireU32("contentType", it) }
-        ageRating?.let { requireU32("ageRating", it) }
-        playCount?.let { requireU32("playCount", it) }
-        playPositionSeconds?.let { requireU32("playPositionSeconds", it) }
-        seasonNumber?.let { requireU32("seasonNumber", it) }
-        seasonCount?.let { requireU32("seasonCount", it) }
-        episodeNumber?.let { requireU32("episodeNumber", it) }
-        episodeCount?.let { requireU32("episodeCount", it) }
-        partNumber?.let { requireU32("partNumber", it) }
-        partCount?.let { requireU32("partCount", it) }
-        copyrightYear?.let { requireU32("copyrightYear", it) }
-        streamErrors?.let { requireU32("streamErrors", it) }
-        dataErrors?.let { requireU32("dataErrors", it) }
-    }
-}
-
-/** Carries the complete unsigned [entryId] reported by a DVR-entry delete message. */
+/** Identifies a deleted recording. */
 public data class HtspDvrEntryDeleteMessage(
+    /** Unsigned recording identity. */
     public val entryId: Long,
 ) : HtspServerMessage {
-    init {
-        requireU32("entryId", entryId)
-    }
+    init { requireU32("entryId", entryId) }
 }
 
-/** Carries the bounded automatic-recording-rule fields reported by an add message, including match, schedule, ownership, and retention data. Nullable strings were absent from the server message. */
+/** Full automatic-rule add (pinned htsp_server.c:1209–1268). */
 public data class HtspAutorecEntryAddMessage(
-    public val id: String,
-    public val enabled: Boolean,
-    public val maxDurationSeconds: Long,
-    public val minDurationSeconds: Long,
-    public val retentionDays: Long,
-    public val removalDays: Long,
-    public val daysOfWeekMask: Long,
-    public val approximateStartMinutesSinceMidnight: Int,
-    public val startMinutesSinceMidnight: Int,
-    public val startWindowEndMinutesSinceMidnight: Int,
-    public val priority: Long,
-    public val startExtraMinutes: Long,
-    public val stopExtraMinutes: Long,
-    public val duplicateDetection: Long,
-    public val maximumRecordingCount: Long,
-    /** Sent by HTSP 39+ servers; null when absent. */
-    public val broadcastType: Long? = null,
-    public val comment: String? = null,
-    public val title: String? = null,
-    public val fullText: Boolean? = null,
-    public val mergeText: Boolean? = null,
-    public val name: String? = null,
-    public val directory: String? = null,
-    public val owner: String? = null,
-    public val creator: String? = null,
-    public val channelId: Long? = null,
-    public val seriesLinkUri: String? = null,
-    public val configId: String? = null,
-) : HtspServerMessage {
-    init {
-        requireU32("maxDurationSeconds", maxDurationSeconds)
-        requireU32("minDurationSeconds", minDurationSeconds)
-        requireU32("retentionDays", retentionDays)
-        requireU32("removalDays", removalDays)
-        requireU32("daysOfWeekMask", daysOfWeekMask)
-        requireU32("priority", priority)
-        requireU32("duplicateDetection", duplicateDetection)
-        requireU32("maximumRecordingCount", maximumRecordingCount)
-        broadcastType?.let { requireU32("broadcastType", it) }
-        channelId?.let { requireU32("channelId", it) }
-    }
+    /** Complete automatic-rule snapshot. */
+    public val entry: HtspAutorecEntry,
+) : HtspServerMessage
 
-    override fun toString(): String = "HtspAutorecEntryAddMessage(<redacted>)"
-}
-
-/** Carries an automatic-recording-rule update; every nullable matching, scheduling, ownership, or retention property was absent when null. */
+/** Full replacement automatic-rule update (pinned htsp_server.c:1209–1268). */
 public data class HtspAutorecEntryUpdateMessage(
+    /** Complete automatic-rule snapshot. */
+    public val entry: HtspAutorecEntry,
+) : HtspServerMessage
+
+/** Identifies a deleted automatic recording rule. */
+public data class HtspAutorecEntryDeleteMessage(
+    /** Rule UUID. */
     public val id: String,
-    public val enabled: Boolean? = null,
-    public val maxDurationSeconds: Long? = null,
-    public val minDurationSeconds: Long? = null,
-    public val retentionDays: Long? = null,
-    public val removalDays: Long? = null,
-    public val daysOfWeekMask: Long? = null,
-    public val approximateStartMinutesSinceMidnight: Int? = null,
-    public val startMinutesSinceMidnight: Int? = null,
-    public val startWindowEndMinutesSinceMidnight: Int? = null,
-    public val priority: Long? = null,
-    public val startExtraMinutes: Long? = null,
-    public val stopExtraMinutes: Long? = null,
-    public val duplicateDetection: Long? = null,
-    public val maximumRecordingCount: Long? = null,
-    /** Sent by HTSP 39+ servers; null when absent. */
-    public val broadcastType: Long? = null,
-    public val comment: String? = null,
-    public val title: String? = null,
-    public val fullText: Boolean? = null,
-    public val mergeText: Boolean? = null,
-    public val name: String? = null,
-    public val directory: String? = null,
-    public val owner: String? = null,
-    public val creator: String? = null,
-    public val channelId: Long? = null,
-    public val seriesLinkUri: String? = null,
-    public val configId: String? = null,
-) : HtspServerMessage {
-    init {
-        maxDurationSeconds?.let { requireU32("maxDurationSeconds", it) }
-        minDurationSeconds?.let { requireU32("minDurationSeconds", it) }
-        retentionDays?.let { requireU32("retentionDays", it) }
-        removalDays?.let { requireU32("removalDays", it) }
-        daysOfWeekMask?.let { requireU32("daysOfWeekMask", it) }
-        priority?.let { requireU32("priority", it) }
-        duplicateDetection?.let { requireU32("duplicateDetection", it) }
-        maximumRecordingCount?.let { requireU32("maximumRecordingCount", it) }
-        broadcastType?.let { requireU32("broadcastType", it) }
-        channelId?.let { requireU32("channelId", it) }
-    }
+) : HtspServerMessage
 
-    override fun toString(): String = "HtspAutorecEntryUpdateMessage(<redacted>)"
-}
-
-/** Carries the string [id] reported by an automatic-recording-rule delete message. */
-public data class HtspAutorecEntryDeleteMessage(public val id: String) : HtspServerMessage
-
-/**
- * Carries time-based recording-rule fields reported by an add message.
- * Nullable channel, name, and title values were omitted; nullable interval values were the
- * explicit signed `-1` unset sentinel.
- */
+/** Full time-rule add (pinned htsp_server.c:1275–1311). */
 public data class HtspTimerecEntryAddMessage(
-    public val id: String,
-    public val enabled: Boolean,
-    public val name: String? = null,
-    public val title: String? = null,
-    public val channelId: Long? = null,
-    public val startMinutesSinceMidnight: Int? = null,
-    public val stopMinutesSinceMidnight: Int? = null,
-    public val daysOfWeekMask: Long? = null,
-    public val priority: Long? = null,
-    public val retentionDays: Long? = null,
-    /** HTSP `removal`, days or removal-policy sentinel (src/htsp_server.c:1290). */
-    public val removalDays: Long? = null,
-    public val directory: String? = null,
-    public val owner: String? = null,
-    public val creator: String? = null,
-    public val configId: String? = null,
-    public val comment: String? = null,
-) : HtspServerMessage {
-    init {
-        channelId?.let { requireU32("channelId", it) }
-        startMinutesSinceMidnight?.let {
-            require(it in 0 until 1_440) {
-                "startMinutesSinceMidnight must be between 0 and 1439"
-            }
-        }
-        stopMinutesSinceMidnight?.let {
-            require(it in 0 until 1_440) {
-                "stopMinutesSinceMidnight must be between 0 and 1439"
-            }
-        }
-        daysOfWeekMask?.let { requireU32("daysOfWeekMask", it) }
-        priority?.let { requireU32("priority", it) }
-        retentionDays?.let { requireU32("retentionDays", it) }
-        removalDays?.let { requireU32("removalDays", it) }
-    }
+    /** Complete time-rule snapshot. */
+    public val entry: HtspTimerecEntry,
+) : HtspServerMessage
 
-    override fun toString(): String = "HtspTimerecEntryAddMessage(<redacted>)"
-}
-
-/**
- * Carries a time-based recording-rule update. Nullable interval values were absent or used the
- * explicit signed `-1` unset sentinel; other nullable values were absent.
- */
+/** Full replacement time-rule update (pinned htsp_server.c:1275–1311). */
 public data class HtspTimerecEntryUpdateMessage(
+    /** Complete time-rule snapshot. */
+    public val entry: HtspTimerecEntry,
+) : HtspServerMessage
+
+/** Identifies a deleted time recording rule. */
+public data class HtspTimerecEntryDeleteMessage(
+    /** Rule UUID. */
     public val id: String,
-    public val enabled: Boolean? = null,
-    public val name: String? = null,
-    public val title: String? = null,
-    public val channelId: Long? = null,
-    public val startMinutesSinceMidnight: Int? = null,
-    public val stopMinutesSinceMidnight: Int? = null,
-    public val daysOfWeekMask: Long? = null,
-    public val priority: Long? = null,
-    public val retentionDays: Long? = null,
-    /** HTSP `removal`, days or removal-policy sentinel (src/htsp_server.c:1290). */
-    public val removalDays: Long? = null,
-    public val directory: String? = null,
-    public val owner: String? = null,
-    public val creator: String? = null,
-    public val configId: String? = null,
-    public val comment: String? = null,
-) : HtspServerMessage {
-    init {
-        channelId?.let { requireU32("channelId", it) }
-        startMinutesSinceMidnight?.let {
-            require(it in 0 until 1_440) {
-                "startMinutesSinceMidnight must be between 0 and 1439"
-            }
-        }
-        stopMinutesSinceMidnight?.let {
-            require(it in 0 until 1_440) {
-                "stopMinutesSinceMidnight must be between 0 and 1439"
-            }
-        }
-        daysOfWeekMask?.let { requireU32("daysOfWeekMask", it) }
-        priority?.let { requireU32("priority", it) }
-        retentionDays?.let { requireU32("retentionDays", it) }
-        removalDays?.let { requireU32("removalDays", it) }
-    }
-
-    override fun toString(): String = "HtspTimerecEntryUpdateMessage(<redacted>)"
-}
-
-/** Carries the string [id] reported by a time-based recording-rule delete message. */
-public data class HtspTimerecEntryDeleteMessage(public val id: String) : HtspServerMessage
+) : HtspServerMessage

@@ -16,7 +16,8 @@ parameters keep their stdlib names: `HtspBinary.size` and
 
 KDoc records differing HTSP field names, units, and sentinel values. Names do
 not change integer widths; the protocol field-domain mapping below still applies.
-`configName` (name) and `configId` (UUID) are distinct concepts, and
+`configName` (name) and wire `configId` (UUID) are distinct concepts; shared
+entities expose the latter as `dvrConfigUuid`. Also,
 `HtspSubscriptionEvent.Packet.packet` remains unchanged.
 
 Queue `delayUs` and stream `frameDurationUs` use the existing subscription-clock
@@ -33,8 +34,7 @@ commented exception list for those coordinates and non-time concepts.
 ## Type naming
 
 Whether a public type carries the `Htsp` prefix is decided by what it is, so you
-can predict a name without looking it up. Every one of the 157 top-level public
-types follows this.
+can predict a name without looking it up. All top-level public types follow this.
 
 Bare, because the name is already tied to one wire method:
 
@@ -344,16 +344,37 @@ small (all-or-nothing). `toByteArray()` remains
 available when a standalone defensive copy is more convenient. No borrowed
 mutable-array access is exposed.
 
-## Mergeable metadata messages
+## Metadata snapshots and sparse updates
 
-Channel, tag, event, and DVR-entry add/update messages and
-`HtspSubscriptionStartMessage` are data classes. Reducers can merge partial
-updates with `copy()` and compare values structurally. Public list inputs are
-still copied to immutable snapshots during construction and replacement, and
-every copied unsigned field is validated again. Subscription-start binary
-metadata participates through `HtspBinary` content equality rather than raw
-array identity. Message `toString()` output remains redacted and does not expose
-paths, server errors, subscription identifiers, or payload content.
+The `model` package owns `HtspChannel`, `HtspTag`, `HtspEvent`, `HtspDvrEntry`,
+`HtspAutorecEntry`, and `HtspTimerecEntry`, plus their nested value types.
+Add and full Update messages wrap one entity (`channel`, `tag`, `event`, or
+`entry`). Channel and event request replies use these same entities and decoders.
+
+A full Update **replaces** the stored entity. A nullable property that is absent
+on the wire becomes null, clearing any previous value. Do not merge non-null
+properties into the old entity with `copy()`: that retains server-side clears.
+The sole inclusion exception is `HtspTag.channelIds` (wire `members`): null means
+"not included in this message", while an empty list means no members. Initial
+sync sends `tagAdd` without members and then `tagUpdate` with members.
+
+Two distinct flat messages carry sparse updates:
+
+- `HtspChannelNowNextMessage` applies only `currentEventId` and `nextEventId` to
+  its `channelId`; zero is an explicit empty event identity.
+- `HtspDvrEntryStatsMessage` applies only its recording statistics/state fields
+  to its `entryId`. Conditional null statistics replace the corresponding old
+  observations; they never clear non-statistics fields such as title or files.
+
+Delete messages carry only identity. The library owns no entity cache or reducer.
+Consumers should match both full and sparse messages and keep an `else` branch
+for future `HtspServerMessage` variants. See [ADR 0002](adr/0002-entity-model-and-update-semantics.md).
+
+Entities and `HtspSubscriptionStartMessage` compare structurally. Public list
+inputs are copied to immutable snapshots during construction and `copy`, and
+copied unsigned fields are validated again. Subscription-start binary metadata
+uses `HtspBinary` content equality. Entity and full-message `toString()` output
+remains redacted, as does DVR statistics output containing server errors.
 
 ## Evolving data classes
 
@@ -385,7 +406,7 @@ public data class Example private constructor(
 - Append the new property after the existing public ones, nullable or with a
   default; never reorder or remove properties.
 - Make the primary constructor private with `@ConsistentCopyVisibility` (the
-  mergeable messages above already do) and expose a public constructor and
+  entities above already do) and expose a public constructor and
   `copy` with the full parameter list.
 - Keep each previous public constructor and `copy` as a hidden deprecated
   overload with exactly its previous parameters and default values, so the

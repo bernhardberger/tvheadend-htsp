@@ -1,5 +1,7 @@
 package at.bernhardberger.tvheadend.htsp.requests
 
+import at.bernhardberger.tvheadend.htsp.model.*
+
 import at.bernhardberger.tvheadend.htsp.connection.HtspProtocolMappingException
 import at.bernhardberger.tvheadend.htsp.connection.HtspServerRejectionException
 import at.bernhardberger.tvheadend.htsp.jsonapi.*
@@ -440,35 +442,8 @@ internal object `HtspRequestCodecs-internal` {
         else -> malformedReply()
     } as R
 
-    private fun decodeChannel(fields: Map<String, Any?>, protocolVersion: Int): GetChannelResponse {
-        val channelUuid = fields.optionalString("channelIdStr")
-        if (protocolVersion >= 41 && channelUuid == null) malformedReply()
-        val services = fields.requiredObjectList("services") { service ->
-            HtspChannelService(
-                name = service.requiredString("name"),
-                type = service.requiredString("type"),
-                content = service.requiredU32("content"),
-                conditionalAccessId = service.optionalU32("caid"),
-                conditionalAccessName = service.optionalString("caname"),
-                providerName = service.optionalString("providername"),
-                hbbtv = decodeHbbtvApplications(service, ::malformedReply),
-            )
-        }
-        return GetChannelResponse(
-            HtspChannel(
-                channelId = fields.requiredU32("channelId"),
-                channelUuid = channelUuid,
-                channelNumber = fields.requiredU32("channelNumber"),
-                channelNumberMinor = fields.optionalU32("channelNumberMinor"),
-                channelName = fields.requiredString("channelName"),
-                channelIcon = fields.optionalString("channelIcon"),
-                currentEventId = fields.requiredU32("eventId"),
-                nextEventId = fields.requiredU32("nextEventId"),
-                services = services,
-                tagIds = fields.requiredU32List("tags"),
-            ),
-        )
-    }
+    private fun decodeChannel(fields: Map<String, Any?>, protocolVersion: Int): GetChannelResponse =
+        GetChannelResponse(HtspEntityDecoder(protocolVersion, ::malformedReply).channel(fields))
 
     private fun decodeApiResponse(fields: Map<String, Any?>): ApiResponse {
         val permitted = setOf("seq", "noaccess", "response")
@@ -747,43 +722,8 @@ private fun dvrConfigFromFields(fields: Map<*, *>): HtspDvrConfig = fields.reque
     )
 }
 
-private fun eventFromFields(fields: Map<*, *>): HtspEvent = fields.request().run {
-    HtspEvent(
-        eventId = requiredU32("eventId"),
-        channelId = optionalU32("channelId"),
-        startEpochSeconds = requiredS64("start"),
-        stopEpochSeconds = requiredS64("stop"),
-        title = optionalString("title"),
-        subtitle = optionalString("subtitle"),
-        summary = optionalString("summary"),
-        description = optionalString("description"),
-        categories = optionalStringList("category"),
-        keywords = optionalStringList("keyword"),
-        seriesLinkUri = optionalString("serieslinkUri"),
-        episodeUri = optionalString("episodeUri"),
-        contentType = optionalU32("contentType"),
-        ageRating = optionalU32("ageRating"),
-        ratingLabel = optionalString("ratingLabel"),
-        ratingIcon = optionalString("ratingIcon"),
-        ratingAuthority = optionalString("ratingAuthority"),
-        ratingCountry = optionalString("ratingCountry"),
-        starRating = optionalU32("starRating"),
-        copyrightYear = optionalU32("copyrightYear"),
-        firstAiredEpochSeconds = optionalS64("firstAired"),
-        isNew = optionalFlag("isNew"),
-        seasonNumber = optionalU32("seasonNumber"),
-        seasonCount = optionalU32("seasonCount"),
-        episodeNumber = optionalU32("episodeNumber"),
-        episodeCount = optionalU32("episodeCount"),
-        partNumber = optionalU32("partNumber"),
-        partCount = optionalU32("partCount"),
-        episodeOnscreen = optionalString("episodeOnscreen"),
-        image = optionalString("image"),
-        dvrId = optionalU32("dvrId"),
-        nextEventId = optionalU32("nextEventId"),
-        credits = decodeProgrammeCredits(fields, "credits", ::malformedReply),
-    )
-}
+private fun eventFromFields(fields: Map<*, *>): HtspEvent =
+    HtspEntityDecoder(36, ::malformedReply).event(fields)
 
 private fun epgBroadcastObjectFromFields(fields: Map<*, *>): HtspEpgBroadcastObject {
     if (fields.requiredU32("tp") != 1L) malformedReply()

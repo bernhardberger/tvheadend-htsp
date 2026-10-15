@@ -259,6 +259,7 @@ internal open class `HtspService-internal`(
                     )
                     val sessionChallenge = hello.challenge.toByteArray()
                     handshake = Handshake(sessionChallenge, negotiatedVersion)
+                    protocolGeneration?.takeIf { it.attemptId == attemptId }?.protocolVersion = negotiatedVersion
 
                     val user = endpoint.username.trim()
                     val pass = endpoint.password
@@ -782,11 +783,12 @@ internal open class `HtspService-internal`(
                     // The attempt check below discards its result even if that snapshot is current.
                     val currentGeneration = protocolGeneration
                     val clocks = currentGeneration?.subscriptionTimestampClocks
+                    val protocolVersion = currentGeneration?.protocolVersion ?: MINIMUM_HTSP_PROTOCOL_VERSION
                     val seqNo = msg.seq
                     val malformedEnvelope = "seq" in msg.fields &&
                         (seqNo == null || msg.method in ASYNCHRONOUS_SERVER_METHODS)
                     val decoded = if (seqNo == null && !malformedEnvelope) {
-                        decodeHtspServerMessage(msg) { subscriptionId ->
+                        decodeHtspServerMessage(msg, protocolVersion) { subscriptionId ->
                             clocks?.get(subscriptionId) ?: HtspTimestampClock.MICROSECONDS
                         }
                     } else null
@@ -1233,6 +1235,7 @@ internal open class `HtspService-internal`(
                     val version = negotiatedHtspVersion(request.protocolVersion, hello.protocolVersion)
                     val facts = (liveServerFacts ?: HtspServerFacts()).withHelloObservations(hello)
                     handshake = Handshake(hello.challenge.toByteArray(), version)
+                    serviceGeneration.protocolVersion = version
                     liveServerFacts = facts
                     attemptMonitor.recordStateLocked(
                         connectedState.copy(protocolVersion = version),
@@ -1509,6 +1512,11 @@ internal open class `HtspService-internal`(
         // clock state without a lock; it still rechecks the generation before enqueue.
         @Volatile
         var subscriptionTimestampClocks: Map<Long, HtspTimestampClock> = emptyMap()
+
+        // Negotiated version for entity decoding, published like the clocks above so the
+        // reader never takes the attempt lock per frame.
+        @Volatile
+        var protocolVersion: Int? = null
     }
 
     private class HtspConnectionIdentity(

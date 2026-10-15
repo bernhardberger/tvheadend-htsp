@@ -2,6 +2,7 @@ package at.bernhardberger.tvheadend.htsp
 
 import at.bernhardberger.tvheadend.htsp.connection.*
 import at.bernhardberger.tvheadend.htsp.messages.*
+import at.bernhardberger.tvheadend.htsp.model.*
 import at.bernhardberger.tvheadend.htsp.requests.*
 import at.bernhardberger.tvheadend.htsp.wire.*
 import java.nio.BufferOverflowException
@@ -11,13 +12,16 @@ import org.junit.jupiter.api.Test
 
 class HtspPreReleaseSliceTest {
     private fun decode(method: String, fields: Map<String, Any?>): HtspServerMessage =
-        (decodeHtspServerMessage(fields + ("method" to method)) as HtspServerMessageDecoded).message
+        (decodeHtspServerMessage(
+            (if (method.endsWith("Add") || method.endsWith("Update")) metadataFixture(method) else emptyMap()) +
+                fields + ("method" to method),
+        ) as HtspServerMessageDecoded).message
 
     @Test
     fun nonzeroFlagsIncludeRawAndNormalizedProducers() {
-        assertEquals(true, (decode("eventUpdate", mapOf("eventId" to 1L, "isNew" to 2L)) as HtspEventUpdateMessage).isNew)
+        assertEquals(true, (decode("eventUpdate", mapOf("eventId" to 1L, "isNew" to 2L)) as HtspEventUpdateMessage).event.isNew)
         assertEquals(true, (decode("timeshiftStatus", mapOf("subscriptionId" to 1L, "full" to 2L, "shift" to 0L)) as HtspTimeshiftStatusMessage).full)
-        assertEquals(true, (decode("dvrEntryUpdate", mapOf("id" to 1L, "duplicate" to 2L)) as HtspDvrEntryUpdateMessage).duplicate)
+        assertEquals(true, (decode("dvrEntryUpdate", mapOf("id" to 1L, "duplicate" to 2L)) as HtspDvrEntryUpdateMessage).entry.duplicate)
     }
 
     @Test
@@ -73,27 +77,27 @@ class HtspPreReleaseSliceTest {
     @Test
     fun newDvrAndTimerecFieldsAreStrict() {
         val add = decode("dvrEntryAdd", mapOf("id" to 1L, "seasonCount" to 2L, "episode" to "S1E1")) as HtspDvrEntryAddMessage
-        assertEquals(2L, add.seasonCount)
-        assertEquals("S1E1", add.episodeOnscreen)
+        assertEquals(2L, add.entry.seasonCount)
+        assertEquals("S1E1", add.entry.episodeOnscreen)
         val rule = decode("timerecEntryAdd", mapOf("id" to "rule", "enabled" to 1L,
             "start" to 0L, "stop" to 1L, "removal" to 3L)) as HtspTimerecEntryAddMessage
-        assertEquals(3L, rule.removalDays)
+        assertEquals(3L, rule.entry.removalDays)
         val dvr = decode("dvrEntryUpdate", mapOf("id" to 1L, "seasonCount" to 4L, "episode" to "S1E2",
             "files" to listOf(mapOf("info" to listOf(mapOf("type" to "H264", "duration" to 90000L,
                 "aspect_num" to 16L, "aspect_den" to 9L)))))) as HtspDvrEntryUpdateMessage
-        assertEquals(4L, dvr.seasonCount)
-        assertEquals("S1E2", dvr.episodeOnscreen)
-        val stream = dvr.files!!.single().info!!.streams.single()
+        assertEquals(4L, dvr.entry.seasonCount)
+        assertEquals("S1E2", dvr.entry.episodeOnscreen)
+        val stream = dvr.entry.files!!.single().info!!.streams.single()
         assertEquals(1_000_000L, stream.frameDurationUs)
         assertEquals(9L, stream.aspectDenominator)
         assertEquals(4_294_967_295L, (decode("timerecEntryUpdate", mapOf("id" to "rule",
-            "removal" to 4_294_967_295L)) as HtspTimerecEntryUpdateMessage).removalDays)
+            "removal" to 4_294_967_295L)) as HtspTimerecEntryUpdateMessage).entry.removalDays)
         listOf("seasonCount" to "4", "episode" to 2L, "files" to listOf(mapOf("info" to "wrong"))).forEach {
             assertEquals(HtspServerMessageMalformedKnownMessage,
-                decodeHtspServerMessage(mapOf("method" to "dvrEntryUpdate", "id" to 1L) + it))
+                decodeHtspServerMessage(metadataFixture("dvrEntryUpdate") + it))
         }
-        assertEquals(HtspServerMessageMalformedKnownMessage, decodeHtspServerMessage(mapOf(
-            "method" to "timerecEntryUpdate", "id" to "rule", "removal" to -1L)))
+        assertEquals(HtspServerMessageMalformedKnownMessage,
+            decodeHtspServerMessage(metadataFixture("timerecEntryUpdate") + ("removal" to -1L)))
     }
 
     @Test
@@ -124,7 +128,7 @@ class HtspPreReleaseSliceTest {
         val channel = decode("channelUpdate", mapOf("channelId" to 1L, "services" to listOf(
             mapOf("name" to "service", "type" to "HDTV", "content" to 1L,
                 "hbbtv" to mapOf("0" to listOf(application)))))) as HtspChannelUpdateMessage
-        assertEquals("relative", channel.services!!.single().hbbtv!!.sections["0"]!!.single().url)
+        assertEquals("relative", channel.channel.services.single().hbbtv!!.sections["0"]!!.single().url)
         assertThrows(UnsupportedOperationException::class.java) { (hbbtv.sections as MutableMap).clear() }
         assertThrows(IllegalStateException::class.java) {
             decodeProgrammeCredits(mapOf("credits" to mapOf("Person" to 1L)), "credits") { error("malformed") }
@@ -133,9 +137,9 @@ class HtspPreReleaseSliceTest {
             decodeHbbtvApplications(mapOf("hbbtv" to "wrong")) { error("malformed") }
         }
         val event = decode("eventUpdate", mapOf("eventId" to 1L, "credits" to mapOf("Person" to "actor"))) as HtspEventUpdateMessage
-        assertEquals(credits, event.credits)
-        assertEquals(HtspServerMessageMalformedKnownMessage, decodeHtspServerMessage(mapOf(
-            "method" to "eventUpdate", "eventId" to 1L, "credits" to mapOf("Person" to 1L))))
+        assertEquals(credits, event.event.credits)
+        assertEquals(HtspServerMessageMalformedKnownMessage, decodeHtspServerMessage(
+            metadataFixture("eventUpdate") + ("credits" to mapOf("Person" to 1L))))
     }
 
     @Test
@@ -148,7 +152,7 @@ class HtspPreReleaseSliceTest {
         val second = decode("dvrEntryAdd", dvrFields)
         assertEquals(first, second)
         assertEquals(first.hashCode(), second.hashCode())
-        val info = first.files!!.single().info!!
+        val info = first.entry.files!!.single().info!!
         assertEquals(listOf(
             HtspDvrRecordingStream(language = "eng"),
             HtspDvrRecordingStream(language = "deu"),
@@ -164,7 +168,7 @@ class HtspPreReleaseSliceTest {
         val channel = decode("channelAdd", fields) as HtspChannelAddMessage
         assertEquals(channel, decode("channelAdd", fields))
         assertEquals(channel.hashCode(), decode("channelAdd", fields).hashCode())
-        val app = channel.services!!.single().hbbtv!!.sections["0"]!!.single()
+        val app = channel.channel.services.single().hbbtv!!.sections["0"]!!.single()
         assertNull(app.url)
         assertNull(app.visibility)
         assertNull(app.titles.single().language)
@@ -186,8 +190,8 @@ class HtspPreReleaseSliceTest {
                     "info" to listOf(invalidFields, null, mapOf("type" to "AAC", "audio_type" to 1L)),
                 ))))
                 val files = when (message) {
-                    is HtspDvrEntryAddMessage -> message.files
-                    is HtspDvrEntryUpdateMessage -> message.files
+                    is HtspDvrEntryAddMessage -> message.entry.files
+                    is HtspDvrEntryUpdateMessage -> message.entry.files
                     else -> error("unexpected message")
                 }
                 assertEquals(listOf(HtspDvrRecordingStream(), HtspDvrRecordingStream(),

@@ -38,9 +38,10 @@ official TVHeadend software or as wholly original work.
 
 ## Invariants
 
-- Production declarations live only in the five shallow packages `connection`,
-  `jsonapi`, `messages`, `requests`, and `wire` under
+- Production declarations live only in the six shallow packages `connection`,
+  `jsonapi`, `messages`, `model`, `requests`, and `wire` under
   `at.bernhardberger.tvheadend.htsp`.
+  `model` must not depend on `requests`, `messages`, or `connection`.
 - Production code depends only on sibling declarations, the Kotlin/JDK standard
   libraries, and `kotlinx-coroutines-core`. Never add Android, Media3, native,
   or application code.

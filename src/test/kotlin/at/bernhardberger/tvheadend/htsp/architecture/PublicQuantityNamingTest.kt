@@ -75,13 +75,10 @@ internal class PublicQuantityNamingTest {
         "UpdateDvrEntryRequest" to "ageRating",
         "HtspEvent" to "ageRating",
         "HtspEpgBroadcastObject" to "ageRating",
-        "HtspEventUpdateMessage" to "ageRating",
-        "HtspDvrEntryAddMessage" to "ageRating",
-        "HtspDvrEntryUpdateMessage" to "ageRating",
+        "HtspDvrEntry" to "ageRating",
         "addDvrEntry" to "ageRating",
         "updateDvrEntry" to "ageRating",
-        "HtspEventUpdateMessage.copy" to "ageRating",
-        "HtspDvrEntryAddMessage.copy" to "ageRating",
-        "HtspDvrEntryUpdateMessage.copy" to "ageRating",
+        "HtspEvent.copy" to "ageRating",
+        "HtspDvrEntry.copy" to "ageRating",
     )
 }

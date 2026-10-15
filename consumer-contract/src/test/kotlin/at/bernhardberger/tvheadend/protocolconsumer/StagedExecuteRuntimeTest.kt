@@ -8,6 +8,7 @@ import at.bernhardberger.tvheadend.htsp.connection.HtspSubscriptionTermination
 import at.bernhardberger.tvheadend.htsp.connection.createHtspConnection
 import at.bernhardberger.tvheadend.htsp.messages.HtspTimerecEntryAddMessage
 import at.bernhardberger.tvheadend.htsp.messages.HtspTimeshiftStatusMessage
+import at.bernhardberger.tvheadend.htsp.model.HtspTimerecEntry
 import at.bernhardberger.tvheadend.htsp.requests.GetSysTimeRequest
 import at.bernhardberger.tvheadend.htsp.requests.GetSysTimeResponse
 import at.bernhardberger.tvheadend.htsp.requests.HtspEmptyResponse
@@ -27,18 +28,26 @@ class StagedExecuteRuntimeTest {
     @Test
     fun correctedTimerecShapeIsAvailableFromTheStagedArtifact() {
         val allChannel = HtspTimerecEntryAddMessage(
-            id = "rule",
-            enabled = true,
+            HtspTimerecEntry(
+                id = "rule",
+                enabled = true,
+                startMinutesSinceMidnight = null,
+                stopMinutesSinceMidnight = null,
+                daysOfWeekMask = 0L,
+                priority = 0L,
+                retentionDays = 0L,
+                removalDays = 0L,
+            ),
         )
-        assertEquals(null, allChannel.name)
-        assertEquals(null, allChannel.title)
-        assertEquals(null, allChannel.channelId)
-        assertEquals(null, allChannel.startMinutesSinceMidnight)
-        assertEquals(null, allChannel.stopMinutesSinceMidnight)
+        assertEquals(null, allChannel.entry.name)
+        assertEquals(null, allChannel.entry.title)
+        assertEquals(null, allChannel.entry.channelId)
+        assertEquals(null, allChannel.entry.startMinutesSinceMidnight)
+        assertEquals(null, allChannel.entry.stopMinutesSinceMidnight)
 
         assertEquals(
             0xffff_ffffL,
-            allChannel.copy(channelId = 0xffff_ffffL).channelId,
+            allChannel.copy(entry = allChannel.entry.copy(channelId = 0xffff_ffffL)).entry.channelId,
         )
     }
 

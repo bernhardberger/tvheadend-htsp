@@ -46,7 +46,7 @@ internal class HtspPublicationFenceTest : HtspServiceLifecycleFixture() {
                     val hello = if (directHello) async(Dispatchers.IO) {
                         runCatching { service.execute(HelloRequest(36L, "fence-test")) }
                     } else null
-                    if (!directHello) server.sendServerMessage("channelAdd", mapOf("channelId" to 1L))
+                    if (!directHello) server.sendServerMessage("channelAdd", channelFixture(1L))
                     try {
                         assertTrue(checked.await(2, TimeUnit.SECONDS))
                         val thread = AtomicReference<Thread>()
@@ -70,7 +70,7 @@ internal class HtspPublicationFenceTest : HtspServiceLifecycleFixture() {
                         val newer = (withTimeout(2_000L) { reconnect.await() } as HtspConnectOutcome.Connected)
                             .connection.generation
                         hello?.await()
-                        replacement.sendServerMessage("channelAdd", mapOf("channelId" to 2L))
+                        replacement.sendServerMessage("channelAdd", channelFixture(2L))
                         withTimeout(2_000L) { while (events.none { it.generation === newer }) delay(1L) }
                         assertSame(old, events.first().generation)
                         val firstNew = events.indexOfFirst { it.generation === newer }

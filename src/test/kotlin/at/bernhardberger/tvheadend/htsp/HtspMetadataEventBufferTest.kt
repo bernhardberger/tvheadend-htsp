@@ -1,7 +1,7 @@
 package at.bernhardberger.tvheadend.htsp
 
 import at.bernhardberger.tvheadend.htsp.connection.*
-import at.bernhardberger.tvheadend.htsp.messages.HtspChannelAddMessage
+import at.bernhardberger.tvheadend.htsp.messages.HtspChannelNowNextMessage
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Test
@@ -13,7 +13,7 @@ internal class HtspMetadataEventBufferTest {
         val newer = HtspConnectionGeneration()
         val buffer = HtspMetadataEventBuffer(1, 10L)
         fun event(generation: HtspConnectionGeneration) =
-            HtspTransportEvent.ServerMessage(HtspChannelAddMessage(channelId = 1L), generation, 1L)
+            HtspTransportEvent.ServerMessage(HtspChannelNowNextMessage(1L, 0L, 0L), generation, 1L)
         buffer.offer(event(old), 10L)
         repeat(2) { buffer.offer(event(old), 10L) }
         repeat(3) { buffer.offer(event(newer), 10L) }
@@ -26,7 +26,7 @@ internal class HtspMetadataEventBufferTest {
     @Test
     fun bytesLimitIndependentlyOfCountAndMarkersAreUnbudgeted() {
         val generation = HtspConnectionGeneration()
-        val event = HtspTransportEvent.ServerMessage(HtspChannelAddMessage(channelId = 1L), generation, 1L)
+        val event = HtspTransportEvent.ServerMessage(HtspChannelNowNextMessage(1L, 0L, 0L), generation, 1L)
         val failure = HtspTransportEvent.ConnectionFailure(
             HtspTransportFailure(HtspTransportFailureKind.TRANSPORT_UNAVAILABLE), generation,
         )

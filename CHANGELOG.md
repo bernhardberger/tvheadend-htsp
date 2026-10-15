@@ -1,5 +1,26 @@
 # Changelog
 
+## [Unreleased]
+
+- **BREAKING:** move shared channel/event entities, channel services, programme
+  metadata/credits and DVR recording-file values into `htsp.model`. Add
+  `HtspTag`, `HtspDvrEntry`, `HtspAutorecEntry`, and `HtspTimerecEntry` there.
+- **BREAKING:** channel, tag, event, DVR, autorec and timerec Add/Update messages
+  now wrap a single entity. Full updates replace the previous snapshot, including
+  clearing absent optional fields. Tag `channelIds` null means members were not
+  included; an empty list means no members.
+- **BREAKING:** split sparse updates into `HtspChannelNowNextMessage` and
+  `HtspDvrEntryStatsMessage`. Damaged full updates and unexpected sparse fields
+  are malformed instead of being accepted as arbitrary partial updates.
+- **BREAKING:** full Add/Update messages share builder-based requiredness for
+  HTSP 36–44. UUIDs are required from v41 and autorec `broadcastType` from v39;
+  conditional fields remain nullable. Timerec wire `start`/`stop` are required,
+  with -1 represented as null.
+- **BREAKING:** autorec/timerec entity `configId` is now `dvrConfigUuid`, matching
+  the DVR entity. `HtspEvent` gains `genre`, `episodeId`, and `seriesLinkId`, with
+  identical decoding across pushed events, `getEvent`, `getEvents`, and full
+  `epgQuery` replies.
+
 ## [1.0.0-beta.1] - 2026-10-11
 
 First pre-release of the 1.0 line. Like every pre-release, it makes no

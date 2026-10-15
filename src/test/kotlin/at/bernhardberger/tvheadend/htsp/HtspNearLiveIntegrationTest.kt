@@ -2,6 +2,7 @@ package at.bernhardberger.tvheadend.htsp
 
 import at.bernhardberger.tvheadend.htsp.connection.*
 import at.bernhardberger.tvheadend.htsp.messages.*
+import at.bernhardberger.tvheadend.htsp.model.HtspDvrRecordingFile
 import at.bernhardberger.tvheadend.htsp.requests.*
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
@@ -255,20 +256,20 @@ internal class HtspNearLiveIntegrationTest {
                     if (event.generation !== generation) return
                     synchronized(lock) {
                         when (val message = event.message) {
-                            is HtspChannelAddMessage -> channels += message.channelId
-                            is HtspChannelUpdateMessage -> channels += message.channelId
+                            is HtspChannelAddMessage -> channels += message.channel.channelId
+                            is HtspChannelUpdateMessage -> channels += message.channel.channelId
                             is HtspChannelDeleteMessage -> channels -= message.channelId
                             is HtspDvrEntryAddMessage -> recordCompletedDvrChannel(
-                                message.channelId,
-                                message.state,
-                                message.stopEpochSeconds,
-                                message.files,
+                                message.entry.channelId,
+                                message.entry.state,
+                                message.entry.stopEpochSeconds,
+                                message.entry.files,
                             )
                             is HtspDvrEntryUpdateMessage -> recordCompletedDvrChannel(
-                                message.channelId,
-                                message.state,
-                                message.stopEpochSeconds,
-                                message.files,
+                                message.entry.channelId,
+                                message.entry.state,
+                                message.entry.stopEpochSeconds,
+                                message.entry.files,
                             )
                             HtspInitialSyncCompletedMessage -> initialSync = true
                             else -> Unit

@@ -1,49 +1,11 @@
 package at.bernhardberger.tvheadend.htsp.requests
 
+import at.bernhardberger.tvheadend.htsp.model.*
+
 import at.bernhardberger.tvheadend.htsp.connection.*
+import at.bernhardberger.tvheadend.htsp.model.*
 import at.bernhardberger.tvheadend.htsp.wire.*
 
-/** A bounded EPG event with channel and time coordinates, localized text, categories, ratings, episode data, imagery, and DVR references. */
-public data class HtspEvent(
-    public val eventId: Long,
-    public val channelId: Long?,
-    /** HTSP `start`, epoch seconds (pinned htsp_server.c:1342). */
-    public val startEpochSeconds: Long,
-    /** HTSP `stop`, epoch seconds (pinned htsp_server.c:1343). */
-    public val stopEpochSeconds: Long,
-    public val title: String?,
-    public val subtitle: String?,
-    public val summary: String?,
-    public val description: String?,
-    public val categories: List<String>?,
-    public val keywords: List<String>?,
-    public val seriesLinkUri: String?,
-    public val episodeUri: String?,
-    public val contentType: Long?,
-    public val ageRating: Long?,
-    public val ratingLabel: String?,
-    public val ratingIcon: String?,
-    public val ratingAuthority: String?,
-    public val ratingCountry: String?,
-    public val starRating: Long?,
-    public val copyrightYear: Long?,
-    /** HTSP `firstAired`, first-air epoch seconds; null means absent (htsp_server.c:1435). */
-    public val firstAiredEpochSeconds: Long?,
-    /** HTSP `isNew`: optional new-broadcast flag (pinned htsp_server.c:1437). */
-    public val isNew: Boolean?,
-    public val seasonNumber: Long?,
-    public val seasonCount: Long?,
-    public val episodeNumber: Long?,
-    public val episodeCount: Long?,
-    public val partNumber: Long?,
-    public val partCount: Long?,
-    public val episodeOnscreen: String?,
-    public val image: String?,
-    public val dvrId: Long?,
-    public val nextEventId: Long?,
-    /** Programme credits, HTSP `credits` (src/htsp_server.c:1373–1374). */
-    public val credits: HtspProgrammeCredits? = null,
-)
 /** Contains the complete EPG event selected by `getEvent`. */
 public data class GetEventResponse(public val event: HtspEvent)
 

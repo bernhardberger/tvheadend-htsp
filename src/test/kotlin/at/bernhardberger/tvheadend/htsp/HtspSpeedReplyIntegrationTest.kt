@@ -2,6 +2,7 @@ package at.bernhardberger.tvheadend.htsp
 
 import at.bernhardberger.tvheadend.htsp.connection.*
 import at.bernhardberger.tvheadend.htsp.messages.*
+import at.bernhardberger.tvheadend.htsp.model.*
 import at.bernhardberger.tvheadend.htsp.requests.*
 import at.bernhardberger.tvheadend.htsp.wire.HtspCodec
 import at.bernhardberger.tvheadend.htsp.wire.HtspWireMessage
@@ -336,24 +337,20 @@ internal class HtspSpeedReplyIntegrationTest {
                     if (event.generation !== generation) return
                     synchronized(lock) {
                         when (val message = event.message) {
-                            is HtspChannelAddMessage -> channels[message.channelId] = message.channelName
-                            is HtspChannelUpdateMessage -> if (
-                                message.channelId !in channels || message.channelName != null
-                            ) {
-                                channels[message.channelId] = message.channelName
-                            }
+                            is HtspChannelAddMessage -> channels[message.channel.channelId] = message.channel.channelName
+                            is HtspChannelUpdateMessage -> channels[message.channel.channelId] = message.channel.channelName
                             is HtspChannelDeleteMessage -> channels.remove(message.channelId)
                             is HtspDvrEntryAddMessage -> recordCompletedDvrChannel(
-                                message.channelId,
-                                message.state,
-                                message.stopEpochSeconds,
-                                message.files,
+                                message.entry.channelId,
+                                message.entry.state,
+                                message.entry.stopEpochSeconds,
+                                message.entry.files,
                             )
                             is HtspDvrEntryUpdateMessage -> recordCompletedDvrChannel(
-                                message.channelId,
-                                message.state,
-                                message.stopEpochSeconds,
-                                message.files,
+                                message.entry.channelId,
+                                message.entry.state,
+                                message.entry.stopEpochSeconds,
+                                message.entry.files,
                             )
                             HtspInitialSyncCompletedMessage -> initialSync = true
                             else -> Unit

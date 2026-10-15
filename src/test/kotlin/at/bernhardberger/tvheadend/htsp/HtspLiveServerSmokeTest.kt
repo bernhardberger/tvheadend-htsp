@@ -57,7 +57,7 @@ class HtspLiveServerSmokeTest {
             val metadata = launch(start = CoroutineStart.UNDISPATCHED) {
                 connection.events
                     .filterIsInstance<HtspTransportEvent.ServerMessage>()
-                    .collect { event -> (event.message as? HtspChannelAddMessage)?.let { channelIds += it.channelId } }
+                    .collect { event -> (event.message as? HtspChannelAddMessage)?.let { channelIds += it.channel.channelId } }
             }
             try {
                 val outcome = withTimeout(30_000L) { connection.connect(endpoint) }

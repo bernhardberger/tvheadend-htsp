@@ -114,7 +114,7 @@ internal class HtspServiceConnectionAdmissionTest : HtspServiceLifecycleFixture(
                     }
                     withTimeout(1_000L) { replacementAdmitted.await() }
                     runCatching {
-                        firstServer.sendServerMessage("channelAdd", mapOf("channelId" to 11L))
+                        firstServer.sendServerMessage("channelAdd", channelFixture(11L))
                     }
                     resumeFirst.complete(Unit)
 
@@ -125,12 +125,12 @@ internal class HtspServiceConnectionAdmissionTest : HtspServiceLifecycleFixture(
                     assertSame(connected.connection, service.liveConnection.value)
                     assertEquals(1, serviceOwnedJobCount(service))
 
-                    replacementServer.sendServerMessage("channelAdd", mapOf("channelId" to 22L))
+                    replacementServer.sendServerMessage("channelAdd", channelFixture(22L))
                     withTimeout(1_000L) {
                         while (events.none { event ->
                                 event is HtspTransportEvent.ServerMessage &&
                                     event.message is HtspChannelAddMessage &&
-                                    event.message.channelId == 22L
+                                    event.message.channel.channelId == 22L
                             }) {
                             delay(1L)
                         }
@@ -139,7 +139,7 @@ internal class HtspServiceConnectionAdmissionTest : HtspServiceLifecycleFixture(
                         events.none { event ->
                             event is HtspTransportEvent.ServerMessage &&
                                 event.message is HtspChannelAddMessage &&
-                                event.message.channelId == 11L
+                                event.message.channel.channelId == 11L
                         },
                     )
 
@@ -252,10 +252,10 @@ internal class HtspServiceConnectionAdmissionTest : HtspServiceLifecycleFixture(
                             service.events.first { candidate ->
                                 candidate is HtspTransportEvent.ServerMessage &&
                                     candidate.message is HtspChannelAddMessage &&
-                                    candidate.message.channelId == 33L
+                                    candidate.message.channel.channelId == 33L
                             }
                         }
-                        newestServer.sendServerMessage("channelAdd", mapOf("channelId" to 33L))
+                        newestServer.sendServerMessage("channelAdd", channelFixture(33L))
                         assertTrue(withTimeout(1_000L) { event.await() } is HtspTransportEvent.ServerMessage)
                         service.disconnect(newest.connection.generation)
                     }

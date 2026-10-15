@@ -206,7 +206,7 @@ internal class HtspServiceSubscriptionEventTest : HtspServiceLifecycleFixture() 
             // generation-identity fence. Normal reconnects change both identities together.
             val readerAttempt = if (pauseBeforeSnapshot) oldAttempt else 0L
             val reader = async(Dispatchers.IO) {
-                readTestFrame(service, readerAttempt, "channelAdd", mapOf("channelId" to 1L))
+                readTestFrame(service, readerAttempt, "channelAdd", channelFixture(1L))
             }
             assertTrue(entered.await(5, TimeUnit.SECONDS))
             val replacementAttempt = admitReaderAttempt(service)
@@ -218,10 +218,10 @@ internal class HtspServiceSubscriptionEventTest : HtspServiceLifecycleFixture() 
             // This collector spans replacement: a stale enqueue remains observable rather
             // than disappearing with the retired subscription buffer. A fresh marker proves
             // the collector is working and drains everything preceding it in FIFO order.
-            readTestFrame(service, replacementAttempt, "channelAdd", mapOf("channelId" to 2L))
+            readTestFrame(service, replacementAttempt, "channelAdd", channelFixture(2L))
             assertEquals(1, events.size, "Only replacement metadata may reach the spanning collector")
             val event = events.single() as HtspTransportEvent.ServerMessage
-            assertEquals(2L, (event.message as HtspChannelAddMessage).channelId)
+            assertEquals(2L, (event.message as HtspChannelAddMessage).channel.channelId)
             assertSame(replacementToken, event.generation)
         } finally {
             release.countDown()
@@ -275,12 +275,12 @@ internal class HtspServiceSubscriptionEventTest : HtspServiceLifecycleFixture() 
                         try {
                             gate.release.countDown()
                             withTimeout(5_000) { reader.await() }
-                            replacement.sendServerMessage("channelAdd", mapOf("channelId" to 2L))
+                            replacement.sendServerMessage("channelAdd", channelFixture(2L))
                             replacement.sendServerMessage("muxpkt", muxPacketFields(2))
                             withTimeout(5_000) { marker.await(); packet.await() }
                             val event = metadata.single() as HtspTransportEvent.ServerMessage
                             assertSame((connected as HtspConnectOutcome.Connected).connection.generation, event.generation)
-                            assertEquals(2L, (event.message as HtspChannelAddMessage).channelId)
+                            assertEquals(2L, (event.message as HtspChannelAddMessage).channel.channelId)
                             assertTrue(subscription.single() is HtspSubscriptionEvent.Packet)
                             assertTrue(service.currentConnectionState() is HtspConnectionState.Connected)
                         } finally {
@@ -477,7 +477,7 @@ internal class HtspServiceSubscriptionEventTest : HtspServiceLifecycleFixture() 
                         "hops" to 6L,
                     ),
                 )
-                server.sendServerMessage("channelAdd", mapOf("channelId" to 91L))
+                server.sendServerMessage("channelAdd", channelFixture(91L))
                 server.sendServerMessage("subscriptionStop", statusFields(7L, "stopped"))
 
                 withTimeout(2_000L) { subscriptionCollector.join() }
@@ -506,7 +506,7 @@ internal class HtspServiceSubscriptionEventTest : HtspServiceLifecycleFixture() 
                 )
                 assertEquals(
                     listOf(91L),
-                    metadataEvents.map { event -> (event.message as HtspChannelAddMessage).channelId },
+                    metadataEvents.map { event -> (event.message as HtspChannelAddMessage).channel.channelId },
                 )
 
                 metadataCollector.cancelAndJoin()
@@ -2094,19 +2094,19 @@ internal class HtspServiceSubscriptionEventTest : HtspServiceLifecycleFixture() 
                     service.events.collect { event ->
                         val message = (event as? HtspTransportEvent.ServerMessage)?.message
                         if (message is HtspChannelAddMessage) {
-                            first += message.channelId
+                            first += message.channel.channelId
                         }
                     }
                 }
                 val secondCollector = launch(start = CoroutineStart.UNDISPATCHED) {
                     service.events.collect { event ->
                         val message = (event as? HtspTransportEvent.ServerMessage)?.message
-                        if (message is HtspChannelAddMessage) second += message.channelId
+                        if (message is HtspChannelAddMessage) second += message.channel.channelId
                     }
                 }
 
                 repeat(capacity) { index ->
-                    server.sendServerMessage("channelAdd", mapOf("channelId" to index.toLong()))
+                    server.sendServerMessage("channelAdd", channelFixture(index.toLong()))
                 }
                 withTimeout(5_000L) {
                     while (
@@ -2149,7 +2149,7 @@ internal class HtspServiceSubscriptionEventTest : HtspServiceLifecycleFixture() 
                         if (event is HtspTransportEvent.MetadataOverflow) overflows += event
                         val message = (event as? HtspTransportEvent.ServerMessage)?.message
                         if (message is HtspChannelAddMessage) {
-                            stalledEvents += message.channelId
+                            stalledEvents += message.channel.channelId
                             if (stalledEvents.size == 1) {
                                 firstReceived.complete(Unit)
                                 releaseStalled.await()
@@ -2160,17 +2160,17 @@ internal class HtspServiceSubscriptionEventTest : HtspServiceLifecycleFixture() 
                 val normalCollector = launch(start = CoroutineStart.UNDISPATCHED) {
                     service.events.collect { event ->
                         val message = (event as? HtspTransportEvent.ServerMessage)?.message
-                        if (message is HtspChannelAddMessage) normalEvents += message.channelId
+                        if (message is HtspChannelAddMessage) normalEvents += message.channel.channelId
                     }
                 }
 
-                server.sendServerMessage("channelAdd", mapOf("channelId" to 1L))
+                server.sendServerMessage("channelAdd", channelFixture(1L))
                 withTimeout(1_000L) { firstReceived.await() }
-                server.sendServerMessage("channelAdd", mapOf("channelId" to 2L))
+                server.sendServerMessage("channelAdd", channelFixture(2L))
                 withTimeout(1_000L) { while (normalEvents.size < 2) delay(1L) }
-                server.sendServerMessage("channelAdd", mapOf("channelId" to 3L))
+                server.sendServerMessage("channelAdd", channelFixture(3L))
                 withTimeout(1_000L) { while (normalEvents.size < 3) delay(1L) }
-                server.sendServerMessage("channelAdd", mapOf("channelId" to 4L))
+                server.sendServerMessage("channelAdd", channelFixture(4L))
                 server.sendServerMessage("muxpkt", muxPacketFields(7.toByte(), subscriptionId = 123L))
                 withTimeout(1_000L) { while (packets.isEmpty()) delay(1L) }
                 assertTrue(packets.single() is HtspSubscriptionEvent.Packet)
@@ -2193,7 +2193,7 @@ internal class HtspServiceSubscriptionEventTest : HtspServiceLifecycleFixture() 
                 assertEquals(listOf(1L, 2L, 3L), stalledEvents)
                 assertEquals(1L, overflows.single().droppedCount)
                 assertEquals(listOf(1L, 2L, 3L, 4L), normalEvents)
-                server.sendServerMessage("channelAdd", mapOf("channelId" to 5L))
+                server.sendServerMessage("channelAdd", channelFixture(5L))
                 withTimeout(1_000L) { while (stalledEvents.size < 4) delay(1L) }
                 assertEquals(listOf(1L, 2L, 3L, 5L), stalledEvents)
                 packetCollector.cancelAndJoin()
@@ -2220,11 +2220,11 @@ internal class HtspServiceSubscriptionEventTest : HtspServiceLifecycleFixture() 
                         }
                     }
                 }
-                server.sendServerMessage("channelAdd", mapOf("channelId" to 1L))
+                server.sendServerMessage("channelAdd", channelFixture(1L))
                 withContext(Dispatchers.IO) {
                     assertTrue(server.postHandshakeRequestReceived.await(1, TimeUnit.SECONDS))
                 }
-                repeat(10) { server.sendServerMessage("channelAdd", mapOf("channelId" to (it + 2L))) }
+                repeat(10) { server.sendServerMessage("channelAdd", channelFixture(it + 2L)) }
                 server.sendServerMessage("initialSyncCompleted", emptyMap())
                 server.replyToCapturedPostHandshakeRequest(mapOf("profiles" to emptyList<Any>()))
                 assertTrue(withTimeout(1_000L) { result.await() } is HtspResult.Ok)
@@ -2256,9 +2256,9 @@ internal class HtspServiceSubscriptionEventTest : HtspServiceLifecycleFixture() 
                             if (event is HtspTransportEvent.ConnectionFailure) failure.complete(event)
                         }
                     }
-                    server.sendServerMessage("channelAdd", mapOf("channelId" to 1L))
+                    server.sendServerMessage("channelAdd", channelFixture(1L))
                     withTimeout(1_000L) { stalled.await() }
-                    server.sendServerMessage("channelAdd", mapOf("channelId" to 2L))
+                    server.sendServerMessage("channelAdd", channelFixture(2L))
                     server.closeClientTransport()
                     withTimeout(1_000L) { reader.join() }
                     assertTrue(reader.isCompleted)
@@ -2266,7 +2266,7 @@ internal class HtspServiceSubscriptionEventTest : HtspServiceLifecycleFixture() 
                     val newer = service.connect(HtspEndpoint("127.0.0.1", replacement.port)) as HtspConnectOutcome.Connected
                     release.complete(Unit)
                     assertSame(connected.connection.generation, withTimeout(1_000L) { failure.await() }.generation)
-                    replacement.sendServerMessage("channelAdd", mapOf("channelId" to 3L))
+                    replacement.sendServerMessage("channelAdd", channelFixture(3L))
                     withTimeout(1_000L) {
                         while (observed.none { it.generation === newer.connection.generation }) delay(1L)
                     }

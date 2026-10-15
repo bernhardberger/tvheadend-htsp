@@ -56,7 +56,7 @@ tests define accepted local behavior.
 | Typed client requests | **39** | Reviewed request/response models with `HtspConnection` extensions. |
 | Server to client | 30 | Asynchronous messages reviewed in the pinned source. |
 | Handled server messages | **30** | Exact message literals found during the source review. |
-| Typed server messages | **30** | Payload models with a finite decoder. |
+| Typed server messages | **32** | Payload models for 30 methods, including two separate sparse shapes. |
 
 Keep three distinctions clear:
 
@@ -322,20 +322,23 @@ to `epg_object_serialize` there rather than expanded in the HTSP sender.
   larger values are ignored, overlap ends disabled, and an omitted or empty list
   leaves that side unchanged.
 - The complete shared `service` shape contains name, type, content, conditional
-  access, provider, and a typed `hbbtv` child. A complete `getChannel`
-  reply does not make partial `channelUpdate` semantics complete. Shared
+  access, provider, and a typed `hbbtv` child. `getChannel`, `channelAdd`, and
+  full `channelUpdate` share one entity decoder. Now/next is a separate sparse
+  message (see below). Shared
   `stream` and `sourceInfo` are partial: stream index/type are required, known
   metadata is optional, and source metadata is independently optional. Their
   minima do not require those containers in `subscriptionStart`.
-- The complete shared `event` shape from `htsp_build_event` is used by `getEvent`, `getEvents`, and
-  `eventAdd`. Category and keyword are ordered string lists; credits are immutable
+- The complete shared `event` shape from `htsp_build_event` is used by `getEvent`,
+  `getEvents`, full `epgQuery`, `eventAdd`, and `eventUpdate`. Category and keyword
+  are ordered string lists; credits are immutable
   ordered `HtspProgrammeCredit` lists (`src/htsp_server.c:1373–1374`).
   The producer can append repeated names (`src/epggrab/module/xmltv.c:727,740`),
   but the codec currently keeps the last role per name because nested HTSP maps
   use Kotlin maps. The public list can represent repeated names without a later API change.
-  Update compatibility requires only `eventId`, allows every other field to be
-  omitted, and merges present fields by `eventId` without claiming that pinned
-  builders omit otherwise required fields.
+  All paths require `eventId`, `start`, and `stop`; channel is conditional
+  (`src/htsp_server.c:1339–1343`). Full updates replace the previous event,
+  including absent optional fields. Legacy `genre`, `episodeId`, and
+  `seriesLinkId` observations are retained and now decode on request paths too.
 - The 39 canonical request extensions mirror constructors, add timeout and
   generation controls, construct one request, and delegate once to `execute`.
   `fileClose` accepts optional recording position and play-count values. DVR
@@ -356,35 +359,30 @@ These snapshots compare structurally.
 New `addDvrEntry` creation options have no additional minimum-version gate:
 their introduction versions are unknown. Older servers predating an option
 silently ignore it and may still answer Ok.
-- The internal `decodeHtspServerMessage(Map<String, Any?>)` is the versionless finite decoder, not a public API. It treats every `seq` reply envelope, unknown or
+- The internal `decodeHtspServerMessage` uses the negotiated protocol version
+  (standalone tests default to v44); it is not public API. Every `seq` reply envelope, unknown or
   missing/non-string method, as unknown; malformed recognized messages are
-  malformed-known. It is not a version gate. `descrambleInfo` is emitted from
+  malformed-known. `descrambleInfo` is emitted from
   v24 unless anonymized and requires full-u32 `subscriptionId`, `pid`, `caid`,
   `provid`, `ecmtime`, and `hops`; strings `cardsystem`, `reader`, `from`, and
   `protocol` are optional and strict, with wire `from` exposed as `source`.
   `HtspService` publishes it through the matching registered subscription
-  stream rather than global metadata events. Versionless add minima are `channelId` for
-  `channelAdd`, `tagId` for `tagAdd`, `entryId` for `dvrEntryAdd`, and
-  `eventId`/`start`/`stop` for `eventAdd`; optional names and event channel stay
-  strict when present. DVR files choose the first `filename`/`path` alias in
-  that order. The autorec add requires the unconditional fields emitted by
-  the HTSP 36 `htsp_build_autorecentry` builder. `broadcastType` is nullable:
+  stream rather than global metadata events. Full metadata Add and Update use
+  identical requiredness from the builders (table below). DVR files choose the
+  first `filename`/`path` alias in that order. Autorec `broadcastType` is nullable:
   it was introduced in HTSP 39 (`fc5a1672`, 2024-08-25), and is absent on
-  v36–v38 servers. The autorec add's `comment` is nullable: v36
+  v36–v38 servers, but required when negotiating v39+. Autorec `comment` is nullable: v36
   `htsp_build_autorecentry` does not send it at all
   (upstream revision `81403634`, `src/htsp_server.c`, `htsp_build_autorecentry`).
   Its `name`, `owner`, and `creator` values use TVHeadend's nullable
   `htsmsg_add_str2` emitter and are therefore nullable;
-  other source-conditional observations remain nullable. Update requires string
-  `id` and makes all other fields nullable; delete requires string `id`.
+  other source-conditional observations remain nullable. Delete requires string `id`.
   The shared `htsp_build_timerecentry` add/update shape conditionally omits
   `channel`, `name`, and `title`; an absent channel means all channels. Channel
   IDs retain their complete unsigned-u32 domain. Add requires signed-s32
   `start` and `stop`: `-1` is exposed as nullable unset, `0..1439` are valid
-  minutes since midnight, and every other present value is malformed. Update
-  retains string `id` as its only required decoder field for compatibility but
-  applies the same strict channel and time domains whenever those fields are
-  present.
+  minutes since midnight, and every other value is malformed. Full Update has
+  the same required fields and strict domains as Add.
   `queueStatus.delay` keeps its recorded requiredness uncertainty.
 - Mux PTS and DTS remain signed s64 and are never masked or unwrapped at 33
   bits. `HtspService` rescales 90 kHz PTS, DTS, and required u32 duration to
@@ -398,6 +396,55 @@ silently ignore it and may still answer Ok.
   slice, so no claim is made about normalized first-frame behavior after seek.
   That observation remains deferred until a fixture or hardware run supplies
   evidence; the implementation adds no speculative timestamp unwrapping.
+
+## Shared entity and update evidence
+
+`model` owns one entity and one decoder per family; it depends on neither
+requests, messages nor connection. Full updates replace snapshots, rather than
+merging only non-null fields. All fields outside the required sets below are
+nullable; present malformed values remain errors. Line numbers refer to pinned
+`src/htsp_server.c`.
+
+| Entity | Always emitted at supported v36–44 (wire names) | Evidence |
+|---|---|---|
+| Channel | `channelId`, `channelNumber`, `channelName`, `eventId`, `nextEventId`, `services`, `tags` | :859–925 |
+| Tag | `tagId`, `tagIndex`, `tagName`, `tagTitledIcon` | :932–958 |
+| Event | `eventId`, `start`, `stop` | :1339–1343 |
+| DVR entry | `id`, `enabled`, `start`, `stop`, `startExtra`, `stopExtra`, `retention`, `removal`, `priority`, `contentType`, `ageRating`, `state` | :977–1015,1190; DVR age rating introduced v36 |
+| Autorec | `id`, `enabled`, `maxDuration`, `minDuration`, `retention`, `removal`, `daysOfWeek`, `approxTime`, `start`, `startWindow`, `priority`, `startExtra`, `stopExtra`, `dupDetect`, `maxCount` | :1215–1245 |
+| Timerec | `id`, `enabled`, `daysOfWeek`, `retention`, `removal`, `priority`, `start`, `stop` | :1280–1293; required times use -1 for unset |
+
+Channel `channelIdStr`, tag `tagIdStr`, and DVR `idStr` are required at v41+
+but nullable below v41. Autorec `broadcastType` is required at v39+ but nullable
+below v39. Conditional strings remain nullable even after their introduction:
+autorec/timerec comments use `htsmsg_add_str2` (:1247,1294); configuration UUIDs
+(`dvrConfigUuid`, wire `configId`) require a linked configuration
+(:1153–1154,1263–1264,1306–1307). Tag members are an inclusion exception:
+`channelIds == null` means not included, and empty means included with no members
+(:948–958; initial-sync omission/inclusion :1709,1719).
+
+`channelUpdate` containing `channelName` must validate the full channel. Without
+it, only `{channelId,eventId,nextEventId}` plus `method` is accepted and yields
+`HtspChannelNowNextMessage` (:3805–3822). `dvrEntryUpdate` containing `enabled`
+must validate the full recording. Otherwise `HtspDvrEntryStatsMessage` accepts
+only the fields outside `!statsonly` (:980–1155): `id`, v41+ `idStr`, required
+`state`, optional `duplicate`, `error`, `subscriptionError`, `streamErrors`,
+`dataErrors`, and `dataSize`, plus `method` (:977–980,1157–1201). Duplicate is
+emitted for upcoming recordings; errors depend on recording/completed state;
+subscription error is emitted for recording failure; error counters require
+nonzero values; size requires a known recording/completed file size. Null stats
+clear their corresponding old observations, leaving non-statistics fields alone.
+Missing discriminators with other full fields and unexpected sparse fields are
+malformed. RPC `seq` envelopes are classified before this dispatch.
+
+Historical aliases remain for compatibility, without pinned-emitter evidence:
+channel `number/lcn/channelNum/channelno`, `tagIds/channelTags`; tag `id/name/index`;
+event `id/channel/startTime/stopTime/eventTitle/name/content`, string `category`
+as `genre`, `genre/episodeId/serieslinkId/seriesLinkId`, flat `season/part` and
+nested `episode` ordinals; DVR `dvrId/channel/status/statusError/playPosition/playCount`
+and file `path` as fallback for `filename`. First-present alias precedence stays
+strict. Stats also retain `dvrId/status/statusError` aliases. No aliases were
+silently removed by sharing the request and message decoders.
 
 ## Maintenance
 
@@ -419,7 +466,8 @@ Request models and connection extensions are grouped by domain in
 `requests/Htsp*Requests.kt`; server-message models are grouped in
 `messages/Htsp*Messages.kt`, with request codec and server decoder/dispatch
 files beside them. The JSON API call is in `jsonapi/HtspJsonApiCall.kt`, and
-shared field reading is in `wire/HtspFieldReader.kt`.
+shared field reading is in `wire/HtspFieldReader.kt`. Shared entities, their
+nested values and full-builder decoding live in `model/`.
 
 A method or wire-field change ships with a focused regression test. Keep public
 KDoc accurate. An intentional public API or ABI change also follows the

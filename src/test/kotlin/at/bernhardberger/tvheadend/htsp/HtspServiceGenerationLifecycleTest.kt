@@ -119,10 +119,10 @@ internal class HtspServiceGenerationLifecycleTest : HtspServiceLifecycleFixture(
                         service.events.first { event ->
                             event is HtspTransportEvent.ServerMessage &&
                                 event.message is HtspChannelAddMessage &&
-                                event.message.channelId == 44L
+                                event.message.channel.channelId == 44L
                         }
                     }
-                    replacementServer.sendServerMessage("channelAdd", mapOf("channelId" to 44L))
+                    replacementServer.sendServerMessage("channelAdd", channelFixture(44L))
                     assertTrue(
                         withTimeout(1_000L) { replacementEvent.await() } is
                             HtspTransportEvent.ServerMessage,

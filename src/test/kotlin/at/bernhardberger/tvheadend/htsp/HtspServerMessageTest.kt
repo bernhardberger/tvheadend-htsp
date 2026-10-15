@@ -1,6 +1,7 @@
 package at.bernhardberger.tvheadend.htsp
 
 import at.bernhardberger.tvheadend.htsp.messages.*
+import at.bernhardberger.tvheadend.htsp.model.*
 import at.bernhardberger.tvheadend.htsp.requests.*
 import at.bernhardberger.tvheadend.htsp.wire.*
 
@@ -23,14 +24,14 @@ class HtspServerMessageTest {
         assertEquals(50L, event.event.firstAiredEpochSeconds)
         val update = decodeMessage(minimalFixture("eventUpdate") + mapOf(
             "start" to 100L, "stop" to 200L, "firstAired" to 50L,
-        )) as HtspEventUpdateMessage
+        )).let { (it as HtspEventUpdateMessage).event }
         assertEquals(100L, update.startEpochSeconds)
         assertEquals(200L, update.stopEpochSeconds)
         assertEquals(50L, update.firstAiredEpochSeconds)
         val dvr = decodeMessage(minimalFixture("dvrEntryUpdate") + mapOf(
             "start" to 100L, "stop" to 200L,
             "files" to listOf(mapOf("start" to 110L, "stop" to 190L)),
-        )) as HtspDvrEntryUpdateMessage
+        )).let { (it as HtspDvrEntryUpdateMessage).entry }
         assertEquals(100L, dvr.startEpochSeconds)
         assertEquals(200L, dvr.stopEpochSeconds)
         assertEquals(110L, dvr.files!!.single().startEpochSeconds)
@@ -91,12 +92,12 @@ class HtspServerMessageTest {
     @Test
     fun integerWireFlagsDecodeStrictlyWithOptionalAbsence() {
         val cases: List<Triple<String, String, (HtspServerMessage) -> Boolean?>> = listOf(
-            Triple("dvrEntryAdd", "enabled") { (it as HtspDvrEntryAddMessage).enabled },
-            Triple("dvrEntryUpdate", "enabled") { (it as HtspDvrEntryUpdateMessage).enabled },
-            Triple("dvrEntryAdd", "duplicate") { (it as HtspDvrEntryAddMessage).duplicate },
-            Triple("dvrEntryUpdate", "duplicate") { (it as HtspDvrEntryUpdateMessage).duplicate },
+            Triple("dvrEntryAdd", "enabled") { (it as HtspDvrEntryAddMessage).entry.enabled },
+            Triple("dvrEntryUpdate", "enabled") { (it as HtspDvrEntryUpdateMessage).entry.enabled },
+            Triple("dvrEntryAdd", "duplicate") { (it as HtspDvrEntryAddMessage).entry.duplicate },
+            Triple("dvrEntryUpdate", "duplicate") { (it as HtspDvrEntryUpdateMessage).entry.duplicate },
             Triple("eventAdd", "isNew") { (it as HtspEventAddMessage).event.isNew },
-            Triple("eventUpdate", "isNew") { (it as HtspEventUpdateMessage).isNew },
+            Triple("eventUpdate", "isNew") { (it as HtspEventUpdateMessage).event.isNew },
             Triple("timeshiftStatus", "full") { (it as HtspTimeshiftStatusMessage).full },
             Triple("subscriptionSkip", "absolute") { (it as HtspSubscriptionSkipMessage).absolute },
             Triple("subscriptionSkip", "error") { (it as HtspSubscriptionSkipMessage).error },
@@ -106,7 +107,7 @@ class HtspServerMessageTest {
             listOf(0L to false, 1L to true).forEach { (wire, expected) ->
                 assertEquals(expected, readFlag(decodeMessage(fixture + (field to wire))))
             }
-            if (method == "timeshiftStatus") {
+            if (method == "timeshiftStatus" || field == "enabled") {
                 assertMalformed(fixture - field)
             } else {
                 assertEquals(null, readFlag(decodeMessage(fixture - field)))
@@ -190,7 +191,9 @@ class HtspServerMessageTest {
             ),
             typedHtspServerMessageInventory.map { it.method },
         )
-        assertEquals(30, typedHtspServerMessageInventory.map { it.messageType }.toSet().size)
+        assertEquals(32, typedHtspServerMessageInventory.flatMap {
+            listOfNotNull(it.messageType, it.sparseMessageType)
+        }.toSet().size)
     }
 
     @Test
@@ -288,7 +291,7 @@ class HtspServerMessageTest {
                 "comment" to "comment",
                 "removal" to 9L,
             ),
-        ) as HtspTimerecEntryAddMessage
+        ).let { (it as HtspTimerecEntryAddMessage).entry }
         assertEquals("rule-1", add.id)
         assertEquals(true, add.enabled)
         assertEquals(0xffff_ffffL, add.channelId)
@@ -309,7 +312,7 @@ class HtspServerMessageTest {
                 "start" to -1L,
                 "stop" to -1L,
             ),
-        ) as HtspTimerecEntryAddMessage
+        ).let { (it as HtspTimerecEntryAddMessage).entry }
         assertEquals(null, allChannel.name)
         assertEquals(null, allChannel.title)
         assertEquals(null, allChannel.channelId)
@@ -317,7 +320,7 @@ class HtspServerMessageTest {
         assertEquals(null, allChannel.stopMinutesSinceMidnight)
 
         val update = decodeMessage(
-            mapOf(
+            metadataFixture("timerecEntryUpdate") + mapOf(
                 "method" to "timerecEntryUpdate",
                 "id" to "rule-1",
                 "enabled" to 0L,
@@ -326,7 +329,7 @@ class HtspServerMessageTest {
                 "start" to -1L,
                 "stop" to 1_439L,
             ),
-        ) as HtspTimerecEntryUpdateMessage
+        ).let { (it as HtspTimerecEntryUpdateMessage).entry }
         assertEquals("rule-1", update.id)
         assertEquals(false, update.enabled)
         assertEquals("", update.title)
@@ -395,7 +398,7 @@ class HtspServerMessageTest {
     }
 
     @Test
-    fun autorecMessagesDecodeRequiredAddPartialUpdateAndExactDeleteStrictly() {
+    fun autorecMessagesDecodeSharedFullBuilderAndExactDeleteStrictly() {
         val addFields = linkedMapOf<String, Any?>(
             "method" to "autorecEntryAdd",
             "id" to "",
@@ -426,9 +429,9 @@ class HtspServerMessageTest {
             "serieslinkUri" to "",
             "configId" to "",
         )
-        val add = decodeMessage(addFields) as HtspAutorecEntryAddMessage
+        val add = (decodeMessage(addFields) as HtspAutorecEntryAddMessage).entry
         assertEquals(
-            HtspAutorecEntryAddMessage(
+            HtspAutorecEntry(
                 id = "",
                 enabled = false,
                 maxDurationSeconds = 0xffff_ffffL,
@@ -455,7 +458,7 @@ class HtspServerMessageTest {
                 creator = "",
                 channelId = 0xffff_ffffL,
                 seriesLinkUri = "",
-                configId = "",
+                dvrConfigUuid = "",
             ),
             add,
         )
@@ -469,20 +472,20 @@ class HtspServerMessageTest {
             assertMalformed(addFields - requiredName)
         }
 
-        val v36Add = decodeMessage(addFields - "broadcastType") as HtspAutorecEntryAddMessage
+        val v36Add = (decodeMessage(addFields - "broadcastType", 36) as HtspAutorecEntryAddMessage).entry
         assertEquals(null, v36Add.broadcastType)
         assertMalformed(addFields + ("broadcastType" to "invalid"))
 
         val addWithoutNullableStrings = decodeMessage(
             addFields - setOf("comment", "name", "owner", "creator"),
-        ) as HtspAutorecEntryAddMessage
+        ).let { (it as HtspAutorecEntryAddMessage).entry }
         assertEquals(null, addWithoutNullableStrings.comment)
         assertEquals(null, addWithoutNullableStrings.name)
         assertEquals(null, addWithoutNullableStrings.owner)
         assertEquals(null, addWithoutNullableStrings.creator)
 
         val update = decodeMessage(
-            mapOf(
+            metadataFixture("autorecEntryUpdate") + mapOf(
                 "method" to "autorecEntryUpdate",
                 "id" to "rule",
                 "minDuration" to 0L,
@@ -492,9 +495,9 @@ class HtspServerMessageTest {
                 "channel" to 0xffff_ffffL,
                 "title" to "",
             ),
-        ) as HtspAutorecEntryUpdateMessage
+        ).let { (it as HtspAutorecEntryUpdateMessage).entry }
         assertEquals(
-            HtspAutorecEntryUpdateMessage(
+            HtspEntityDecoder(44) { error("fixture") }.autorecEntry(metadataFixture("autorecEntryAdd")).copy(
                 id = "rule",
                 minDurationSeconds = 0L,
                 approximateStartMinutesSinceMidnight = Int.MIN_VALUE,
@@ -572,7 +575,7 @@ class HtspServerMessageTest {
         assertTrue(
             dispatchClass.declaredMethods.any { method ->
                 method.name == "decodeHtspServerMessage" &&
-                    method.parameterTypes.contentEquals(arrayOf(Map::class.java))
+                    method.parameterTypes.contentEquals(arrayOf(Map::class.java, Int::class.javaPrimitiveType))
             },
             "The internal decoder remains available to production dispatch",
         )
@@ -590,17 +593,9 @@ class HtspServerMessageTest {
     }
 
     @Test
-    fun lowerVersionAndPartialAddShapesAreAccepted() {
+    fun fullMetadataAndPartialSubscriptionShapesAreAccepted() {
         val validPartialShapes = listOf(
-            mapOf("method" to "channelAdd", "channelId" to 1L, "channelName" to "Channel"),
-            mapOf("method" to "tagAdd", "tagId" to 2L, "tagName" to "Tag"),
-            mapOf(
-                "method" to "dvrEntryAdd",
-                "id" to 3L,
-                "start" to 10L,
-                "stop" to 20L,
-                "state" to "scheduled",
-            ),
+            metadataFixture("channelAdd"), metadataFixture("tagAdd"), metadataFixture("dvrEntryAdd"),
             mapOf("method" to "subscriptionStart", "subscriptionId" to 4L),
             mapOf("method" to "signalStatus", "subscriptionId" to 5L, "feStatus" to "LOCK"),
         )
@@ -614,21 +609,14 @@ class HtspServerMessageTest {
     }
 
     @Test
-    fun addShapesOmitUnevidencedNamesAndConditionalEventChannelButPresentValuesStayStrict() {
-        val channel = decodeMessage(mapOf("method" to "channelAdd", "channelId" to 1L))
-            as HtspChannelAddMessage
-        assertEquals(null, channel.channelName)
-
-        val tag = decodeMessage(mapOf("method" to "tagAdd", "tagId" to 2L))
-            as HtspTagAddMessage
-        assertEquals(null, tag.tagName)
+    fun fullNamesAreRequiredButEventChannelIsConditionalAndPresentValuesStayStrict() {
+        assertMalformed(metadataFixture("channelAdd") - "channelName")
+        assertMalformed(metadataFixture("tagAdd") - "tagName")
 
         val event = decodeMessage(
             mapOf("method" to "eventAdd", "eventId" to 3L, "start" to 4L, "stop" to 5L),
         ) as HtspEventAddMessage
         assertEquals(null, event.event.channelId)
-        assertEquals(null, HtspChannelAddMessage(channelId = 6L).channelName)
-        assertEquals(null, HtspTagAddMessage(tagId = 7L).tagName)
 
         listOf(
             mapOf("method" to "channelAdd", "channelId" to 1L, "channelName" to null),
@@ -655,24 +643,25 @@ class HtspServerMessageTest {
     @Test
     fun compatibilityAliasesAndMissingP5ObservationsAreNormalized() {
         val channel = decodeMessage(
-            mapOf(
+            (metadataFixture("channelAdd") - "channelNumber") + mapOf(
                 "method" to "channelAdd",
                 "channelId" to 1L,
                 "channelName" to "Channel",
                 "lcn" to 17L,
             ),
-        ) as HtspChannelAddMessage
+        ).let { (it as HtspChannelAddMessage).channel }
         assertEquals(17L, channel.channelNumber)
 
         val tag = decodeMessage(
-            mapOf("method" to "tagAdd", "id" to 2L, "name" to "Tag", "index" to 3L),
-        ) as HtspTagAddMessage
+            (metadataFixture("tagAdd") - setOf("tagId", "tagName", "tagIndex")) +
+                mapOf("id" to 2L, "name" to "Tag", "index" to 3L),
+        ).let { (it as HtspTagAddMessage).tag }
         assertEquals(2L, tag.tagId)
         assertEquals("Tag", tag.tagName)
         assertEquals(3L, tag.tagIndex)
 
         val dvr = decodeMessage(
-            mapOf(
+            (metadataFixture("dvrEntryAdd") - setOf("id", "state")) + mapOf(
                 "method" to "dvrEntryAdd",
                 "dvrId" to 4L,
                 "seasonNumber" to 1L,
@@ -685,8 +674,7 @@ class HtspServerMessageTest {
                 "playPosition" to 6L,
                 "playCount" to 7L,
             ),
-        )
-        dvr as HtspDvrEntryAddMessage
+        ).let { (it as HtspDvrEntryAddMessage).entry }
         assertEquals(1L, dvr.seasonNumber)
         assertEquals(2L, dvr.episodeNumber)
         assertEquals(3L, dvr.episodeCount)
@@ -713,7 +701,7 @@ class HtspServerMessageTest {
     @Test
     fun compatibilityAliasPrecedenceIsOrderedAndFirstPresentIsStrict() {
         val channel = decodeMessage(
-            mapOf(
+            metadataFixture("channelAdd") + mapOf(
                 "method" to "channelAdd",
                 "channelId" to 1L,
                 "channelName" to "Channel",
@@ -726,7 +714,7 @@ class HtspServerMessageTest {
                 "tags" to listOf(2L),
                 "channelTags" to listOf(3L),
             ),
-        ) as HtspChannelAddMessage
+        ).let { (it as HtspChannelAddMessage).channel }
         assertEquals(10L, channel.channelNumber)
         assertEquals(listOf(1L), channel.tagIds)
         assertMalformed(
@@ -740,7 +728,7 @@ class HtspServerMessageTest {
         )
 
         val tag = decodeMessage(
-            mapOf(
+            metadataFixture("tagAdd") + mapOf(
                 "method" to "tagAdd",
                 "tagId" to 20L,
                 "id" to 21L,
@@ -749,13 +737,13 @@ class HtspServerMessageTest {
                 "tagIndex" to 22L,
                 "index" to 23L,
             ),
-        ) as HtspTagAddMessage
+        ).let { (it as HtspTagAddMessage).tag }
         assertEquals(20L, tag.tagId)
         assertEquals("primary", tag.tagName)
         assertEquals(22L, tag.tagIndex)
 
         val dvr = decodeMessage(
-            mapOf(
+            metadataFixture("dvrEntryUpdate") + mapOf(
                 "method" to "dvrEntryUpdate",
                 "id" to 30L,
                 "dvrId" to 31L,
@@ -770,7 +758,7 @@ class HtspServerMessageTest {
                 "playcount" to 36L,
                 "playCount" to 37L,
             ),
-        ) as HtspDvrEntryUpdateMessage
+        ).let { (it as HtspDvrEntryUpdateMessage).entry }
         assertEquals(30L, dvr.entryId)
         assertEquals(32L, dvr.channelId)
         assertEquals("primary-state", dvr.state)
@@ -795,7 +783,7 @@ class HtspServerMessageTest {
     }
 
     @Test
-    fun eventAliasesAndNestedEpisodeObservationsPreserveFullAddAndPartialUpdate() {
+    fun eventAliasesAndNestedEpisodeObservationsPreserveFullAddAndUpdate() {
         val added = decodeMessage(
             mapOf(
                 "method" to "eventAdd",
@@ -822,20 +810,19 @@ class HtspServerMessageTest {
         assertEquals(3L, added.event.startEpochSeconds)
         assertEquals(4L, added.event.stopEpochSeconds)
         assertEquals("Title", added.event.title)
-        assertEquals("News", added.genre)
+        assertEquals("News", added.event.genre)
         assertEquals(5L, added.event.contentType)
         assertEquals(6L, added.event.seasonNumber)
         assertEquals(7L, added.event.episodeNumber)
         assertEquals(8L, added.event.episodeCount)
         assertEquals(9L, added.event.partNumber)
         assertEquals(10L, added.event.partCount)
-        assertEquals(11L, added.episodeId)
-        assertEquals(12L, added.seriesLinkId)
+        assertEquals(11L, added.event.episodeId)
+        assertEquals(12L, added.event.seriesLinkId)
 
-        val update = decodeMessage(mapOf("method" to "eventUpdate", "id" to 1L))
-            as HtspEventUpdateMessage
+        val update = (decodeMessage(metadataFixture("eventUpdate")) as HtspEventUpdateMessage).event
         assertEquals(null, update.channelId)
-        assertEquals(null, update.startEpochSeconds)
+        assertEquals(2L, update.startEpochSeconds)
         assertEquals(null, update.title)
         assertMalformed(
             mapOf(
@@ -881,10 +868,8 @@ class HtspServerMessageTest {
     }
 
     @Test
-    fun publicUpdatesUseNullablePropertiesAndHtspFieldIsGone() {
-        val update = decodeMessage(mapOf("method" to "channelUpdate", "channelId" to 3L))
-            as HtspChannelUpdateMessage
-        assertEquals(null, update.channelName)
+    fun partialChannelUpdateIsRejectedAndHtspFieldIsGone() {
+        assertMalformed(mapOf("method" to "channelUpdate", "channelId" to 3L))
         assertThrows(ClassNotFoundException::class.java) {
             Class.forName("at.bernhardberger.tvheadend.htsp.messages.HtspField")
         }
@@ -1035,22 +1020,17 @@ class HtspServerMessageTest {
     }
 
     @Test
-    fun updatesPreserveAbsentPresentEmptyAndZero() {
-        val absent = decodeMessage(mapOf("method" to "channelUpdate", "channelId" to 3L))
-            as HtspChannelUpdateMessage
-        assertEquals(null, absent.channelName)
-        assertEquals(null, absent.currentEventId)
-        assertEquals(null, absent.tagIds)
+    fun fullUpdatesPreservePresentEmptyAndZero() {
 
         val present = decodeMessage(
-            mapOf(
+            metadataFixture("channelUpdate") + mapOf(
                 "method" to "channelUpdate",
                 "channelId" to 3L,
                 "channelName" to "",
                 "eventId" to 0L,
                 "tags" to emptyList<Long>(),
             ),
-        ) as HtspChannelUpdateMessage
+        ).let { (it as HtspChannelUpdateMessage).channel }
         assertEquals("", present.channelName)
         assertEquals(0L, present.currentEventId)
         assertEquals(emptyList<Long>(), present.tagIds)
@@ -1071,7 +1051,7 @@ class HtspServerMessageTest {
             this["tags"] = tags
             this["services"] = services
         }
-        val message = decodeMessage(fixture) as HtspChannelAddMessage
+        val message = (decodeMessage(fixture) as HtspChannelAddMessage).channel
         tags.clear()
         services.clear()
         assertEquals(listOf(4L, 4L, 2L), message.tagIds)
@@ -1092,8 +1072,8 @@ class HtspServerMessageTest {
 
         val categories = arrayListOf("news", "news")
         val eventUpdate = decodeMessage(
-            mapOf("method" to "eventUpdate", "eventId" to 1L, "category" to categories),
-        ) as HtspEventUpdateMessage
+            metadataFixture("eventUpdate") + ("category" to categories),
+        ).let { (it as HtspEventUpdateMessage).event }
         categories.clear()
         assertEquals(listOf("news", "news"), eventUpdate.categories)
         assertThrows(UnsupportedOperationException::class.java) {
@@ -1108,8 +1088,8 @@ class HtspServerMessageTest {
         val secondFile = linkedMapOf<String, Any?>("path" to "/recordings/second.ts")
         val sourceFiles = arrayListOf<Map<String, Any?>>(firstFile, secondFile, secondFile)
         val message = decodeMessage(
-            mapOf("method" to "dvrEntryAdd", "id" to 1L, "files" to sourceFiles),
-        ) as HtspDvrEntryAddMessage
+            metadataFixture("dvrEntryAdd") + ("files" to sourceFiles),
+        ).let { (it as HtspDvrEntryAddMessage).entry }
 
         sourceFiles.clear()
         firstFile["filename"] = "/mutated.ts"
@@ -1122,24 +1102,24 @@ class HtspServerMessageTest {
         }
 
         val topLevelFallback = decodeMessage(
-            mapOf(
+            metadataFixture("dvrEntryAdd") + mapOf(
                 "method" to "dvrEntryAdd",
                 "id" to 2L,
                 "files" to listOf(mapOf("filename" to ""), mapOf("path" to "   ")),
                 "path" to "/recordings/top-level.ts",
             ),
-        ) as HtspDvrEntryAddMessage
+        ).let { (it as HtspDvrEntryAddMessage).entry }
         assertEquals("/recordings/top-level.ts", canonicalPlaybackPath(topLevelFallback))
 
         val aliasPrecedence = decodeMessage(
-            mapOf(
+            metadataFixture("dvrEntryAdd") + mapOf(
                 "method" to "dvrEntryAdd",
                 "id" to 3L,
                 "files" to listOf(
                     mapOf("filename" to "/recordings/filename.ts", "path" to "/recordings/path.ts"),
                 ),
             ),
-        ) as HtspDvrEntryAddMessage
+        ).let { (it as HtspDvrEntryAddMessage).entry }
         assertEquals("/recordings/filename.ts", aliasPrecedence.files!!.single().path)
 
         assertMalformed(
@@ -1200,8 +1180,8 @@ class HtspServerMessageTest {
         }
     }
 
-    private fun decodeMessage(fields: Map<String, Any?>): HtspServerMessage {
-        return when (val result = decodeHtspServerMessage(fields)) {
+    private fun decodeMessage(fields: Map<String, Any?>, protocolVersion: Int = 44): HtspServerMessage {
+        return when (val result = decodeHtspServerMessage(fields, protocolVersion)) {
             is HtspServerMessageDecoded -> result.message
             else -> throw AssertionError("expected decoded but was $result")
         }
@@ -1224,7 +1204,7 @@ class HtspServerMessageTest {
         )
     }
 
-    private fun canonicalPlaybackPath(message: HtspDvrEntryAddMessage): String? =
+    private fun canonicalPlaybackPath(message: HtspDvrEntry): String? =
         message.files?.firstOrNull { file -> file.path?.isNotBlank() == true }?.path
             ?: message.path?.takeIf { path -> path.isNotBlank() }
 
@@ -1246,7 +1226,7 @@ class HtspServerMessageTest {
             "services" to listOf(mapOf("name" to "Service", "type" to "SDTV", "content" to 1L)),
             "tags" to listOf(7L, 7L),
         )
-        "channelUpdate" -> mapOf("method" to method, "channelId" to 1L)
+        "channelUpdate" -> minimalFixture("channelAdd") + ("method" to method)
         "channelDelete" -> mapOf("method" to method, "channelId" to 1L)
         "tagAdd" -> mapOf(
             "method" to method,
@@ -1256,7 +1236,7 @@ class HtspServerMessageTest {
             "tagName" to "Tag",
             "tagTitledIcon" to 0L,
         )
-        "tagUpdate" -> mapOf("method" to method, "tagId" to 1L)
+        "tagUpdate" -> minimalFixture("tagAdd") + ("method" to method)
         "tagDelete" -> mapOf("method" to method, "tagId" to 1L)
         "dvrEntryAdd" -> mapOf(
             "method" to method,
@@ -1274,7 +1254,7 @@ class HtspServerMessageTest {
             "ageRating" to 0L,
             "state" to "scheduled",
         )
-        "dvrEntryUpdate" -> mapOf("method" to method, "id" to 1L)
+        "dvrEntryUpdate" -> minimalFixture("dvrEntryAdd") + ("method" to method)
         "dvrEntryDelete" -> mapOf("method" to method, "id" to 1L)
         "autorecEntryAdd" -> mapOf(
             "method" to method,
@@ -1299,16 +1279,9 @@ class HtspServerMessageTest {
             "owner" to "",
             "creator" to "",
         )
-        "autorecEntryUpdate" -> mapOf("method" to method, "id" to "rule")
+        "autorecEntryUpdate" -> minimalFixture("autorecEntryAdd") + ("method" to method)
         "autorecEntryDelete" -> mapOf("method" to method, "id" to "rule")
-        "timerecEntryAdd" -> mapOf(
-            "method" to method,
-            "id" to "rule",
-            "enabled" to 1L,
-            "start" to -1L,
-            "stop" to -1L,
-        )
-        "timerecEntryUpdate" -> mapOf("method" to method, "id" to "rule")
+        "timerecEntryAdd", "timerecEntryUpdate" -> metadataFixture(method)
         "timerecEntryDelete" -> mapOf("method" to method, "id" to "rule")
         "eventAdd" -> mapOf(
             "method" to method,
@@ -1317,7 +1290,7 @@ class HtspServerMessageTest {
             "start" to -1L,
             "stop" to 2L,
         )
-        "eventUpdate" -> mapOf("method" to method, "eventId" to 1L)
+        "eventUpdate" -> minimalFixture("eventAdd") + ("method" to method)
         "eventDelete" -> mapOf("method" to method, "eventId" to 1L)
         "initialSyncCompleted" -> mapOf("method" to method)
         "muxpkt" -> mapOf(

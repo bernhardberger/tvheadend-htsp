@@ -68,9 +68,9 @@ internal class HtspServiceDirectHandshakeTest : HtspServiceLifecycleFixture() {
                         }
                     }
                 }
-                server.sendServerMessage("channelAdd", mapOf("channelId" to 1L))
+                server.sendServerMessage("channelAdd", channelFixture(1L))
                 withTimeout(1_000) { blocked.await() }
-                server.sendServerMessage("channelAdd", mapOf("channelId" to 2L))
+                server.sendServerMessage("channelAdd", channelFixture(2L))
                 val reader = requireNotNull(readerJob(service))
                 assertSame(HtspResult.TransportUnavailable, withTimeout(1_000) {
                     service.execute(HelloRequest(36L, "floor-client"), timeoutMs = 1_000)
@@ -123,9 +123,9 @@ internal class HtspServiceDirectHandshakeTest : HtspServiceLifecycleFixture() {
                             }
                         }
                     }
-                    server.sendServerMessage("channelAdd", mapOf("channelId" to 1L))
+                    server.sendServerMessage("channelAdd", channelFixture(1L))
                     withTimeout(1_000) { blocked.await() }
-                    server.sendServerMessage("channelAdd", mapOf("channelId" to 2L))
+                    server.sendServerMessage("channelAdd", channelFixture(2L))
                     val reader = requireNotNull(readerJob(service))
                     assertSame(HtspResult.TransportUnavailable, withTimeout(1_000) {
                         service.execute(HelloRequest(36L, "floor-client"), timeoutMs = 1_000)
@@ -236,9 +236,9 @@ internal class HtspServiceDirectHandshakeTest : HtspServiceLifecycleFixture() {
                         }
                     }
                 }
-                server.sendServerMessage("channelAdd", mapOf("channelId" to 1L))
+                server.sendServerMessage("channelAdd", channelFixture(1L))
                 withTimeout(1_000) { blocked.await() }
-                server.sendServerMessage("channelAdd", mapOf("channelId" to 2L))
+                server.sendServerMessage("channelAdd", channelFixture(2L))
                 // The reader must pass the second metadata frame before it can read the hello reply.
                 assertSame(
                     HtspResult.TransportUnavailable,
