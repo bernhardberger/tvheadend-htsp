@@ -350,3 +350,12 @@ behind everything above are in
 [metadata and subscription event streams](../public-api.md#metadata-and-subscription-event-streams)
 and
 [metadata snapshots and sparse updates](../public-api.md#metadata-snapshots-and-sparse-updates).
+
+## Where to go next
+
+- [Connecting, requests, and the connection lifecycle](connecting.md) for
+  reconnecting after a lost connection.
+- [Recordings, recording rules, and recording files](dvr.md) for working with
+  the recording and rule messages.
+- [Errors and troubleshooting](troubleshooting.md) for what overflow and
+  malformed-metadata reports mean in practice.

@@ -13,6 +13,13 @@ Guides for people using the library, and references for people working on it.
 - [`guides/subscriptions.md`](guides/subscriptions.md): live subscriptions,
   event end states, dropped packets, seeking near the live edge, and packet
   clocks.
+- [`guides/dvr.md`](guides/dvr.md): listing and scheduling recordings, autorec
+  and timerec rules, acknowledged versus completed changes, and reading
+  recording files.
+- [`guides/json-api.md`](guides/json-api.md): the opt-in bridge to TVHeadend's
+  JSON API, its value types, outcomes, and limits.
+- [`guides/troubleshooting.md`](guides/troubleshooting.md): what connect
+  failures, request failures, dropped connections, and subscription ends mean.
 - [`public-api.md`](public-api.md): how calls report success and failure,
   covering typed outcomes, cancellation, and what error values never carry.
 - [`versioning.md`](versioning.md): the current version, its provisional compatibility status,

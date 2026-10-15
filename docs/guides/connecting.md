@@ -439,5 +439,10 @@ Collect on a real dispatcher instead.
 - [Metadata sync and event streams](metadata.md) for channels, tags, EPG and
   recordings.
 - [Live subscriptions, timeshift, and packets](subscriptions.md) for streams.
+- [Recordings, recording rules, and recording files](dvr.md) for the DVR.
+- [The JSON API bridge](json-api.md) for server features without a typed
+  request.
+- [Errors and troubleshooting](troubleshooting.md) for what a failure means and
+  what to do about it.
 - [API behavior](../public-api.md) for the exact rules behind outcomes,
   cancellation and lifecycle calls.

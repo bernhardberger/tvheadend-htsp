@@ -101,6 +101,14 @@ the connection.
 - [Live subscriptions, timeshift, and packets](docs/guides/subscriptions.md):
   subscribing, event end states, dropped packets, seeking near the live edge,
   and packet clocks.
+- [Recordings, recording rules, and recording files](docs/guides/dvr.md):
+  listing and scheduling recordings, autorec and timerec rules, acknowledged
+  versus completed changes, and reading recording files.
+- [The JSON API bridge](docs/guides/json-api.md): calling TVHeadend's JSON API
+  over the HTSP connection, its value types, outcomes, and limits.
+- [Errors and troubleshooting](docs/guides/troubleshooting.md): what each
+  connect failure, request failure, dropped connection, and subscription end
+  means, and what to do.
 
 ## Reference
 

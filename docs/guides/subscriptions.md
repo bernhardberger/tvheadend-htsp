@@ -327,5 +327,7 @@ resulting position.
   reconnecting and the generation fence.
 - [Metadata sync and event streams](metadata.md) for the channel list you
   subscribe from.
+- [Errors and troubleshooting](troubleshooting.md) for what each way a flow ends
+  means and what to do.
 - [Metadata and subscription event streams](../public-api.md#metadata-and-subscription-event-streams)
   for the exact rules.
