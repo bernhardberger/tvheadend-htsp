@@ -35,6 +35,7 @@ official TVHeadend software or as wholly original work.
 | Versioning and compatibility | `docs/versioning.md` |
 | Release preparation, signing, publication | `docs/releasing.md` |
 | Kotlin API or coroutine design questions | Optional skills in `.opencode/skills/` |
+| README, guides, or KDoc | "Writing documentation" in `docs/README.md` |
 
 ## Invariants
 

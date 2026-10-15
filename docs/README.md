@@ -18,7 +18,7 @@ Guides for people using the library, and references for people working on it.
 
 - [`../AGENTS.md`](../AGENTS.md): engineering rules and invariants for
   contributors and coding agents; `.opencode/` holds an optional reviewer agent
-  and Kotlin skills.
+  and Kotlin and writing skills.
 - [`htsp-protocol/README.md`](htsp-protocol/README.md): the upstream pin,
   wire-level reference, and maintenance notes for the hand-maintained typed
   catalog.
@@ -44,6 +44,26 @@ enabled in the repository settings, arrive as separate pull requests outside
 the monthly group. Check that each update PR covers the Gradle wrapper
 (including `distributionSha256Sum`) and the foojay settings plugin in
 `settings.gradle.kts`; update them by hand when it does not.
+
+## Writing documentation
+
+Documentation stays in this repository as Markdown and KDoc; there is no
+separate documentation site or toolchain.
+
+- [`README.md`](../README.md) is the entry point: what the library is,
+  requirements, installation, and a short first use.
+- Guides live in `docs/` and are linked from this index.
+- KDoc on public declarations is the API reference. detekt fails `check` on
+  undocumented public classes and functions, and
+  `./tools/verify dokkaGeneratePublicationHtml` renders it to
+  `build/dokka/html` for review; the same output ships as the javadoc jar.
+
+Check every claim against the code and tests in the same change; documentation
+never promises behavior the library does not test. The optional skills under
+`.opencode/skills/` support this work: `ktdoc-quality` for KDoc,
+`grounded-writing` for README and guide prose. Before a substantial guide
+lands, give it to a reviewer with no other context, ask the questions a new
+user would ask, and fix whatever the guide alone cannot answer.
 
 ## Benchmarks
 
