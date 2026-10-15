@@ -19,13 +19,15 @@ The public API lives under `at.bernhardberger.tvheadend.htsp` in six packages:
 
 - `connection`: connect, authenticate, observe the connection state and server
   events, disconnect and close.
-- `requests`: typed requests for all 39 client-to-server HTSP methods, with
-  suspending convenience functions on the connection.
+- `requests`: typed requests for 38 of the 39 client-to-server HTSP methods,
+  with suspending convenience functions on the connection. The 39th, `api`, is
+  in `jsonapi`.
 - `messages`: typed messages for the 30 server-to-client methods. Metadata
   arrives on one shared flow; each live subscription has its own ordered flow.
 - `model`: the channel, tag, EPG event, DVR entry and recording-rule entities
   that messages and replies share.
-- `wire`: binary framing and protocol value types such as `HtspBinary`.
+- `wire`: `HtspBinary`, the read-only type for binary payloads. The framing
+  itself is internal.
 - `jsonapi`: an opt-in bridge that runs TVHeadend JSON API calls over the HTSP
   connection.
 

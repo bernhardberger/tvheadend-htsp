@@ -26,29 +26,38 @@ the flow is what registers the id:
 
 <!-- source: consumer-contract/src/main/kotlin/at/bernhardberger/tvheadend/protocolconsumer/SubscriptionsGuide.kt#subscribe -->
 ```kotlin
-suspend fun CoroutineScope.startStream(
+suspend fun startStream(
+    scope: CoroutineScope,
     connection: HtspConnection,
     live: HtspLiveConnection,
     subscriptionId: Long,
     channelId: Long,
     handler: StreamHandler,
 ): Job? {
-    val collector = launch(start = CoroutineStart.UNDISPATCHED) {
+    val collector = scope.launch(start = CoroutineStart.UNDISPATCHED) {
         connection.subscriptionEvents(subscriptionId, live.generation).collect(handler::handle)
         handler.flowCompleted()
     }
-    val result = connection.subscribe(
-        subscriptionId = subscriptionId,
-        channelId = channelId,
-        timeshiftPeriodSeconds = 3_600L,
-        expectedGeneration = live.generation,
-    )
-    if (result is HtspResult.Ok) return collector
-    if (result is HtspResult.Timeout || result is HtspResult.MalformedReply) {
-        connection.unsubscribe(subscriptionId, expectedGeneration = live.generation)
+    var result: HtspResult<*>? = null
+    try {
+        result = connection.subscribe(
+            subscriptionId = subscriptionId,
+            channelId = channelId,
+            timeshiftPeriodSeconds = 3_600L,
+            expectedGeneration = live.generation,
+        )
+        return if (result is HtspResult.Ok) collector else null
+    } finally {
+        if (result !is HtspResult.Ok) {
+            collector.cancel()
+            // null: cancelled while the request may already have reached the server.
+            if (result == null || result is HtspResult.Timeout || result is HtspResult.MalformedReply) {
+                withContext(NonCancellable) {
+                    connection.unsubscribe(subscriptionId, expectedGeneration = live.generation)
+                }
+            }
+        }
     }
-    collector.cancel()
-    return null
 }
 ```
 
@@ -56,6 +65,12 @@ suspend fun CoroutineScope.startStream(
 before `launch` returns, so registration has happened when `subscribe` is
 called. Pass the generation to both calls, as above, so a stale connection cannot
 take the id.
+
+If `subscribe` does not return `Ok`, the `finally` block cancels the collector.
+After a `Timeout` or `MalformedReply` it also sends `unsubscribe`, because the
+server may have started the subscription anyway. The same applies when the
+caller is cancelled while `subscribe` waits, so that `unsubscribe` runs under
+`NonCancellable`.
 
 The flow is cold and strict:
 
@@ -139,6 +154,7 @@ class StreamHandler(
     private val onEnded: (HtspSubscriptionTermination?) -> Unit,
 ) {
     /** The latest timeshift status, which `subscriptionSkipNearLive` needs. */
+    @Volatile
     var timeshift: HtspTimeshiftStatusMessage? = null
         private set
 

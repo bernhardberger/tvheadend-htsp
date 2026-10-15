@@ -212,7 +212,12 @@ public data class EnableAsyncMetadataRequest(
      * an existing async session resends eligible EPG events starting after this frontier (4084–4100).
      */
     public val lastUpdateEpochSeconds: Long? = null,
-    /** HTSP `epgMaxTime`, epoch seconds; zero means unlimited window, null omits it (htsp_server.c:1666). */
+    /**
+     * HTSP `epgMaxTime`, epoch seconds; the server pushes EPG events up to this far ahead of its current time, as a
+     * window of at least 600 seconds that moves forward as time passes; zero or a time not in the future means
+     * unlimited window; on a session that already pushes EPG it only changes an existing limit; null omits it
+     * (htsp_server.c:1666–1677, 4084–4107).
+     */
     public val epgMaxTimeEpochSeconds: Long? = null,
     public val language: String? = null,
 ) : HtspRequest<HtspEmptyResponse>(
@@ -259,7 +264,8 @@ public suspend fun HtspConnection.getSysTime(
 /**
  * Requests asynchronous metadata delivery and decodes the typed acknowledgement.
  * @param lastUpdateEpochSeconds HTSP `lastUpdate`, epoch seconds; 0 means never synchronized, so the server sends all eligible metadata; null omits it.
- * @param epgMaxTimeEpochSeconds HTSP `epgMaxTime`, epoch seconds; zero means unlimited, null omits it.
+ * @param epgMaxTimeEpochSeconds HTSP `epgMaxTime`, epoch seconds; sets a rolling EPG window, see
+ * [EnableAsyncMetadataRequest.epgMaxTimeEpochSeconds]; null omits it.
  * See [EnableAsyncMetadataRequest] for pinned source evidence.
  */
 public suspend fun HtspConnection.enableAsyncMetadata(
@@ -293,7 +299,8 @@ public suspend fun HtspConnection.enableAsyncMetadata(
  * if its queue fills) precedes any later admitted sync marker. Stateful consumers must
  * observe those events there and treat that generation's state as incomplete.
  * @param lastUpdateEpochSeconds HTSP `lastUpdate`, epoch seconds; 0 means never synchronized, so the server sends all eligible metadata; null omits it.
- * @param epgMaxTimeEpochSeconds HTSP `epgMaxTime`, epoch seconds; zero means unlimited, null omits it.
+ * @param epgMaxTimeEpochSeconds HTSP `epgMaxTime`, epoch seconds; sets a rolling EPG window, see
+ * [EnableAsyncMetadataRequest.epgMaxTimeEpochSeconds]; null omits it.
  * See [EnableAsyncMetadataRequest] for pinned source evidence.
  */
 public suspend fun HtspConnection.enableAsyncMetadataAwaitingInitialSync(

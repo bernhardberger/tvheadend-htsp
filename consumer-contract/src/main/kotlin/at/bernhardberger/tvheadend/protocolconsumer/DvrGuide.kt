@@ -192,6 +192,7 @@ suspend fun renameKeepingConfig(
             entryId = entry.entryId,
             configName = config.name,
             title = title,
+            ageRating = entry.ageRating,
             expectedGeneration = live.generation,
         )
     ) {

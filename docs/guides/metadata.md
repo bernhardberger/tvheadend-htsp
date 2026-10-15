@@ -89,8 +89,12 @@ The options select what the server sends:
 
 - `epg` turns EPG events on or off. Left null, it keeps the server's current
   setting.
-- `epgMaxTimeEpochSeconds` limits EPG events to those starting before that time.
-  Zero means no limit.
+- `epgMaxTimeEpochSeconds` sets how far ahead the server pushes EPG events. The
+  server turns it into a window from the current time, at least 10 minutes
+  long, and moves that window forward every 30 seconds, so new events keep
+  arriving as time passes (`src/htsp_server.c:1666-1677`, `:4084-4107`). Zero,
+  or a time that is not in the future, means no limit. On a connection that
+  already has EPG on, it only changes an existing limit.
 - `lastUpdateEpochSeconds` is the frontier of an earlier sync. Zero means never
   synchronized, so the server sends everything it may send you.
 - `language` is sent to the server as the client's language code.
@@ -326,24 +330,39 @@ keep watching for malformed reports on the new generation.
 
 <!-- source: consumer-contract/src/main/kotlin/at/bernhardberger/tvheadend/protocolconsumer/MetadataGuide.kt#resync -->
 ```kotlin
+class MetadataSession(val directory: ChannelDirectory, private val collector: Job) {
+    fun stop() = collector.cancel()
+}
+
 suspend fun resync(
     scope: CoroutineScope,
     connection: HtspConnection,
     endpoint: HtspEndpoint,
-): ChannelDirectory? {
+    previous: MetadataSession?,
+): MetadataSession? {
+    previous?.stop()
     val outcome = connection.connect(endpoint, HtspConnectOptions(forceReconnect = true))
     val live = (outcome as? HtspConnectOutcome.Connected)?.connection ?: return null
     val directory = ChannelDirectory(live.generation)
     val collector = scope.collectMetadata(connection, directory)
-    if (syncChannels(connection, live) !is HtspResult.Ok) {
-        collector.cancel()
-        return null
+    var synced = false
+    try {
+        synced = syncChannels(connection, live) is HtspResult.Ok
+    } finally {
+        if (!synced) collector.cancel()
     }
-    return directory
+    return if (synced) MetadataSession(directory, collector) else null
 }
 ```
 
-`resync` returns the directory as soon as the helper does, so show it only once
+`connection.events` does not end with a generation, so a collector left
+running would go on receiving, and ignoring, every later message. `resync`
+therefore stops the previous session's collector first, and cancels the new one
+if the sync fails or the caller is cancelled. Call `stop()` on the last session
+when you are done with the connection.
+
+`resync` returns the session as soon as the helper does, so show its directory
+only once
 `directory.ready` is true. Do not wait for `initialSyncCompleted` after an
 overflow, though. It is the last message of the sync, so it may be one of the
 dropped ones. The sync helper does not wait: it returns `TransportUnavailable`
@@ -357,7 +376,8 @@ the server also produce bursts of `eventUpdate`. A slow collector can overflow
 on that. There are four ways to keep it manageable.
 
 **Ask for less.** `epgMaxTimeEpochSeconds` bounds the window of events the
-server pushes:
+server pushes. The window is rolling: this sync sends one day of events, and
+afterwards the server adds events as they come within a day of now:
 
 <!-- source: consumer-contract/src/main/kotlin/at/bernhardberger/tvheadend/protocolconsumer/MetadataGuide.kt#bounded-epg -->
 ```kotlin

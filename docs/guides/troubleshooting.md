@@ -117,14 +117,18 @@ next request.
 That has two practical consequences:
 
 - If you need to notice a dead server while idle, send a cheap request now and
-  then, such as `getSysTime`. A request that gets no answer is what lets the
-  check fire.
+  then, such as `getSysTime`, and treat its `Timeout` as a dead connection:
+  call `disconnect(live.generation)` and reconnect. Do not count on the silence
+  check for this. With the defaults the request gives up after 5 seconds, before
+  the check's 10-second window, and a request that has timed out no longer
+  counts.
 - Detection happens at socket-read timeout boundaries, so a long
   `socketReadTimeoutMs` delays it. `responseTimeoutMs` sets the interval, and
   both are set in `HtspConnectOptions`.
 
 A single request that times out before the silence check fires is a different
-case: it ends in `Timeout` and leaves the connection live. See
+case: it ends in `Timeout` and leaves the connection live, unless the timeout
+struck while the request was only partly written. See
 [what ends a connection](connecting.md#what-ends-a-connection).
 
 ## My state looks incomplete

@@ -231,7 +231,8 @@ Three of these deserve a closer look.
   request, so do not blindly retry a non-idempotent one such as `addDvrEntry`.
 - `Timeout` covers the whole call: capturing the connection, writing the
   request, and waiting for the reply. A timeout of an ordinary request leaves the
-  connection live. An enclosing `withTimeout` is different: it cancels the call,
+  connection live, unless it strikes while the request is only partly written;
+  then the connection is dropped, as with cancellation below. An enclosing `withTimeout` is different: it cancels the call,
   which propagates as cancellation instead of returning `Timeout`.
 
 DVR requests add one more rule. A refused DVR change comes back as
@@ -246,6 +247,8 @@ Cancelling the calling coroutine cancels the request and throws
 failure value. If the request was only partly written when it was cancelled,
 the connection is dropped, because the stream can no longer be trusted. After a
 complete write, cancelling the wait for the reply leaves the connection live.
+`hello` and `authenticate` sent through `execute` are stricter: once any part
+was written, cancelling them drops the connection.
 
 A few things still throw, all for mistakes you can fix in code: a non-positive
 `timeoutMs`, a value outside an unsigned 32-bit field such as a channel id, and

@@ -16,8 +16,10 @@ import at.bernhardberger.tvheadend.htsp.requests.unsubscribe
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 // region stream-handler
 class StreamHandler(
@@ -27,6 +29,7 @@ class StreamHandler(
     private val onEnded: (HtspSubscriptionTermination?) -> Unit,
 ) {
     /** The latest timeshift status, which `subscriptionSkipNearLive` needs. */
+    @Volatile
     var timeshift: HtspTimeshiftStatusMessage? = null
         private set
 
@@ -60,29 +63,38 @@ class StreamHandler(
 // endregion
 
 // region subscribe
-suspend fun CoroutineScope.startStream(
+suspend fun startStream(
+    scope: CoroutineScope,
     connection: HtspConnection,
     live: HtspLiveConnection,
     subscriptionId: Long,
     channelId: Long,
     handler: StreamHandler,
 ): Job? {
-    val collector = launch(start = CoroutineStart.UNDISPATCHED) {
+    val collector = scope.launch(start = CoroutineStart.UNDISPATCHED) {
         connection.subscriptionEvents(subscriptionId, live.generation).collect(handler::handle)
         handler.flowCompleted()
     }
-    val result = connection.subscribe(
-        subscriptionId = subscriptionId,
-        channelId = channelId,
-        timeshiftPeriodSeconds = 3_600L,
-        expectedGeneration = live.generation,
-    )
-    if (result is HtspResult.Ok) return collector
-    if (result is HtspResult.Timeout || result is HtspResult.MalformedReply) {
-        connection.unsubscribe(subscriptionId, expectedGeneration = live.generation)
+    var result: HtspResult<*>? = null
+    try {
+        result = connection.subscribe(
+            subscriptionId = subscriptionId,
+            channelId = channelId,
+            timeshiftPeriodSeconds = 3_600L,
+            expectedGeneration = live.generation,
+        )
+        return if (result is HtspResult.Ok) collector else null
+    } finally {
+        if (result !is HtspResult.Ok) {
+            collector.cancel()
+            // null: cancelled while the request may already have reached the server.
+            if (result == null || result is HtspResult.Timeout || result is HtspResult.MalformedReply) {
+                withContext(NonCancellable) {
+                    connection.unsubscribe(subscriptionId, expectedGeneration = live.generation)
+                }
+            }
+        }
     }
-    collector.cancel()
-    return null
 }
 // endregion
 

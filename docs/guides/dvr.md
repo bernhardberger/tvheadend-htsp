@@ -164,8 +164,8 @@ suspend fun recordTimeRange(
 - The padding, `priority`, `retentionDays`, `removalDays`, `enabled`,
   `comment` and `configName` are optional creation settings. `getDvrConfigs()`
   lists the DVR configurations whose names `configName` takes.
-- Fields that need a newer protocol than the connection negotiated, such as
-  `comment` (HTSP 42), return `NotSupported` without being sent.
+- `addDvrEntry` checks none of these settings against the negotiated protocol
+  version. A server too old for one ignores it and may still answer `Ok`.
 - Unsigned fields such as the event id must fit 32 bits. A value outside that
   range throws `IllegalArgumentException`.
 
@@ -211,13 +211,19 @@ suspend fun deleteRecording(
 ```
 
 `updateDvrEntry` sends only the fields you pass; a null argument is left out,
-not cleared. `configName` is the exception. On the pinned server, an update to
-an upcoming recording always resets its DVR configuration, and a missing
-`configName` selects the default one (`src/htsp_server.c:2197`,
-`src/dvr/dvr_db.c:2517-2518`). To keep the configuration, pass its name from
-`getDvrConfigs()`, not the `dvrConfigUuid` on the entry: the server looks the
-value up by name only, and an unknown value also selects the default. This
-renames an upcoming recording and keeps its configuration:
+not cleared. `configName` and `ageRating` are the exceptions. On the pinned
+server, an update to an upcoming recording always resets both:
+
+- A missing `configName` selects the default DVR configuration
+  (`src/htsp_server.c:2197`, `src/dvr/dvr_db.c:2517-2518`). To keep the
+  configuration, pass its name from `getDvrConfigs()`, not the `dvrConfigUuid`
+  on the entry: the server looks the value up by name only, and an unknown
+  value also selects the default.
+- A missing `ageRating` is stored as 0, no rating
+  (`src/htsp_server.c:2205`, `src/dvr/dvr_db.c:2565-2568`). Pass the entry's
+  `ageRating` to keep it.
+
+This renames an upcoming recording and keeps both:
 
 <!-- source: consumer-contract/src/main/kotlin/at/bernhardberger/tvheadend/protocolconsumer/DvrGuide.kt#rename-keep-config -->
 ```kotlin
@@ -253,6 +259,7 @@ suspend fun renameKeepingConfig(
             entryId = entry.entryId,
             configName = config.name,
             title = title,
+            ageRating = entry.ageRating,
             expectedGeneration = live.generation,
         )
     ) {
@@ -273,7 +280,9 @@ caller can act on, for example by asking the person which configuration to use.
 
 For an account restricted to a list of DVR configurations, the server passes an
 identifier where it looks up a name, so the entry ends up on the default
-configuration either way. The library sends the name you give it and the lookup
+configuration either way. The exception is an account whose list holds no valid
+configuration: the server then leaves the stored one alone
+(`src/htsp_server.c:576-579`). The library sends the name you give it and the lookup
 happens on the server, so it cannot prevent that.
 
 The other three differ in what they do to the recording, and the
@@ -332,7 +341,15 @@ whose `error` is `File missing` (pinned `src/htsp_server.c:1175`), not a
 `HtspDvrEntryDeleteMessage`. The
 same text appears on any finished recording whose file disappeared. So an
 acknowledged `deleteDvrEntry` can end in either message, and a book that waits
-only for the delete message can wait forever:
+only for the delete message can wait forever.
+
+Some deletes end in neither. A `missed` recording, or a finished one whose file
+is already gone, has nothing to remove, so while its retention runs the server
+changes nothing and sends no message (`src/dvr/dvr_db.c:5481-5493`,
+`:5319-5347`). A running recording that has not written a file yet first
+becomes `missed` (`src/dvr/dvr_db.c:3106-3110`), and that update is the last
+you see. Bound any wait for the outcome, for example with `awaitRecordingState`
+and a timeout:
 
 <!-- source: consumer-contract/src/main/kotlin/at/bernhardberger/tvheadend/protocolconsumer/DvrGuide.kt#file-missing -->
 ```kotlin
@@ -489,11 +506,18 @@ do not use a short read as the end test. `sizeBytes` must be between 0 and
 fewer round trips and a larger reply to hold in memory, so choose a size that
 suits your link.
 
-Close in a `finally` block, wrapped in `NonCancellable`, so a cancelled download
-still releases its handle. Passing the generation to each call stops a request
+Close in a `finally` block, wrapped in `NonCancellable`, so a download cancelled
+after the open still releases its handle. Two cases are not covered. If the
+caller is cancelled while `fileOpen` waits for its reply, the server may already
+have opened a handle whose id you never see. And this close is best effort: its
+result is not checked. Either way the handle stays open until the connection
+ends, when the server closes all of them (`src/htsp_server.c:3669-3670`). If
+that matters, download over a connection of its own and close it when you are
+done. Passing the generation to each call stops a request
 for an old handle from reaching a new connection, where the same number would
 mean nothing. Closing a handle opened for a recording counts as a play on the
-server when `playCount` is omitted, and `playPositionSeconds` stores a resume
+server when `playCount` is omitted, so this sample marks the recording as
+played once per download, and `playPositionSeconds` stores a resume
 position.
 
 Two requests are related but separate. `getDvrCutpoints(entryId)` returns a

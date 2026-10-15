@@ -67,8 +67,8 @@ the monthly group. Check that each update PR covers the Gradle wrapper
 
 ## Writing documentation
 
-Documentation stays in this repository as Markdown and KDoc; there is no
-separate documentation site or toolchain.
+Documentation stays in this repository as Markdown and KDoc. There is no
+documentation site beyond the API reference Dokka generates from the KDoc.
 
 - [`README.md`](../README.md) is the entry point: what the library is,
   requirements, installation, and a short first use.

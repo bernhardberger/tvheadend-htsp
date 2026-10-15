@@ -199,7 +199,8 @@ public data class AddDvrEntryRequest(
 /**
  * Identifies one DVR entry and carries optional channel, configuration, programme text, progress, enablement, timing, retention, priority, and age rating changes.
  *
- * A `null` property is omitted from the wire; the server then keeps the stored value, except for [configName] and [language] as described below.
+ * A `null` property is omitted from the wire; the server then keeps the stored value, except for [configName], [language]
+ * and [ageRating] as described below.
  *
  * @property entryId DVR entry to update (`id`), 0 to 4294967295
  * @property channelId channel to move the entry to (`channelId`), 0 to 4294967295
@@ -212,7 +213,8 @@ public data class AddDvrEntryRequest(
  * @property comment free-text comment (`comment`, v42 or later)
  * @property playCount play count to store (`playcount`), 0 to 4294967295; the server reads values above 2147483647 as an increment and reserves other values for increment, set, reset and keep commands
  * @property priority priority code (`priority`), 0 to 4294967295
- * @property ageRating age rating code (`ageRating`), 0 to 4294967295
+ * @property ageRating age rating code (`ageRating`), 0 to 4294967295; for an upcoming recording the server stores this
+ * value on every update and stores 0, no rating, when it is `null`, so pass the entry's current age rating to keep it
  */
 public data class UpdateDvrEntryRequest(
     public val entryId: Long,

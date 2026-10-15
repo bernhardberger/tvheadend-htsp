@@ -158,19 +158,27 @@ suspend fun upcomingEventCount(
 // endregion
 
 // region resync
+class MetadataSession(val directory: ChannelDirectory, private val collector: Job) {
+    fun stop() = collector.cancel()
+}
+
 suspend fun resync(
     scope: CoroutineScope,
     connection: HtspConnection,
     endpoint: HtspEndpoint,
-): ChannelDirectory? {
+    previous: MetadataSession?,
+): MetadataSession? {
+    previous?.stop()
     val outcome = connection.connect(endpoint, HtspConnectOptions(forceReconnect = true))
     val live = (outcome as? HtspConnectOutcome.Connected)?.connection ?: return null
     val directory = ChannelDirectory(live.generation)
     val collector = scope.collectMetadata(connection, directory)
-    if (syncChannels(connection, live) !is HtspResult.Ok) {
-        collector.cancel()
-        return null
+    var synced = false
+    try {
+        synced = syncChannels(connection, live) is HtspResult.Ok
+    } finally {
+        if (!synced) collector.cancel()
     }
-    return directory
+    return if (synced) MetadataSession(directory, collector) else null
 }
 // endregion
