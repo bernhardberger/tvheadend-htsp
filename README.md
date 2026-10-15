@@ -2,6 +2,7 @@
 
 [![CI](https://github.com/bernhardberger/tvheadend-htsp/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/bernhardberger/tvheadend-htsp/actions/workflows/ci.yml)
 [![Maven Central](https://img.shields.io/maven-central/v/at.bernhardberger.tvheadend/htsp)](https://central.sonatype.com/artifact/at.bernhardberger.tvheadend/htsp)
+[![javadoc](https://javadoc.io/badge2/at.bernhardberger.tvheadend/htsp/javadoc.svg)](https://javadoc.io/doc/at.bernhardberger.tvheadend/htsp)
 [![License: GPLv3](https://img.shields.io/badge/license-GPLv3-blue.svg)](LICENSE)
 
 A Kotlin/JVM client for HTSP, the binary protocol that
@@ -113,6 +114,7 @@ the connection.
 
 ## Reference
 
+- [API reference (KDoc) on javadoc.io](https://javadoc.io/doc/at.bernhardberger.tvheadend/htsp)
 - [API behavior: outcomes, errors, and cancellation](docs/public-api.md)
 - [Versioning and compatibility](docs/versioning.md)
 - [Release policy](docs/releasing.md)
