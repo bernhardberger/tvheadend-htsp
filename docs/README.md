@@ -4,12 +4,15 @@ Guides for people using the library, and references for people working on it.
 
 ## Using the library
 
-- [`guides/connecting.md`](guides/connecting.md): a complete example with
-  failure handling, connection generations, disconnect and close.
-- [`guides/metadata.md`](guides/metadata.md): metadata sync, event buffering,
-  overflow and large EPGs.
+- [`guides/connecting.md`](guides/connecting.md): connecting and
+  authentication, request outcomes and failure handling, generations,
+  reconnecting, disconnect and close.
+- [`guides/metadata.md`](guides/metadata.md): the initial sync, applying
+  add, update and delete messages, overflow and malformed metadata, and large
+  EPGs.
 - [`guides/subscriptions.md`](guides/subscriptions.md): live subscriptions,
-  seeking near the live edge, and packet timestamps.
+  event end states, dropped packets, seeking near the live edge, and packet
+  clocks.
 - [`public-api.md`](public-api.md): how calls report success and failure,
   covering typed outcomes, cancellation, and what error values never carry.
 - [`versioning.md`](versioning.md): the current version, its provisional compatibility status,

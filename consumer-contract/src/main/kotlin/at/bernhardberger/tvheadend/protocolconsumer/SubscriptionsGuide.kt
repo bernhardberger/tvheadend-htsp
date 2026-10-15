@@ -1,0 +1,105 @@
+package at.bernhardberger.tvheadend.protocolconsumer
+
+import at.bernhardberger.tvheadend.htsp.connection.HtspConnection
+import at.bernhardberger.tvheadend.htsp.connection.HtspLiveConnection
+import at.bernhardberger.tvheadend.htsp.connection.HtspResult
+import at.bernhardberger.tvheadend.htsp.connection.HtspSubscriptionEvent
+import at.bernhardberger.tvheadend.htsp.connection.HtspSubscriptionTermination
+import at.bernhardberger.tvheadend.htsp.messages.HtspFrameType
+import at.bernhardberger.tvheadend.htsp.messages.HtspMuxPacketMessage
+import at.bernhardberger.tvheadend.htsp.messages.HtspSubscriptionStartMessage
+import at.bernhardberger.tvheadend.htsp.messages.HtspTimeshiftStatusMessage
+import at.bernhardberger.tvheadend.htsp.requests.SubscriptionTimestampClock
+import at.bernhardberger.tvheadend.htsp.requests.subscribe
+import at.bernhardberger.tvheadend.htsp.requests.subscriptionSkipNearLive
+import at.bernhardberger.tvheadend.htsp.requests.unsubscribe
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.launch
+
+// region stream-handler
+class StreamHandler(
+    private val onStarted: (HtspSubscriptionStartMessage) -> Unit,
+    private val onPacket: (HtspMuxPacketMessage) -> Unit,
+    private val onEnded: (HtspSubscriptionTermination?) -> Unit,
+) {
+    /** The latest timeshift status, which `subscriptionSkipNearLive` needs. */
+    var timeshift: HtspTimeshiftStatusMessage? = null
+        private set
+
+    /** Streams that have had a keyframe since the last start or gap. */
+    private val synced = mutableSetOf<Long>()
+
+    fun handle(event: HtspSubscriptionEvent) {
+        when (event) {
+            is HtspSubscriptionEvent.Started -> {
+                synced.clear()
+                onStarted(event.message)
+            }
+            is HtspSubscriptionEvent.Packet -> {
+                val packet = event.packet
+                if (packet.frameType == HtspFrameType.I) synced += packet.streamIndex
+                val predicted = packet.frameType == HtspFrameType.P || packet.frameType == HtspFrameType.B
+                if (!predicted || packet.streamIndex in synced) onPacket(packet)
+            }
+            is HtspSubscriptionEvent.Dropped -> synced.clear()
+            is HtspSubscriptionEvent.Timeshift -> timeshift = event.message
+            is HtspSubscriptionEvent.Terminated -> onEnded(event.reason)
+            else -> Unit
+        }
+    }
+}
+// endregion
+
+// region subscribe
+suspend fun CoroutineScope.startStream(
+    connection: HtspConnection,
+    live: HtspLiveConnection,
+    subscriptionId: Long,
+    channelId: Long,
+    handler: StreamHandler,
+): Job? {
+    val collector = launch(start = CoroutineStart.UNDISPATCHED) {
+        connection.subscriptionEvents(subscriptionId, live.generation).collect(handler::handle)
+    }
+    val result = connection.subscribe(
+        subscriptionId = subscriptionId,
+        channelId = channelId,
+        timeshiftPeriodSeconds = 3_600L,
+        expectedGeneration = live.generation,
+    )
+    if (result is HtspResult.Ok) return collector
+    if (result is HtspResult.Timeout || result is HtspResult.MalformedReply) {
+        connection.unsubscribe(subscriptionId, expectedGeneration = live.generation)
+    }
+    collector.cancel()
+    return null
+}
+// endregion
+
+// region stop
+suspend fun stopStream(connection: HtspConnection, live: HtspLiveConnection, subscriptionId: Long) {
+    connection.unsubscribe(subscriptionId, expectedGeneration = live.generation)
+}
+// endregion
+
+// region near-live
+suspend fun jumpNearLive(
+    connection: HtspConnection,
+    live: HtspLiveConnection,
+    handler: StreamHandler,
+    ninetyKhz: Boolean,
+): HtspResult<*>? {
+    val status = handler.timeshift ?: return null
+    if (status.start == null || status.end == null) return null
+    val clock = if (ninetyKhz) SubscriptionTimestampClock.NINETY_KHZ else SubscriptionTimestampClock.MICROSECONDS
+    return connection.subscriptionSkipNearLive(
+        status = status,
+        clock = clock,
+        marginSeconds = 5L,
+        expectedGeneration = live.generation,
+    )
+}
+// endregion

@@ -93,12 +93,14 @@ the connection.
 ## Guides
 
 - [Connecting, requests, and the connection lifecycle](docs/guides/connecting.md):
-  a complete example with failure handling, connection generations, disconnect
-  and close.
-- [Metadata sync and event streams](docs/guides/metadata.md): buffering,
-  overflow, and keeping a large EPG sync manageable.
+  authentication, request outcomes and failure handling, generations,
+  reconnecting, disconnect and close.
+- [Metadata sync and event streams](docs/guides/metadata.md): the initial sync,
+  applying add, update and delete messages, overflow and malformed metadata, and
+  large EPG syncs.
 - [Live subscriptions, timeshift, and packets](docs/guides/subscriptions.md):
-  subscribing, seeking near the live edge, and packet timestamps.
+  subscribing, event end states, dropped packets, seeking near the live edge,
+  and packet clocks.
 
 ## Reference
 
