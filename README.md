@@ -5,7 +5,7 @@
 [![javadoc](https://javadoc.io/badge2/at.bernhardberger.tvheadend/htsp/javadoc.svg)](https://javadoc.io/doc/at.bernhardberger.tvheadend/htsp)
 [![License: GPLv3](https://img.shields.io/badge/license-GPLv3-blue.svg)](LICENSE)
 
-A Kotlin/JVM client for HTSP, the binary protocol that
+An unofficial Kotlin/JVM client for HTSP, the binary protocol that
 [Tvheadend](https://github.com/tvheadend/tvheadend) servers use for channels,
 EPG (electronic programme guide) data, DVR (digital video recorder) recordings
 and live streams. You work with typed requests, replies and server messages on
