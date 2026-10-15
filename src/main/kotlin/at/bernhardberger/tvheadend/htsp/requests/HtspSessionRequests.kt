@@ -16,7 +16,13 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.withTimeoutOrNull
 
-/** One stream profile with its stable UUID, display [name], and server [comment]. */
+/**
+ * One stream profile with its stable UUID, display [name], and server [comment].
+ *
+ * @property profileUuid profile identifier (`uuid`)
+ * @property name profile display name (`name`)
+ * @property comment profile description (`comment`)
+ */
 public data class HtspProfile(
     public val profileUuid: String,
     public val name: String,
@@ -26,7 +32,16 @@ public data class HtspProfile(
 /** Explicit successful acknowledgement for an RPC with no method-specific reply fields. */
 public data object HtspEmptyResponse
 
-/** Handshake observations: negotiated version, optional server labels, copied challenge, web root, language, capabilities, and API version. */
+/**
+ * Handshake observations: the server's own protocol version, optional server labels, copied challenge, web root, language, capabilities, and API version.
+ *
+ * @property serverName server program name (`servername`); `null` when absent
+ * @property serverVersion server software version string (`serverversion`); `null` when absent
+ * @property challenge 32-byte server challenge (`challenge`) the client uses to answer `authenticate`
+ * @property webRoot server web root path (`webroot`); `null` when the server has none
+ * @property language server language (`language`); `null` when the server has none
+ * @property apiVersion JSON API version (`api_version`); `null` when absent
+ */
 public class HelloResponse(
     /** HTSP `htspversion`, unitless server protocol version (htsp_server.c:1487). */
     public val protocolVersion: Long,
@@ -38,6 +53,7 @@ public class HelloResponse(
     serverCapabilities: List<String>?,
     public val apiVersion: Long?,
 ) {
+    /** Immutable capability names (`servercapability`); `null` when absent. */
     public val serverCapabilities: List<String>? = serverCapabilities?.immutableSnapshot()
 
     override fun equals(other: Any?): Boolean =
@@ -70,7 +86,21 @@ public class HelloResponse(
             "language=$language, serverCapabilities=$serverCapabilities, apiVersion=$apiVersion)"
 }
 
-/** Authentication access observations and limits; each nullable property was absent or malformed when null. */
+/**
+ * Authentication access observations and limits; each nullable property was absent or malformed when null.
+ *
+ * @property noAccess whether the account has no HTSP access (`noaccess`); when true the server sends no other field
+ * @property admin whether the account has administrator access (`admin`)
+ * @property streaming whether the account has streaming access (`streaming`)
+ * @property dvr whether the account has DVR access (`dvr`)
+ * @property failedDvr whether the account can access failed recordings (`faileddvr`)
+ * @property anonymous whether the server anonymizes this account's HTSP access (`anonymous`)
+ * @property limitAll maximum connections for the account (`limitall`); zero means no limit
+ * @property limitDvr maximum recordings for the account (`limitdvr`); zero means no limit
+ * @property limitStreaming maximum streaming connections for the account (`limitstreaming`); zero means no limit
+ * @property uiLevel web interface level (`uilevel`): 0 basic, 1 advanced, 2 expert
+ * @property uiLanguage web interface language (`uilanguage`); empty when the server has none configured
+ */
 public data class AuthenticateResponse(
     public val noAccess: Boolean?,
     public val admin: Boolean?,
@@ -85,17 +115,32 @@ public data class AuthenticateResponse(
     public val uiLanguage: String?,
 )
 
-/** Contains the optional ordered stream-profile list returned by `getProfiles`. */
+/**
+ * Contains the optional ordered stream-profile list returned by `getProfiles`.
+ *
+ * @property profiles profiles available to the account, in server order (`profiles`); `null` when absent
+ */
 public data class GetProfilesResponse(public val profiles: List<HtspProfile>?)
 
-/** Contains free and total recording bytes plus the optional used-byte counter. */
+/**
+ * Contains free and total recording bytes plus the optional used-byte counter.
+ *
+ * @property freeBytes free space on the recording storage, in bytes (`freediskspace`)
+ * @property usedBytes used space on the recording storage, in bytes (`useddiskspace`); `null` when absent
+ * @property totalBytes total size of the recording storage, in bytes (`totaldiskspace`)
+ */
 public data class GetDiskSpaceResponse(
     public val freeBytes: Long,
     public val usedBytes: Long?,
     public val totalBytes: Long,
 )
 
-/** Contains Unix time, the legacy hours-west timezone value, and an optional GMT offset in minutes. */
+/**
+ * Contains Unix time, the legacy hours-west timezone value, and an optional GMT offset in minutes.
+ *
+ * @property legacyTimezoneHoursWestOfGmt server timezone in whole hours west of GMT (`timezone`); positive west, negative east
+ * @property gmtOffsetMinutes server offset from GMT in minutes (`gmtoffset`); positive east, `null` when absent
+ */
 public data class GetSysTimeResponse(
     /** HTSP `time`, epoch seconds from `timeval.tv_sec` (htsp_server.c:1636). */
     public val timeEpochSeconds: Long,
@@ -103,7 +148,11 @@ public data class GetSysTimeResponse(
     public val gmtOffsetMinutes: Int?,
 )
 
-/** Carries the requested unsigned HTSP version and exact client name for the `hello` exchange. */
+/**
+ * Carries the requested unsigned HTSP version and exact client name for the `hello` exchange.
+ *
+ * @property clientName name the server logs and records for this client (`clientname`)
+ */
 public data class HelloRequest(
     /** HTSP `htspversion`, unitless requested protocol version; at least [MINIMUM_HTSP_PROTOCOL_VERSION] (htsp_server.c:1474). */
     public val protocolVersion: Long,
@@ -149,7 +198,11 @@ public class GetSysTimeRequest : HtspRequest<GetSysTimeResponse>(
     minimumProtocolVersion = 3,
 )
 
-/** Selects asynchronous metadata options: EPG inclusion, update frontier, EPG maximum time, and language; null omits each field. */
+/**
+ * Selects asynchronous metadata options: EPG inclusion, update frontier, EPG maximum time, and language; null omits each field.
+ *
+ * @property language language for localized text (`language`); `null` omits it and keeps the connection's current language, an empty string clears it
+ */
 public data class EnableAsyncMetadataRequest(
     /** HTSP `epg`: 0/1 metadata flag; null preserves server state (pinned htsp_server.c:1660-1661). */
     public val epg: Boolean? = null,

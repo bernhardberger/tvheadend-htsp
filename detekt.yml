@@ -8,3 +8,5 @@ comments:
     ignoreDefaultCompanionObject: true
   UndocumentedPublicFunction:
     active: true
+  UndocumentedPublicProperty:
+    active: true
