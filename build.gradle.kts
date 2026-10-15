@@ -42,6 +42,18 @@ check(
     "Publication version must be X.Y.Z or X.Y.Z-(alpha|beta|rc).N, optionally -SNAPSHOT: $version"
 }
 
+// Opt-in local consumer verification of unreleased changes; never a release version.
+val candidateVersion = providers.gradleProperty("htspCandidateVersion").orNull?.also { candidate ->
+    require(
+        Regex("[0-9]+\\.[0-9]+\\.[0-9]+(-(alpha|beta|rc)\\.[1-9][0-9]*)?-[A-Za-z0-9.-]+-SNAPSHOT")
+            .matches(candidate),
+    ) {
+        "htspCandidateVersion must be a uniquely named snapshot candidate: $candidate"
+    }
+    version = candidate
+}
+val stagedPublicationVersions = allowedPublicationVersions + listOfNotNull(candidateVersion)
+
 kotlin {
     jvmToolchain(21)
     explicitApi()
@@ -205,7 +217,9 @@ tasks.named<Jar>("javadocJar") {
     }
 }
 
-val checkoutLocalMavenRepository = layout.buildDirectory.dir("local-maven")
+// Candidates stage apart so the release-checked repository only ever holds the configured version.
+val checkoutLocalMavenRepository =
+    layout.buildDirectory.dir(if (candidateVersion == null) "local-maven" else "candidate-maven")
 
 publishing {
     publications {
@@ -268,7 +282,7 @@ val writePublicationChecksums = tasks.register("writePublicationChecksums") {
     description = "Writes SHA-256 sidecars for the five staged HTSP publication artifacts."
     dependsOn("publishHtspPublicationToCheckoutLocalRepository")
     inputs.property("publicationVersion", publicationVersion)
-    inputs.property("allowedPublicationVersions", allowedPublicationVersions.toList())
+    inputs.property("allowedPublicationVersions", stagedPublicationVersions.toList())
     inputs.property(
         "publicationVersionDirectory",
         publicationVersionDirectory.map { directory -> directory.asFile.absolutePath },

@@ -18,6 +18,18 @@ The configured version is `X.Y.Z` or a pre-release `X.Y.Z-alpha.N`,
 the version. `-SNAPSHOT` versions only stage locally and are never published.
 Maven and Gradle order these as alpha < beta < rc < release.
 
+To try unreleased changes in a downstream consumer, stage one uniquely named
+candidate without changing the configured version:
+
+```bash
+./gradlew -PhtspCandidateVersion=1.0.0-beta.2-entity-model-SNAPSHOT stageLocalPublication
+```
+
+The candidate lands in `build/candidate-maven`, apart from the release-checked
+`build/local-maven`, and consumers must pin that exact version. The property accepts only named `-SNAPSHOT` versions. The release
+tooling reads the configured version and ignores the property, so a candidate
+cannot be tagged or published.
+
 | Version | GitHub release |
 |---|---|
 | `0.Y.Z` | Prerelease; the major-zero line stays provisional |
