@@ -75,8 +75,9 @@ separate documentation site or toolchain.
   `// region name` and `// endregion`; `DocumentationSnippetTest` fails when
   the block and the fixture differ.
 - KDoc on public declarations is the API reference. detekt fails `check` on
-  undocumented public classes and functions, and
-  `./tools/verify dokkaGeneratePublicationHtml` renders it to
+  undocumented public classes, functions and properties. The module and package
+  introductions live in [`dokka/module.md`](dokka/module.md).
+  `./tools/verify dokkaGeneratePublicationHtml` renders both to
   `build/dokka/html` for review; the same output ships as the javadoc jar.
 
 Check every claim against the code and tests in the same change; documentation

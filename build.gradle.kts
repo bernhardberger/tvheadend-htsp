@@ -24,6 +24,9 @@ dokka {
     dokkaPublications.html {
         moduleName.set("TVHeadend HTSP for Kotlin/JVM")
     }
+    dokkaSourceSets.configureEach {
+        includes.from("docs/dokka/module.md")
+    }
 }
 
 group = "at.bernhardberger.tvheadend"
