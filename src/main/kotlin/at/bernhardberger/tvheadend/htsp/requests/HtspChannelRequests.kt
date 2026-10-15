@@ -4,9 +4,17 @@ import at.bernhardberger.tvheadend.htsp.connection.*
 import at.bernhardberger.tvheadend.htsp.model.HtspChannel
 import at.bernhardberger.tvheadend.htsp.wire.*
 
-/** Contains the complete channel selected by `getChannel`. */
+/**
+ * Contains the complete channel selected by `getChannel`.
+ *
+ * @property channel channel for the requested identifier
+ */
 public data class GetChannelResponse(public val channel: HtspChannel)
-/** Selects one channel by complete unsigned [channelId]. */
+/**
+ * Selects one channel by complete unsigned [channelId].
+ *
+ * @property channelId channel to fetch (`channelId`), 0 to 4294967295
+ */
 public data class GetChannelRequest(public val channelId: Long) : HtspRequest<GetChannelResponse>(
     method = "getChannel",
     access = HtspAccess.ACCESS_HTSP_STREAMING,

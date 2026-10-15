@@ -6,17 +6,33 @@ import at.bernhardberger.tvheadend.htsp.connection.*
 import at.bernhardberger.tvheadend.htsp.model.*
 import at.bernhardberger.tvheadend.htsp.wire.*
 
-/** Contains the complete EPG event selected by `getEvent`. */
+/**
+ * Contains the complete EPG event selected by `getEvent`.
+ *
+ * @property event event for the requested identifier
+ */
 public data class GetEventResponse(public val event: HtspEvent)
 
-/** Contains the ordered finite event list selected by `getEvents`. */
+/**
+ * Contains the ordered finite event list selected by `getEvents`.
+ *
+ * @property events events in server order (`events`)
+ */
 public data class GetEventsResponse(public val events: List<HtspEvent>)
 
 /** Closed `epgQuery` reply family containing either event identifiers or complete event values. */
 public sealed interface EpgQueryResponse {
-    /** Contains only the event identifiers returned by a summary EPG query. */
+    /**
+     * Contains only the event identifiers returned by a summary EPG query.
+     *
+     * @property eventIds identifiers of the matching events in server order (`eventIds`)
+     */
     public data class EventIds(public val eventIds: List<Long>) : EpgQueryResponse
-    /** Contains complete typed events returned by a detailed EPG query. */
+    /**
+     * Contains complete typed events returned by a detailed EPG query.
+     *
+     * @property events matching events in server order (`events`)
+     */
     public data class Events(public val events: List<HtspEvent>) : EpgQueryResponse
 }
 
@@ -26,10 +42,23 @@ public sealed interface EpgQueryResponse {
  * Minor releases may add entries; keep an `else` branch when matching.
  */
 public enum class HtspEpgObjectType {
+    /** Broadcast record, sent as `type` 1. */
     BROADCAST,
 }
 
-/** Optional episode numbering with episode, season, and part values, totals, and display text. */
+/**
+ * Optional episode numbering with episode, season, and part values, totals, and display text.
+ *
+ * Every property is `null` when the server omits it; the server omits zero values, and the decoder rejects a value with no property set.
+ *
+ * @property episodeNumber episode ordinal (`enum`)
+ * @property episodeCount number of episodes (`ecnt`)
+ * @property seasonNumber season ordinal (`snum`)
+ * @property seasonCount number of seasons (`scnt`)
+ * @property partNumber part ordinal (`pnum`)
+ * @property partCount number of parts (`pcnt`)
+ * @property text display text for the numbering (`text`)
+ */
 public data class HtspEpgEpisodeNumber(
     public val episodeNumber: Long?,
     public val episodeCount: Long?,
@@ -40,7 +69,41 @@ public data class HtspEpgEpisodeNumber(
     public val text: String?,
 )
 
-/** Bounded detailed broadcast record with timing, identity, flags, ratings, localized text, numbering, genres, links, and programme credits. */
+/**
+ * Bounded detailed broadcast record with timing, identity, flags, ratings, localized text, numbering, genres, links, and programme credits.
+ *
+ * A `null` property is one the server omitted, which it does for unset and zero values. A `false` flag is one the server omitted.
+ *
+ * @property id broadcast identifier (`id`), the value [GetEventRequest.eventId] selects
+ * @property grabber identifier of the EPG grabber module that supplied the record (`gr`)
+ * @property channelUuid UUID of the broadcast's channel (`ch`)
+ * @property eventId DVB event identifier (`eid`)
+ * @property externalEventId XMLTV event identifier (`xeid`)
+ * @property widescreen whether the broadcast is flagged widescreen (`is_wd`)
+ * @property highDefinition whether the broadcast is flagged high definition (`is_hd`)
+ * @property blackAndWhite whether the broadcast is flagged black and white (`is_bw`)
+ * @property deafSigned whether the broadcast is flagged as signed for deaf viewers (`is_de`)
+ * @property subtitled whether the broadcast is flagged as subtitled (`is_st`)
+ * @property audioDescribed whether the broadcast is flagged as audio described (`is_ad`)
+ * @property isNew whether the broadcast is flagged as new (`is_n`)
+ * @property isRepeat whether the broadcast is flagged as a repeat (`is_r`)
+ * @property lines video resolution in lines (`lines`), such as 576 or 1080
+ * @property aspectRatio aspect ratio multiplied by 100 (`aspect`), such as 178 for 16:9
+ * @property starRating star rating (`star`)
+ * @property ageRating age rating (`age`)
+ * @property image image URI (`img`)
+ * @property titles titles keyed by language (`tit`)
+ * @property subtitles subtitles keyed by language (`sti`)
+ * @property summaries summaries keyed by language (`sum`)
+ * @property descriptions descriptions keyed by language (`des`)
+ * @property episodeNumber episode numbering (`epn`)
+ * @property genres genre content codes in server order (`genre`)
+ * @property copyrightYear copyright year (`cyear`)
+ * @property categories category strings, sorted and unique (`cat`)
+ * @property keywords keyword strings, sorted and unique (`key`)
+ * @property seriesLinkUri series-link URI (`slink`)
+ * @property episodeLinkUri episode-link URI (`elink`)
+ */
 public data class HtspEpgBroadcastObject(
     public val id: Long,
     /** HTSP `up`, last-update epoch seconds. */
@@ -85,9 +148,18 @@ public data class HtspEpgBroadcastObject(
     public val credits: HtspProgrammeCredits? = null,
 )
 
-/** Contains the detailed broadcast selected by `getEpgObject`. */
+/**
+ * Contains the detailed broadcast selected by `getEpgObject`.
+ *
+ * @property broadcast broadcast record for the requested identifier
+ */
 public data class GetEpgObjectResponse(public val broadcast: HtspEpgBroadcastObject)
-/** Selects one event by complete unsigned [eventId] and optional response [language]. */
+/**
+ * Selects one event by complete unsigned [eventId] and optional response [language].
+ *
+ * @property eventId event to fetch (`eventId`), 0 to 4294967295
+ * @property language language of the localized text (`language`); `null` omits it and the server uses the connection's language
+ */
 public data class GetEventRequest(
     public val eventId: Long,
     public val language: String? = null,
@@ -101,7 +173,16 @@ public data class GetEventRequest(
     }
 }
 
-/** Selects an event set by optional channel or event ID, language, following count, and maximum Unix time. */
+/**
+ * Selects an event set by optional channel or event ID, language, following count, and maximum Unix time.
+ *
+ * With neither [channelId] nor [eventId] the server lists the schedule of every channel the account can access.
+ *
+ * @property channelId channel to list from, starting at its current event or, without one, its next event (`channelId`), 0 to 4294967295
+ * @property eventId event to start the list at (`eventId`), 0 to 4294967295; takes precedence over [channelId] as the starting point
+ * @property language language of the localized text (`language`); `null` omits it and the server uses the connection's language
+ * @property numFollowing number of events to return per channel, counting the first (`numFollowing`), 0 to 4294967295; `null` or 0 sets no limit
+ */
 public data class GetEventsRequest(
     public val channelId: Long? = null,
     public val eventId: Long? = null,
@@ -123,7 +204,21 @@ public data class GetEventsRequest(
     }
 }
 
-/** Carries required search [query] plus optional channel, tag, content, language, text-mode, detail, and duration filters. */
+/**
+ * Carries required search [query] plus optional channel, tag, content, language, text-mode, detail, and duration filters.
+ *
+ * A `null` filter is omitted from the wire and the server then applies no such filter.
+ *
+ * @property query case-insensitive regular expression to match (`query`); it matches titles unless [fullText] or [mergeText] widens the search
+ * @property channelId channel to search (`channelId`), 0 to 4294967295; `null` searches all channels the account can access
+ * @property tagId channel tag to search (`tagId`), 0 to 4294967295
+ * @property contentType genre content code to match (`contentType`), 0 to 4294967295
+ * @property language language of the searched and returned text (`language`); `null` uses the connection's language
+ * @property fullText whether [query] also matches subtitle, summary, description, credits and keywords (`fulltext`); `null` is treated as `false`
+ * @property mergeText whether [query] matches one string merged from the event's text fields (`mergetext`); takes priority over [fullText], and `null` is treated as `false`
+ * @property minDurationSeconds shortest event duration to include, in seconds (`minduration`), 0 to 4294967295
+ * @property maxDurationSeconds longest event duration to include, in seconds (`maxduration`), 0 to 4294967295
+ */
 public data class EpgQueryRequest(
     public val query: String,
     public val channelId: Long? = null,
@@ -154,7 +249,12 @@ public data class EpgQueryRequest(
     }
 }
 
-/** Selects a detailed EPG object by unsigned [id] and optional [objectType]. */
+/**
+ * Selects a detailed EPG object by unsigned [id] and [objectType].
+ *
+ * @property id identifier of the object (`id`), 0 to 4294967295
+ * @property objectType type of the object (`type`); `null` omits it and the pinned server then answers with an error
+ */
 public data class GetEpgObjectRequest(
     public val id: Long,
     public val objectType: HtspEpgObjectType? = HtspEpgObjectType.BROADCAST,
