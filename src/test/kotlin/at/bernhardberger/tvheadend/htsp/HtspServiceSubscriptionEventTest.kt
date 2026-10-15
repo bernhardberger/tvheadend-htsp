@@ -1485,7 +1485,7 @@ internal class HtspServiceSubscriptionEventTest : HtspServiceLifecycleFixture() 
                     events.last(),
                 )
                 assertEquals(
-                    73L,
+                    HtspFrameType.I,
                     (events[2] as HtspSubscriptionEvent.Packet).packet.frameType,
                 )
                 service.close()

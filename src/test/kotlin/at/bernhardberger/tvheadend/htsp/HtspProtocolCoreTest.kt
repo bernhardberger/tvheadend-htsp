@@ -244,7 +244,7 @@ class HtspProtocolCoreTest {
             linkedMapOf("id" to 0xffff_ffffL),
             HtspRequestCodecs.encode(FileCloseRequest(0xffff_ffffL)),
         )
-        assertEquals(8, FileCloseRequest(0L).minimumProtocolVersion)
+        assertEquals(8L, FileCloseRequest(0L).minimumProtocolVersion)
         assertEquals(
             linkedMapOf("id" to 1L, "playposition" to 0L),
             HtspRequestCodecs.encode(FileCloseRequest(1L, playPositionSeconds = 0L)),
@@ -267,8 +267,8 @@ class HtspProtocolCoreTest {
                 ),
             ),
         )
-        assertEquals(27, FileCloseRequest(0L, playPositionSeconds = 0L).minimumProtocolVersion)
-        assertEquals(27, FileCloseRequest(0L, playCount = 0L).minimumProtocolVersion)
+        assertEquals(27L, FileCloseRequest(0L, playPositionSeconds = 0L).minimumProtocolVersion)
+        assertEquals(27L, FileCloseRequest(0L, playCount = 0L).minimumProtocolVersion)
         assertEquals(
             linkedMapOf("id" to 0L, "offset" to Long.MIN_VALUE),
             HtspRequestCodecs.encode(FileSeekRequest(0L, offsetBytes = Long.MIN_VALUE)),
@@ -1299,14 +1299,14 @@ class HtspProtocolCoreTest {
             ),
             HtspRequestCodecs.encode(autorec),
         )
-        assertEquals(42, autorec.minimumProtocolVersion)
-        assertEquals(25, AddAutorecEntryRequest("x", HtspRecordingRuleChannel.Any).minimumProtocolVersion)
-        assertEquals(13, AddAutorecEntryRequest("x", HtspRecordingRuleChannel.Id(1L)).minimumProtocolVersion)
-        assertEquals(18, AddAutorecEntryRequest("x", name = "").minimumProtocolVersion)
-        assertEquals(19, AddAutorecEntryRequest("x", enabled = true).minimumProtocolVersion)
-        assertEquals(20, AddAutorecEntryRequest("x", fullText = false).minimumProtocolVersion)
-        assertEquals(39, UpdateAutorecEntryRequest("x", HtspRecordingRuleChannel.Any, broadcastType = 0L).minimumProtocolVersion)
-        assertEquals(42, UpdateAutorecEntryRequest("x", HtspRecordingRuleChannel.Any, comment = "").minimumProtocolVersion)
+        assertEquals(42L, autorec.minimumProtocolVersion)
+        assertEquals(25L, AddAutorecEntryRequest("x", HtspRecordingRuleChannel.Any).minimumProtocolVersion)
+        assertEquals(13L, AddAutorecEntryRequest("x", HtspRecordingRuleChannel.Id(1L)).minimumProtocolVersion)
+        assertEquals(18L, AddAutorecEntryRequest("x", name = "").minimumProtocolVersion)
+        assertEquals(19L, AddAutorecEntryRequest("x", enabled = true).minimumProtocolVersion)
+        assertEquals(20L, AddAutorecEntryRequest("x", fullText = false).minimumProtocolVersion)
+        assertEquals(39L, UpdateAutorecEntryRequest("x", HtspRecordingRuleChannel.Any, broadcastType = 0L).minimumProtocolVersion)
+        assertEquals(42L, UpdateAutorecEntryRequest("x", HtspRecordingRuleChannel.Any, comment = "").minimumProtocolVersion)
 
         assertEquals(
             linkedMapOf(
@@ -1328,8 +1328,8 @@ class HtspProtocolCoreTest {
                 AddTimerecEntryRequest(
                     title = "timed",
                     channel = HtspRecordingRuleChannel.Any,
-                    startMinutesSinceMidnight = 1439L,
-                    stopMinutesSinceMidnight = 0L,
+                    startMinutesSinceMidnight = 1439,
+                    stopMinutesSinceMidnight = 0,
                     enabled = true,
                     retentionDays = 0xffff_ffffL,
                     removalDays = 0L,
@@ -1342,10 +1342,10 @@ class HtspProtocolCoreTest {
                 ),
             ),
         )
-        assertEquals(18, AddTimerecEntryRequest("x").minimumProtocolVersion)
-        assertEquals(19, AddTimerecEntryRequest("x", directory = "").minimumProtocolVersion)
-        assertEquals(25, UpdateTimerecEntryRequest("x", HtspRecordingRuleChannel.Any).minimumProtocolVersion)
-        assertEquals(42, UpdateTimerecEntryRequest("x", HtspRecordingRuleChannel.Any, comment = "").minimumProtocolVersion)
+        assertEquals(18L, AddTimerecEntryRequest("x").minimumProtocolVersion)
+        assertEquals(19L, AddTimerecEntryRequest("x", directory = "").minimumProtocolVersion)
+        assertEquals(25L, UpdateTimerecEntryRequest("x", HtspRecordingRuleChannel.Any).minimumProtocolVersion)
+        assertEquals(42L, UpdateTimerecEntryRequest("x", HtspRecordingRuleChannel.Any, comment = "").minimumProtocolVersion)
 
         listOf<() -> Unit>(
             { HtspRecordingRuleChannel.Id(-1L) },
@@ -1359,8 +1359,8 @@ class HtspProtocolCoreTest {
             { AddAutorecEntryRequest("x", removalDays = -1L) },
             { AddAutorecEntryRequest("x", priority = 0x1_0000_0000L) },
             { AddAutorecEntryRequest("x", daysOfWeekMask = -1L) },
-            { AddTimerecEntryRequest("x", startMinutesSinceMidnight = -1L) },
-            { AddTimerecEntryRequest("x", stopMinutesSinceMidnight = 0x1_0000_0000L) },
+            { AddTimerecEntryRequest("x", startMinutesSinceMidnight = -1) },
+            { AddTimerecEntryRequest("x", stopMinutesSinceMidnight = Int.MAX_VALUE) },
         ).forEach(::assertIllegalArgument)
     }
 
@@ -1437,7 +1437,7 @@ class HtspProtocolCoreTest {
                 ),
             ),
         )
-        assertEquals(6, EnableAsyncMetadataRequest(epg = false).minimumProtocolVersion)
+        assertEquals(6L, EnableAsyncMetadataRequest(epg = false).minimumProtocolVersion)
 
         val transport = FakeProtocolTransport(version = 5).apply {
             reply = HtspWireReply(linkedMapOf())
@@ -1454,7 +1454,7 @@ class HtspProtocolCoreTest {
             linkedMapOf("query" to ""),
             HtspRequestCodecs.encode(EpgQueryRequest(query = "")),
         )
-        assertEquals(4, EpgQueryRequest(query = "").minimumProtocolVersion)
+        assertEquals(4L, EpgQueryRequest(query = "").minimumProtocolVersion)
         assertEquals(
             linkedMapOf(
                 "query" to "needle",
@@ -1483,10 +1483,10 @@ class HtspProtocolCoreTest {
                 ),
             ),
         )
-        assertEquals(4, EpgQueryRequest("q", fullText = false, mergeText = true, full = true).minimumProtocolVersion)
-        assertEquals(6, EpgQueryRequest("q", language = "").minimumProtocolVersion)
-        assertEquals(13, EpgQueryRequest("q", minDurationSeconds = 0L).minimumProtocolVersion)
-        assertEquals(13, EpgQueryRequest("q", maxDurationSeconds = 0L, language = "").minimumProtocolVersion)
+        assertEquals(4L, EpgQueryRequest("q", fullText = false, mergeText = true, full = true).minimumProtocolVersion)
+        assertEquals(6L, EpgQueryRequest("q", language = "").minimumProtocolVersion)
+        assertEquals(13L, EpgQueryRequest("q", minDurationSeconds = 0L).minimumProtocolVersion)
+        assertEquals(13L, EpgQueryRequest("q", maxDurationSeconds = 0L, language = "").minimumProtocolVersion)
 
         val invalidU32Requests = listOf<() -> Unit>(
             { EpgQueryRequest("q", channelId = -1L) },
@@ -2169,7 +2169,7 @@ class HtspProtocolCoreTest {
     )
 
     private class FakeProtocolTransport(
-        var version: Int?,
+        var version: Long?,
     ) : HtspRequestTransport {
         private var current = capturedGeneration(version)
         var dispatches: Int = 0
@@ -2212,7 +2212,7 @@ class HtspProtocolCoreTest {
             current = capturedGeneration(version)
         }
 
-        private fun capturedGeneration(version: Int?): HtspCapturedGeneration =
+        private fun capturedGeneration(version: Long?): HtspCapturedGeneration =
             HtspCapturedGeneration(
                 token = HtspConnectionGeneration(),
                 protocolVersion = version,

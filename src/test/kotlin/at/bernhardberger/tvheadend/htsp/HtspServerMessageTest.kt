@@ -591,7 +591,7 @@ class HtspServerMessageTest {
         assertTrue(
             dispatchClass.declaredMethods.any { method ->
                 method.name == "decodeHtspServerMessage" &&
-                    method.parameterTypes.contentEquals(arrayOf(Map::class.java, Int::class.javaPrimitiveType))
+                    method.parameterTypes.contentEquals(arrayOf(Map::class.java, Long::class.javaPrimitiveType))
             },
             "The internal decoder remains available to production dispatch",
         )
@@ -928,7 +928,8 @@ class HtspServerMessageTest {
 
     @Test
     fun muxPacketFrameTypesMatchVideoAsciiAndMissingSentinelExactly() {
-        listOf(-1L to -1L, 0L to -1L, 66L to 66L, 73L to 73L, 80L to 80L)
+        listOf(-1L to HtspFrameType.UNKNOWN, 0L to HtspFrameType.UNKNOWN,
+            66L to HtspFrameType.B, 73L to HtspFrameType.I, 80L to HtspFrameType.P)
             .forEach { (wireFrameType, expectedFrameType) ->
                 val packet = decodeMessage(
                     minimalFixture("muxpkt") + ("frametype" to wireFrameType),
@@ -936,34 +937,13 @@ class HtspServerMessageTest {
                 assertEquals(expectedFrameType, packet.frameType)
             }
         val missing = decodeMessage(minimalFixture("muxpkt") - "frametype") as HtspMuxPacketMessage
-        assertEquals(-1L, missing.frameType)
+        assertEquals(HtspFrameType.UNKNOWN, missing.frameType)
 
         listOf(Long.MIN_VALUE, -2L, 1L, 65L, 67L, 72L, 74L, 79L, 81L, Long.MAX_VALUE)
             .forEach { frameType ->
                 assertMalformed(minimalFixture("muxpkt") + ("frametype" to frameType))
-                assertThrows(IllegalArgumentException::class.java) {
-                    HtspMuxPacketMessage(
-                        subscriptionId = 1L,
-                        frameType = frameType,
-                        streamIndex = 0L,
-                        decodingTimeUs = null,
-                        presentationTimeUs = null,
-                        durationUs = 0L,
-                        payload = HtspBinary(byteArrayOf()),
-                    )
-                }
             }
-        assertThrows(IllegalArgumentException::class.java) {
-            HtspMuxPacketMessage(
-                subscriptionId = 1L,
-                frameType = 0L,
-                streamIndex = 0L,
-                decodingTimeUs = null,
-                presentationTimeUs = null,
-                durationUs = 0L,
-                payload = HtspBinary(byteArrayOf()),
-            )
-        }
+        assertMalformed(minimalFixture("muxpkt") + ("frametype" to "I"))
         assertMalformed(minimalFixture("muxpkt") + ("frametype" to null))
     }
 
@@ -1196,7 +1176,7 @@ class HtspServerMessageTest {
         }
     }
 
-    private fun decodeMessage(fields: Map<String, Any?>, protocolVersion: Int = 44): HtspServerMessage {
+    private fun decodeMessage(fields: Map<String, Any?>, protocolVersion: Long = 44): HtspServerMessage {
         return when (val result = decodeHtspServerMessage(fields, protocolVersion)) {
             is HtspServerMessageDecoded -> result.message
             else -> throw AssertionError("expected decoded but was $result")

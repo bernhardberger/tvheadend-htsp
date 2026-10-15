@@ -254,7 +254,7 @@ class HtspApiBridgeTest {
         assertEquals(39, typedHtspRequestCatalog.size)
         assertEquals("api", typedHtspRequestCatalog.single { it.method == "api" }.method)
         assertEquals(HtspAccess.ACCESS_ANONYMOUS, ApiRequest("").access)
-        assertEquals(24, ApiRequest("").minimumProtocolVersion)
+        assertEquals(24L, ApiRequest("").minimumProtocolVersion)
     }
 
     private fun codecRoundTrip(method: String, fields: Map<String, Any?>): Map<String, Any?> {
@@ -287,7 +287,7 @@ class HtspApiBridgeTest {
     }.toByteArray()
 
     private class FakeApiTransport(
-        private val version: Int,
+        private val version: Long,
         var reply: HtspWireReply,
     ) : HtspRequestTransport {
         private val generation = HtspCapturedGeneration(

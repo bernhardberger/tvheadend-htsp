@@ -23,13 +23,43 @@ import java.security.MessageDigest
 internal class HtspServiceHandshakeFactsTest : HtspServiceLifecycleFixture() {
 
     @Test
+    fun protocolVersionsCoverTheU32DomainWithoutNarrowing() {
+        assertEquals(44L, HtspConnectOptions().requestedProtocolVersion)
+        val maximum = 0xffff_ffffL
+        assertEquals(maximum, HtspConnectOptions(requestedProtocolVersion = maximum).requestedProtocolVersion)
+        assertEquals(maximum, HtspConnectOptions().copy(requestedProtocolVersion = maximum).requestedProtocolVersion)
+        listOf(Long.MIN_VALUE, -1L, 0L, 35L, maximum + 1, Long.MAX_VALUE).forEach { invalid ->
+            assertThrows(IllegalArgumentException::class.java) { HtspConnectOptions(requestedProtocolVersion = invalid) }
+            assertThrows(IllegalArgumentException::class.java) { HtspConnectOptions().copy(requestedProtocolVersion = invalid) }
+        }
+    }
+
+    @Test
+    fun serverFactsSnapshotCapabilitiesOnConstructionAndCopy() {
+        val source = mutableListOf("epg")
+        val facts = HtspServerFacts(serverCapabilities = source)
+        source += "timeshift"
+        assertEquals(listOf("epg"), facts.serverCapabilities)
+        val replacement = mutableListOf("dvr")
+        val copied = facts.copy(serverCapabilities = replacement)
+        replacement.clear()
+        assertEquals(listOf("dvr"), copied.serverCapabilities)
+        assertEquals(listOf("epg"), facts.copy().serverCapabilities)
+        assertThrows(UnsupportedOperationException::class.java) {
+            (copied.serverCapabilities as MutableList<String>).add("mutated")
+        }
+        assertNull(HtspServerFacts().serverCapabilities)
+        assertNull(copied.copy(serverCapabilities = null).serverCapabilities)
+    }
+
+    @Test
     fun requestedProtocolVersionHonorsFloorOnConstructionAndCopy() {
-        assertEquals(36, MINIMUM_HTSP_PROTOCOL_VERSION)
+        assertEquals(36L, MINIMUM_HTSP_PROTOCOL_VERSION)
         assertThrows(IllegalArgumentException::class.java) {
             HtspConnectOptions(requestedProtocolVersion = 35)
         }
         val options = HtspConnectOptions(requestedProtocolVersion = 36)
-        assertEquals(36, options.requestedProtocolVersion)
+        assertEquals(36L, options.requestedProtocolVersion)
         assertEquals(options, HtspConnectOptions().copy(requestedProtocolVersion = 36))
         assertThrows(IllegalArgumentException::class.java) {
             options.copy(requestedProtocolVersion = 35)
@@ -87,7 +117,7 @@ internal class HtspServiceHandshakeFactsTest : HtspServiceLifecycleFixture() {
                     HtspEndpoint("127.0.0.1", server.port, "viewer", "secret"),
                     HtspConnectOptions(responseTimeoutMs = 1_000),
                 ) as HtspConnectOutcome.Connected
-                assertEquals(36, outcome.connection.protocolVersion)
+                assertEquals(36L, outcome.connection.protocolVersion)
                 assertEquals(listOf("hello", "authenticate"), server.handshakeMethods)
                 assertEquals("viewer", server.handshakeFields["authenticate"]?.get("username"))
                 assertNotNull(server.handshakeFields["authenticate"]?.get("digest"))

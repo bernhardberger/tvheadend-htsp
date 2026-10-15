@@ -171,7 +171,7 @@ internal class HtspSubscriptionEventBufferTest {
         HtspSubscriptionEvent.Packet(
             HtspMuxPacketMessage(
                 subscriptionId = 1L,
-                frameType = 73L,
+                frameType = at.bernhardberger.tvheadend.htsp.messages.HtspFrameType.I,
                 streamIndex = 0L,
                 decodingTimeUs = null,
                 presentationTimeUs = null,

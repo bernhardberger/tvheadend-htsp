@@ -18,20 +18,20 @@ public final class at/bernhardberger/tvheadend/htsp/connection/HtspClientIdentit
 
 public final class at/bernhardberger/tvheadend/htsp/connection/HtspConnectOptions {
 	public fun <init> ()V
-	public fun <init> (JJJIIZ)V
-	public synthetic fun <init> (JJJIIZILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (JJJIJZ)V
+	public synthetic fun <init> (JJJIJZILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public final fun component1 ()J
 	public final fun component2 ()J
 	public final fun component3 ()J
 	public final fun component4 ()I
-	public final fun component5 ()I
+	public final fun component5 ()J
 	public final fun component6 ()Z
-	public final fun copy (JJJIIZ)Lat/bernhardberger/tvheadend/htsp/connection/HtspConnectOptions;
-	public static synthetic fun copy$default (Lat/bernhardberger/tvheadend/htsp/connection/HtspConnectOptions;JJJIIZILjava/lang/Object;)Lat/bernhardberger/tvheadend/htsp/connection/HtspConnectOptions;
+	public final fun copy (JJJIJZ)Lat/bernhardberger/tvheadend/htsp/connection/HtspConnectOptions;
+	public static synthetic fun copy$default (Lat/bernhardberger/tvheadend/htsp/connection/HtspConnectOptions;JJJIJZILjava/lang/Object;)Lat/bernhardberger/tvheadend/htsp/connection/HtspConnectOptions;
 	public fun equals (Ljava/lang/Object;)Z
 	public final fun getConnectTimeoutMs ()J
 	public final fun getForceReconnect ()Z
-	public final fun getRequestedProtocolVersion ()I
+	public final fun getRequestedProtocolVersion ()J
 	public final fun getResponseTimeoutMs ()J
 	public final fun getSocketBufferBytes ()I
 	public final fun getSocketReadTimeoutMs ()J
@@ -88,7 +88,7 @@ public final class at/bernhardberger/tvheadend/htsp/connection/HtspConnection$De
 }
 
 public final class at/bernhardberger/tvheadend/htsp/connection/HtspConnectionFactoryKt {
-	public static final field MINIMUM_HTSP_PROTOCOL_VERSION I
+	public static final field MINIMUM_HTSP_PROTOCOL_VERSION J
 	public static final fun createHtspConnection (Lkotlinx/coroutines/CoroutineDispatcher;Lat/bernhardberger/tvheadend/htsp/connection/HtspClientIdentity;Lat/bernhardberger/tvheadend/htsp/connection/HtspLogger;Lkotlin/jvm/functions/Function0;Lat/bernhardberger/tvheadend/htsp/connection/HtspEventBufferOptions;)Lat/bernhardberger/tvheadend/htsp/connection/HtspConnection;
 	public static synthetic fun createHtspConnection$default (Lkotlinx/coroutines/CoroutineDispatcher;Lat/bernhardberger/tvheadend/htsp/connection/HtspClientIdentity;Lat/bernhardberger/tvheadend/htsp/connection/HtspLogger;Lkotlin/jvm/functions/Function0;Lat/bernhardberger/tvheadend/htsp/connection/HtspEventBufferOptions;ILjava/lang/Object;)Lat/bernhardberger/tvheadend/htsp/connection/HtspConnection;
 }
@@ -187,17 +187,17 @@ public abstract interface class at/bernhardberger/tvheadend/htsp/connection/Htsp
 }
 
 public final class at/bernhardberger/tvheadend/htsp/connection/HtspLiveConnection {
-	public fun <init> (Lat/bernhardberger/tvheadend/htsp/connection/HtspConnectionGeneration;Ljava/lang/Integer;Ljava/lang/Boolean;Lat/bernhardberger/tvheadend/htsp/connection/HtspServerFacts;)V
+	public fun <init> (Lat/bernhardberger/tvheadend/htsp/connection/HtspConnectionGeneration;Ljava/lang/Long;Ljava/lang/Boolean;Lat/bernhardberger/tvheadend/htsp/connection/HtspServerFacts;)V
 	public final fun component1 ()Lat/bernhardberger/tvheadend/htsp/connection/HtspConnectionGeneration;
-	public final fun component2 ()Ljava/lang/Integer;
+	public final fun component2 ()Ljava/lang/Long;
 	public final fun component3 ()Ljava/lang/Boolean;
 	public final fun component4 ()Lat/bernhardberger/tvheadend/htsp/connection/HtspServerFacts;
-	public final fun copy (Lat/bernhardberger/tvheadend/htsp/connection/HtspConnectionGeneration;Ljava/lang/Integer;Ljava/lang/Boolean;Lat/bernhardberger/tvheadend/htsp/connection/HtspServerFacts;)Lat/bernhardberger/tvheadend/htsp/connection/HtspLiveConnection;
-	public static synthetic fun copy$default (Lat/bernhardberger/tvheadend/htsp/connection/HtspLiveConnection;Lat/bernhardberger/tvheadend/htsp/connection/HtspConnectionGeneration;Ljava/lang/Integer;Ljava/lang/Boolean;Lat/bernhardberger/tvheadend/htsp/connection/HtspServerFacts;ILjava/lang/Object;)Lat/bernhardberger/tvheadend/htsp/connection/HtspLiveConnection;
+	public final fun copy (Lat/bernhardberger/tvheadend/htsp/connection/HtspConnectionGeneration;Ljava/lang/Long;Ljava/lang/Boolean;Lat/bernhardberger/tvheadend/htsp/connection/HtspServerFacts;)Lat/bernhardberger/tvheadend/htsp/connection/HtspLiveConnection;
+	public static synthetic fun copy$default (Lat/bernhardberger/tvheadend/htsp/connection/HtspLiveConnection;Lat/bernhardberger/tvheadend/htsp/connection/HtspConnectionGeneration;Ljava/lang/Long;Ljava/lang/Boolean;Lat/bernhardberger/tvheadend/htsp/connection/HtspServerFacts;ILjava/lang/Object;)Lat/bernhardberger/tvheadend/htsp/connection/HtspLiveConnection;
 	public fun equals (Ljava/lang/Object;)Z
 	public final fun getDvrAccess ()Ljava/lang/Boolean;
 	public final fun getGeneration ()Lat/bernhardberger/tvheadend/htsp/connection/HtspConnectionGeneration;
-	public final fun getProtocolVersion ()Ljava/lang/Integer;
+	public final fun getProtocolVersion ()Ljava/lang/Long;
 	public final fun getServerFacts ()Lat/bernhardberger/tvheadend/htsp/connection/HtspServerFacts;
 	public fun hashCode ()I
 	public fun toString ()Ljava/lang/String;
@@ -298,7 +298,7 @@ public final class at/bernhardberger/tvheadend/htsp/connection/HtspResultKt {
 }
 
 public final class at/bernhardberger/tvheadend/htsp/connection/HtspServerFacts {
-	public fun <init> ()V
+	public synthetic fun <init> ()V
 	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/List;Ljava/lang/Long;Ljava/lang/Boolean;Ljava/lang/Boolean;Ljava/lang/Boolean;Ljava/lang/Boolean;Ljava/lang/Boolean;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/String;)V
 	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/List;Ljava/lang/Long;Ljava/lang/Boolean;Ljava/lang/Boolean;Ljava/lang/Boolean;Ljava/lang/Boolean;Ljava/lang/Boolean;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public final fun component1 ()Ljava/lang/String;
@@ -934,6 +934,16 @@ public final class at/bernhardberger/tvheadend/htsp/messages/HtspEventUpdateMess
 	public fun toString ()Ljava/lang/String;
 }
 
+public final class at/bernhardberger/tvheadend/htsp/messages/HtspFrameType : java/lang/Enum {
+	public static final field B Lat/bernhardberger/tvheadend/htsp/messages/HtspFrameType;
+	public static final field I Lat/bernhardberger/tvheadend/htsp/messages/HtspFrameType;
+	public static final field P Lat/bernhardberger/tvheadend/htsp/messages/HtspFrameType;
+	public static final field UNKNOWN Lat/bernhardberger/tvheadend/htsp/messages/HtspFrameType;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Lat/bernhardberger/tvheadend/htsp/messages/HtspFrameType;
+	public static fun values ()[Lat/bernhardberger/tvheadend/htsp/messages/HtspFrameType;
+}
+
 public final class at/bernhardberger/tvheadend/htsp/messages/HtspInitialSyncCompletedMessage : at/bernhardberger/tvheadend/htsp/messages/HtspMetadataMessage {
 	public static final field INSTANCE Lat/bernhardberger/tvheadend/htsp/messages/HtspInitialSyncCompletedMessage;
 	public fun equals (Ljava/lang/Object;)Z
@@ -945,23 +955,23 @@ public abstract interface class at/bernhardberger/tvheadend/htsp/messages/HtspMe
 }
 
 public final class at/bernhardberger/tvheadend/htsp/messages/HtspMuxPacketMessage : at/bernhardberger/tvheadend/htsp/messages/HtspServerMessage {
-	public fun <init> (JJJLjava/lang/Long;Ljava/lang/Long;JLat/bernhardberger/tvheadend/htsp/wire/HtspBinary;Lat/bernhardberger/tvheadend/htsp/messages/HtspCommercialAdvice;)V
-	public synthetic fun <init> (JJJLjava/lang/Long;Ljava/lang/Long;JLat/bernhardberger/tvheadend/htsp/wire/HtspBinary;Lat/bernhardberger/tvheadend/htsp/messages/HtspCommercialAdvice;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (JLat/bernhardberger/tvheadend/htsp/messages/HtspFrameType;JLjava/lang/Long;Ljava/lang/Long;JLat/bernhardberger/tvheadend/htsp/wire/HtspBinary;Lat/bernhardberger/tvheadend/htsp/messages/HtspCommercialAdvice;)V
+	public synthetic fun <init> (JLat/bernhardberger/tvheadend/htsp/messages/HtspFrameType;JLjava/lang/Long;Ljava/lang/Long;JLat/bernhardberger/tvheadend/htsp/wire/HtspBinary;Lat/bernhardberger/tvheadend/htsp/messages/HtspCommercialAdvice;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public final fun component1 ()J
-	public final fun component2 ()J
+	public final fun component2 ()Lat/bernhardberger/tvheadend/htsp/messages/HtspFrameType;
 	public final fun component3 ()J
 	public final fun component4 ()Ljava/lang/Long;
 	public final fun component5 ()Ljava/lang/Long;
 	public final fun component6 ()J
 	public final fun component7 ()Lat/bernhardberger/tvheadend/htsp/wire/HtspBinary;
 	public final fun component8 ()Lat/bernhardberger/tvheadend/htsp/messages/HtspCommercialAdvice;
-	public final fun copy (JJJLjava/lang/Long;Ljava/lang/Long;JLat/bernhardberger/tvheadend/htsp/wire/HtspBinary;Lat/bernhardberger/tvheadend/htsp/messages/HtspCommercialAdvice;)Lat/bernhardberger/tvheadend/htsp/messages/HtspMuxPacketMessage;
-	public static synthetic fun copy$default (Lat/bernhardberger/tvheadend/htsp/messages/HtspMuxPacketMessage;JJJLjava/lang/Long;Ljava/lang/Long;JLat/bernhardberger/tvheadend/htsp/wire/HtspBinary;Lat/bernhardberger/tvheadend/htsp/messages/HtspCommercialAdvice;ILjava/lang/Object;)Lat/bernhardberger/tvheadend/htsp/messages/HtspMuxPacketMessage;
+	public final fun copy (JLat/bernhardberger/tvheadend/htsp/messages/HtspFrameType;JLjava/lang/Long;Ljava/lang/Long;JLat/bernhardberger/tvheadend/htsp/wire/HtspBinary;Lat/bernhardberger/tvheadend/htsp/messages/HtspCommercialAdvice;)Lat/bernhardberger/tvheadend/htsp/messages/HtspMuxPacketMessage;
+	public static synthetic fun copy$default (Lat/bernhardberger/tvheadend/htsp/messages/HtspMuxPacketMessage;JLat/bernhardberger/tvheadend/htsp/messages/HtspFrameType;JLjava/lang/Long;Ljava/lang/Long;JLat/bernhardberger/tvheadend/htsp/wire/HtspBinary;Lat/bernhardberger/tvheadend/htsp/messages/HtspCommercialAdvice;ILjava/lang/Object;)Lat/bernhardberger/tvheadend/htsp/messages/HtspMuxPacketMessage;
 	public fun equals (Ljava/lang/Object;)Z
 	public final fun getCommercialAdvice ()Lat/bernhardberger/tvheadend/htsp/messages/HtspCommercialAdvice;
 	public final fun getDecodingTimeUs ()Ljava/lang/Long;
 	public final fun getDurationUs ()J
-	public final fun getFrameType ()J
+	public final fun getFrameType ()Lat/bernhardberger/tvheadend/htsp/messages/HtspFrameType;
 	public final fun getPayload ()Lat/bernhardberger/tvheadend/htsp/wire/HtspBinary;
 	public final fun getPresentationTimeUs ()Ljava/lang/Long;
 	public final fun getStreamIndex ()J
@@ -1921,23 +1931,23 @@ public final class at/bernhardberger/tvheadend/htsp/requests/AddDvrEntrySelector
 }
 
 public final class at/bernhardberger/tvheadend/htsp/requests/AddTimerecEntryRequest : at/bernhardberger/tvheadend/htsp/requests/HtspRequest {
-	public fun <init> (Ljava/lang/String;Lat/bernhardberger/tvheadend/htsp/requests/HtspRecordingRuleChannel;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Boolean;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;)V
-	public synthetic fun <init> (Ljava/lang/String;Lat/bernhardberger/tvheadend/htsp/requests/HtspRecordingRuleChannel;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Boolean;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (Ljava/lang/String;Lat/bernhardberger/tvheadend/htsp/requests/HtspRecordingRuleChannel;Ljava/lang/Integer;Ljava/lang/Integer;Ljava/lang/Boolean;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;)V
+	public synthetic fun <init> (Ljava/lang/String;Lat/bernhardberger/tvheadend/htsp/requests/HtspRecordingRuleChannel;Ljava/lang/Integer;Ljava/lang/Integer;Ljava/lang/Boolean;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public final fun component1 ()Ljava/lang/String;
 	public final fun component10 ()Ljava/lang/String;
 	public final fun component11 ()Ljava/lang/String;
 	public final fun component12 ()Ljava/lang/String;
 	public final fun component13 ()Ljava/lang/Long;
 	public final fun component2 ()Lat/bernhardberger/tvheadend/htsp/requests/HtspRecordingRuleChannel;
-	public final fun component3 ()Ljava/lang/Long;
-	public final fun component4 ()Ljava/lang/Long;
+	public final fun component3 ()Ljava/lang/Integer;
+	public final fun component4 ()Ljava/lang/Integer;
 	public final fun component5 ()Ljava/lang/Boolean;
 	public final fun component6 ()Ljava/lang/Long;
 	public final fun component7 ()Ljava/lang/Long;
 	public final fun component8 ()Ljava/lang/Long;
 	public final fun component9 ()Ljava/lang/String;
-	public final fun copy (Ljava/lang/String;Lat/bernhardberger/tvheadend/htsp/requests/HtspRecordingRuleChannel;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Boolean;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;)Lat/bernhardberger/tvheadend/htsp/requests/AddTimerecEntryRequest;
-	public static synthetic fun copy$default (Lat/bernhardberger/tvheadend/htsp/requests/AddTimerecEntryRequest;Ljava/lang/String;Lat/bernhardberger/tvheadend/htsp/requests/HtspRecordingRuleChannel;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Boolean;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;ILjava/lang/Object;)Lat/bernhardberger/tvheadend/htsp/requests/AddTimerecEntryRequest;
+	public final fun copy (Ljava/lang/String;Lat/bernhardberger/tvheadend/htsp/requests/HtspRecordingRuleChannel;Ljava/lang/Integer;Ljava/lang/Integer;Ljava/lang/Boolean;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;)Lat/bernhardberger/tvheadend/htsp/requests/AddTimerecEntryRequest;
+	public static synthetic fun copy$default (Lat/bernhardberger/tvheadend/htsp/requests/AddTimerecEntryRequest;Ljava/lang/String;Lat/bernhardberger/tvheadend/htsp/requests/HtspRecordingRuleChannel;Ljava/lang/Integer;Ljava/lang/Integer;Ljava/lang/Boolean;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;ILjava/lang/Object;)Lat/bernhardberger/tvheadend/htsp/requests/AddTimerecEntryRequest;
 	public fun equals (Ljava/lang/Object;)Z
 	public final fun getChannel ()Lat/bernhardberger/tvheadend/htsp/requests/HtspRecordingRuleChannel;
 	public final fun getComment ()Ljava/lang/String;
@@ -1949,8 +1959,8 @@ public final class at/bernhardberger/tvheadend/htsp/requests/AddTimerecEntryRequ
 	public final fun getPriority ()Ljava/lang/Long;
 	public final fun getRemovalDays ()Ljava/lang/Long;
 	public final fun getRetentionDays ()Ljava/lang/Long;
-	public final fun getStartMinutesSinceMidnight ()Ljava/lang/Long;
-	public final fun getStopMinutesSinceMidnight ()Ljava/lang/Long;
+	public final fun getStartMinutesSinceMidnight ()Ljava/lang/Integer;
+	public final fun getStopMinutesSinceMidnight ()Ljava/lang/Integer;
 	public final fun getTitle ()Ljava/lang/String;
 	public fun hashCode ()I
 	public fun toString ()Ljava/lang/String;
@@ -2811,22 +2821,22 @@ public final class at/bernhardberger/tvheadend/htsp/requests/HtspRecordingRuleCh
 public final class at/bernhardberger/tvheadend/htsp/requests/HtspRecordingRuleRequestsKt {
 	public static final fun addAutorecEntry (Lat/bernhardberger/tvheadend/htsp/connection/HtspConnection;Ljava/lang/String;Lat/bernhardberger/tvheadend/htsp/requests/HtspRecordingRuleChannel;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Boolean;Ljava/lang/Boolean;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/String;Ljava/lang/Integer;Ljava/lang/Integer;Ljava/lang/Integer;Ljava/lang/Boolean;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;JLat/bernhardberger/tvheadend/htsp/connection/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public static synthetic fun addAutorecEntry$default (Lat/bernhardberger/tvheadend/htsp/connection/HtspConnection;Ljava/lang/String;Lat/bernhardberger/tvheadend/htsp/requests/HtspRecordingRuleChannel;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Boolean;Ljava/lang/Boolean;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/String;Ljava/lang/Integer;Ljava/lang/Integer;Ljava/lang/Integer;Ljava/lang/Boolean;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;JLat/bernhardberger/tvheadend/htsp/connection/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
-	public static final fun addTimerecEntry (Lat/bernhardberger/tvheadend/htsp/connection/HtspConnection;Ljava/lang/String;Lat/bernhardberger/tvheadend/htsp/requests/HtspRecordingRuleChannel;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Boolean;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;JLat/bernhardberger/tvheadend/htsp/connection/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
-	public static synthetic fun addTimerecEntry$default (Lat/bernhardberger/tvheadend/htsp/connection/HtspConnection;Ljava/lang/String;Lat/bernhardberger/tvheadend/htsp/requests/HtspRecordingRuleChannel;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Boolean;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;JLat/bernhardberger/tvheadend/htsp/connection/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+	public static final fun addTimerecEntry (Lat/bernhardberger/tvheadend/htsp/connection/HtspConnection;Ljava/lang/String;Lat/bernhardberger/tvheadend/htsp/requests/HtspRecordingRuleChannel;Ljava/lang/Integer;Ljava/lang/Integer;Ljava/lang/Boolean;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;JLat/bernhardberger/tvheadend/htsp/connection/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static synthetic fun addTimerecEntry$default (Lat/bernhardberger/tvheadend/htsp/connection/HtspConnection;Ljava/lang/String;Lat/bernhardberger/tvheadend/htsp/requests/HtspRecordingRuleChannel;Ljava/lang/Integer;Ljava/lang/Integer;Ljava/lang/Boolean;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;JLat/bernhardberger/tvheadend/htsp/connection/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
 	public static final fun deleteAutorecEntry (Lat/bernhardberger/tvheadend/htsp/connection/HtspConnection;Ljava/lang/String;JLat/bernhardberger/tvheadend/htsp/connection/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public static synthetic fun deleteAutorecEntry$default (Lat/bernhardberger/tvheadend/htsp/connection/HtspConnection;Ljava/lang/String;JLat/bernhardberger/tvheadend/htsp/connection/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
 	public static final fun deleteTimerecEntry (Lat/bernhardberger/tvheadend/htsp/connection/HtspConnection;Ljava/lang/String;JLat/bernhardberger/tvheadend/htsp/connection/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public static synthetic fun deleteTimerecEntry$default (Lat/bernhardberger/tvheadend/htsp/connection/HtspConnection;Ljava/lang/String;JLat/bernhardberger/tvheadend/htsp/connection/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
 	public static final fun updateAutorecEntry (Lat/bernhardberger/tvheadend/htsp/connection/HtspConnection;Ljava/lang/String;Lat/bernhardberger/tvheadend/htsp/requests/HtspRecordingRuleChannel;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Boolean;Ljava/lang/Boolean;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/String;Ljava/lang/Integer;Ljava/lang/Integer;Ljava/lang/Boolean;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;JLat/bernhardberger/tvheadend/htsp/connection/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public static synthetic fun updateAutorecEntry$default (Lat/bernhardberger/tvheadend/htsp/connection/HtspConnection;Ljava/lang/String;Lat/bernhardberger/tvheadend/htsp/requests/HtspRecordingRuleChannel;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Boolean;Ljava/lang/Boolean;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/String;Ljava/lang/Integer;Ljava/lang/Integer;Ljava/lang/Boolean;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;JLat/bernhardberger/tvheadend/htsp/connection/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
-	public static final fun updateTimerecEntry (Lat/bernhardberger/tvheadend/htsp/connection/HtspConnection;Ljava/lang/String;Lat/bernhardberger/tvheadend/htsp/requests/HtspRecordingRuleChannel;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Boolean;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;JLat/bernhardberger/tvheadend/htsp/connection/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
-	public static synthetic fun updateTimerecEntry$default (Lat/bernhardberger/tvheadend/htsp/connection/HtspConnection;Ljava/lang/String;Lat/bernhardberger/tvheadend/htsp/requests/HtspRecordingRuleChannel;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Boolean;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;JLat/bernhardberger/tvheadend/htsp/connection/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+	public static final fun updateTimerecEntry (Lat/bernhardberger/tvheadend/htsp/connection/HtspConnection;Ljava/lang/String;Lat/bernhardberger/tvheadend/htsp/requests/HtspRecordingRuleChannel;Ljava/lang/Integer;Ljava/lang/Integer;Ljava/lang/Boolean;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;JLat/bernhardberger/tvheadend/htsp/connection/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static synthetic fun updateTimerecEntry$default (Lat/bernhardberger/tvheadend/htsp/connection/HtspConnection;Ljava/lang/String;Lat/bernhardberger/tvheadend/htsp/requests/HtspRecordingRuleChannel;Ljava/lang/Integer;Ljava/lang/Integer;Ljava/lang/Boolean;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;JLat/bernhardberger/tvheadend/htsp/connection/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
 }
 
 public abstract class at/bernhardberger/tvheadend/htsp/requests/HtspRequest {
 	public final fun getAccess ()Lat/bernhardberger/tvheadend/htsp/requests/HtspAccess;
 	public final fun getMethod ()Ljava/lang/String;
-	public final fun getMinimumProtocolVersion ()Ljava/lang/Integer;
+	public final fun getMinimumProtocolVersion ()Ljava/lang/Long;
 }
 
 public final class at/bernhardberger/tvheadend/htsp/requests/HtspSessionRequestsKt {
@@ -3200,8 +3210,8 @@ public final class at/bernhardberger/tvheadend/htsp/requests/UpdateDvrEntryRespo
 }
 
 public final class at/bernhardberger/tvheadend/htsp/requests/UpdateTimerecEntryRequest : at/bernhardberger/tvheadend/htsp/requests/HtspRequest {
-	public fun <init> (Ljava/lang/String;Lat/bernhardberger/tvheadend/htsp/requests/HtspRecordingRuleChannel;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Boolean;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;)V
-	public synthetic fun <init> (Ljava/lang/String;Lat/bernhardberger/tvheadend/htsp/requests/HtspRecordingRuleChannel;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Boolean;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun <init> (Ljava/lang/String;Lat/bernhardberger/tvheadend/htsp/requests/HtspRecordingRuleChannel;Ljava/lang/Integer;Ljava/lang/Integer;Ljava/lang/Boolean;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;)V
+	public synthetic fun <init> (Ljava/lang/String;Lat/bernhardberger/tvheadend/htsp/requests/HtspRecordingRuleChannel;Ljava/lang/Integer;Ljava/lang/Integer;Ljava/lang/Boolean;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public final fun component1 ()Ljava/lang/String;
 	public final fun component10 ()Ljava/lang/String;
 	public final fun component11 ()Ljava/lang/String;
@@ -3209,15 +3219,15 @@ public final class at/bernhardberger/tvheadend/htsp/requests/UpdateTimerecEntryR
 	public final fun component13 ()Ljava/lang/String;
 	public final fun component14 ()Ljava/lang/Long;
 	public final fun component2 ()Lat/bernhardberger/tvheadend/htsp/requests/HtspRecordingRuleChannel;
-	public final fun component3 ()Ljava/lang/Long;
-	public final fun component4 ()Ljava/lang/Long;
+	public final fun component3 ()Ljava/lang/Integer;
+	public final fun component4 ()Ljava/lang/Integer;
 	public final fun component5 ()Ljava/lang/Boolean;
 	public final fun component6 ()Ljava/lang/Long;
 	public final fun component7 ()Ljava/lang/Long;
 	public final fun component8 ()Ljava/lang/Long;
 	public final fun component9 ()Ljava/lang/String;
-	public final fun copy (Ljava/lang/String;Lat/bernhardberger/tvheadend/htsp/requests/HtspRecordingRuleChannel;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Boolean;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;)Lat/bernhardberger/tvheadend/htsp/requests/UpdateTimerecEntryRequest;
-	public static synthetic fun copy$default (Lat/bernhardberger/tvheadend/htsp/requests/UpdateTimerecEntryRequest;Ljava/lang/String;Lat/bernhardberger/tvheadend/htsp/requests/HtspRecordingRuleChannel;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Boolean;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;ILjava/lang/Object;)Lat/bernhardberger/tvheadend/htsp/requests/UpdateTimerecEntryRequest;
+	public final fun copy (Ljava/lang/String;Lat/bernhardberger/tvheadend/htsp/requests/HtspRecordingRuleChannel;Ljava/lang/Integer;Ljava/lang/Integer;Ljava/lang/Boolean;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;)Lat/bernhardberger/tvheadend/htsp/requests/UpdateTimerecEntryRequest;
+	public static synthetic fun copy$default (Lat/bernhardberger/tvheadend/htsp/requests/UpdateTimerecEntryRequest;Ljava/lang/String;Lat/bernhardberger/tvheadend/htsp/requests/HtspRecordingRuleChannel;Ljava/lang/Integer;Ljava/lang/Integer;Ljava/lang/Boolean;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;ILjava/lang/Object;)Lat/bernhardberger/tvheadend/htsp/requests/UpdateTimerecEntryRequest;
 	public fun equals (Ljava/lang/Object;)Z
 	public final fun getChannel ()Lat/bernhardberger/tvheadend/htsp/requests/HtspRecordingRuleChannel;
 	public final fun getComment ()Ljava/lang/String;
@@ -3230,8 +3240,8 @@ public final class at/bernhardberger/tvheadend/htsp/requests/UpdateTimerecEntryR
 	public final fun getPriority ()Ljava/lang/Long;
 	public final fun getRemovalDays ()Ljava/lang/Long;
 	public final fun getRetentionDays ()Ljava/lang/Long;
-	public final fun getStartMinutesSinceMidnight ()Ljava/lang/Long;
-	public final fun getStopMinutesSinceMidnight ()Ljava/lang/Long;
+	public final fun getStartMinutesSinceMidnight ()Ljava/lang/Integer;
+	public final fun getStopMinutesSinceMidnight ()Ljava/lang/Integer;
 	public final fun getTitle ()Ljava/lang/String;
 	public fun hashCode ()I
 	public fun toString ()Ljava/lang/String;

@@ -116,7 +116,7 @@ internal open class `HtspService-internal`(
         @Volatile var reader: Job? = null
     }
 
-    private class Handshake(val challenge: ByteArray, val version: Int?)
+    private class Handshake(val challenge: ByteArray, val version: Long?)
     @Volatile
     private var connectionAttempt = 0L
 
@@ -233,7 +233,7 @@ internal open class `HtspService-internal`(
                     reader.start()
 
                     val helloRequest = HelloRequest(
-                        protocolVersion = options.requestedProtocolVersion.toLong(),
+                        protocolVersion = options.requestedProtocolVersion,
                         clientName = parameters.identity.clientName,
                     )
                     val hello = when (
@@ -471,7 +471,7 @@ internal open class `HtspService-internal`(
         request: HtspRequest<R>,
         envelopeFields: Map<String, Any?> = emptyMap(),
         timeoutMs: Long,
-        protocolVersion: Int,
+        protocolVersion: Long,
     ): HtspResult<R> {
         val fields = HtspRequestCodecs.encode(request).apply { putAll(envelopeFields) }
         val reply = request(
@@ -1286,7 +1286,7 @@ internal open class `HtspService-internal`(
 
     internal open fun liveHtspVersionForConnectionAttempt(
         expectedConnectionAttemptId: Long,
-    ): Int? = attemptMonitor.withAttemptLock {
+    ): Long? = attemptMonitor.withAttemptLock {
         if (
             connectionAttempt != expectedConnectionAttemptId ||
             liveTransportAttempt != expectedConnectionAttemptId
@@ -1308,7 +1308,7 @@ internal open class `HtspService-internal`(
     private fun publishConnectedState(
         attemptId: Long,
         endpoint: HtspEndpoint,
-        protocolVersion: Int?,
+        protocolVersion: Long?,
         dvrAccess: Boolean?,
         serverFacts: HtspServerFacts,
         connectionIdentity: HtspConnectionIdentity,
@@ -1526,7 +1526,7 @@ internal open class `HtspService-internal`(
         // Negotiated version for entity decoding, published like the clocks above so the
         // reader never takes the attempt lock per frame.
         @Volatile
-        var protocolVersion: Int? = null
+        var protocolVersion: Long? = null
     }
 
     private class HtspConnectionIdentity(
@@ -1572,8 +1572,8 @@ internal class HtspReplyPolicy(
     val retireOnTimeout: Boolean = true,
 )
 
-private fun negotiatedHtspVersion(requested: Long, server: Long): Int? =
-    min(requested, server).takeIf { version -> version <= Int.MAX_VALUE.toLong() }?.toInt()
+private fun negotiatedHtspVersion(requested: Long, server: Long): Long =
+    min(requested, server)
 
 private fun HtspServerFacts.withHelloObservations(hello: HelloResponse): HtspServerFacts = copy(
     serverName = hello.serverName,

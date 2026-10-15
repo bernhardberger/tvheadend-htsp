@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+- **BREAKING:** timerec add/update request and extension minutes-since-midnight
+  parameters/properties are `Int?`, matching entity and autorec times of day.
+- **BREAKING:** public protocol versions use `Long` throughout, including connect
+  options, live connections, request minimum versions, and the minimum constant.
+  Negotiated u32 versions above `Int.MAX_VALUE` remain exact instead of unknown.
+- **BREAKING:** mux `frameType` uses the open `HtspFrameType` enum (`I`, `P`, `B`,
+  `UNKNOWN`); absent, zero, and `-1` decode to `UNKNOWN`.
+- **BREAKING:** `HtspServerFacts` construction and `copy` snapshot capability
+  lists immutably; caller mutations no longer change existing facts.
+
 - **BREAKING:** `UpdateAutorecEntryRequest`, `UpdateTimerecEntryRequest`, and their
   `HtspConnection` extensions require a non-null `channel`. Updates always set
   the restriction: pass the current `HtspRecordingRuleChannel.Id` to retain it,

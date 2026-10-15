@@ -332,8 +332,8 @@ ordered `Timeshift` and `Skipped` events to establish the outcome.
 Mux packet `decodingTimeUs`, `presentationTimeUs`, and `durationUs` values are
 always microseconds. The connection applies the native or 90 kHz clock selected
 by the matching subscribe request, including packets delivered before its
-acknowledgement. `frameType` is ASCII I/P/B, or `-1` when absent or sent as
-wire zero or the explicit unknown sentinel.
+acknowledgement. `frameType` is `HtspFrameType.I`, `P`, or `B`, or `UNKNOWN`
+when absent or sent as wire zero or the explicit unknown sentinel `-1`.
 
 ## Documentation
 

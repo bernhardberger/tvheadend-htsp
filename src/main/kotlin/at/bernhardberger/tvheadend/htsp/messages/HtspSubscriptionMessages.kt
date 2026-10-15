@@ -5,12 +5,12 @@ import at.bernhardberger.tvheadend.htsp.wire.immutableSnapshot
 import at.bernhardberger.tvheadend.htsp.wire.requireU32
 
 /**
- * One subscription packet with microsecond timing, owned payload bytes, and an
- * ASCII I/P/B or unknown `-1` frame type.
+ * One subscription packet with microsecond timing, owned payload bytes, and a
+ * typed frame type.
  */
 public data class HtspMuxPacketMessage(
     public val subscriptionId: Long,
-    public val frameType: Long,
+    public val frameType: HtspFrameType,
     public val streamIndex: Long,
     public val decodingTimeUs: Long?,
     public val presentationTimeUs: Long?,
@@ -24,15 +24,25 @@ public data class HtspMuxPacketMessage(
 ) : HtspServerMessage {
     init {
         requireU32("subscriptionId", subscriptionId)
-        require(frameType in HTSP_MUX_FRAME_TYPES) {
-            "frameType must be -1 or ASCII I, P, or B"
-        }
         requireU32("streamIndex", streamIndex)
         require(durationUs >= 0L) { "durationUs must be non-negative" }
     }
 }
 
-private val HTSP_MUX_FRAME_TYPES = setOf(-1L, 66L, 73L, 80L)
+/**
+ * Mux frame classification (pinned src/htsp_server.c:4162–4166, 4209–4210).
+ * Minor releases may add entries; keep an `else` branch when matching.
+ */
+public enum class HtspFrameType {
+    /** Intra-coded frame, wire ASCII I (`73`); pinned src/htsp_server.c:4162–4166. */
+    I,
+    /** Predictive frame, wire ASCII P (`80`); pinned src/htsp_server.c:4162–4166. */
+    P,
+    /** Bidirectionally predictive frame, wire ASCII B (`66`); pinned src/htsp_server.c:4162–4166. */
+    B,
+    /** Absent or wire `0` (pinned src/htsp_server.c:4162–4166, 4209–4210), or accepted signed `-1`. */
+    UNKNOWN,
+}
 
 /** Commercial advice for packet consumers. Future u32 codes map to [UNRECOGNIZED]. */
 public enum class HtspCommercialAdvice {

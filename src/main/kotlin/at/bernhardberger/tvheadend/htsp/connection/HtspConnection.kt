@@ -202,7 +202,7 @@ internal class `HtspTypedRequestCaller-internal`(
         timeoutMs: Long,
         startedAtNanos: Long,
         generation: HtspCapturedGeneration,
-        protocolVersion: Int?,
+        protocolVersion: Long?,
         isHandshake: Boolean,
     ): HtspResult<R> {
         var replyReceived = false
@@ -264,7 +264,7 @@ internal class `HtspTypedRequestCaller-internal`(
 internal fun <R> classifyHtspReply(
     reply: HtspWireReply,
     request: HtspRequest<R>,
-    protocolVersion: Int,
+    protocolVersion: Long,
 ): HtspResult<R> {
     if (reply.fields.containsKey("noaccess")) {
         val noAccess = reply.fields["noaccess"]
@@ -323,7 +323,7 @@ internal typealias MetadataPermissionDeniedException =
 
 internal data class `HtspCapturedGeneration-internal`(
     val token: HtspConnectionGeneration,
-    val protocolVersion: Int?,
+    val protocolVersion: Long?,
     val transportKey: Any,
 )
 

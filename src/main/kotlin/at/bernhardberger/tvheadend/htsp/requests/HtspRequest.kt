@@ -15,10 +15,13 @@ public enum class HtspAccess {
 public abstract class HtspRequest<R> internal constructor(
     public val method: String,
     public val access: HtspAccess,
-    public val minimumProtocolVersion: Int?,
+    minimumProtocolVersion: Int?,
     @Suppress("UNUSED_PARAMETER")
     constructorMarker: HtspRequestConstructorMarker = HtspRequestConstructorMarker,
-)
+) {
+    /** Minimum evidenced HTSP protocol version, or null when no gate is known. */
+    public val minimumProtocolVersion: Long? = minimumProtocolVersion?.toLong()
+}
 
 internal object `HtspRequestConstructorMarker-internal`
 

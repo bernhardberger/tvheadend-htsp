@@ -178,8 +178,8 @@ internal object `HtspRequestCodecs-internal` {
 
         is AddTimerecEntryRequest -> linkedMapOf<String, Any?>("title" to request.title)
             .putRecordingRuleChannel(request.channel)
-            .putIfNotNull("start", request.startMinutesSinceMidnight)
-            .putIfNotNull("stop", request.stopMinutesSinceMidnight)
+            .putIfNotNull("start", request.startMinutesSinceMidnight?.toLong())
+            .putIfNotNull("stop", request.stopMinutesSinceMidnight?.toLong())
             .putIfNotNull("enabled", request.enabled?.toWireFlag())
             .putIfNotNull("retention", request.retentionDays)
             .putIfNotNull("removal", request.removalDays)
@@ -192,8 +192,8 @@ internal object `HtspRequestCodecs-internal` {
 
         is UpdateTimerecEntryRequest -> linkedMapOf<String, Any?>("id" to request.id)
             .putRecordingRuleChannel(request.channel.takeUnless { it == HtspRecordingRuleChannel.Any })
-            .putIfNotNull("start", request.startMinutesSinceMidnight)
-            .putIfNotNull("stop", request.stopMinutesSinceMidnight)
+            .putIfNotNull("start", request.startMinutesSinceMidnight?.toLong())
+            .putIfNotNull("stop", request.stopMinutesSinceMidnight?.toLong())
             .putIfNotNull("enabled", request.enabled?.toWireFlag())
             .putIfNotNull("retention", request.retentionDays)
             .putIfNotNull("removal", request.removalDays)
@@ -300,7 +300,7 @@ internal object `HtspRequestCodecs-internal` {
     internal fun <R> decode(
         request: HtspRequest<R>,
         fields: Map<String, Any?>,
-        protocolVersion: Int,
+        protocolVersion: Long,
     ): R = when (request) {
         is ApiRequest -> decodeApiResponse(fields)
 
@@ -442,7 +442,7 @@ internal object `HtspRequestCodecs-internal` {
         else -> malformedReply()
     } as R
 
-    private fun decodeChannel(fields: Map<String, Any?>, protocolVersion: Int): GetChannelResponse =
+    private fun decodeChannel(fields: Map<String, Any?>, protocolVersion: Long): GetChannelResponse =
         GetChannelResponse(HtspEntityDecoder(protocolVersion, ::malformedReply).channel(fields))
 
     private fun decodeApiResponse(fields: Map<String, Any?>): ApiResponse {
@@ -626,18 +626,18 @@ internal fun UpdateTimerecEntryRequest.validateTimerecU32Fields() {
 }
 
 private fun validateTimerecU32Fields(
-    startMinutesSinceMidnight: Long?,
-    stopMinutesSinceMidnight: Long?,
+    startMinutesSinceMidnight: Int?,
+    stopMinutesSinceMidnight: Int?,
     retentionDays: Long?,
     removalDays: Long?,
     priority: Long?,
     daysOfWeekMask: Long?,
 ) {
     startMinutesSinceMidnight?.let {
-        require(it in 0L..1439L) { "startMinutesSinceMidnight must be between 0 and 1439" }
+        require(it in 0..1439) { "startMinutesSinceMidnight must be between 0 and 1439" }
     }
     stopMinutesSinceMidnight?.let {
-        require(it in 0L..1439L) { "stopMinutesSinceMidnight must be between 0 and 1439" }
+        require(it in 0..1439) { "stopMinutesSinceMidnight must be between 0 and 1439" }
     }
     retentionDays?.let { requireU32("retention", it) }
     removalDays?.let { requireU32("removal", it) }

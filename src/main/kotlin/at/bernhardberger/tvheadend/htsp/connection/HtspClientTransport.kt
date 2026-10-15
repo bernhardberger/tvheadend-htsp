@@ -23,7 +23,7 @@ public class HtspEndpoint(
 }
 
 /** Minimum supported server protocol version. Raising it requires a major release; lowering it is compatible. */
-public const val MINIMUM_HTSP_PROTOCOL_VERSION: Int = 36
+public const val MINIMUM_HTSP_PROTOCOL_VERSION: Long = 36
 
 /** Connection timeouts and socket bounds, all durations in milliseconds. */
 public data class HtspConnectOptions(
@@ -31,7 +31,7 @@ public data class HtspConnectOptions(
     public val responseTimeoutMs: Long = 5_000L,
     public val socketReadTimeoutMs: Long = 60_000L,
     public val socketBufferBytes: Int = 64 * 1_024,
-    public val requestedProtocolVersion: Int = 44,
+    public val requestedProtocolVersion: Long = 44,
     public val forceReconnect: Boolean = false,
 ) {
     init {
@@ -43,8 +43,8 @@ public data class HtspConnectOptions(
             "socketReadTimeoutMs must be in 1..Int.MAX_VALUE for the socket API"
         }
         require(socketBufferBytes in 1..16 * 1024 * 1024) { "socketBufferBytes must be in 1..16777216" }
-        require(requestedProtocolVersion >= MINIMUM_HTSP_PROTOCOL_VERSION) {
-            "requestedProtocolVersion must be at least $MINIMUM_HTSP_PROTOCOL_VERSION"
+        require(requestedProtocolVersion in MINIMUM_HTSP_PROTOCOL_VERSION..0xffff_ffffL) {
+            "requestedProtocolVersion must be in $MINIMUM_HTSP_PROTOCOL_VERSION..4294967295"
         }
     }
 }
@@ -81,7 +81,7 @@ public data class HtspTransportFailure(
 /** One live, opaque protocol generation and its bounded handshake observations. */
 public data class HtspLiveConnection(
     public val generation: HtspConnectionGeneration,
-    public val protocolVersion: Int?,
+    public val protocolVersion: Long?,
     public val dvrAccess: Boolean?,
     public val serverFacts: HtspServerFacts,
 )

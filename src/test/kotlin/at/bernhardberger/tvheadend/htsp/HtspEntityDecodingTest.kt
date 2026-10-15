@@ -90,17 +90,17 @@ class HtspEntityDecodingTest {
             mapOf("method" to "dvrEntryUpdate", "id" to 1L, "state" to "scheduled", "idStr" to "uuid") to "idStr",
         )
         cases.forEach { (fields, uuid) ->
-            listOf(36, 40).forEach { decoded(fields - uuid, it) }
-            listOf(41, 44).forEach { malformed(fields - uuid, it) }
-            listOf(36, 41, 44).forEach { version ->
+            listOf(36L, 40L).forEach { decoded(fields - uuid, it) }
+            listOf(41L, 44L).forEach { malformed(fields - uuid, it) }
+            listOf(36L, 41L, 44L).forEach { version ->
                 decoded(fields, version)
                 malformed(fields + (uuid to 1L), version)
             }
         }
         listOf("autorecEntryAdd", "autorecEntryUpdate").forEach { method ->
             val fields = metadataFixture(method) - "broadcastType"
-            listOf(36, 38).forEach { decoded(fields, it) }
-            listOf(39, 44).forEach { malformed(fields, it) }
+            listOf(36L, 38L).forEach { decoded(fields, it) }
+            listOf(39L, 44L).forEach { malformed(fields, it) }
         }
     }
 
@@ -123,7 +123,7 @@ class HtspEntityDecodingTest {
 
     @Test
     fun channelRepliesAndPushedSnapshotsShareFieldsAliasesAndVersionValidation() {
-        listOf(36, 41, 44).forEach { version ->
+        listOf(36L, 41L, 44L).forEach { version ->
             val fields = (metadataFixture("channelAdd") - "method" - "channelNumber") + mapOf(
                 "number" to 7L, "channelIcon" to "icon", "channelNumberMinor" to 3L,
                 "services" to listOf(mapOf("name" to "service", "type" to "HDTV", "content" to 2L)),
@@ -155,13 +155,13 @@ class HtspEntityDecodingTest {
             as EpgQueryResponse.Events).events)
     }
 
-    private fun decoded(fields: Map<String, Any?>, version: Int = 44): HtspServerMessage {
+    private fun decoded(fields: Map<String, Any?>, version: Long = 44): HtspServerMessage {
         val result = decodeHtspServerMessage(fields, version)
         assertTrue(result is HtspServerMessageDecoded, "${fields["method"]} at v$version must decode")
         return (result as HtspServerMessageDecoded).message
     }
 
-    private fun malformed(fields: Map<String, Any?>, version: Int = 44) {
+    private fun malformed(fields: Map<String, Any?>, version: Long = 44) {
         assertEquals(HtspServerMessageMalformedKnownMessage, decodeHtspServerMessage(fields, version),
             "${fields.keys} at v$version must fail")
     }
@@ -182,6 +182,6 @@ class HtspEntityDecodingTest {
         else -> error("not full metadata")
     }
 
-    private fun <T> reply(request: HtspRequest<T>, fields: Map<String, Any?>, version: Int = 44): T =
+    private fun <T> reply(request: HtspRequest<T>, fields: Map<String, Any?>, version: Long = 44): T =
         (classifyHtspReply(HtspWireReply(fields), request, version) as HtspResult.Ok).value
 }

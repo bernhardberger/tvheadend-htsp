@@ -44,11 +44,11 @@ class HtspPreReleaseSliceTest {
 
     @Test
     fun requestAndSocketBounds() {
-        listOf(0L, 1439L).forEach {
+        listOf(0, 1439).forEach {
             AddTimerecEntryRequest("title", startMinutesSinceMidnight = it, stopMinutesSinceMidnight = it)
             UpdateTimerecEntryRequest("id", HtspRecordingRuleChannel.Any, startMinutesSinceMidnight = it, stopMinutesSinceMidnight = it)
         }
-        listOf(-1L, 1440L, 4_294_967_295L).forEach {
+        listOf(Int.MIN_VALUE, -1, 1440, Int.MAX_VALUE).forEach {
             assertThrows(IllegalArgumentException::class.java) { AddTimerecEntryRequest("title", startMinutesSinceMidnight = it) }
             assertThrows(IllegalArgumentException::class.java) { AddTimerecEntryRequest("title", stopMinutesSinceMidnight = it) }
             assertThrows(IllegalArgumentException::class.java) { UpdateTimerecEntryRequest("id", HtspRecordingRuleChannel.Any, startMinutesSinceMidnight = it) }

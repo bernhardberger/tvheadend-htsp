@@ -388,9 +388,9 @@ silently ignore it and may still answer Ok.
   bits. `HtspService` rescales 90 kHz PTS, DTS, and required u32 duration to
   microseconds with the pinned truncation-toward-zero rule; native values pass
   through unchanged. Missing PTS/DTS stays null. Missing frame type, wire value
-  zero, and explicit signed `frametype=-1` all decode to the public unknown
-  sentinel `-1`; video frame types are exactly ASCII I/P/B. Direct model
-  construction still rejects zero. The standalone versionless decoder has no
+  zero, and explicit signed `frametype=-1` all decode to `HtspFrameType.UNKNOWN`;
+  wire ASCII I/P/B decode to the corresponding enum entries. Other codes remain
+  malformed. The standalone versionless decoder has no
   subscribe context and therefore interprets mux timing as native microseconds.
 - No real-server long-run or post-timeshift capture was available for this
   slice, so no claim is made about normalized first-frame behavior after seek.

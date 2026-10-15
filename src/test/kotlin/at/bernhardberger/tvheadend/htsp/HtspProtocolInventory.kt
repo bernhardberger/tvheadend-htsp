@@ -5,7 +5,7 @@ import at.bernhardberger.tvheadend.htsp.requests.HtspAccess
 internal data class HtspRequestInventoryEntry(
     val method: String,
     val access: HtspAccess,
-    val minimumProtocolVersion: Int?,
+    val minimumProtocolVersion: Long?,
 )
 
 internal val typedHtspRequestCatalog = listOf(

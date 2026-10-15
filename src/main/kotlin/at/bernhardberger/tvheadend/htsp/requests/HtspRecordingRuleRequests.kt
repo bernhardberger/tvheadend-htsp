@@ -143,8 +143,8 @@ public data class DeleteAutorecEntryRequest(public val id: String) : HtspRequest
 public data class AddTimerecEntryRequest(
     public val title: String,
     public val channel: HtspRecordingRuleChannel? = null,
-    public val startMinutesSinceMidnight: Long? = null,
-    public val stopMinutesSinceMidnight: Long? = null,
+    public val startMinutesSinceMidnight: Int? = null,
+    public val stopMinutesSinceMidnight: Int? = null,
     public val enabled: Boolean? = null,
     public val retentionDays: Long? = null,
     public val removalDays: Long? = null,
@@ -179,8 +179,8 @@ public data class AddTimerecEntryRequest(
 public data class UpdateTimerecEntryRequest(
     public val id: String,
     public val channel: HtspRecordingRuleChannel,
-    public val startMinutesSinceMidnight: Long? = null,
-    public val stopMinutesSinceMidnight: Long? = null,
+    public val startMinutesSinceMidnight: Int? = null,
+    public val stopMinutesSinceMidnight: Int? = null,
     public val enabled: Boolean? = null,
     public val retentionDays: Long? = null,
     public val removalDays: Long? = null,
@@ -348,8 +348,8 @@ public suspend fun HtspConnection.deleteAutorecEntry(
 public suspend fun HtspConnection.addTimerecEntry(
     title: String,
     channel: HtspRecordingRuleChannel? = null,
-    startMinutesSinceMidnight: Long? = null,
-    stopMinutesSinceMidnight: Long? = null,
+    startMinutesSinceMidnight: Int? = null,
+    stopMinutesSinceMidnight: Int? = null,
     enabled: Boolean? = null,
     retentionDays: Long? = null,
     removalDays: Long? = null,
@@ -386,8 +386,8 @@ public suspend fun HtspConnection.addTimerecEntry(
 public suspend fun HtspConnection.updateTimerecEntry(
     id: String,
     channel: HtspRecordingRuleChannel,
-    startMinutesSinceMidnight: Long? = null,
-    stopMinutesSinceMidnight: Long? = null,
+    startMinutesSinceMidnight: Int? = null,
+    stopMinutesSinceMidnight: Int? = null,
     enabled: Boolean? = null,
     retentionDays: Long? = null,
     removalDays: Long? = null,

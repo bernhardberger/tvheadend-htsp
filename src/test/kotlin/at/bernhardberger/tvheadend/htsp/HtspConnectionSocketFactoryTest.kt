@@ -211,7 +211,7 @@ class HtspConnectionSocketFactoryTest {
                 )
                 assertTrue(outcome is HtspConnectOutcome.Connected)
                 val live = (outcome as HtspConnectOutcome.Connected).connection
-                assertEquals(43, live.protocolVersion)
+                assertEquals(43L, live.protocolVersion)
                 assertEquals(true, live.dvrAccess)
                 assertEquals(true, live.serverFacts.streaming)
                 assertEquals(true, live.serverFacts.dvr)

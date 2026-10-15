@@ -14,6 +14,12 @@ parameters keep their stdlib names: `HtspBinary.size` and
 `protocolVersion`, `retentionDays`, `removalDays`, `startExtraMinutes`,
 `stopExtraMinutes`, and `playPositionSeconds`.
 
+Timerec request and entity times of day are `Int?` minutes since midnight.
+Requests accept `0..1439`; null omits the field. Entity null also represents wire
+`-1` (unset). All public protocol-version quantities are `Long` (nullable when
+unknown), including connect options, live connections, request minimum versions,
+and `MINIMUM_HTSP_PROTOCOL_VERSION`, following the u32 mapping without narrowing.
+
 KDoc records differing HTSP field names, units, and sentinel values. Names do
 not change integer widths; the protocol field-domain mapping below still applies.
 `configName` (name) and wire `configId` (UUID) are distinct concepts; shared
@@ -360,10 +366,16 @@ retiring the connection. The request's nullable Boolean `ninetyKhz` field select
 packet clock: absent or false is native microseconds and true is 90
 kHz. `HtspMuxPacketMessage` always exposes `decodingTimeUs`,
 `presentationTimeUs`, and non-null `durationUs` in microseconds. Missing PTS or
-DTS remains `null`; frame type is ASCII I/P/B or the unknown sentinel `-1`.
-TVHeadend's wire frame type zero is normalized to the same unknown sentinel.
+DTS remains `null`; frame type is `HtspFrameType.I`, `P`, or `B`.
+Absent frame type, wire zero, and signed `-1` map to `HtspFrameType.UNKNOWN`;
+other numeric codes remain malformed. Keep an `else` when matching this open enum.
 `SubscribeResponse.ninetyKhz` and `normalizedTimestamps` are strict nullable
 boolean observations.
+
+`HtspServerFacts` construction and `copy` take immutable snapshots of capability
+lists. Later mutations of caller-owned lists cannot change the observations;
+null and an empty capability list remain distinct. Consumers can construct these
+facts directly, including for custom connection fakes.
 
 `subscriptionSkipNearLive` derives one ordinary absolute time skip from an
 observed `HtspTimeshiftStatusMessage`, the matching

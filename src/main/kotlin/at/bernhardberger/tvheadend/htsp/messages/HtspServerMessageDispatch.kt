@@ -18,7 +18,7 @@ internal data object HtspServerMessageMalformedKnownMessage : HtspServerMessageD
  * malformed known input. Standalone mux packets are interpreted as native
  * microseconds because no subscribe request supplies a negotiated clock.
  */
-internal fun decodeHtspServerMessage(fields: Map<String, Any?>, protocolVersion: Int = 44): HtspServerMessageDecodeResult =
+internal fun decodeHtspServerMessage(fields: Map<String, Any?>, protocolVersion: Long = 44): HtspServerMessageDecodeResult =
     decodeHtspServerMessage(fields, { HtspTimestampClock.MICROSECONDS }, null, protocolVersion)
 
 @JvmSynthetic
@@ -31,7 +31,7 @@ internal fun decodeHtspServerMessage(
 @JvmSynthetic
 internal fun decodeHtspServerMessage(
     message: HtspWireMessage,
-    protocolVersion: Int = 44,
+    protocolVersion: Long = 44,
     timestampClockForSubscription: (Long) -> HtspTimestampClock,
 ): HtspServerMessageDecodeResult =
     decodeHtspServerMessage(
@@ -47,7 +47,7 @@ private fun decodeHtspServerMessage(
     fields: Map<String, Any?>,
     timestampClockForSubscription: (Long) -> HtspTimestampClock,
     ownedMuxPayload: ByteArray?,
-    protocolVersion: Int,
+    protocolVersion: Long,
 ): HtspServerMessageDecodeResult {
     if (fields.containsKey("seq")) return HtspServerMessageUnknownMethod
     val method = fields["method"] as? String

@@ -4,7 +4,7 @@ import at.bernhardberger.tvheadend.htsp.wire.HtspFieldReader
 
 /** Shared full-builder decoding for pushed metadata and RPC replies. */
 internal class `HtspEntityDecoder-internal`(
-    private val protocolVersion: Int,
+    private val protocolVersion: Long,
     private val malformed: () -> Nothing,
 ) {
     fun channel(fields: Map<*, *>): HtspChannel = fields.reader().run {

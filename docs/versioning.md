@@ -77,7 +77,7 @@ exact `toString` format, internal declarations, and undocumented behavior.
   `HtspServerMessage`, `HtspMetadataMessage`, `HtspTransportEvent`,
   `HtspSubscriptionEvent`, `HtspSubscriptionTermination`,
   `HtspTransportFailureKind`, `HtspEpgObjectType`, `HtspLogLevel`, `HtspAccess`,
-  `HtspDvrMutationRequest`, and `HtspDvrMutationResponse`.
+  `HtspDvrMutationRequest`, `HtspDvrMutationResponse`, and `HtspFrameType`.
   `HtspTransportEvent` remains Kotlin-sealed, like `HtspServerMessage`; "open"
   describes its evolution policy, not permission for consumer-defined implementations.
 - A higher default requested HTSP version when a release extends the typed

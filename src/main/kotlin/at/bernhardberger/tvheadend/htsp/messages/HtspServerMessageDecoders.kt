@@ -16,14 +16,14 @@ private val DVR_STATS_FIELDS = setOf(
 private class `HtspServerMessageMappingException-internal` : IllegalArgumentException()
 private typealias HtspServerMessageMappingException = `HtspServerMessageMappingException-internal`
 private fun malformed(): Nothing = throw HtspServerMessageMappingException()
-private fun entities(version: Int): HtspEntityDecoder = HtspEntityDecoder(version, ::malformed)
+private fun entities(version: Long): HtspEntityDecoder = HtspEntityDecoder(version, ::malformed)
 
 @JvmSynthetic
-internal fun decodeChannelAdd(fields: Map<String, Any?>, version: Int): HtspServerMessage =
+internal fun decodeChannelAdd(fields: Map<String, Any?>, version: Long): HtspServerMessage =
     HtspChannelAddMessage(entities(version).channel(fields))
 
 @JvmSynthetic
-internal fun decodeChannelUpdate(fields: Map<String, Any?>, version: Int): HtspServerMessage {
+internal fun decodeChannelUpdate(fields: Map<String, Any?>, version: Long): HtspServerMessage {
     if (fields.containsKey("channelName")) return HtspChannelUpdateMessage(entities(version).channel(fields))
     if (fields.keys.any { it !in NOW_NEXT_FIELDS }) malformed()
     return fields.server().run {
@@ -36,11 +36,11 @@ internal fun decodeChannelDelete(fields: Map<String, Any?>): HtspServerMessage =
     HtspChannelDeleteMessage(fields.server().requiredU32("channelId"))
 
 @JvmSynthetic
-internal fun decodeTagAdd(fields: Map<String, Any?>, version: Int): HtspServerMessage =
+internal fun decodeTagAdd(fields: Map<String, Any?>, version: Long): HtspServerMessage =
     HtspTagAddMessage(entities(version).tag(fields))
 
 @JvmSynthetic
-internal fun decodeTagUpdate(fields: Map<String, Any?>, version: Int): HtspServerMessage =
+internal fun decodeTagUpdate(fields: Map<String, Any?>, version: Long): HtspServerMessage =
     HtspTagUpdateMessage(entities(version).tag(fields))
 
 @JvmSynthetic
@@ -48,11 +48,11 @@ internal fun decodeTagDelete(fields: Map<String, Any?>): HtspServerMessage =
     HtspTagDeleteMessage(fields.requiredAliasU32(listOf("tagId", "id")))
 
 @JvmSynthetic
-internal fun decodeDvrEntryAdd(fields: Map<String, Any?>, version: Int): HtspServerMessage =
+internal fun decodeDvrEntryAdd(fields: Map<String, Any?>, version: Long): HtspServerMessage =
     HtspDvrEntryAddMessage(entities(version).dvrEntry(fields))
 
 @JvmSynthetic
-internal fun decodeDvrEntryUpdate(fields: Map<String, Any?>, version: Int): HtspServerMessage {
+internal fun decodeDvrEntryUpdate(fields: Map<String, Any?>, version: Long): HtspServerMessage {
     if (fields.containsKey("enabled")) return HtspDvrEntryUpdateMessage(entities(version).dvrEntry(fields))
     if (fields.keys.any { it !in DVR_STATS_FIELDS }) malformed()
     return fields.server().run {
@@ -72,11 +72,11 @@ internal fun decodeDvrEntryDelete(fields: Map<String, Any?>): HtspServerMessage 
     HtspDvrEntryDeleteMessage(fields.requiredAliasU32(listOf("id", "dvrId")))
 
 @JvmSynthetic
-internal fun decodeAutorecEntryAdd(fields: Map<String, Any?>, version: Int): HtspServerMessage =
+internal fun decodeAutorecEntryAdd(fields: Map<String, Any?>, version: Long): HtspServerMessage =
     HtspAutorecEntryAddMessage(entities(version).autorecEntry(fields))
 
 @JvmSynthetic
-internal fun decodeAutorecEntryUpdate(fields: Map<String, Any?>, version: Int): HtspServerMessage =
+internal fun decodeAutorecEntryUpdate(fields: Map<String, Any?>, version: Long): HtspServerMessage =
     HtspAutorecEntryUpdateMessage(entities(version).autorecEntry(fields))
 
 @JvmSynthetic
@@ -84,11 +84,11 @@ internal fun decodeAutorecEntryDelete(fields: Map<String, Any?>): HtspServerMess
     HtspAutorecEntryDeleteMessage(fields.server().requiredString("id"))
 
 @JvmSynthetic
-internal fun decodeTimerecEntryAdd(fields: Map<String, Any?>, version: Int): HtspServerMessage =
+internal fun decodeTimerecEntryAdd(fields: Map<String, Any?>, version: Long): HtspServerMessage =
     HtspTimerecEntryAddMessage(entities(version).timerecEntry(fields))
 
 @JvmSynthetic
-internal fun decodeTimerecEntryUpdate(fields: Map<String, Any?>, version: Int): HtspServerMessage =
+internal fun decodeTimerecEntryUpdate(fields: Map<String, Any?>, version: Long): HtspServerMessage =
     HtspTimerecEntryUpdateMessage(entities(version).timerecEntry(fields))
 
 @JvmSynthetic
@@ -96,11 +96,11 @@ internal fun decodeTimerecEntryDelete(fields: Map<String, Any?>): HtspServerMess
     HtspTimerecEntryDeleteMessage(fields.server().requiredString("id"))
 
 @JvmSynthetic
-internal fun decodeEventAdd(fields: Map<String, Any?>, version: Int): HtspServerMessage =
+internal fun decodeEventAdd(fields: Map<String, Any?>, version: Long): HtspServerMessage =
     HtspEventAddMessage(entities(version).event(fields))
 
 @JvmSynthetic
-internal fun decodeEventUpdate(fields: Map<String, Any?>, version: Int): HtspServerMessage =
+internal fun decodeEventUpdate(fields: Map<String, Any?>, version: Long): HtspServerMessage =
     HtspEventUpdateMessage(entities(version).event(fields))
 
 @JvmSynthetic
@@ -122,9 +122,12 @@ internal fun decodeMuxPacket(
         val payload = requiredBinary("payload")
         HtspMuxPacketMessage(
             subscriptionId = subscriptionId,
-            frameType = when (val frameType = optionalS64("frametype")) {
-                null, 0L -> -1L
-                else -> frameType
+            frameType = when (optionalS64("frametype")) {
+                null, -1L, 0L -> HtspFrameType.UNKNOWN
+                73L -> HtspFrameType.I
+                80L -> HtspFrameType.P
+                66L -> HtspFrameType.B
+                else -> malformed()
             },
             streamIndex = requiredU32("stream"), decodingTimeUs = optionalS64("dts")?.let(clock::toMicroseconds),
             presentationTimeUs = optionalS64("pts")?.let(clock::toMicroseconds),
