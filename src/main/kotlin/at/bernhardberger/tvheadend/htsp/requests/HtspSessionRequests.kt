@@ -214,9 +214,9 @@ public data class EnableAsyncMetadataRequest(
     public val lastUpdateEpochSeconds: Long? = null,
     /**
      * HTSP `epgMaxTime`, epoch seconds; the server pushes EPG events up to this far ahead of its current time, as a
-     * window of at least 600 seconds that moves forward as time passes; zero or a time not in the future means
-     * unlimited window; on a session that already pushes EPG it only changes an existing limit; null omits it
-     * (htsp_server.c:1666–1677, 4084–4107).
+     * window of at least 600 seconds that moves forward as time passes; when EPG is not on yet, zero or a time not in
+     * the future means unlimited window; on a session that already pushes EPG it can only extend an existing limit;
+     * null omits it (htsp_server.c:1666–1677, 4084–4107).
      */
     public val epgMaxTimeEpochSeconds: Long? = null,
     public val language: String? = null,

@@ -13,6 +13,7 @@ import at.bernhardberger.tvheadend.htsp.requests.SubscriptionTimestampClock
 import at.bernhardberger.tvheadend.htsp.requests.subscribe
 import at.bernhardberger.tvheadend.htsp.requests.subscriptionSkipNearLive
 import at.bernhardberger.tvheadend.htsp.requests.unsubscribe
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
@@ -75,26 +76,29 @@ suspend fun startStream(
         connection.subscriptionEvents(subscriptionId, live.generation).collect(handler::handle)
         handler.flowCompleted()
     }
-    var result: HtspResult<*>? = null
-    try {
-        result = connection.subscribe(
+    val result = try {
+        connection.subscribe(
             subscriptionId = subscriptionId,
             channelId = channelId,
             timeshiftPeriodSeconds = 3_600L,
             expectedGeneration = live.generation,
         )
-        return if (result is HtspResult.Ok) collector else null
-    } finally {
-        if (result !is HtspResult.Ok) {
-            collector.cancel()
-            // null: cancelled while the request may already have reached the server.
-            if (result == null || result is HtspResult.Timeout || result is HtspResult.MalformedReply) {
-                withContext(NonCancellable) {
-                    connection.unsubscribe(subscriptionId, expectedGeneration = live.generation)
-                }
+    } catch (e: Throwable) {
+        collector.cancel()
+        if (e is CancellationException) {
+            // Cancelled while waiting: the request may already have reached the server.
+            withContext(NonCancellable) {
+                connection.unsubscribe(subscriptionId, expectedGeneration = live.generation)
             }
         }
+        throw e
     }
+    if (result is HtspResult.Ok) return collector
+    collector.cancel()
+    if (result is HtspResult.Timeout || result is HtspResult.MalformedReply) {
+        connection.unsubscribe(subscriptionId, expectedGeneration = live.generation)
+    }
+    return null
 }
 // endregion
 

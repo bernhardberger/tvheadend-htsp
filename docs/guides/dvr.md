@@ -343,8 +343,9 @@ same text appears on any finished recording whose file disappeared. So an
 acknowledged `deleteDvrEntry` can end in either message, and a book that waits
 only for the delete message can wait forever.
 
-Some deletes end in neither. A `missed` recording, or a finished one whose file
-is already gone, has nothing to remove, so while its retention runs the server
+Some deletes end in neither. A `missed` recording, or a finished one whose entry
+no longer lists any file names, for example after an earlier delete, has
+nothing to remove, so while its retention runs the server
 changes nothing and sends no message (`src/dvr/dvr_db.c:5481-5493`,
 `:5319-5347`). A running recording that has not written a file yet first
 becomes `missed` (`src/dvr/dvr_db.c:3106-3110`), and that update is the last

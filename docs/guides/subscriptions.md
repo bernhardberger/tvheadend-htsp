@@ -38,26 +38,29 @@ suspend fun startStream(
         connection.subscriptionEvents(subscriptionId, live.generation).collect(handler::handle)
         handler.flowCompleted()
     }
-    var result: HtspResult<*>? = null
-    try {
-        result = connection.subscribe(
+    val result = try {
+        connection.subscribe(
             subscriptionId = subscriptionId,
             channelId = channelId,
             timeshiftPeriodSeconds = 3_600L,
             expectedGeneration = live.generation,
         )
-        return if (result is HtspResult.Ok) collector else null
-    } finally {
-        if (result !is HtspResult.Ok) {
-            collector.cancel()
-            // null: cancelled while the request may already have reached the server.
-            if (result == null || result is HtspResult.Timeout || result is HtspResult.MalformedReply) {
-                withContext(NonCancellable) {
-                    connection.unsubscribe(subscriptionId, expectedGeneration = live.generation)
-                }
+    } catch (e: Throwable) {
+        collector.cancel()
+        if (e is CancellationException) {
+            // Cancelled while waiting: the request may already have reached the server.
+            withContext(NonCancellable) {
+                connection.unsubscribe(subscriptionId, expectedGeneration = live.generation)
             }
         }
+        throw e
     }
+    if (result is HtspResult.Ok) return collector
+    collector.cancel()
+    if (result is HtspResult.Timeout || result is HtspResult.MalformedReply) {
+        connection.unsubscribe(subscriptionId, expectedGeneration = live.generation)
+    }
+    return null
 }
 ```
 
@@ -66,11 +69,13 @@ before `launch` returns, so registration has happened when `subscribe` is
 called. Pass the generation to both calls, as above, so a stale connection cannot
 take the id.
 
-If `subscribe` does not return `Ok`, the `finally` block cancels the collector.
-After a `Timeout` or `MalformedReply` it also sends `unsubscribe`, because the
-server may have started the subscription anyway. The same applies when the
-caller is cancelled while `subscribe` waits, so that `unsubscribe` runs under
-`NonCancellable`.
+If `subscribe` does not return `Ok`, `startStream` cancels the collector. After
+a `Timeout` or `MalformedReply` it also sends `unsubscribe`, because the server
+may have started the subscription anyway. The same goes for a caller cancelled
+while `subscribe` waits, so that `unsubscribe` runs under `NonCancellable`.
+Other exceptions, such as reusing an id, are thrown before anything is sent, so
+`startStream` does not unsubscribe for them: that could stop another stream
+using the same id.
 
 The flow is cold and strict:
 
