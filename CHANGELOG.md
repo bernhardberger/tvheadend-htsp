@@ -8,6 +8,9 @@
   Dokka module is now `tvheadend-htsp`, so reference URLs change.
 - The API reference uses the Tvheadend Player brand: its symbol, colours and the
   Outfit title font, with a footer and a link to the repository.
+- The display name, including the POM name, is now "Tvheadend HTSP for Kotlin",
+  and the documentation spells Tvheadend the way the upstream project does. The
+  Maven coordinate and the Kotlin packages are unchanged.
 
 ## [1.0.0-beta.2] - 2026-10-15
 
