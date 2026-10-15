@@ -181,6 +181,19 @@ tasks.withType<Test>().configureEach {
     useJUnitPlatform()
 }
 
+tasks.named<Test>("test") {
+    // Documentation tests read these files, so a docs-only change must rerun them.
+    inputs.files("README.md", "NOTICE.md")
+        .withPropertyName("documentationRoots")
+        .withPathSensitivity(PathSensitivity.RELATIVE)
+    inputs.dir("docs")
+        .withPropertyName("documentation")
+        .withPathSensitivity(PathSensitivity.RELATIVE)
+    inputs.dir("consumer-contract/src/main/kotlin")
+        .withPropertyName("documentationFixtures")
+        .withPathSensitivity(PathSensitivity.RELATIVE)
+}
+
 tasks.withType<Jar>()
     .matching { task ->
         task.name == "jar" ||
