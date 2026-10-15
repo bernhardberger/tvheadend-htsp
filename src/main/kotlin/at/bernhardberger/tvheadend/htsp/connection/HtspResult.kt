@@ -10,7 +10,7 @@ public sealed interface HtspResult<out R> {
      *
      * [serverMessage] is the reply's `error` string whenever present, and `null` otherwise,
      * including for an unsuccessful DVR acknowledgement without error text.
-     * TVHeadend sends fixed
+     * Tvheadend sends fixed
      * messages translated into the connection's language. Treat the text as untrusted display
      * text, not as a stable code. [toString] never renders it.
      */

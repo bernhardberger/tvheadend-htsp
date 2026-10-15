@@ -342,7 +342,7 @@ The helper sends one ordinary absolute skip to `end - margin`. The margin
 is in seconds and must be positive, and the clock must be the one the
 subscription uses, so keep it next to the subscription. Before anything is sent,
 the call throws `IllegalArgumentException` if either bound is missing, the target
-would fall before `start` or outside what TVHeadend can convert, or the
+would fall before `start` or outside what Tvheadend can convert, or the
 arithmetic would overflow.
 
 What it does not do:

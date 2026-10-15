@@ -1,6 +1,6 @@
 # Module tvheadend-htsp
 
-A Kotlin/JVM client for TVHeadend's HTSP protocol. Requests are suspending
+A Kotlin/JVM client for Tvheadend's HTSP protocol. Requests are suspending
 functions that return typed outcomes, server events arrive on flows, and
 cancelling the calling coroutine cancels the call.
 
@@ -40,5 +40,5 @@ The binary payload value type [HtspBinary]. Framing and encoding are internal.
 
 # Package at.bernhardberger.tvheadend.htsp.jsonapi
 
-An opt-in bridge that sends TVHeadend JSON API calls as HTSP `api` requests over
+An opt-in bridge that sends Tvheadend JSON API calls as HTSP `api` requests over
 the existing connection. Using it requires opting in to [HtspJsonApi].

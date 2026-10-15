@@ -1,4 +1,4 @@
-# TVHeadend HTSP for Kotlin/JVM
+# Tvheadend HTSP for Kotlin/JVM
 
 [![CI](https://github.com/bernhardberger/tvheadend-htsp/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/bernhardberger/tvheadend-htsp/actions/workflows/ci.yml)
 [![Maven Central](https://img.shields.io/maven-central/v/at.bernhardberger.tvheadend/htsp)](https://central.sonatype.com/artifact/at.bernhardberger.tvheadend/htsp)
@@ -6,7 +6,7 @@
 [![License: GPLv3](https://img.shields.io/badge/license-GPLv3-blue.svg)](LICENSE)
 
 A Kotlin/JVM client for HTSP, the binary protocol that
-[TVHeadend](https://github.com/tvheadend/tvheadend) servers use for channels,
+[Tvheadend](https://github.com/tvheadend/tvheadend) servers use for channels,
 EPG (electronic programme guide) data, DVR (digital video recorder) recordings
 and live streams. You work with typed requests, replies and server messages on
 coroutines and flows instead of raw method names and field maps.
@@ -28,7 +28,7 @@ The public API lives under `at.bernhardberger.tvheadend.htsp` in six packages:
   that messages and replies share.
 - `wire`: `HtspBinary`, the read-only type for binary payloads. The framing
   itself is internal.
-- `jsonapi`: an opt-in bridge that runs TVHeadend JSON API calls over the HTSP
+- `jsonapi`: an opt-in bridge that runs Tvheadend JSON API calls over the HTSP
   connection.
 
 At runtime the artifact needs only the Kotlin standard library and
@@ -37,7 +37,7 @@ At runtime the artifact needs only the Kotlin standard library and
 ## Requirements
 
 - Java 17 or newer. The artifact is compiled for JVM 17.
-- A TVHeadend server that reports HTSP 36 or newer; HTSP 36 first appeared
+- A Tvheadend server that reports HTSP 36 or newer; HTSP 36 first appeared
   upstream in August 2021. The client rejects older servers before
   authentication with `UNSUPPORTED_SERVER_VERSION`.
 - The client asks for HTSP 44 by default, the newest version the typed API
@@ -108,7 +108,7 @@ the connection.
 - [Recordings, recording rules, and recording files](docs/guides/dvr.md):
   listing and scheduling recordings, autorec and timerec rules, acknowledged
   versus completed changes, and reading recording files.
-- [The JSON API bridge](docs/guides/json-api.md): calling TVHeadend's JSON API
+- [The JSON API bridge](docs/guides/json-api.md): calling Tvheadend's JSON API
   over the HTSP connection, its value types, outcomes, and limits.
 - [Errors and troubleshooting](docs/guides/troubleshooting.md): what each
   connect failure, request failure, dropped connection, and subscription end
@@ -129,7 +129,7 @@ the connection.
 ## License and attribution
 
 This independently maintained GPLv3 library descends from
-[Preclikos/tvhstream](https://github.com/Preclikos/tvhstream). It is not official TVHeadend software and is not affiliated with or endorsed by the
-TVHeadend project; the TVHeadend name describes compatibility only. See
+[Preclikos/tvhstream](https://github.com/Preclikos/tvhstream). It is not official Tvheadend software and is not affiliated with or endorsed by the
+Tvheadend project; the Tvheadend name describes compatibility only. See
 [LICENSE](LICENSE), [NOTICE.md](NOTICE.md), and the
 [licensing and attribution notes](docs/licensing.md).

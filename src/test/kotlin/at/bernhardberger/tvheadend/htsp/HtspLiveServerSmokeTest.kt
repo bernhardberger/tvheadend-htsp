@@ -31,7 +31,7 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable
 
 /**
- * Opt-in, read-only smoke test against a real TVHeadend server; skipped unless
+ * Opt-in, read-only smoke test against a real Tvheadend server; skipped unless
  * `HTSP_LIVE_HOST` is set. Optional: `HTSP_LIVE_PORT` (9982), `HTSP_LIVE_USERNAME`,
  * `HTSP_LIVE_PASSWORD`. Run with
  * `./gradlew test --tests '*HtspLiveServerSmokeTest' --rerun`.

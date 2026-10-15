@@ -1,6 +1,6 @@
 # Notices and attribution
 
-TVHeadend HTSP for Kotlin/JVM
+Tvheadend HTSP for Kotlin/JVM
 Copyright (C) 2026 Bernhard Berger
 
 SPDX-License-Identifier: GPL-3.0-only
@@ -34,7 +34,7 @@ at the release tag `v<version>`.
 ## Independence and third-party components
 
 This library is not affiliated with, endorsed by, or sponsored by the
-[TVHeadend project](https://github.com/tvheadend/tvheadend). The TVHeadend name
+[Tvheadend project](https://github.com/tvheadend/tvheadend). The Tvheadend name
 describes compatibility only.
 
 The library uses Kotlin and Kotlin coroutines. Their own copyright and license

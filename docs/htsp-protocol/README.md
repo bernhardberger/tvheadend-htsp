@@ -1,7 +1,7 @@
 # HTSP protocol reference
 
 This directory contains protocol reference notes for the hand-maintained HTSP
-surface. The typed surface was reviewed against TVHeadend revision
+surface. The typed surface was reviewed against Tvheadend revision
 `f082b430ae66f1761c2e82c34549b759c168f3c6`, which reports HTSP v44.
 
 ## Artifacts
@@ -22,7 +22,7 @@ reporting a lower version are rejected before authentication with
 `UNSUPPORTED_SERVER_VERSION`, not `INCOMPATIBLE_SERVER` (a protocol violation).
 Callers may explicitly request another version at or above 36. Servers at
 v36–v43 omit newer fields; these observations remain nullable rather than being
-invented by the client. The typed surface's coverage ceiling is TVHeadend master at
+invented by the client. The typed surface's coverage ceiling is Tvheadend master at
 `f082b430`, which reports HTSP v44. v44 adds only `feAbsoluteSNR` and
 `feAbsoluteSignal` on `signalStatus`; both are decoded as optional fields.
 The server emits them according to the frontend's signal scale, not the
@@ -31,13 +31,13 @@ guard), so a v44 server may send them on a v43 link and an older server never
 sends them. The pinned server has no other behavior that depends on a
 negotiated version of 43 or 44.
 
-HTSP protocol versions are not TVHeadend release versions. Bumping the pin is a
+HTSP protocol versions are not Tvheadend release versions. Bumping the pin is a
 manual, reviewed change: read the upstream diff, edit the Kotlin, add focused
 tests, and update `upstream.json` and the changelog.
 
 ## Authority
 
-Use the TVHeadend sources named in `upstream.json` first. The official
+Use the Tvheadend sources named in `upstream.json` first. The official
 [Communication](https://docs.tvheadend.org/documentation/development/htsp/communication),
 [client RPC](https://docs.tvheadend.org/documentation/development/htsp/client-to-server-rpc-methods),
 [server message](https://docs.tvheadend.org/documentation/development/htsp/server-to-client-methods),
@@ -50,7 +50,7 @@ tests define accepted local behavior.
 
 | Surface | Count | Meaning |
 |---|---:|---|
-| Client to server | 39 | Methods reviewed in the pinned TVHeadend source. |
+| Client to server | 39 | Methods reviewed in the pinned Tvheadend source. |
 | Referenced method names | **39** | Exact method literals found during the source review. |
 | Outgoing request names | **39** | Distinct names assigned to outgoing `method` fields. |
 | Typed client requests | **39** | Reviewed request/response models with `HtspConnection` extensions. |
@@ -380,7 +380,7 @@ silently ignore it and may still answer Ok.
   v36–v38 servers, but required when negotiating v39+. Autorec `comment` is nullable: v36
   `htsp_build_autorecentry` does not send it at all
   (upstream revision `81403634`, `src/htsp_server.c`, `htsp_build_autorecentry`).
-  Its `name`, `owner`, and `creator` values use TVHeadend's nullable
+  Its `name`, `owner`, and `creator` values use Tvheadend's nullable
   `htsmsg_add_str2` emitter and are therefore nullable;
   other source-conditional observations remain nullable. Delete requires string `id`.
   The shared `htsp_build_timerecentry` add/update shape conditionally omits
@@ -517,5 +517,5 @@ documented API dump workflow.
 
 This GPLv3 library is an independently maintained descendant of
 [Preclikos/tvhstream](https://github.com/Preclikos/tvhstream). It is not official
-TVHeadend software and is not affiliated with or endorsed by the TVHeadend
+Tvheadend software and is not affiliated with or endorsed by the Tvheadend
 project. See [`licensing.md`](../licensing.md) and [`NOTICE.md`](../../NOTICE.md).

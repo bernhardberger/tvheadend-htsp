@@ -129,7 +129,7 @@ public class LoopbackBenchmarks {
     }
 }
 
-/** Dedicated fake peer: never connects to a TVHeadend instance or binds off-loopback. */
+/** Dedicated fake peer: never connects to a Tvheadend instance or binds off-loopback. */
 private class LoopbackPeer : Closeable {
     private val listener = ServerSocket(0, 1, InetAddress.getByName("127.0.0.1"))
     private val outputLock = Any()

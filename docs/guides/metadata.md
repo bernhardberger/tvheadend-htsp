@@ -1,6 +1,6 @@
 # Metadata sync and event streams
 
-Once you ask for it, TVHeadend sends everything it knows about channels, tags,
+Once you ask for it, Tvheadend sends everything it knows about channels, tags,
 EPG events, recordings and recording rules, and then keeps sending changes as
 they happen. All of it arrives on one flow, `connection.events`. The library
 decodes and queues those messages for you. It keeps no copy of the data, so what

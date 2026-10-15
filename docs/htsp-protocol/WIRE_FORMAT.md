@@ -1,7 +1,7 @@
 # HTSP binary wire format
 
 The golden frame fixtures under `src/test/resources/htsp-wire/` record the
-codec's deliberate differences from the pinned TVHeadend server.
+codec's deliberate differences from the pinned Tvheadend server.
 
 Each `.hex` file holds one complete frame. Whitespace separates two-digit
 hexadecimal bytes, and `#` starts a comment that runs to the end of the line.
@@ -82,7 +82,7 @@ decode-only `boolean-false.hex` fixture pins its exact 30-byte body and the
 ## Where the local codec is more lenient
 
 The local codec is intentionally more permissive than the pinned server for
-forward compatibility with other TVHeadend builds. The draining described
+forward compatibility with other Tvheadend builds. The draining described
 below applies only inside a scalar field's declared data slice;
 residue at the root or inside a container is parsed as another field, never
 silently drained.
@@ -115,7 +115,7 @@ pins that physical bytes beyond a smaller declared root remain unread.
 
 ## Pinned source
 
-The fixtures were derived by hand from TVHeadend `src/htsmsg_binary.c` at
+The fixtures were derived by hand from Tvheadend `src/htsmsg_binary.c` at
 revision `f082b430ae66f1761c2e82c34549b759c168f3c6`, Git blob
 `48a1bf985ed554df473adb3a9251b479dfcdaf26`. The governing functions are
 `htsmsg_binary_deserialize`, `htsmsg_binary_des0`, `htsmsg_binary_count`,

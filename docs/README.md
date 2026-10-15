@@ -16,7 +16,7 @@ Guides for people using the library, and references for people working on it.
 - [`guides/dvr.md`](guides/dvr.md): listing and scheduling recordings, autorec
   and timerec rules, acknowledged versus completed changes, and reading
   recording files.
-- [`guides/json-api.md`](guides/json-api.md): the opt-in bridge to TVHeadend's
+- [`guides/json-api.md`](guides/json-api.md): the opt-in bridge to Tvheadend's
   JSON API, its value types, outcomes, and limits.
 - [`guides/troubleshooting.md`](guides/troubleshooting.md): what connect
   failures, request failures, dropped connections, and subscription ends mean.

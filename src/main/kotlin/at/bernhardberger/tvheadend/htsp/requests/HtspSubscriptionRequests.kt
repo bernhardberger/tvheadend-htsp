@@ -402,14 +402,14 @@ public suspend fun HtspConnection.subscriptionSkip(
 
 /**
  * Requests one normal absolute skip to [marginSeconds] before the observed timeshift [status]
- * end. This is a near-live operation, not a guarantee that TVHeadend entered exact live mode.
+ * end. This is a near-live operation, not a guarantee that Tvheadend entered exact live mode.
  *
  * [status] and [clock] must describe the same subscription and connection generation selected by
  * the caller. A successful result acknowledges only the request reply; the matching ordered
  * `Timeshift` and `Skipped` subscription events remain authoritative. This operation never falls
  * back to `subscriptionLive`.
  *
- * Invalid or missing bounds, unsafe arithmetic, and coordinates that would overflow TVHeadend's
+ * Invalid or missing bounds, unsafe arithmetic, and coordinates that would overflow Tvheadend's
  * selected-clock conversion are rejected before dispatch.
  */
 public suspend fun HtspConnection.subscriptionSkipNearLive(
@@ -439,7 +439,7 @@ public suspend fun HtspConnection.subscriptionSkipNearLive(
 
     val safeCoordinate = Long.MAX_VALUE / serverConversionMultiplier
     require(target in -safeCoordinate..safeCoordinate) {
-        "near-live target exceeds TVHeadend's safe conversion range"
+        "near-live target exceeds Tvheadend's safe conversion range"
     }
 
     return subscriptionSkip(

@@ -20,7 +20,7 @@ It began as a modified extract of predecessor work and is not wholly original.
 The standalone repository begins with the HTSP protocol extraction baseline
 instead of embedding the predecessor application's unrelated Git history.
 Between tvhstream and this repository the code briefly lived in the
-maintainer's private TVHeadend Player SDK monorepo; [`extraction/`](extraction/)
+maintainer's private Tvheadend Player SDK monorepo; [`extraction/`](extraction/)
 holds the frozen record of that extraction and is kept unchanged.
 
 In October 2026 the frame encoder, the wire-message class and the connection
@@ -31,9 +31,9 @@ therefore remains a derivative work of tvhstream under GPL-3.0-only.
 
 ## Independence
 
-The library is developed and maintained independently of the TVHeadend project.
-It is not affiliated with, endorsed by, or sponsored by the TVHeadend project.
-Project identity: [TVHeadend project](https://github.com/tvheadend/tvheadend).
-The TVHeadend name
+The library is developed and maintained independently of the Tvheadend project.
+It is not affiliated with, endorsed by, or sponsored by the Tvheadend project.
+Project identity: [Tvheadend project](https://github.com/tvheadend/tvheadend).
+The Tvheadend name
 describes compatibility only. These statements do not create a support,
 publication, distribution, or release-readiness claim.

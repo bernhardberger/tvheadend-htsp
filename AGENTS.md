@@ -9,7 +9,7 @@ optional skills under `.opencode/skills/`.
 This GPLv3 library is an independently maintained descendant of
 `Preclikos/tvhstream`. Preserve its attribution, notices, license, and the
 recorded extraction provenance in `docs/extraction/`. Do not describe it as
-official TVHeadend software or as wholly original work.
+official Tvheadend software or as wholly original work.
 
 ## Working style
 

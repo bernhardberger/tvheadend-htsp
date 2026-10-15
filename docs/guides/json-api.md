@@ -1,6 +1,6 @@
 # The JSON API bridge
 
-TVHeadend has a second interface besides HTSP, a JSON API that its web UI uses.
+Tvheadend has a second interface besides HTSP, a JSON API that its web UI uses.
 It reaches server features that have no typed HTSP request. HTSP can carry such
 a call: one HTSP method, `api`, runs a JSON API path on the server and sends the
 result back over the connection you already have. The `jsonapi` package wraps
@@ -22,7 +22,7 @@ all have typed requests and messages, and those are covered by the library's
 The bridge gives up three things the typed surface offers:
 
 - **A stable shape.** The library knows nothing about the endpoints. Their
-  paths, arguments and replies belong to the server, and a different TVHeadend
+  paths, arguments and replies belong to the server, and a different Tvheadend
   release can change them. HTSP does not negotiate them the way it negotiates
   its own protocol version.
 - **Compatibility promises.** The `@HtspJsonApi` bridge is outside the

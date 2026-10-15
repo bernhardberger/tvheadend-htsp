@@ -1,6 +1,6 @@
 # Connecting, requests, and the connection lifecycle
 
-Everything a TVHeadend client does goes through one connection object, so most
+Everything a Tvheadend client does goes through one connection object, so most
 of the work in a first client is around it: opening it, running requests,
 noticing when it dies, and closing it. This guide covers those four, starting
 where the [README quick start](../../README.md#quick-start) stops, and the part

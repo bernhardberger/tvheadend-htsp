@@ -41,7 +41,7 @@ dokka {
         footerMessage.set(
             "© 2026 Bernhard Berger · " +
                 "<a href=\"https://github.com/bernhardberger/tvheadend-htsp/blob/main/LICENSE\">GPLv3</a> · " +
-                "Not affiliated with or endorsed by the TVHeadend project",
+                "Not affiliated with or endorsed by the Tvheadend project",
         )
     }
 }

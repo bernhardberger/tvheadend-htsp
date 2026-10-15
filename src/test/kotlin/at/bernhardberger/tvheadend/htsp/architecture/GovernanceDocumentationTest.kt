@@ -15,8 +15,8 @@ class GovernanceDocumentationTest {
             "README.md" to listOf(
                 "This independently maintained GPLv3 library descends from " +
                     "[Preclikos/tvhstream](https://github.com/Preclikos/tvhstream).",
-                "It is not official TVHeadend software and is not affiliated with or endorsed by the " +
-                    "TVHeadend project; the TVHeadend name describes compatibility only.",
+                "It is not official Tvheadend software and is not affiliated with or endorsed by the " +
+                    "Tvheadend project; the Tvheadend name describes compatibility only.",
             ),
             "NOTICE.md" to listOf(
                 "Copyright (C) 2026 Bernhard Berger",
@@ -31,7 +31,7 @@ class GovernanceDocumentationTest {
                 "library remains a derivative work of tvhstream.",
                 "at the release tag `v<version>`.",
                 "This library is not affiliated with, endorsed by, or sponsored by the " +
-                    "[TVHeadend project](https://github.com/tvheadend/tvheadend).",
+                    "[Tvheadend project](https://github.com/tvheadend/tvheadend).",
             ),
             "docs/licensing.md" to listOf(
                 "The HTSP library is licensed under the GNU General Public License v3.0 only " +
@@ -42,9 +42,9 @@ class GovernanceDocumentationTest {
                 "The library therefore remains a derivative work of tvhstream under GPL-3.0-only.",
                 "The standalone repository begins with the HTSP protocol extraction baseline instead " +
                     "of embedding the predecessor application's unrelated Git history.",
-                "The library is developed and maintained independently of the TVHeadend project.",
-                "It is not affiliated with, endorsed by, or sponsored by the TVHeadend project.",
-                "The TVHeadend name describes compatibility only.",
+                "The library is developed and maintained independently of the Tvheadend project.",
+                "It is not affiliated with, endorsed by, or sponsored by the Tvheadend project.",
+                "The Tvheadend name describes compatibility only.",
             ),
             "docs/README.md" to listOf(
                 "- [`licensing.md`](licensing.md): GPLv3 obligations, attribution, and project lineage.",

@@ -1,6 +1,6 @@
 # Recordings, recording rules, and recording files
 
-TVHeadend keeps three kinds of DVR objects: recordings (scheduled, running or
+Tvheadend keeps three kinds of DVR objects: recordings (scheduled, running or
 finished), autorec rules that schedule recordings from matching programmes, and
 timerec rules that record a channel at fixed times of day. The server pushes all
 three as metadata, and you change them with a handful of requests. This guide

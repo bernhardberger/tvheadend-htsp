@@ -28,7 +28,7 @@ public data class HtspEvent private constructor(
     public val keywords: List<String>? = null,
     /** Series-link URI when linked (:1381–1382). */
     public val seriesLinkUri: String? = null,
-    /** Episode URI unless internal to TVHeadend (:1384–1386). */
+    /** Episode URI unless internal to Tvheadend (:1384–1386). */
     public val episodeUri: String? = null,
     /** First genre's unsigned content code (:1388–1392). */
     public val contentType: Long? = null,

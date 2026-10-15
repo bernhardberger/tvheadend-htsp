@@ -30,8 +30,8 @@ Only the latest release line receives security fixes. Older lines don't.
 
 ## What doesn't count
 
-- Vulnerabilities in TVHeadend itself. Report those to the
-  [TVHeadend project](https://github.com/tvheadend/tvheadend).
+- Vulnerabilities in Tvheadend itself. Report those to the
+  [Tvheadend project](https://github.com/tvheadend/tvheadend).
 - Behaviour of an application built on this library, such as how it stores the
   credentials it passes in.
 - Ordinary bugs that expose nothing. Use the

@@ -379,7 +379,7 @@ facts directly, including for custom connection fakes.
 observed `HtspTimeshiftStatusMessage`, the matching
 `SubscriptionTimestampClock`, and an explicit positive margin in seconds. Both
 status bounds must be present, the target `end - margin` must remain within the
-observed buffer, and the target must be safe for TVHeadend's selected-clock
+observed buffer, and the target must be safe for Tvheadend's selected-clock
 integer conversion. Validation fails before dispatch. The caller owns status
 provenance, generation fencing, and per-subscription navigation serialization.
 A successful result acknowledges only the synchronous request reply; matching
