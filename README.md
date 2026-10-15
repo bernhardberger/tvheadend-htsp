@@ -4,6 +4,8 @@
 [![Maven Central](https://img.shields.io/maven-central/v/at.bernhardberger.tvheadend/htsp)](https://central.sonatype.com/artifact/at.bernhardberger.tvheadend/htsp)
 [![javadoc](https://javadoc.io/badge2/at.bernhardberger.tvheadend/htsp/javadoc.svg)](https://javadoc.io/doc/at.bernhardberger.tvheadend/htsp)
 [![License: GPLv3](https://img.shields.io/badge/license-GPLv3-blue.svg)](LICENSE)
+[![Java 17+](https://img.shields.io/badge/Java-17%2B-blue.svg)](#requirements)
+[![HTSP v36–v44](https://img.shields.io/badge/HTSP-v36%E2%80%93v44-blue.svg)](docs/htsp-protocol/README.md)
 
 An unofficial Kotlin/JVM client for HTSP, the binary protocol that
 [Tvheadend](https://github.com/tvheadend/tvheadend) servers use for channels,
@@ -14,6 +16,14 @@ coroutines and flows instead of raw method names and field maps.
 Every server round trip returns a typed outcome. An access denial, a timeout or
 a lost connection is a value you handle, not an exception you catch, and
 cancelling the calling coroutine cancels the call.
+
+> [!TIP]
+> **Building an app?** Most apps want the
+> [Tvheadend Kotlin SDK](https://github.com/bernhardberger/tvheadend-sdk) on top
+> of this library. It adds what this protocol layer leaves to you: the session
+> lifecycle, channel, EPG and recording state, playback state machines, and
+> Android and Media3 integration. Use this library on its own when you need the
+> protocol directly or your own state model.
 
 The public API lives under `at.bernhardberger.tvheadend.htsp` in six packages:
 
@@ -33,16 +43,6 @@ The public API lives under `at.bernhardberger.tvheadend.htsp` in six packages:
 
 At runtime the artifact needs only the Kotlin standard library and
 `kotlinx-coroutines-core`. It contains no Android, Media3 or decoder code.
-
-## Library or SDK
-
-This library is the protocol layer. It keeps no state between messages: what you
-store, how you apply updates and when you reconnect is up to you. The
-[Tvheadend Kotlin SDK](https://github.com/bernhardberger/tvheadend-sdk) builds that layer on top of it, with the
-session lifecycle, channel, EPG and recording state, playback state machines,
-and Android and Media3 integration. Most apps will want the SDK; use this library
-directly when you need the protocol itself or your own state model. The SDK is
-GPLv3 as well and still in its provisional 0.x line.
 
 ## Requirements
 
