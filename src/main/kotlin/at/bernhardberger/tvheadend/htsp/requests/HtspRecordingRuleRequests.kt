@@ -88,6 +88,9 @@ public data class AddAutorecEntryRequest(
  * Identifies an automatic recording rule and carries optional matching and policy changes.
  * Updates always set the channel restriction: supply the current [channel] to retain it, or
  * [HtspRecordingRuleChannel.Any] to clear it by omitting wire `channelId` (src/htsp_server.c:700–703).
+ * No wire shape keeps the stored channel: despite the "keep old one" comment at
+ * src/htsp_server.c:2371, an update without `channelId` clears it. Callers that don't know the
+ * current channel cannot update the rule without changing it.
  */
 public data class UpdateAutorecEntryRequest(
     public val id: String,
@@ -175,6 +178,9 @@ public data class AddTimerecEntryRequest(
  * Identifies a time-based recording rule and carries optional interval and policy changes.
  * Updates always set the channel restriction: supply the current [channel] to retain it, or
  * [HtspRecordingRuleChannel.Any] to clear it by omitting wire `channelId` (src/htsp_server.c:700–703).
+ * No wire shape keeps the stored channel: despite the "keep old one" comment at
+ * src/htsp_server.c:2482, an update without `channelId` clears it. Callers that don't know the
+ * current channel cannot update the rule without changing it.
  */
 public data class UpdateTimerecEntryRequest(
     public val id: String,
