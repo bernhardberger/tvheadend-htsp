@@ -435,6 +435,9 @@ may sit in a queue.
 - It does not recover from overflow or malformed metadata for you.
 - It does not cap memory across a whole connection.
 
+The [Tvheadend Kotlin SDK](https://github.com/bernhardberger/tvheadend-sdk) builds this state layer on top of the
+library. If you would rather not write it yourself, start there.
+
 These are the decisions in
 [ADR 0002](../adr/0002-entity-model-and-update-semantics.md). The exact rules
 behind everything above are in

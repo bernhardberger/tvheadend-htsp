@@ -9,6 +9,8 @@ Start with the
 [guides](https://github.com/bernhardberger/tvheadend-htsp/tree/main/docs/guides).
 The exact rules for outcomes, cancellation and event streams are in
 [API behavior](https://github.com/bernhardberger/tvheadend-htsp/blob/main/docs/public-api.md).
+For a ready-made state layer on top of this protocol client, see the
+[Tvheadend Kotlin SDK](https://github.com/bernhardberger/tvheadend-sdk).
 
 # Package at.bernhardberger.tvheadend.htsp.connection
 

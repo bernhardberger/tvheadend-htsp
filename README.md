@@ -34,6 +34,16 @@ The public API lives under `at.bernhardberger.tvheadend.htsp` in six packages:
 At runtime the artifact needs only the Kotlin standard library and
 `kotlinx-coroutines-core`. It contains no Android, Media3 or decoder code.
 
+## Library or SDK
+
+This library is the protocol layer. It keeps no state between messages: what you
+store, how you apply updates and when you reconnect is up to you. The
+[Tvheadend Kotlin SDK](https://github.com/bernhardberger/tvheadend-sdk) builds that layer on top of it, with the
+session lifecycle, channel, EPG and recording state, playback state machines,
+and Android and Media3 integration. Most apps will want the SDK; use this library
+directly when you need the protocol itself or your own state model. The SDK is
+GPLv3 as well and still in its provisional 0.x line.
+
 ## Requirements
 
 - Java 17 or newer. The artifact is compiled for JVM 17.
