@@ -210,7 +210,17 @@ suspend fun deleteRecording(
 ```
 
 `updateDvrEntry` sends only the fields you pass; a null argument is left out,
-not cleared. The other three differ in what they do to the recording, and the
+not cleared. `configName` is the exception. On the pinned server, an update to
+an upcoming recording always resets its DVR configuration, and a missing
+`configName` selects the default one (`src/htsp_server.c:2197`,
+`src/dvr/dvr_db.c:2517-2518`). To keep the configuration, pass its name from
+`getDvrConfigs()`, not the `dvrConfigUuid` on the entry: the server looks the
+value up by name only, and an unknown value also selects the default. For an
+account restricted to a list of DVR configurations, the server passes an
+identifier where it looks up a name, so the entry ends up on the default
+configuration either way.
+
+The other three differ in what they do to the recording, and the
 server decides by the recording's state. On the pinned server (HTSP 44):
 
 | Call | Upcoming | Running | Finished |

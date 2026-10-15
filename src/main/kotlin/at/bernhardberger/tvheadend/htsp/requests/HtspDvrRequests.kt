@@ -3,7 +3,11 @@ package at.bernhardberger.tvheadend.htsp.requests
 import at.bernhardberger.tvheadend.htsp.connection.*
 import at.bernhardberger.tvheadend.htsp.wire.*
 
-/** One DVR configuration with its stable UUID, display [name], and server [comment]. */
+/**
+ * One DVR configuration with its stable UUID, display [name], and server [comment].
+ *
+ * @property dvrConfigUuid UUID of the configuration (`uuid`)
+ */
 public data class HtspDvrConfig(
     public val dvrConfigUuid: String,
     public val name: String,
@@ -17,7 +21,11 @@ public data class HtspDvrCutpoint(
     public val endMs: Long,
     public val type: Long,
 )
-/** Contains the optional ordered DVR-configuration list visible to the caller. */
+/**
+ * Contains the optional ordered DVR-configuration list visible to the caller.
+ *
+ * @property configurations configurations the caller may use (`dvrconfigs`); `null` when the server sent no list
+ */
 public data class GetDvrConfigsResponse(public val configurations: List<HtspDvrConfig>?)
 
 /**
@@ -55,12 +63,20 @@ public data object CancelDvrEntryResponse : HtspDvrMutationResponse
 
 /** Acknowledges a strict `success: 1` DVR-delete reply. */
 public data object DeleteDvrEntryResponse : HtspDvrMutationResponse
-/** Contains the optional ordered cutpoint list for the selected DVR entry. */
+/**
+ * Contains the optional ordered cutpoint list for the selected DVR entry.
+ *
+ * @property cutpoints cutpoints in server order (`cutpoints`); `null` when the server sent no list
+ */
 public data class GetDvrCutpointsResponse(public val cutpoints: List<HtspDvrCutpoint>?)
 
 /** Closed exactly-one selector for a channel ticket or a DVR ticket. */
 public sealed interface GetTicketSelector {
-    /** Selects a ticket source by complete unsigned channel identifier. */
+    /**
+     * Selects a ticket source by complete unsigned channel identifier.
+     *
+     * @property channelId channel to request a ticket for (`channelId`), 0 to 4294967295
+     */
     @JvmInline
     public value class Channel(public val channelId: Long) : GetTicketSelector {
         init {
@@ -68,7 +84,11 @@ public sealed interface GetTicketSelector {
         }
     }
 
-    /** Selects a ticket source by complete unsigned DVR identifier. */
+    /**
+     * Selects a ticket source by complete unsigned DVR identifier.
+     *
+     * @property dvrId DVR entry to request a ticket for (`dvrId`), 0 to 4294967295
+     */
     @JvmInline
     public value class Dvr(public val dvrId: Long) : GetTicketSelector {
         init {
@@ -101,7 +121,11 @@ public sealed interface AddDvrEntrySelector {
         }
     }
 
-    /** Selects a channel and epoch-second boundaries for DVR scheduling. */
+    /**
+     * Selects a channel and epoch-second boundaries for DVR scheduling.
+     *
+     * @property channelId channel to record (`channelId`), 0 to 4294967295
+     */
     public data class ExplicitChannelTime(
         public val channelId: Long,
         /** HTSP `start`, epoch seconds (pinned htsp_server.c:2085–2095). */
@@ -122,6 +146,12 @@ public sealed interface AddDvrEntrySelector {
  * Creation policy options are copied by src/htsp_server.c:2057–2070.
  * Older servers that predate a creation option silently ignore it and may still answer Ok.
  * These options add no minimumProtocolVersion gate because their introduction versions are unknown.
+ *
+ * @property configName DVR configuration to record with (`configName`); `null` omits it and the server chooses the configuration
+ * @property language language of the text fields (`language`); `null` omits it and the server uses the connection's language
+ * @property enabled whether the entry is enabled (`enabled`); `null` omits it
+ * @property priority priority code (`priority`), 0 to 4294967295; `null` omits it
+ * @property comment free-text comment (`comment`); `null` omits it
  */
 public data class AddDvrEntryRequest(
     public val selector: AddDvrEntrySelector,
@@ -166,7 +196,24 @@ public data class AddDvrEntryRequest(
     }
 }
 
-/** Identifies one DVR entry and carries optional channel, configuration, programme text, progress, enablement, timing, retention, priority, and age rating changes. */
+/**
+ * Identifies one DVR entry and carries optional channel, configuration, programme text, progress, enablement, timing, retention, priority, and age rating changes.
+ *
+ * A `null` property is omitted from the wire; the server then keeps the stored value, except for [configName] and [language] as described below.
+ *
+ * @property entryId DVR entry to update (`id`), 0 to 4294967295
+ * @property channelId channel to move the entry to (`channelId`), 0 to 4294967295
+ * @property configName name of the DVR configuration to use (`configName`); for an upcoming recording the server replaces the stored configuration on every update and selects its default when this is `null` or does not name an enabled configuration, so pass the current configuration's name to keep it
+ * @property title programme title (`title`)
+ * @property subtitle programme subtitle (`subtitle`)
+ * @property summary programme summary (`summary`)
+ * @property description programme description (`description`)
+ * @property language language of the text fields (`language`); `null` uses the connection's language
+ * @property comment free-text comment (`comment`, v42 or later)
+ * @property playCount play count to store (`playcount`), 0 to 4294967295; the server reads values above 2147483647 as an increment and reserves other values for increment, set, reset and keep commands
+ * @property priority priority code (`priority`), 0 to 4294967295
+ * @property ageRating age rating code (`ageRating`), 0 to 4294967295
+ */
 public data class UpdateDvrEntryRequest(
     public val entryId: Long,
     public val channelId: Long? = null,

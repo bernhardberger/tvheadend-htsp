@@ -3,7 +3,11 @@ package at.bernhardberger.tvheadend.htsp.requests
 import at.bernhardberger.tvheadend.htsp.connection.*
 import at.bernhardberger.tvheadend.htsp.wire.*
 
-/** Opened file handle [id] with source-coupled optional size and modification-time metadata. */
+/**
+ * Opened file handle [id] with source-coupled optional size and modification-time metadata.
+ *
+ * @property sizeBytes file size in bytes (`size`); `null` when the server omitted it, as it does together with [modifiedAtEpochSeconds]
+ */
 public data class FileOpenResponse(
     public val id: Long,
     public val sizeBytes: Long?,
@@ -11,13 +15,21 @@ public data class FileOpenResponse(
     public val modifiedAtEpochSeconds: Long?,
 )
 
-/** Contains one owned immutable bounded payload; an empty payload is a valid successful read. */
+/**
+ * Contains one owned immutable bounded payload; an empty payload is a valid successful read.
+ *
+ * @property data bytes read (`data`); empty when the read returned no bytes
+ */
 public data class FileReadResponse(public val data: HtspBinary)
 
 /** Explicit successful empty acknowledgement returned for a protocol file-close request. */
 public data object FileCloseResponse
 
-/** Optional size and modification time for an open file handle; the pair is absent together when unavailable. */
+/**
+ * Optional size and modification time for an open file handle; the pair is absent together when unavailable.
+ *
+ * @property sizeBytes file size in bytes (`size`); `null` when the server omitted it, as it does together with [modifiedAtEpochSeconds]
+ */
 public data class FileStatResponse(
     public val sizeBytes: Long?,
     /** HTSP `mtime`, epoch seconds from POSIX `st_mtime`; null means unavailable (htsp_server.c:3100). */
@@ -32,8 +44,11 @@ public data class FileSeekResponse(
 
 /** Finite file-seek origin vocabulary: start, current position, or end; a null request value omits the field. */
 public enum class FileSeekWhence {
+    /** Measures the offset from the start of the file (`SEEK_SET`); the server's default when whence is omitted. */
     SET,
+    /** Measures the offset from the current file position (`SEEK_CUR`). */
     CURRENT,
+    /** Measures the offset from the end of the file (`SEEK_END`). */
     END,
 }
 /** Carries the exact protocol [file] selector without path normalization; diagnostics redact it. */
@@ -65,7 +80,12 @@ public data class FileReadRequest(
     }
 }
 
-/** Selects an open file [id] and optional recording position and play-count values; null omits each progress field. */
+/**
+ * Selects an open file [id] and optional recording position and play-count values; null omits each progress field.
+ *
+ * @property playPositionSeconds playback position in whole seconds (`playposition`), 0 to 4294967295; the server stores it only for a recording-backed file
+ * @property playCount play-count command (`playcount`), 0 to 4294967295; the server increments the recording's play count when it is omitted or holds its increment value, and ignores other values on close; use [UpdateDvrEntryRequest.playCount] to set a count
+ */
 public data class FileCloseRequest(
     public val id: Long,
     public val playPositionSeconds: Long? = null,
