@@ -4,6 +4,12 @@ Guides for people using the library, and references for people working on it.
 
 ## Using the library
 
+- [`guides/connecting.md`](guides/connecting.md): a complete example with
+  failure handling, connection generations, disconnect and close.
+- [`guides/metadata.md`](guides/metadata.md): metadata sync, event buffering,
+  overflow and large EPGs.
+- [`guides/subscriptions.md`](guides/subscriptions.md): live subscriptions,
+  seeking near the live edge, and packet timestamps.
 - [`public-api.md`](public-api.md): how calls report success and failure,
   covering typed outcomes, cancellation, and what error values never carry.
 - [`versioning.md`](versioning.md): the current version, its provisional compatibility status,
@@ -52,7 +58,12 @@ separate documentation site or toolchain.
 
 - [`README.md`](../README.md) is the entry point: what the library is,
   requirements, installation, and a short first use.
-- Guides live in `docs/` and are linked from this index.
+- Guides live in `docs/guides/` and are linked from this index and the README.
+- Code a reader might copy comes from a consumer-contract fixture that compiles
+  against the staged artifact. Put `<!-- source: consumer-contract/...kt -->`
+  directly above the Kotlin block, or `...kt#name` for the lines between
+  `// region name` and `// endregion`; `DocumentationSnippetTest` fails when
+  the block and the fixture differ.
 - KDoc on public declarations is the API reference. detekt fails `check` on
   undocumented public classes and functions, and
   `./tools/verify dokkaGeneratePublicationHtml` renders it to
