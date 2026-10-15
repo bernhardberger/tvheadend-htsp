@@ -277,6 +277,16 @@ val publicationVersionDirectory = checkoutLocalMavenRepository.map { repository 
     repository.dir("at/bernhardberger/tvheadend/htsp/$publicationVersion")
 }
 
+// Restaging a candidate replaces it, so consumers resolve exactly one snapshot build.
+if (candidateVersion != null) {
+    val clearCandidatePublication = tasks.register<Delete>("clearCandidatePublication") {
+        delete(publicationVersionDirectory)
+    }
+    tasks.named("publishHtspPublicationToCheckoutLocalRepository") {
+        dependsOn(clearCandidatePublication)
+    }
+}
+
 val writePublicationChecksums = tasks.register("writePublicationChecksums") {
     group = "publishing"
     description = "Writes SHA-256 sidecars for the five staged HTSP publication artifacts."
