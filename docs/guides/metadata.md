@@ -67,14 +67,16 @@ yours and the helper's are independent. Its result is an `HtspResult<Unit>`:
 | `Ok` | acknowledged, and the marker for this generation arrived |
 | `Timeout` | no acknowledgement and marker within `timeoutMs`; the default is 30 s, one budget for both |
 | `TransportUnavailable` | the connection or its generation ended, a stale `expectedGeneration` was passed, or this generation's queue overflowed |
-| `MalformedReply` | metadata for this generation could not be decoded before the marker arrived |
 | other failures | the acknowledgement itself failed, for example `AccessDenied` |
 
-The last two rows share a theme: the sync is incomplete, even though the
-connection may be fine. `MalformedReply` here does not mean a refusal. A
-malformed report that arrives after the marker does not change the result, so
-keep watching for it afterwards. Callers must not run two of these helpers at
-once on the same generation, because the marker carries no request sequence.
+Metadata that the library could not decode does not fail the helper. It still
+returns `Ok` when the marker arrives, and the skipped messages are reported as
+[`MalformedMetadata`](#malformed-metadata) on `events`. A collector that was
+already running sees that report, or an overflow marker that includes it, before
+the marker. So `Ok` means the sync finished, not that every row arrived; your
+collector decides whether the state is complete. Callers must not run two of
+these helpers at once on the same generation, because the marker carries no
+request sequence.
 
 The options select what the server sends:
 

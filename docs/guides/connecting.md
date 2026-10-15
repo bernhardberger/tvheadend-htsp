@@ -148,9 +148,6 @@ fun adviceFor(kind: HtspTransportFailureKind): String = when (kind) {
 | `CLOSED` | the client was already closed |
 | `SUPERSEDED` | a later `connect`, `disconnect` or `close` ended this attempt |
 
-`PERMISSION_DENIED` and `ZERO_CHANNELS` also exist in the enum, but the client
-does not currently report them.
-
 Failure values never carry the endpoint, credentials, or the underlying
 exception; see
 [what outcome values deliberately omit](../public-api.md#what-outcome-values-deliberately-omit).
