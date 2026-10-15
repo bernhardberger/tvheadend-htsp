@@ -2,7 +2,7 @@
 
 package at.bernhardberger.tvheadend.htsp.connection
 
-import at.bernhardberger.tvheadend.htsp.messages.HtspServerMessage
+import at.bernhardberger.tvheadend.htsp.messages.HtspMetadataMessage
 import java.net.ConnectException
 import java.net.NoRouteToHostException
 import java.net.Socket
@@ -101,7 +101,7 @@ public sealed interface HtspTransportEvent {
 
     /** One typed asynchronous server message observed on its source generation. */
     public data class ServerMessage(
-        public val message: HtspServerMessage,
+        public val message: HtspMetadataMessage,
         override val generation: HtspConnectionGeneration,
         /** One-based reader-observed position within [generation]. */
         public val messageSequence: Long,

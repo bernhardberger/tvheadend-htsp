@@ -9,13 +9,13 @@ import at.bernhardberger.tvheadend.htsp.wire.requireU32
 public data class HtspDvrEntryAddMessage(
     /** Complete recording snapshot. */
     public val entry: HtspDvrEntry,
-) : HtspServerMessage
+) : HtspMetadataMessage
 
 /** Full replacement recording update (pinned htsp_server.c:965–1202). */
 public data class HtspDvrEntryUpdateMessage(
     /** Complete recording snapshot; absent optional fields clear previous values. */
     public val entry: HtspDvrEntry,
-) : HtspServerMessage
+) : HtspMetadataMessage
 
 /** Statistics-only recording update from htsp_build_dvrentry(statsonly=1), :977–980,1157–1200. */
 public data class HtspDvrEntryStatsMessage(
@@ -37,7 +37,7 @@ public data class HtspDvrEntryStatsMessage(
     public val dataErrors: Long? = null,
     /** Known file size for recording or completed entries (:1163,1173,1199–1200). */
     public val dataSizeBytes: Long? = null,
-) : HtspServerMessage {
+) : HtspMetadataMessage {
     init {
         requireU32("entryId", entryId)
         streamErrors?.let { requireU32("streamErrors", it) }
@@ -50,7 +50,7 @@ public data class HtspDvrEntryStatsMessage(
 public data class HtspDvrEntryDeleteMessage(
     /** Unsigned recording identity. */
     public val entryId: Long,
-) : HtspServerMessage {
+) : HtspMetadataMessage {
     init { requireU32("entryId", entryId) }
 }
 
@@ -58,34 +58,34 @@ public data class HtspDvrEntryDeleteMessage(
 public data class HtspAutorecEntryAddMessage(
     /** Complete automatic-rule snapshot. */
     public val entry: HtspAutorecEntry,
-) : HtspServerMessage
+) : HtspMetadataMessage
 
 /** Full replacement automatic-rule update (pinned htsp_server.c:1209–1268). */
 public data class HtspAutorecEntryUpdateMessage(
     /** Complete automatic-rule snapshot. */
     public val entry: HtspAutorecEntry,
-) : HtspServerMessage
+) : HtspMetadataMessage
 
 /** Identifies a deleted automatic recording rule. */
 public data class HtspAutorecEntryDeleteMessage(
     /** Rule UUID. */
     public val id: String,
-) : HtspServerMessage
+) : HtspMetadataMessage
 
 /** Full time-rule add (pinned htsp_server.c:1275–1311). */
 public data class HtspTimerecEntryAddMessage(
     /** Complete time-rule snapshot. */
     public val entry: HtspTimerecEntry,
-) : HtspServerMessage
+) : HtspMetadataMessage
 
 /** Full replacement time-rule update (pinned htsp_server.c:1275–1311). */
 public data class HtspTimerecEntryUpdateMessage(
     /** Complete time-rule snapshot. */
     public val entry: HtspTimerecEntry,
-) : HtspServerMessage
+) : HtspMetadataMessage
 
 /** Identifies a deleted time recording rule. */
 public data class HtspTimerecEntryDeleteMessage(
     /** Rule UUID. */
     public val id: String,
-) : HtspServerMessage
+) : HtspMetadataMessage

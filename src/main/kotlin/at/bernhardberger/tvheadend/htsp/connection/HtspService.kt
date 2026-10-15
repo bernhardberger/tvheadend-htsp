@@ -54,7 +54,7 @@ internal open class `HtspService-internal`(
     private val afterTransportInstallation: suspend () -> Unit = {},
     private val afterTeardownAdmission: suspend () -> Unit = {},
     private val beforeTypedRecapture: suspend (HtspRequest<*>) -> Unit = {},
-    private val beforeTypedEventPublication: (HtspTransportEvent.ServerMessage) -> Unit = {},
+    private val beforeTypedEventPublication: (DecodedServerEvent) -> Unit = {},
     private val beforeFrameRead: () -> Unit = {},
     private val afterPublicationCurrencyCheck: (HtspTransportEvent) -> Unit = {},
     private val afterConnectedSnapshot: suspend () -> Unit = {},
@@ -793,7 +793,7 @@ internal open class `HtspService-internal`(
                         }
                     } else null
                     val typedEvent = if (decoded is HtspServerMessageDecoded && currentGeneration != null) {
-                        HtspTransportEvent.ServerMessage(decoded.message, currentGeneration.token, currentMessageSequence)
+                        DecodedServerEvent(decoded.message, currentGeneration.token, currentMessageSequence)
                     } else null
                     val routed = typedEvent?.let { prepareSubscriptionEvent(it) }
                     val published = attemptMonitor.withAttemptLock {
@@ -822,9 +822,12 @@ internal open class `HtspService-internal`(
                                     if (routed != null) {
                                         currentGeneration.subscriptionStreams[routed.subscriptionId]
                                             ?.offer(routed.event, frameBodyBytes)
-                                    } else if (typedEvent != null) {
-                                        afterPublicationCurrencyCheck(typedEvent)
-                                        metadataCollectors.forEach { it.offer(typedEvent, frameBodyBytes) }
+                                    } else if (typedEvent != null && typedEvent.message is HtspMetadataMessage) {
+                                        val metadataEvent = HtspTransportEvent.ServerMessage(
+                                            typedEvent.message, typedEvent.generation, typedEvent.messageSequence,
+                                        )
+                                        afterPublicationCurrencyCheck(metadataEvent)
+                                        metadataCollectors.forEach { it.offer(metadataEvent, frameBodyBytes) }
                                     }
                                 }
                                 HtspServerMessageMalformedKnownMessage -> {
@@ -966,7 +969,7 @@ internal open class `HtspService-internal`(
     }
 
     private suspend fun prepareSubscriptionEvent(
-        event: HtspTransportEvent.ServerMessage,
+        event: DecodedServerEvent,
     ): RoutedSubscriptionEvent? {
         try {
             beforeTypedEventPublication(event)

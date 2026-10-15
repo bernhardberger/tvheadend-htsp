@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+- **BREAKING:** narrow `HtspTransportEvent.ServerMessage.message` to the sealed
+  `HtspMetadataMessage` hierarchy. Metadata messages implement this subtype;
+  subscription messages remain `HtspServerMessage` only. Minor releases may add
+  metadata subtypes; consumers must keep an `else` branch when matching.
 - **BREAKING:** move shared channel/event entities, channel services, programme
   metadata/credits and DVR recording-file values into `htsp.model`. Add
   `HtspTag`, `HtspDvrEntry`, `HtspAutorecEntry`, and `HtspTimerecEntry` there.

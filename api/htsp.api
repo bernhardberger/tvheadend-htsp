@@ -531,15 +531,15 @@ public final class at/bernhardberger/tvheadend/htsp/connection/HtspTransportEven
 }
 
 public final class at/bernhardberger/tvheadend/htsp/connection/HtspTransportEvent$ServerMessage : at/bernhardberger/tvheadend/htsp/connection/HtspTransportEvent {
-	public fun <init> (Lat/bernhardberger/tvheadend/htsp/messages/HtspServerMessage;Lat/bernhardberger/tvheadend/htsp/connection/HtspConnectionGeneration;J)V
-	public final fun component1 ()Lat/bernhardberger/tvheadend/htsp/messages/HtspServerMessage;
+	public fun <init> (Lat/bernhardberger/tvheadend/htsp/messages/HtspMetadataMessage;Lat/bernhardberger/tvheadend/htsp/connection/HtspConnectionGeneration;J)V
+	public final fun component1 ()Lat/bernhardberger/tvheadend/htsp/messages/HtspMetadataMessage;
 	public final fun component2 ()Lat/bernhardberger/tvheadend/htsp/connection/HtspConnectionGeneration;
 	public final fun component3 ()J
-	public final fun copy (Lat/bernhardberger/tvheadend/htsp/messages/HtspServerMessage;Lat/bernhardberger/tvheadend/htsp/connection/HtspConnectionGeneration;J)Lat/bernhardberger/tvheadend/htsp/connection/HtspTransportEvent$ServerMessage;
-	public static synthetic fun copy$default (Lat/bernhardberger/tvheadend/htsp/connection/HtspTransportEvent$ServerMessage;Lat/bernhardberger/tvheadend/htsp/messages/HtspServerMessage;Lat/bernhardberger/tvheadend/htsp/connection/HtspConnectionGeneration;JILjava/lang/Object;)Lat/bernhardberger/tvheadend/htsp/connection/HtspTransportEvent$ServerMessage;
+	public final fun copy (Lat/bernhardberger/tvheadend/htsp/messages/HtspMetadataMessage;Lat/bernhardberger/tvheadend/htsp/connection/HtspConnectionGeneration;J)Lat/bernhardberger/tvheadend/htsp/connection/HtspTransportEvent$ServerMessage;
+	public static synthetic fun copy$default (Lat/bernhardberger/tvheadend/htsp/connection/HtspTransportEvent$ServerMessage;Lat/bernhardberger/tvheadend/htsp/messages/HtspMetadataMessage;Lat/bernhardberger/tvheadend/htsp/connection/HtspConnectionGeneration;JILjava/lang/Object;)Lat/bernhardberger/tvheadend/htsp/connection/HtspTransportEvent$ServerMessage;
 	public fun equals (Ljava/lang/Object;)Z
 	public fun getGeneration ()Lat/bernhardberger/tvheadend/htsp/connection/HtspConnectionGeneration;
-	public final fun getMessage ()Lat/bernhardberger/tvheadend/htsp/messages/HtspServerMessage;
+	public final fun getMessage ()Lat/bernhardberger/tvheadend/htsp/messages/HtspMetadataMessage;
 	public final fun getMessageSequence ()J
 	public fun hashCode ()I
 	public fun toString ()Ljava/lang/String;
@@ -702,7 +702,7 @@ public final class at/bernhardberger/tvheadend/htsp/jsonapi/HtspJsonApiCallKt {
 	public static synthetic fun api$default (Lat/bernhardberger/tvheadend/htsp/connection/HtspConnection;Ljava/lang/String;Lat/bernhardberger/tvheadend/htsp/jsonapi/HtspApiObject;JLat/bernhardberger/tvheadend/htsp/connection/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
 }
 
-public final class at/bernhardberger/tvheadend/htsp/messages/HtspAutorecEntryAddMessage : at/bernhardberger/tvheadend/htsp/messages/HtspServerMessage {
+public final class at/bernhardberger/tvheadend/htsp/messages/HtspAutorecEntryAddMessage : at/bernhardberger/tvheadend/htsp/messages/HtspMetadataMessage {
 	public fun <init> (Lat/bernhardberger/tvheadend/htsp/model/HtspAutorecEntry;)V
 	public final fun component1 ()Lat/bernhardberger/tvheadend/htsp/model/HtspAutorecEntry;
 	public final fun copy (Lat/bernhardberger/tvheadend/htsp/model/HtspAutorecEntry;)Lat/bernhardberger/tvheadend/htsp/messages/HtspAutorecEntryAddMessage;
@@ -713,7 +713,7 @@ public final class at/bernhardberger/tvheadend/htsp/messages/HtspAutorecEntryAdd
 	public fun toString ()Ljava/lang/String;
 }
 
-public final class at/bernhardberger/tvheadend/htsp/messages/HtspAutorecEntryDeleteMessage : at/bernhardberger/tvheadend/htsp/messages/HtspServerMessage {
+public final class at/bernhardberger/tvheadend/htsp/messages/HtspAutorecEntryDeleteMessage : at/bernhardberger/tvheadend/htsp/messages/HtspMetadataMessage {
 	public fun <init> (Ljava/lang/String;)V
 	public final fun component1 ()Ljava/lang/String;
 	public final fun copy (Ljava/lang/String;)Lat/bernhardberger/tvheadend/htsp/messages/HtspAutorecEntryDeleteMessage;
@@ -724,7 +724,7 @@ public final class at/bernhardberger/tvheadend/htsp/messages/HtspAutorecEntryDel
 	public fun toString ()Ljava/lang/String;
 }
 
-public final class at/bernhardberger/tvheadend/htsp/messages/HtspAutorecEntryUpdateMessage : at/bernhardberger/tvheadend/htsp/messages/HtspServerMessage {
+public final class at/bernhardberger/tvheadend/htsp/messages/HtspAutorecEntryUpdateMessage : at/bernhardberger/tvheadend/htsp/messages/HtspMetadataMessage {
 	public fun <init> (Lat/bernhardberger/tvheadend/htsp/model/HtspAutorecEntry;)V
 	public final fun component1 ()Lat/bernhardberger/tvheadend/htsp/model/HtspAutorecEntry;
 	public final fun copy (Lat/bernhardberger/tvheadend/htsp/model/HtspAutorecEntry;)Lat/bernhardberger/tvheadend/htsp/messages/HtspAutorecEntryUpdateMessage;
@@ -735,7 +735,7 @@ public final class at/bernhardberger/tvheadend/htsp/messages/HtspAutorecEntryUpd
 	public fun toString ()Ljava/lang/String;
 }
 
-public final class at/bernhardberger/tvheadend/htsp/messages/HtspChannelAddMessage : at/bernhardberger/tvheadend/htsp/messages/HtspServerMessage {
+public final class at/bernhardberger/tvheadend/htsp/messages/HtspChannelAddMessage : at/bernhardberger/tvheadend/htsp/messages/HtspMetadataMessage {
 	public fun <init> (Lat/bernhardberger/tvheadend/htsp/model/HtspChannel;)V
 	public final fun component1 ()Lat/bernhardberger/tvheadend/htsp/model/HtspChannel;
 	public final fun copy (Lat/bernhardberger/tvheadend/htsp/model/HtspChannel;)Lat/bernhardberger/tvheadend/htsp/messages/HtspChannelAddMessage;
@@ -746,7 +746,7 @@ public final class at/bernhardberger/tvheadend/htsp/messages/HtspChannelAddMessa
 	public fun toString ()Ljava/lang/String;
 }
 
-public final class at/bernhardberger/tvheadend/htsp/messages/HtspChannelDeleteMessage : at/bernhardberger/tvheadend/htsp/messages/HtspServerMessage {
+public final class at/bernhardberger/tvheadend/htsp/messages/HtspChannelDeleteMessage : at/bernhardberger/tvheadend/htsp/messages/HtspMetadataMessage {
 	public fun <init> (J)V
 	public final fun component1 ()J
 	public final fun copy (J)Lat/bernhardberger/tvheadend/htsp/messages/HtspChannelDeleteMessage;
@@ -757,7 +757,7 @@ public final class at/bernhardberger/tvheadend/htsp/messages/HtspChannelDeleteMe
 	public fun toString ()Ljava/lang/String;
 }
 
-public final class at/bernhardberger/tvheadend/htsp/messages/HtspChannelNowNextMessage : at/bernhardberger/tvheadend/htsp/messages/HtspServerMessage {
+public final class at/bernhardberger/tvheadend/htsp/messages/HtspChannelNowNextMessage : at/bernhardberger/tvheadend/htsp/messages/HtspMetadataMessage {
 	public fun <init> (JJJ)V
 	public final fun component1 ()J
 	public final fun component2 ()J
@@ -772,7 +772,7 @@ public final class at/bernhardberger/tvheadend/htsp/messages/HtspChannelNowNextM
 	public fun toString ()Ljava/lang/String;
 }
 
-public final class at/bernhardberger/tvheadend/htsp/messages/HtspChannelUpdateMessage : at/bernhardberger/tvheadend/htsp/messages/HtspServerMessage {
+public final class at/bernhardberger/tvheadend/htsp/messages/HtspChannelUpdateMessage : at/bernhardberger/tvheadend/htsp/messages/HtspMetadataMessage {
 	public fun <init> (Lat/bernhardberger/tvheadend/htsp/model/HtspChannel;)V
 	public final fun component1 ()Lat/bernhardberger/tvheadend/htsp/model/HtspChannel;
 	public final fun copy (Lat/bernhardberger/tvheadend/htsp/model/HtspChannel;)Lat/bernhardberger/tvheadend/htsp/messages/HtspChannelUpdateMessage;
@@ -823,7 +823,7 @@ public final class at/bernhardberger/tvheadend/htsp/messages/HtspDescrambleInfoM
 	public fun toString ()Ljava/lang/String;
 }
 
-public final class at/bernhardberger/tvheadend/htsp/messages/HtspDvrEntryAddMessage : at/bernhardberger/tvheadend/htsp/messages/HtspServerMessage {
+public final class at/bernhardberger/tvheadend/htsp/messages/HtspDvrEntryAddMessage : at/bernhardberger/tvheadend/htsp/messages/HtspMetadataMessage {
 	public fun <init> (Lat/bernhardberger/tvheadend/htsp/model/HtspDvrEntry;)V
 	public final fun component1 ()Lat/bernhardberger/tvheadend/htsp/model/HtspDvrEntry;
 	public final fun copy (Lat/bernhardberger/tvheadend/htsp/model/HtspDvrEntry;)Lat/bernhardberger/tvheadend/htsp/messages/HtspDvrEntryAddMessage;
@@ -834,7 +834,7 @@ public final class at/bernhardberger/tvheadend/htsp/messages/HtspDvrEntryAddMess
 	public fun toString ()Ljava/lang/String;
 }
 
-public final class at/bernhardberger/tvheadend/htsp/messages/HtspDvrEntryDeleteMessage : at/bernhardberger/tvheadend/htsp/messages/HtspServerMessage {
+public final class at/bernhardberger/tvheadend/htsp/messages/HtspDvrEntryDeleteMessage : at/bernhardberger/tvheadend/htsp/messages/HtspMetadataMessage {
 	public fun <init> (J)V
 	public final fun component1 ()J
 	public final fun copy (J)Lat/bernhardberger/tvheadend/htsp/messages/HtspDvrEntryDeleteMessage;
@@ -845,7 +845,7 @@ public final class at/bernhardberger/tvheadend/htsp/messages/HtspDvrEntryDeleteM
 	public fun toString ()Ljava/lang/String;
 }
 
-public final class at/bernhardberger/tvheadend/htsp/messages/HtspDvrEntryStatsMessage : at/bernhardberger/tvheadend/htsp/messages/HtspServerMessage {
+public final class at/bernhardberger/tvheadend/htsp/messages/HtspDvrEntryStatsMessage : at/bernhardberger/tvheadend/htsp/messages/HtspMetadataMessage {
 	public fun <init> (JLjava/lang/String;Ljava/lang/String;Ljava/lang/Boolean;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;)V
 	public synthetic fun <init> (JLjava/lang/String;Ljava/lang/String;Ljava/lang/Boolean;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;Ljava/lang/Long;Ljava/lang/Long;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public final fun component1 ()J
@@ -873,7 +873,7 @@ public final class at/bernhardberger/tvheadend/htsp/messages/HtspDvrEntryStatsMe
 	public fun toString ()Ljava/lang/String;
 }
 
-public final class at/bernhardberger/tvheadend/htsp/messages/HtspDvrEntryUpdateMessage : at/bernhardberger/tvheadend/htsp/messages/HtspServerMessage {
+public final class at/bernhardberger/tvheadend/htsp/messages/HtspDvrEntryUpdateMessage : at/bernhardberger/tvheadend/htsp/messages/HtspMetadataMessage {
 	public fun <init> (Lat/bernhardberger/tvheadend/htsp/model/HtspDvrEntry;)V
 	public final fun component1 ()Lat/bernhardberger/tvheadend/htsp/model/HtspDvrEntry;
 	public final fun copy (Lat/bernhardberger/tvheadend/htsp/model/HtspDvrEntry;)Lat/bernhardberger/tvheadend/htsp/messages/HtspDvrEntryUpdateMessage;
@@ -884,7 +884,7 @@ public final class at/bernhardberger/tvheadend/htsp/messages/HtspDvrEntryUpdateM
 	public fun toString ()Ljava/lang/String;
 }
 
-public final class at/bernhardberger/tvheadend/htsp/messages/HtspEventAddMessage : at/bernhardberger/tvheadend/htsp/messages/HtspServerMessage {
+public final class at/bernhardberger/tvheadend/htsp/messages/HtspEventAddMessage : at/bernhardberger/tvheadend/htsp/messages/HtspMetadataMessage {
 	public fun <init> (Lat/bernhardberger/tvheadend/htsp/model/HtspEvent;)V
 	public final fun component1 ()Lat/bernhardberger/tvheadend/htsp/model/HtspEvent;
 	public final fun copy (Lat/bernhardberger/tvheadend/htsp/model/HtspEvent;)Lat/bernhardberger/tvheadend/htsp/messages/HtspEventAddMessage;
@@ -895,7 +895,7 @@ public final class at/bernhardberger/tvheadend/htsp/messages/HtspEventAddMessage
 	public fun toString ()Ljava/lang/String;
 }
 
-public final class at/bernhardberger/tvheadend/htsp/messages/HtspEventDeleteMessage : at/bernhardberger/tvheadend/htsp/messages/HtspServerMessage {
+public final class at/bernhardberger/tvheadend/htsp/messages/HtspEventDeleteMessage : at/bernhardberger/tvheadend/htsp/messages/HtspMetadataMessage {
 	public fun <init> (J)V
 	public final fun component1 ()J
 	public final fun copy (J)Lat/bernhardberger/tvheadend/htsp/messages/HtspEventDeleteMessage;
@@ -906,7 +906,7 @@ public final class at/bernhardberger/tvheadend/htsp/messages/HtspEventDeleteMess
 	public fun toString ()Ljava/lang/String;
 }
 
-public final class at/bernhardberger/tvheadend/htsp/messages/HtspEventUpdateMessage : at/bernhardberger/tvheadend/htsp/messages/HtspServerMessage {
+public final class at/bernhardberger/tvheadend/htsp/messages/HtspEventUpdateMessage : at/bernhardberger/tvheadend/htsp/messages/HtspMetadataMessage {
 	public fun <init> (Lat/bernhardberger/tvheadend/htsp/model/HtspEvent;)V
 	public final fun component1 ()Lat/bernhardberger/tvheadend/htsp/model/HtspEvent;
 	public final fun copy (Lat/bernhardberger/tvheadend/htsp/model/HtspEvent;)Lat/bernhardberger/tvheadend/htsp/messages/HtspEventUpdateMessage;
@@ -917,11 +917,14 @@ public final class at/bernhardberger/tvheadend/htsp/messages/HtspEventUpdateMess
 	public fun toString ()Ljava/lang/String;
 }
 
-public final class at/bernhardberger/tvheadend/htsp/messages/HtspInitialSyncCompletedMessage : at/bernhardberger/tvheadend/htsp/messages/HtspServerMessage {
+public final class at/bernhardberger/tvheadend/htsp/messages/HtspInitialSyncCompletedMessage : at/bernhardberger/tvheadend/htsp/messages/HtspMetadataMessage {
 	public static final field INSTANCE Lat/bernhardberger/tvheadend/htsp/messages/HtspInitialSyncCompletedMessage;
 	public fun equals (Ljava/lang/Object;)Z
 	public fun hashCode ()I
 	public fun toString ()Ljava/lang/String;
+}
+
+public abstract interface class at/bernhardberger/tvheadend/htsp/messages/HtspMetadataMessage : at/bernhardberger/tvheadend/htsp/messages/HtspServerMessage {
 }
 
 public final class at/bernhardberger/tvheadend/htsp/messages/HtspMuxPacketMessage : at/bernhardberger/tvheadend/htsp/messages/HtspServerMessage {
@@ -1172,7 +1175,7 @@ public final class at/bernhardberger/tvheadend/htsp/messages/HtspSubscriptionStr
 	public fun toString ()Ljava/lang/String;
 }
 
-public final class at/bernhardberger/tvheadend/htsp/messages/HtspTagAddMessage : at/bernhardberger/tvheadend/htsp/messages/HtspServerMessage {
+public final class at/bernhardberger/tvheadend/htsp/messages/HtspTagAddMessage : at/bernhardberger/tvheadend/htsp/messages/HtspMetadataMessage {
 	public fun <init> (Lat/bernhardberger/tvheadend/htsp/model/HtspTag;)V
 	public final fun component1 ()Lat/bernhardberger/tvheadend/htsp/model/HtspTag;
 	public final fun copy (Lat/bernhardberger/tvheadend/htsp/model/HtspTag;)Lat/bernhardberger/tvheadend/htsp/messages/HtspTagAddMessage;
@@ -1183,7 +1186,7 @@ public final class at/bernhardberger/tvheadend/htsp/messages/HtspTagAddMessage :
 	public fun toString ()Ljava/lang/String;
 }
 
-public final class at/bernhardberger/tvheadend/htsp/messages/HtspTagDeleteMessage : at/bernhardberger/tvheadend/htsp/messages/HtspServerMessage {
+public final class at/bernhardberger/tvheadend/htsp/messages/HtspTagDeleteMessage : at/bernhardberger/tvheadend/htsp/messages/HtspMetadataMessage {
 	public fun <init> (J)V
 	public final fun component1 ()J
 	public final fun copy (J)Lat/bernhardberger/tvheadend/htsp/messages/HtspTagDeleteMessage;
@@ -1194,7 +1197,7 @@ public final class at/bernhardberger/tvheadend/htsp/messages/HtspTagDeleteMessag
 	public fun toString ()Ljava/lang/String;
 }
 
-public final class at/bernhardberger/tvheadend/htsp/messages/HtspTagUpdateMessage : at/bernhardberger/tvheadend/htsp/messages/HtspServerMessage {
+public final class at/bernhardberger/tvheadend/htsp/messages/HtspTagUpdateMessage : at/bernhardberger/tvheadend/htsp/messages/HtspMetadataMessage {
 	public fun <init> (Lat/bernhardberger/tvheadend/htsp/model/HtspTag;)V
 	public final fun component1 ()Lat/bernhardberger/tvheadend/htsp/model/HtspTag;
 	public final fun copy (Lat/bernhardberger/tvheadend/htsp/model/HtspTag;)Lat/bernhardberger/tvheadend/htsp/messages/HtspTagUpdateMessage;
@@ -1205,7 +1208,7 @@ public final class at/bernhardberger/tvheadend/htsp/messages/HtspTagUpdateMessag
 	public fun toString ()Ljava/lang/String;
 }
 
-public final class at/bernhardberger/tvheadend/htsp/messages/HtspTimerecEntryAddMessage : at/bernhardberger/tvheadend/htsp/messages/HtspServerMessage {
+public final class at/bernhardberger/tvheadend/htsp/messages/HtspTimerecEntryAddMessage : at/bernhardberger/tvheadend/htsp/messages/HtspMetadataMessage {
 	public fun <init> (Lat/bernhardberger/tvheadend/htsp/model/HtspTimerecEntry;)V
 	public final fun component1 ()Lat/bernhardberger/tvheadend/htsp/model/HtspTimerecEntry;
 	public final fun copy (Lat/bernhardberger/tvheadend/htsp/model/HtspTimerecEntry;)Lat/bernhardberger/tvheadend/htsp/messages/HtspTimerecEntryAddMessage;
@@ -1216,7 +1219,7 @@ public final class at/bernhardberger/tvheadend/htsp/messages/HtspTimerecEntryAdd
 	public fun toString ()Ljava/lang/String;
 }
 
-public final class at/bernhardberger/tvheadend/htsp/messages/HtspTimerecEntryDeleteMessage : at/bernhardberger/tvheadend/htsp/messages/HtspServerMessage {
+public final class at/bernhardberger/tvheadend/htsp/messages/HtspTimerecEntryDeleteMessage : at/bernhardberger/tvheadend/htsp/messages/HtspMetadataMessage {
 	public fun <init> (Ljava/lang/String;)V
 	public final fun component1 ()Ljava/lang/String;
 	public final fun copy (Ljava/lang/String;)Lat/bernhardberger/tvheadend/htsp/messages/HtspTimerecEntryDeleteMessage;
@@ -1227,7 +1230,7 @@ public final class at/bernhardberger/tvheadend/htsp/messages/HtspTimerecEntryDel
 	public fun toString ()Ljava/lang/String;
 }
 
-public final class at/bernhardberger/tvheadend/htsp/messages/HtspTimerecEntryUpdateMessage : at/bernhardberger/tvheadend/htsp/messages/HtspServerMessage {
+public final class at/bernhardberger/tvheadend/htsp/messages/HtspTimerecEntryUpdateMessage : at/bernhardberger/tvheadend/htsp/messages/HtspMetadataMessage {
 	public fun <init> (Lat/bernhardberger/tvheadend/htsp/model/HtspTimerecEntry;)V
 	public final fun component1 ()Lat/bernhardberger/tvheadend/htsp/model/HtspTimerecEntry;
 	public final fun copy (Lat/bernhardberger/tvheadend/htsp/model/HtspTimerecEntry;)Lat/bernhardberger/tvheadend/htsp/messages/HtspTimerecEntryUpdateMessage;

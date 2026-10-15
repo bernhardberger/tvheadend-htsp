@@ -199,7 +199,10 @@ operation (for example `runBlocking { close() }`) can deadlock. Prefer a real
 dispatcher for consumer code.
 
 `HtspConnection.events` has replay zero and carries metadata server messages and
-connection failures and overflow markers. Every collector has its own bounded
+connection failures and overflow markers. `HtspTransportEvent.ServerMessage.message`
+is an `HtspMetadataMessage`; subscription stream messages are excluded from this
+sealed hierarchy. Minor releases may add metadata subtypes, so keep an `else`
+branch when matching. Every collector has its own bounded
 queue; immutable decoded events may be shared between queues. Queue saturation
 never blocks the reader. On overflow, newest metadata is dropped only for that
 collector. One pending `MetadataOverflow` marker per generation coalesces the count
@@ -368,7 +371,7 @@ Two distinct flat messages carry sparse updates:
 
 Delete messages carry only identity. The library owns no entity cache or reducer.
 Consumers should match both full and sparse messages and keep an `else` branch
-for future `HtspServerMessage` variants. See [ADR 0002](adr/0002-entity-model-and-update-semantics.md).
+for future `HtspMetadataMessage` variants. See [ADR 0002](adr/0002-entity-model-and-update-semantics.md).
 
 Entities and `HtspSubscriptionStartMessage` compare structurally. Public list
 inputs are copied to immutable snapshots during construction and `copy`, and

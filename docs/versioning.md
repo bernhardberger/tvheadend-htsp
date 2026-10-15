@@ -74,7 +74,8 @@ exact `toString` format, internal declarations, and undocumented behavior.
   binary-compatible.
 - New subtypes or entries of the open types below. Their KDoc says so; keep an
   `else` branch when matching them:
-  `HtspServerMessage`, `HtspTransportEvent`, `HtspSubscriptionEvent`, `HtspSubscriptionTermination`,
+  `HtspServerMessage`, `HtspMetadataMessage`, `HtspTransportEvent`,
+  `HtspSubscriptionEvent`, `HtspSubscriptionTermination`,
   `HtspTransportFailureKind`, `HtspEpgObjectType`, `HtspLogLevel`, `HtspAccess`,
   `HtspDvrMutationRequest`, and `HtspDvrMutationResponse`.
   `HtspTransportEvent` remains Kotlin-sealed, like `HtspServerMessage`; "open"

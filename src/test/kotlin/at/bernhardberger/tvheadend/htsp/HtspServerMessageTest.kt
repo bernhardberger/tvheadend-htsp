@@ -15,6 +15,22 @@ import org.junit.jupiter.api.Test
 
 class HtspServerMessageTest {
     @Test
+    fun metadataHierarchyMatchesTransportRoutingInventory() {
+        val metadataMethods = at.bernhardberger.tvheadend.htsp.connection.METADATA_SERVER_METHODS
+        val subscriptionMethods = at.bernhardberger.tvheadend.htsp.connection.SUBSCRIPTION_SERVER_METHODS
+        assertEquals(metadataMethods + subscriptionMethods, typedHtspServerMessageInventory.map { it.method }.toSet())
+        typedHtspServerMessageInventory.forEach { entry ->
+            val isMetadata = entry.method in metadataMethods
+            listOfNotNull(entry.messageType, entry.sparseMessageType).forEach { name ->
+                val type = Class.forName("at.bernhardberger.tvheadend.htsp.messages.$name")
+                assertTrue(HtspServerMessage::class.java.isAssignableFrom(type), name)
+                assertEquals(isMetadata, HtspMetadataMessage::class.java.isAssignableFrom(type), name)
+            }
+            assertEquals(isMetadata, decodeMessage(minimalFixture(entry.method)) is HtspMetadataMessage, entry.method)
+        }
+    }
+
+    @Test
     fun renamedWallClockAndRecordingFilePropertiesReadOriginalFields() {
         val event = decodeMessage(minimalFixture("eventAdd") + mapOf(
             "start" to 100L, "stop" to 200L, "firstAired" to 50L,

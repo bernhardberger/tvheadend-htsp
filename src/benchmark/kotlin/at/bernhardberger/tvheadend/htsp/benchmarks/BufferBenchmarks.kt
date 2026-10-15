@@ -32,7 +32,7 @@ public class BufferBenchmarks {
         packet = HtspSubscriptionEvent.Packet(typedFrame(muxFrame(188)) as HtspMuxPacketMessage)
         control = HtspSubscriptionEvent.Status(HtspSubscriptionStatusMessage(1L, "Running", null))
         channel = HtspTransportEvent.ServerMessage(
-            message = typedFrame(metadataFrame("channelAdd")),
+            message = typedFrame(metadataFrame("channelAdd")) as HtspMetadataMessage,
             generation = HtspConnectionGeneration(),
             messageSequence = 1L,
         )

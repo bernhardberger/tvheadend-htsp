@@ -487,11 +487,7 @@ internal class HtspServiceTypedEventTest : HtspServiceLifecycleFixture() {
     @Test
     fun typedServerEventRejectsNonPositiveReaderSequence() {
         val generation = HtspConnectionGeneration()
-        val message = HtspSubscriptionStatusMessage(
-            subscriptionId = 1L,
-            status = null,
-            subscriptionError = null,
-        )
+        val message = HtspInitialSyncCompletedMessage
 
         assertTrue(
             runCatching {

@@ -3,6 +3,12 @@ package at.bernhardberger.tvheadend.htsp.connection
 import at.bernhardberger.tvheadend.htsp.messages.*
 import at.bernhardberger.tvheadend.htsp.wire.*
 
+internal data class DecodedServerEvent(
+    val message: HtspServerMessage,
+    val generation: HtspConnectionGeneration,
+    val messageSequence: Long,
+)
+
 internal data class RoutedSubscriptionEvent(
     val subscriptionId: Long,
     val event: HtspSubscriptionEvent,

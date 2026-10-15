@@ -33,7 +33,7 @@ internal abstract class HtspServiceLifecycleFixture {
         afterTransportInstallation: suspend () -> Unit = {},
         afterTeardownAdmission: suspend () -> Unit = {},
         beforeTypedRecapture: suspend (HtspRequest<*>) -> Unit = {},
-        beforeTypedEventPublication: (HtspTransportEvent.ServerMessage) -> Unit = {},
+        beforeTypedEventPublication: (DecodedServerEvent) -> Unit = {},
         beforeFrameRead: () -> Unit = {},
         afterPublicationCurrencyCheck: (HtspTransportEvent) -> Unit = {},
         afterConnectedSnapshot: suspend () -> Unit = {},
