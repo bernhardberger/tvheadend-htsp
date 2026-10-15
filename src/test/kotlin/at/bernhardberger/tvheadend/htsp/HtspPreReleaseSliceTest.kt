@@ -238,17 +238,6 @@ class HtspPreReleaseSliceTest {
         assertEquals(credits, HtspProgrammeCredits(credits.entries))
         assertEquals(credits.hashCode(), HtspProgrammeCredits(credits.entries).hashCode())
 
-        fun field(type: Int, name: String, value: ByteArray): ByteArray {
-            val output = java.io.ByteArrayOutputStream()
-            java.io.DataOutputStream(output).apply {
-                writeByte(type)
-                writeByte(name.length)
-                writeInt(value.size)
-                write(name.toByteArray())
-                write(value)
-            }
-            return output.toByteArray()
-        }
         val creditFields = field(1, "credits", field(3, "Person", "actor".toByteArray()) +
             field(3, "Other", "writer".toByteArray()) + field(3, "Person", "director".toByteArray()))
         val event = field(3, "method", "eventAdd".toByteArray()) + field(2, "eventId", byteArrayOf(7)) +
@@ -263,6 +252,46 @@ class HtspPreReleaseSliceTest {
         assertEquals(expected, decodeProgrammeCredits(decoded.fields, "credits") { error("malformed") }!!.entries)
         val message = (decodeHtspServerMessage(decoded.fields) as HtspServerMessageDecoded).message as HtspEventAddMessage
         assertEquals(expected, message.event.credits!!.entries)
+    }
+
+    @Test
+    fun repeatedCreditNamesKeepEveryRoleInEpgObjectAndEventListWireReplies() {
+        val roles = field(3, "Person", "actor".toByteArray()) +
+            field(3, "Other", "writer".toByteArray()) + field(3, "Person", "director".toByteArray())
+        val expected = listOf(
+            HtspProgrammeCredit("Person", "actor"), HtspProgrammeCredit("Other", "writer"),
+            HtspProgrammeCredit("Person", "director"),
+        )
+        fun reply(payload: ByteArray): HtspWireReply {
+            val frame = ByteBuffer.allocate(4 + payload.size).putInt(payload.size).put(payload).array()
+            return HtspWireReply(HtspCodec.readMessage(frame.inputStream()).fields)
+        }
+        val objectReply = reply(
+            field(2, "seq", byteArrayOf(1)) + field(2, "tp", byteArrayOf(1)) +
+                field(2, "id", byteArrayOf(7)) + field(2, "up", byteArrayOf(1)) +
+                field(2, "start", byteArrayOf(1)) + field(2, "stop", byteArrayOf(2)) +
+                field(1, "cred", roles),
+        )
+        val broadcast = classifyHtspReply(objectReply, GetEpgObjectRequest(7), 44) as HtspResult.Ok
+        assertEquals(expected, broadcast.value.broadcast.credits!!.entries)
+
+        val event = field(2, "eventId", byteArrayOf(7)) + field(2, "start", byteArrayOf(1)) +
+            field(2, "stop", byteArrayOf(2)) + field(1, "credits", roles)
+        val eventsReply = reply(field(2, "seq", byteArrayOf(2)) + field(5, "events", field(1, "", event)))
+        val events = classifyHtspReply(eventsReply, GetEventsRequest(), 44) as HtspResult.Ok
+        assertEquals(expected, events.value.events.single().credits!!.entries)
+    }
+
+    private fun field(type: Int, name: String, value: ByteArray): ByteArray {
+        val output = java.io.ByteArrayOutputStream()
+        java.io.DataOutputStream(output).apply {
+            writeByte(type)
+            writeByte(name.length)
+            writeInt(value.size)
+            write(name.toByteArray())
+            write(value)
+        }
+        return output.toByteArray()
     }
 
     private fun channelFields(hbbtv: Any): Map<String, Any?> = mapOf(

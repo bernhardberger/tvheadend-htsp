@@ -78,7 +78,8 @@ internal class `HtspEntityDecoder-internal`(
             stopEpochSeconds = requiredS64("stop"), startExtraMinutes = requiredS64("startExtra"),
             stopExtraMinutes = requiredS64("stopExtra"), retentionDays = requiredU32("retention"),
             removalDays = requiredU32("removal"), priority = requiredU32("priority"),
-            contentType = requiredU32("contentType"), ageRating = optionalU32("ageRating"),
+            contentType = requiredU32("contentType"),
+            ageRating = if (protocolVersion >= 37) requiredU32("ageRating") else optionalU32("ageRating"),
             ratingLabel = optionalString("ratingLabel"), ratingIcon = optionalString("ratingIcon"),
             ratingAuthority = optionalString("ratingAuthority"), ratingCountry = optionalString("ratingCountry"),
             playCount = optionalU32("playcount"),
@@ -101,7 +102,7 @@ internal class `HtspEntityDecoder-internal`(
 
     private fun recordingFile(fields: Map<*, *>): HtspDvrRecordingFile = fields.reader().run {
         HtspDvrRecordingFile(
-            fileId = optionalU32("id"), path = optionalString("filename"),
+            path = optionalString("filename"),
             startEpochSeconds = optionalS64("start"), stopEpochSeconds = optionalS64("stop"), sizeBytes = optionalS64("size"),
             info = if (contains("info")) {
                 val entries = value("info") as? List<*> ?: malformed()
@@ -128,8 +129,8 @@ internal class `HtspEntityDecoder-internal`(
             retentionDays = requiredU32("retention"), removalDays = requiredU32("removal"),
             daysOfWeekMask = requiredU32("daysOfWeek"),
             approximateStartMinutesSinceMidnight = fields.ruleMinutes("approxTime"),
-            startMinutesSinceMidnight = fields.ruleMinutes("start", Int.MAX_VALUE),
-            startWindowEndMinutesSinceMidnight = fields.ruleMinutes("startWindow", Int.MAX_VALUE),
+            startMinutesSinceMidnight = fields.ruleMinutes("start"),
+            startWindowEndMinutesSinceMidnight = fields.ruleMinutes("startWindow"),
             priority = requiredU32("priority"), startExtraMinutes = requiredS64("startExtra"),
             stopExtraMinutes = requiredS64("stopExtra"), duplicateDetection = requiredU32("dupDetect"),
             maximumRecordingCount = requiredU32("maxCount"),
@@ -157,9 +158,9 @@ internal class `HtspEntityDecoder-internal`(
     private fun Map<*, *>.versionedUuid(name: String): String? =
         if (protocolVersion >= 41) reader().requiredString(name) else reader().optionalString(name)
 
-    private fun Map<*, *>.ruleMinutes(name: String, maximum: Int = 1439): Int? = when (val value = reader().requiredS32(name)) {
+    private fun Map<*, *>.ruleMinutes(name: String): Int? = when (val value = reader().requiredS32(name)) {
         -1 -> null
-        in 0..maximum -> value
+        in 0..1439 -> value
         else -> malformed()
     }
 }

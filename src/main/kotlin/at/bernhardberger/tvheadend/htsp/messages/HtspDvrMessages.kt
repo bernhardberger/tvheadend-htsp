@@ -11,7 +11,7 @@ public data class HtspDvrEntryAddMessage(
     public val entry: HtspDvrEntry,
 ) : HtspMetadataMessage
 
-/** Full replacement recording update (pinned htsp_server.c:965–1202). */
+/** Full recording update; inserts unseen identities or replaces the snapshot (pinned htsp_server.c:965–1202). */
 public data class HtspDvrEntryUpdateMessage(
     /** Complete recording snapshot; absent optional fields clear previous values. */
     public val entry: HtspDvrEntry,
@@ -61,7 +61,7 @@ public data class HtspAutorecEntryAddMessage(
     public val entry: HtspAutorecEntry,
 ) : HtspMetadataMessage
 
-/** Full replacement automatic-rule update (pinned htsp_server.c:1209–1268). */
+/** Full automatic-rule update; inserts unseen identities or replaces the snapshot (pinned htsp_server.c:1209–1268). */
 public data class HtspAutorecEntryUpdateMessage(
     /** Complete automatic-rule snapshot. */
     public val entry: HtspAutorecEntry,
@@ -81,7 +81,7 @@ public data class HtspTimerecEntryAddMessage(
     public val entry: HtspTimerecEntry,
 ) : HtspMetadataMessage
 
-/** Full replacement time-rule update (pinned htsp_server.c:1275–1311). */
+/** Full time-rule update; inserts unseen identities or replaces the snapshot (pinned htsp_server.c:1275–1311). */
 public data class HtspTimerecEntryUpdateMessage(
     /** Complete time-rule snapshot. */
     public val entry: HtspTimerecEntry,

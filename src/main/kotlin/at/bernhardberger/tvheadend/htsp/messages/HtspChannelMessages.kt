@@ -10,7 +10,7 @@ public data class HtspChannelAddMessage(
     public val channel: HtspChannel,
 ) : HtspMetadataMessage
 
-/** Replaces a channel with the full snapshot (pinned htsp_server.c:859–925). */
+/** Inserts or replaces a channel with the full snapshot (pinned htsp_server.c:859–925). */
 public data class HtspChannelUpdateMessage(
     /** Full replacement, including cleared nullable properties. */
     public val channel: HtspChannel,
@@ -45,7 +45,10 @@ public data class HtspTagAddMessage(
     public val tag: HtspTag,
 ) : HtspMetadataMessage
 
-/** Replaces tag metadata (pinned htsp_server.c:932–958). */
+/**
+ * Inserts or replaces tag metadata (pinned htsp_server.c:932–958).
+ * Tags created after initial sync arrive only as this message (:3855–3869).
+ */
 public data class HtspTagUpdateMessage(
     /** Full metadata; retain previous membership only when membership is null. */
     public val tag: HtspTag,

@@ -16,7 +16,7 @@ The pinned server (`f082b430`, `src/htsp_server.c`) sends updates as follows:
 | Method | Emitted shapes |
 |---|---|
 | `autorecEntryUpdate`, `timerecEntryUpdate`, `eventUpdate` | Always the full builder shared with Add |
-| `tagUpdate` | Full builder; initial-sync `tagAdd` omits `members` (`:1709`), the following `tagUpdate` includes it (`:1719`) |
+| `tagUpdate` | Full builder; initial-sync `tagAdd` omits `members` (`:1709`), the following `tagUpdate` includes it (`:1719`); tags created after sync arrive only as `tagUpdate` (`:3855–3869`) |
 | `channelUpdate` | Full `htsp_build_channel`, or now/next with only `channelId`, `eventId`, `nextEventId` (`htsp_channel_update_nownext`, `:3805`) |
 | `dvrEntryUpdate` | Full `htsp_build_dvrentry`, or stats-only for HTSP > 25 (`htsp_dvr_entry_update_stats`, `:3936`) |
 
@@ -43,14 +43,26 @@ layer is `tvheadend-sdk`.
   follow the data-class evolution recipe in `docs/public-api.md`, with
   defensive list snapshots and redacted `toString`.
 - **E3: requiredness.** A property is non-null only when every supported server
-  version (HTSP 36 through 44) always emits it in the full builder. Fields
-  gated upstream by `htsp_version` are checked against the negotiated version
-  (for example `channelIdStr` from v41). DVR `ageRating` has no such gate and
-  is absent on older supported servers, so it remains nullable at every version.
+  version (HTSP 36 through 44) always emits it in the full builder. A nullable
+  property is required from negotiated N only when upstream history proves
+  that every server able to negotiate N emits it at that negotiated version,
+  via an `htsp_version` gate or introduction at the protocol bump. Negotiation
+  is `MIN(HTSP_PROTO_VERSION, requested)` (`htsp_server.c:1502`). UUIDs were added
+  by `f9d5e885` behind `> 40`, before the v41 bump `18ff23f9` and all v41+ refs;
+  autorec `broadcastType` was added unconditionally in the v39 bump `fc5a1672`.
+  DVR `ageRating` was added at protocol 36 by `d5010599` behind `> 35`; the v37
+  bump `b061e641` changed it to `> 36`. That introduction precedes all v37+ refs,
+  so it is required from v37 and server-dependent at v36 (public type `Long?`).
+  `55404da6` later removed the rating/UUID gates, explaining their absence in
+  pinned v44; that pin alone does not establish requiredness at earlier versions.
   Every other conditional property is nullable and null means "not set".
 - **E4: update semantics.** Add and full Update messages are thin wrappers
   around the same entity, and a full Update replaces the stored entity: a null
-  property means the server no longer sets it. `HtspTag.members` is the
+  property means the server no longer sets it. For an unseen identity, a full
+  Update inserts the entity. Tags created after initial sync arrive only as
+  `tagUpdate`: `htsp_tag_add` calls `htsp_tag_update_msg`, which calls
+  `htsp_build_tag(..., "tagUpdate", 1)` (pinned `htsp_server.c:3855–3869`).
+  `HtspTag.channelIds` (wire `members`) is the
   exception; null there means "not included in this message". The sparse
   shapes are separate flat message types: `HtspChannelNowNextMessage` and
   `HtspDvrEntryStatsMessage`, which apply only their own fields. Delete
@@ -85,7 +97,12 @@ layer is `tvheadend-sdk`.
     `HtspRecordingRuleChannel`, including `Any`, instead of defaulting to a
     cleared restriction.
   - The DVR configuration UUID is named `dvrConfigUuid` everywhere.
-  - Minutes since midnight are `Int` everywhere.
+  - Minutes since midnight are `Int` everywhere. Autorec and timerec entity
+    times accept only `0..1439`, with wire -1 mapped to null. Their class setters
+    normalize values >= 1440 and empty/non-digit input to -1 (pinned
+    `src/dvr/dvr_autorec.c:733–750`, check :744;
+    `src/dvr/dvr_timerec.c:367–384`, check :378), before builder emission
+    (`src/htsp_server.c:1239–1240,1292–1293`).
   - The negotiated protocol version is `Long`.
   - The mux frame type is an enum with `UNKNOWN`, open for new entries.
   - `HtspServerFacts` snapshots its lists.
@@ -101,6 +118,6 @@ layer is `tvheadend-sdk`.
   `docs/public-api.md`, `docs/versioning.md`, `AGENTS.md`, and the package
   architecture tests.
 - `tvheadend-sdk` receives a migration handoff. Its reducers replace entities
-  on full updates and apply only the sparse messages, which fixes its current
+  on full updates (inserting unseen identities) and apply only the sparse messages, which fixes its current
   loss of server-side clears. They treat the malformed-metadata event as cache
   invalidation, and the SDK drops its own stats-only detection.

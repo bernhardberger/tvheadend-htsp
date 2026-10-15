@@ -108,13 +108,15 @@ class HtspEntityDecodingTest {
     }
 
     @Test
-    fun dvrAgeRatingIsOptionalAcrossVersionsButMalformedPresentValuesFail() {
+    fun dvrAgeRatingIsOptionalAtV36AndRequiredFromV37WithStrictPresentValues() {
         listOf("dvrEntryAdd", "dvrEntryUpdate").forEach { method ->
-            listOf(36L, 44L).forEach { version ->
+            listOf(36L, 37L, 44L).forEach { version ->
                 val fields = metadataFixture(method) - "ageRating"
                 val compatible = if (version == 36L) fields - "idStr" else fields
-                val entry = entity(decoded(compatible, version)) as at.bernhardberger.tvheadend.htsp.model.HtspDvrEntry
-                assertNull(entry.ageRating)
+                if (version == 36L) {
+                    val entry = entity(decoded(compatible, version)) as at.bernhardberger.tvheadend.htsp.model.HtspDvrEntry
+                    assertNull(entry.ageRating)
+                } else malformed(compatible, version)
                 assertEquals(12L, (entity(decoded(compatible + ("ageRating" to 12L), version))
                     as at.bernhardberger.tvheadend.htsp.model.HtspDvrEntry).ageRating)
                 listOf(null, "12", -1L, 0x1_0000_0000L).forEach {
@@ -130,7 +132,7 @@ class HtspEntityDecodingTest {
             listOf("Add", "Update").forEach { suffix ->
                 val fields = metadataFixture(family + suffix)
                 decoded(fields)
-                (fields.keys - "method" - "ageRating").forEach { key -> malformed(fields - key) }
+                (fields.keys - "method").forEach { key -> malformed(fields - key) }
             }
         }
         val timer = (decoded(metadataFixture("timerecEntryUpdate")) as HtspTimerecEntryUpdateMessage).entry
@@ -221,6 +223,22 @@ class HtspEntityDecodingTest {
     }
 
     @Test
+    fun recordingFilesIgnoreUnevidencedIdsAndRetainEmittedFields() {
+        val file = mapOf("filename" to "recording.ts", "start" to 1L, "stop" to 2L, "size" to 3L)
+        listOf("dvrEntryAdd", "dvrEntryUpdate").forEach { method ->
+            listOf(36L, 44L).forEach { version ->
+                val fields = metadataFixture(method)
+                val expected = at.bernhardberger.tvheadend.htsp.model.HtspDvrRecordingFile("recording.ts", 1L, 2L, 3L)
+                listOf(file, file + ("id" to 7L), file + ("id" to "ignored")).forEach { wireFile ->
+                    val entry = entity(decoded(fields + ("files" to listOf(wireFile)), version))
+                        as at.bernhardberger.tvheadend.htsp.model.HtspDvrEntry
+                    assertEquals(expected, entry.files!!.single())
+                }
+            }
+        }
+    }
+
+    @Test
     fun seasonCountOnlyComesFromItsOwnFlatField() {
         val fields = (metadataFixture("eventAdd") - "method") + mapOf(
             "episodeCount" to 8L, "episode" to mapOf("count" to 99L),
@@ -254,17 +272,9 @@ class HtspEntityDecodingTest {
                 val full = metadataFixture(method)
                 listOf("approxTime", "start", "startWindow").forEach { field ->
                     listOf(0L, 1439L).forEach { decoded(full + (field to it), version) }
-                    listOf(-2L, Int.MIN_VALUE.toLong(), Int.MAX_VALUE.toLong() + 1L).forEach {
+                    listOf(-2L, 1440L, Int.MIN_VALUE.toLong(), Int.MAX_VALUE.toLong(), Int.MAX_VALUE.toLong() + 1L).forEach {
                         malformed(full + (field to it), version)
                     }
-                }
-                listOf(1440L, Int.MAX_VALUE.toLong()).forEach { value ->
-                    val entry = entity(decoded(full + mapOf("start" to value, "startWindow" to value), version))
-                        as at.bernhardberger.tvheadend.htsp.model.HtspAutorecEntry
-                    assertEquals(value.toInt(), entry.startMinutesSinceMidnight)
-                    assertEquals(value.toInt(), entry.startWindowEndMinutesSinceMidnight)
-                    assertEquals(entry, entry.copy())
-                    malformed(full + ("approxTime" to value), version)
                 }
                 val unset = entity(decoded(full + mapOf("approxTime" to -1L, "start" to -1L, "startWindow" to -1L), version))
                     as at.bernhardberger.tvheadend.htsp.model.HtspAutorecEntry

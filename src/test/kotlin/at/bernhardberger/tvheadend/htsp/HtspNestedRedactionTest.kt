@@ -74,7 +74,7 @@ internal class HtspNestedRedactionTest {
     fun modelLeavesRedactRecordingPathsAndMetadata() {
         val stream = HtspDvrRecordingStream(type = secret, language = secret)
         val info = HtspDvrRecordingInfo(listOf(stream))
-        val file = HtspDvrRecordingFile(1L, "/recordings/$secret.ts", null, null, null, info)
+        val file = HtspDvrRecordingFile("/recordings/$secret.ts", null, null, null, info)
         val title = HtspHbbtvTitle(secret, secret)
         val application = HtspHbbtvApplication(listOf(title), "https://$secret/app", secret)
         val applications = HtspHbbtvApplications(mapOf(secret to listOf(application)))

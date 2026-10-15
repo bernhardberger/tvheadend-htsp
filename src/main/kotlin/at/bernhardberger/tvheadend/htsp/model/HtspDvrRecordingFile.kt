@@ -1,7 +1,6 @@
 package at.bernhardberger.tvheadend.htsp.model
 
 import at.bernhardberger.tvheadend.htsp.wire.immutableSnapshot
-import at.bernhardberger.tvheadend.htsp.wire.requireU32
 
 /**
  * Stream details in recording-file `info` (src/dvr/dvr_rec.c:1465–1513).
@@ -45,9 +44,8 @@ public class HtspDvrRecordingInfo(streams: List<HtspDvrRecordingStream>) {
 }
 
 /** One recording-file entry copied from persisted logs (pinned htsp_server.c:1124–1147). */
-public data class HtspDvrRecordingFile(
-    /** Optional persisted file identity. */
-    public val fileId: Long?,
+@ConsistentCopyVisibility
+public data class HtspDvrRecordingFile private constructor(
     /** Relative filename (:1129–1132). */
     public val path: String?,
     /** Start epoch seconds when available (:1136–1137). */
@@ -58,8 +56,25 @@ public data class HtspDvrRecordingFile(
     public val sizeBytes: Long?,
     /** Stream metadata when available (:1133–1135). */
     public val info: HtspDvrRecordingInfo? = null,
+    private val evolution: Unit,
 ) {
-    init { fileId?.let { requireU32("fileId", it) } }
+    /** Constructs a recording-file observation. */
+    public constructor(
+        path: String?,
+        startEpochSeconds: Long?,
+        stopEpochSeconds: Long?,
+        sizeBytes: Long?,
+        info: HtspDvrRecordingInfo? = null,
+    ) : this(path, startEpochSeconds, stopEpochSeconds, sizeBytes, info, Unit)
+
+    /** Returns a copy of this recording-file observation. */
+    public fun copy(
+        path: String? = this.path,
+        startEpochSeconds: Long? = this.startEpochSeconds,
+        stopEpochSeconds: Long? = this.stopEpochSeconds,
+        sizeBytes: Long? = this.sizeBytes,
+        info: HtspDvrRecordingInfo? = this.info,
+    ): HtspDvrRecordingFile = HtspDvrRecordingFile(path, startEpochSeconds, stopEpochSeconds, sizeBytes, info)
 
     override fun toString(): String = "HtspDvrRecordingFile(<redacted>)"
 }

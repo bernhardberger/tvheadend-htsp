@@ -77,7 +77,7 @@ class HtspMessageDataClassTest {
         assertEquals(listOf("new"), eventCopy.keywords)
         assertUnmodifiable(eventCopy.keywords!!)
 
-        val files = mutableListOf(HtspDvrRecordingFile(1L, "/private.ts", null, null, null))
+        val files = mutableListOf(HtspDvrRecordingFile("/private.ts", null, null, null))
         val dvr = decoder.dvrEntry(metadataFixture("dvrEntryAdd")).copy(files = files)
         files.clear()
         assertEquals(1, dvr.files!!.size)
@@ -90,9 +90,9 @@ class HtspMessageDataClassTest {
 
         val autorec = decoder.autorecEntry(metadataFixture("autorecEntryAdd"))
         val timerec = decoder.timerecEntry(metadataFixture("timerecEntryAdd"))
-        assertEquals(1440, autorec.copy(startMinutesSinceMidnight = 1440).startMinutesSinceMidnight)
-        assertEquals(Int.MAX_VALUE,
-            autorec.copy(startWindowEndMinutesSinceMidnight = Int.MAX_VALUE).startWindowEndMinutesSinceMidnight)
+        assertEquals(0, autorec.copy(startMinutesSinceMidnight = 0).startMinutesSinceMidnight)
+        assertEquals(1439,
+            autorec.copy(startWindowEndMinutesSinceMidnight = 1439).startWindowEndMinutesSinceMidnight)
         assertEquals(null, dvr.copy(ageRating = null).ageRating)
         listOf<() -> Unit>(
             { channel.copy(channelId = -1L) }, { channel.copy(channelNumber = -1L) },
@@ -105,7 +105,11 @@ class HtspMessageDataClassTest {
             { autorec.copy(approximateStartMinutesSinceMidnight = -1) },
             { autorec.copy(approximateStartMinutesSinceMidnight = 1440) },
             { autorec.copy(startMinutesSinceMidnight = -1) },
+            { autorec.copy(startMinutesSinceMidnight = 1440) },
+            { autorec.copy(startMinutesSinceMidnight = Int.MAX_VALUE) },
             { autorec.copy(startWindowEndMinutesSinceMidnight = -2) },
+            { autorec.copy(startWindowEndMinutesSinceMidnight = 1440) },
+            { autorec.copy(startWindowEndMinutesSinceMidnight = Int.MAX_VALUE) },
             { timerec.copy(channelId = -1L) }, { timerec.copy(channelId = 0x1_0000_0000L) },
             { timerec.copy(startMinutesSinceMidnight = -1) }, { timerec.copy(stopMinutesSinceMidnight = 1440) },
         ).forEach { invalid -> assertThrows(IllegalArgumentException::class.java) { invalid() } }
@@ -118,6 +122,7 @@ class HtspMessageDataClassTest {
             decoder.event(metadataFixture("eventAdd") + mapOf("category" to listOf("Drama"), "episodeNumber" to 42L)),
             decoder.dvrEntry(metadataFixture("dvrEntryAdd") + mapOf("seasonCount" to 4L, "episode" to "S1E2")),
             decoder.autorecEntry(metadataFixture("autorecEntryAdd")), decoder.timerecEntry(metadataFixture("timerecEntryAdd")),
+            HtspDvrRecordingFile("recording.ts", 1L, 2L, 3L, HtspDvrRecordingInfo(emptyList())),
         )
         entities.forEach { entity ->
             val components = entity.javaClass.declaredMethods

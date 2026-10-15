@@ -9,7 +9,7 @@ public data class HtspEventAddMessage(
     public val event: HtspEvent,
 ) : HtspMetadataMessage
 
-/** Replaces an event with a full snapshot (pinned htsp_server.c:1318–1457). */
+/** Inserts or replaces an event with a full snapshot (pinned htsp_server.c:1318–1457). */
 public data class HtspEventUpdateMessage(
     /** Complete replacement, including cleared nullable properties. */
     public val event: HtspEvent,

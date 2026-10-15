@@ -38,7 +38,7 @@ public data class HtspDvrEntry private constructor(
     public val priority: Long,
     /** Content code, including zero (:1014). */
     public val contentType: Long,
-    /** Age rating (:1015); absent on servers that predate DVR age ratings. */
+    /** Age rating (:1015); null only on v36 sessions where the server omits it. Required from v37. */
     public val ageRating: Long?,
     /** Parental display label when enabled and set (:1017–1074). */
     public val ratingLabel: String?,

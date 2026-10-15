@@ -15,10 +15,12 @@ parameters keep their stdlib names: `HtspBinary.size` and
 `stopExtraMinutes`, and `playPositionSeconds`.
 
 Timerec request and entity times of day are `Int?` minutes since midnight.
-Requests accept `0..1439`; null omits the field. Autorec entity `approxTime`
-uses nullable minutes in `0..1439`, while `start` and `startWindow` preserve
-all non-negative s32 values sent by the server, including values above 1439.
-For both rule entities, required wire times of `-1` decode to null (unset).
+Requests accept `0..1439`; null omits the field. Autorec entity `approxTime`,
+`start`, and `startWindow` also use nullable minutes in `0..1439`.
+For both rule entities, required wire times of `-1` decode to null (unset);
+every other value outside `0..1439` is malformed. The upstream class setters
+normalize out-of-range inputs before emission; see the
+[setter evidence](htsp-protocol/README.md#shared-entity-and-update-evidence).
 All public protocol-version quantities are `Long` (nullable when
 unknown), including connect options, live connections, request minimum versions,
 and `MINIMUM_HTSP_PROTOCOL_VERSION`, following the u32 mapping without narrowing.
@@ -415,12 +417,16 @@ The `model` package owns `HtspChannel`, `HtspTag`, `HtspEvent`, `HtspDvrEntry`,
 Add and full Update messages wrap one entity (`channel`, `tag`, `event`, or
 `entry`). Channel and event request replies use these same entities and decoders.
 
-A full Update **replaces** the stored entity. A nullable property that is absent
+A full Update **replaces** the stored entity, or **inserts** it if its identity
+has not yet been seen. A nullable property that is absent
 on the wire becomes null, clearing any previous value. Do not merge non-null
 properties into the old entity with `copy()`: that retains server-side clears.
 The sole inclusion exception is `HtspTag.channelIds` (wire `members`): null means
 "not included in this message", while an empty list means no members. Initial
-sync sends `tagAdd` without members and then `tagUpdate` with members.
+sync sends `tagAdd` without members and then `tagUpdate` with members. Tags created
+after initial sync arrive only as `tagUpdate`: pinned `src/htsp_server.c:3855–3869`
+routes `htsp_tag_add` through `htsp_tag_update_msg` to
+`htsp_build_tag(..., "tagUpdate", 1)`. Consumers must accept these as inserts.
 
 Two distinct flat messages carry sparse updates:
 

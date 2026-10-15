@@ -225,8 +225,10 @@ to `epg_object_serialize` there rather than expanded in the HTSP sender.
 - Recorded minima include channel services at v5; channel minor numbers and
   selected DVR observations at v13; stream metadata at v5/v11 and top-level
   codec metadata at v17; subscription errors and satellite source metadata at
-  v20; service provider names at v38; UUID and rating observations at v41; and
-  absolute signal/SNR observations at v44. A minimum is compatibility evidence,
+  v20; service provider names at v38; string UUIDs guaranteed from v41; and
+  absolute signal/SNR observations at v44. DVR `ageRating` is guaranteed from
+  v37, but server-dependent at v36; see the introduction and gate history below.
+  A minimum is compatibility evidence,
   while an unknown minimum remains `null`.
 - `api` records this `acceptedVocabulary`: `map`, `list`, `str`, `s64`, `bin`, `bool`, and fixed-width
   16-byte `uuid`, with decode and serialization evidence in
@@ -418,19 +420,32 @@ nullable; present malformed values remain errors. Line numbers refer to pinned
 | Autorec | `id`, `enabled`, `maxDuration`, `minDuration`, `retention`, `removal`, `daysOfWeek`, `approxTime`, `start`, `startWindow`, `priority`, `startExtra`, `stopExtra`, `dupDetect`, `maxCount` | :1215–1245 |
 | Timerec | `id`, `enabled`, `daysOfWeek`, `retention`, `removal`, `priority`, `start`, `stop` | :1280–1293; required times use -1 for unset |
 
+Required-from-N decoding is used only where upstream history shows that every
+server able to negotiate N emits the field at that negotiated version. Negotiation
+uses `MIN(HTSP_PROTO_VERSION, requested)` (:1502), so negotiated N implies a server
+at least at N. An historical `htsp_version` gate or introduction at the protocol
+bump establishes the guarantee; the pinned v44 builder alone does not.
+
 Channel `channelIdStr`, tag `tagIdStr`, and DVR `idStr` are required at v41+
-but nullable below v41. Autorec `broadcastType` is required at v39+ but nullable
-below v39. Conditional strings remain nullable even after their introduction:
+but nullable below v41. Commit `f9d5e885` (2024-09-02, at protocol 40) introduced
+them behind `htsp->htsp_version > 40`; it precedes the v41 bump `18ff23f9` and
+every upstream ref at v41+. Autorec `broadcastType` is required at v39+ but
+nullable below v39: `fc5a1672` introduced it unconditionally in the v39 bump.
+Conditional strings remain nullable even after their introduction:
 autorec/timerec comments use `htsmsg_add_str2` (:1247,1294); configuration UUIDs
 (`dvrConfigUuid`, wire `configId`) require a linked configuration
 (:1153–1154,1263–1264,1306–1307). Tag members are an inclusion exception:
 `channelIds == null` means not included, and empty means included with no members
 (:948–958; initial-sync omission/inclusion :1709,1719).
 
-DVR `ageRating` is nullable: v36's builder (:953–1125) never emits it, whereas
-v44 emits it unconditionally (:1015), without an `htsp_version` gate. Its
-absence therefore cannot be rejected based on the negotiated protocol version.
-Present malformed values still fail decoding.
+DVR `ageRating` is required at v37+ but optional at v36 (public type `Long?`).
+The v36 pin `81403634` predates its introduction: `d5010599` (2023-08-02, still
+protocol 36) added it behind `htsp_version > 35`. The v37 bump `b061e641` changed
+the gate to `> 36`; `d5010599` precedes that bump and all v37+ refs. Thus v36
+emission depends on the server, while every server negotiating v37+ emits it.
+Commit `55404da6` ("Remove HTSP client version test for rating labels and string
+UUIDs") later removed these gates, explaining the unconditional rating (:1015)
+and UUID emissions in pinned v44. Present malformed values fail at every version.
 
 `channelUpdate` containing `channelName` must validate the full channel. Without
 it, only `{channelId,eventId,nextEventId}` plus `method` is accepted and yields
@@ -452,18 +467,24 @@ server. The audit compares minimum-supported v36 (`81403634`) and pinned v44
 `channel` is canonical (v36 :969; v44 :983), whereas events use `channelId`
 (v36 :1255; v44 :1341). Recording files use `filename` (v36 :1055–1058;
 v44 :1129–1132); only the enclosing DVR entity uses `path` (:1077 / :1151).
+Recording-file entries have no `id`: the builder copies stored `de_files` maps
+and sets `filename`, `info`, `start`, `stop`, and `size` (:1125–1146). Stored
+entries are populated by pinned `src/dvr/dvr_rec.c` (`filename` :1311,
+`info`/`start` :1534–1535, `stop` :2104); no writer sets an `id` key.
 Unknown keys are ignored in full snapshots, but cannot replace required fields;
 the exact sparse shapes above reject unknown keys. Event `category` is a list,
 and episode ordinals/counts are flat, separately named fields (:706–725 / :711–730).
 
 Autorec `approxTime`, `start`, and `startWindow` are required wire s32 values;
 `-1` means unset and decodes to null (v36 :1151–1163; v44 :1228–1240).
-`start` and `startWindow` preserve every non-negative s32 value, including values
-above 1439: the update path forwards them (:646–648), and the builder only maps
-negative values to -1 (:1239–1240). Values below -1 are malformed. `approxTime`
-remains in `0..1439`: it is the circular midpoint modulo 1440 of a set
-start/window pair, or unset when either bound is unset. Request-side time
-validation remains `0..1439`.
+All other values must be in `0..1439`; out-of-range values are malformed.
+Pinned `src/dvr/dvr_autorec.c:733–750` (`dvr_autorec_entry_class_time_set`,
+check :744) maps any value >= 1440, empty input, or non-digit input to -1 before
+the builder emits `start`/`startWindow` (:1239–1240). `approxTime` is the circular
+midpoint modulo 1440 of a set start/window pair, or unset when either is unset.
+Timerec uses the same domain: `src/dvr/dvr_timerec.c:367–384` (check :378) applies
+the same setter normalization before `start`/`stop` emission (:1292–1293).
+Request-side time validation also uses `0..1439`.
 
 ## Maintenance
 

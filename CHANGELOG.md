@@ -2,8 +2,11 @@
 
 ## [Unreleased]
 
-- **BREAKING:** `HtspDvrEntry.ageRating` is nullable because older supported
-  servers omit it; malformed present ratings still fail decoding.
+- **BREAKING:** `HtspDvrEntry.ageRating` stays nullable for v36 sessions whose
+  server omits it, but is required from negotiated v37. Malformed present ratings
+  fail decoding at every version.
+- **BREAKING:** remove `HtspDvrRecordingFile.fileId` and its constructor/copy
+  parameter; upstream recording-file entries never emit an `id` field.
 - **BREAKING:** remove `HtspSubscriptionStream.codecMetadata`. Codec headers
   are emitted only as top-level `subscriptionStart.meta`; the retained
   `HtspSubscriptionStartMessage.codecMetadata` exposes the first such field,
@@ -12,9 +15,9 @@
   instead of the last, at every depth, matching upstream `htsmsg_field_find`.
 - Fixed programme credits dropping roles: a person credited in several roles
   now yields one `HtspProgrammeCredit` per role, in wire order.
-- Fixed autorec entity `start` and `startWindow` decoding to preserve all
-  non-negative s32 values; `-1` stays null and values below -1 are malformed.
-  Request-side time validation remains `0..1439`.
+- Fixed autorec entity `start` and `startWindow` decoding and constructor/copy
+  validation to accept only `0..1439`; wire `-1` stays null and all other values
+  outside that range are malformed, matching upstream class-setter normalization.
 
 - Fixed nested value rendering to redact recording paths, subscription identifiers,
   server status/error text, endpoints, and metadata payloads.
@@ -67,9 +70,10 @@
   metadata/credits and DVR recording-file values into `htsp.model`. Add
   `HtspTag`, `HtspDvrEntry`, `HtspAutorecEntry`, and `HtspTimerecEntry` there.
 - **BREAKING:** channel, tag, event, DVR, autorec and timerec Add/Update messages
-  now wrap a single entity. Full updates replace the previous snapshot, including
+  now wrap a single entity. Full updates insert unseen identities or replace the previous snapshot, including
   clearing absent optional fields. Tag `channelIds` null means members were not
-  included; an empty list means no members.
+  included; an empty list means no members. Tags created after initial sync arrive
+  only as full `tagUpdate` messages.
 - **BREAKING:** split sparse updates into `HtspChannelNowNextMessage` and
   `HtspDvrEntryStatsMessage`. Damaged full updates and unexpected sparse fields
   are malformed instead of being accepted as arbitrary partial updates.
@@ -77,8 +81,7 @@
   HTSP 36–44. UUIDs are required from v41 and autorec `broadcastType` from v39;
   conditional fields remain nullable. Timerec wire `start`/`stop` are required,
   with -1 represented as null. Autorec entity `approxTime`, `start`, and
-  `startWindow` also map -1 to nullable `Int` properties; `approxTime` uses
-  `0..1439`, while start/window bounds preserve all non-negative s32 values.
+  `startWindow` also map -1 to nullable `Int` properties; all three use `0..1439`.
 - **BREAKING:** autorec/timerec entity `configId` is now `dvrConfigUuid`, matching
   the DVR entity.
 - **BREAKING:** remove unevidenced entity/message aliases; only field names
