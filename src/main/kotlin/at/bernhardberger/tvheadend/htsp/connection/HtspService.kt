@@ -159,6 +159,7 @@ internal open class `HtspService-internal`(
     }
 
     open suspend fun establish(parameters: HtspConnectionParameters): HtspLiveConnection {
+        currentCoroutineContext().ensureActive()
         val endpoint = parameters.endpoint
         val options = parameters.options
         val requestedIdentity = HtspConnectionIdentity(endpoint.host, endpoint.port, endpoint.username, endpoint.password)
@@ -173,7 +174,10 @@ internal open class `HtspService-internal`(
                 }
             }
         }
-        val attemptId = admittedAttempt ?: return checkNotNull(reused)
+        val attemptId = admittedAttempt ?: run {
+            currentCoroutineContext().ensureActive()
+            return checkNotNull(reused)
+        }
         try {
             afterConnectionAdmission()
             retireAdmissionTransport(attemptId)
@@ -351,6 +355,7 @@ internal open class `HtspService-internal`(
                 }
             }
             afterConnectedSnapshot()
+            currentCoroutineContext().ensureActive()
             return connected
         } catch (cancelled: CancellationException) {
             retireAdmissionTransport(attemptId)
@@ -362,16 +367,21 @@ internal open class `HtspService-internal`(
     override suspend fun connect(
         endpoint: HtspEndpoint,
         options: HtspConnectOptions,
-    ): HtspConnectOutcome = try {
-        val connection = establish(HtspConnectionParameters(endpoint, options, clientIdentity))
-        HtspConnectOutcome.Connected(connection)
-    } catch (cancelled: CancellationException) {
+    ): HtspConnectOutcome {
         currentCoroutineContext().ensureActive()
-        HtspConnectOutcome.Failed(HtspTransportFailure(HtspTransportFailureKind.SUPERSEDED))
-    } catch (error: RecordedConnectFailure) {
-        HtspConnectOutcome.Failed(error.failure)
-    } catch (error: Exception) {
-        HtspConnectOutcome.Failed(typedTransportFailure(error))
+        val outcome = try {
+            val connection = establish(HtspConnectionParameters(endpoint, options, clientIdentity))
+            HtspConnectOutcome.Connected(connection)
+        } catch (cancelled: CancellationException) {
+            currentCoroutineContext().ensureActive()
+            HtspConnectOutcome.Failed(HtspTransportFailure(HtspTransportFailureKind.SUPERSEDED))
+        } catch (error: RecordedConnectFailure) {
+            HtspConnectOutcome.Failed(error.failure)
+        } catch (error: Exception) {
+            HtspConnectOutcome.Failed(typedTransportFailure(error))
+        }
+        currentCoroutineContext().ensureActive()
+        return outcome
     }
 
     override suspend fun <R> execute(
