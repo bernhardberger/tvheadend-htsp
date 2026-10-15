@@ -39,7 +39,7 @@ layer is `tvheadend-sdk`.
 - **E2: one entity per family.** `HtspChannel`, `HtspTag`, `HtspEvent`,
   `HtspDvrEntry`, `HtspAutorecEntry`, and `HtspTimerecEntry`. Pushed messages
   and request replies use the same entity, decoded by one internal decoder per
-  entity. `HtspEvent` gains `genre`, `episodeId`, and `seriesLinkId`. Entities
+  entity. Decoders accept only field names emitted by a supported server. Entities
   follow the data-class evolution recipe in `docs/public-api.md`, with
   defensive list snapshots and redacted `toString`.
 - **E3: requiredness.** A property is non-null only when every supported server

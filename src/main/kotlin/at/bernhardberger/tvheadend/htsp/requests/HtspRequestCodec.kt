@@ -352,11 +352,11 @@ internal object `HtspRequestCodecs-internal` {
 
         is GetChannelRequest -> decodeChannel(fields, protocolVersion)
 
-        is GetEventRequest -> GetEventResponse(eventFromFields(fields))
+        is GetEventRequest -> GetEventResponse(eventFromFields(fields, protocolVersion))
 
-        is GetEventsRequest -> GetEventsResponse(fields.requiredObjectList("events", ::eventFromFields))
+        is GetEventsRequest -> GetEventsResponse(fields.requiredObjectList("events") { eventFromFields(it, protocolVersion) })
 
-        is EpgQueryRequest -> decodeEpgQuery(request, fields)
+        is EpgQueryRequest -> decodeEpgQuery(request, fields, protocolVersion)
 
         is GetEpgObjectRequest -> GetEpgObjectResponse(epgBroadcastObjectFromFields(fields))
 
@@ -456,6 +456,7 @@ internal object `HtspRequestCodecs-internal` {
     private fun decodeEpgQuery(
         request: EpgQueryRequest,
         fields: Map<String, Any?>,
+        protocolVersion: Long,
     ): EpgQueryResponse = if (request.full != true) {
         if (fields.containsKey("events")) malformedReply()
         EpgQueryResponse.EventIds(
@@ -465,7 +466,7 @@ internal object `HtspRequestCodecs-internal` {
         if (fields.containsKey("eventIds")) malformedReply()
         EpgQueryResponse.Events(
             if (fields.containsKey("events")) {
-                fields.requiredObjectList("events", ::eventFromFields)
+                fields.requiredObjectList("events") { eventFromFields(it, protocolVersion) }
             } else {
                 emptyList()
             },
@@ -505,7 +506,7 @@ internal object `HtspRequestCodecs-internal` {
 
     private fun decodeDvrAdd(fields: Map<String, Any?>): AddDvrEntryResponse {
         fields.requireStrictSuccess()
-        val entryId = if (fields.containsKey("id")) fields.requiredU32("id") else fields.requiredU32("dvrId")
+        val entryId = fields.requiredU32("id")
         return AddDvrEntryResponse(entryId)
     }
 
@@ -722,8 +723,8 @@ private fun dvrConfigFromFields(fields: Map<*, *>): HtspDvrConfig = fields.reque
     )
 }
 
-private fun eventFromFields(fields: Map<*, *>): HtspEvent =
-    HtspEntityDecoder(36, ::malformedReply).event(fields)
+private fun eventFromFields(fields: Map<*, *>, protocolVersion: Long): HtspEvent =
+    HtspEntityDecoder(protocolVersion, ::malformedReply).event(fields)
 
 private fun epgBroadcastObjectFromFields(fields: Map<*, *>): HtspEpgBroadcastObject {
     if (fields.requiredU32("tp") != 1L) malformedReply()

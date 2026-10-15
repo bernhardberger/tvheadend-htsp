@@ -54,6 +54,9 @@ class HtspEntityDecodingTest {
         malformed(fields + ("title" to "damaged-full"))
         malformed(metadataFixture("dvrEntryUpdate") - "enabled")
         malformed(fields + ("enabled" to 1L))
+        listOf("dvrId", "status", "statusError").forEach { malformed(fields + (it to 1L)) }
+        malformed((fields - "id") + ("dvrId" to 1L))
+        malformed((fields - "state") + ("status" to "recording"))
         listOf("duplicate", "error", "subscriptionError", "streamErrors", "dataErrors", "dataSize").forEach {
             malformed(fields + (it to emptyList<Any>()))
         }
@@ -122,37 +125,129 @@ class HtspEntityDecodingTest {
     }
 
     @Test
-    fun channelRepliesAndPushedSnapshotsShareFieldsAliasesAndVersionValidation() {
+    fun channelRepliesAndPushedSnapshotsShareCanonicalFieldsAndVersionValidation() {
         listOf(36L, 41L, 44L).forEach { version ->
-            val fields = (metadataFixture("channelAdd") - "method" - "channelNumber") + mapOf(
-                "number" to 7L, "channelIcon" to "icon", "channelNumberMinor" to 3L,
+            val fields = (metadataFixture("channelAdd") - "method") + mapOf(
+                "channelNumber" to 7L, "number" to 99L, "channelIcon" to "icon", "channelNumberMinor" to 3L,
                 "services" to listOf(mapOf("name" to "service", "type" to "HDTV", "content" to 2L)),
             )
             val reply = reply(GetChannelRequest(1L), fields, version).channel
             assertEquals(reply, (decoded(fields + ("method" to "channelAdd"), version) as HtspChannelAddMessage).channel)
             assertEquals(reply, (decoded(fields + ("method" to "channelUpdate"), version) as HtspChannelUpdateMessage).channel)
             val noUuid = fields - "channelIdStr"
+            assertEquals(HtspResult.MalformedReply,
+                classifyHtspReply(HtspWireReply(fields - "channelNumber"), GetChannelRequest(1L), version))
             if (version < 41) assertNull(reply(GetChannelRequest(1L), noUuid, version).channel.channelUuid)
             else assertEquals(HtspResult.MalformedReply, classifyHtspReply(HtspWireReply(noUuid), GetChannelRequest(1L), version))
         }
     }
 
     @Test
-    fun allEventReplyPathsIncludeTheSameFieldsAsPushedSnapshots() {
+    fun allEventReplyPathsMatchPushedSnapshotsAtTheNegotiatedVersion() {
         val fields = (metadataFixture("eventAdd") - "method") + mapOf(
             "channelId" to 2L, "title" to "title", "genre" to "genre", "episodeId" to 3L, "serieslinkId" to 4L,
             "category" to listOf("category"), "keyword" to listOf("keyword"), "credits" to mapOf("Person" to "actor"),
             "episode" to mapOf("season" to 5L, "number" to 6L),
+            "seasonNumber" to 7L, "episodeNumber" to 8L, "serieslinkUri" to "series", "episodeUri" to "episode",
         )
-        val event = reply(GetEventRequest(1L), fields).event
-        assertEquals("genre", event.genre)
-        assertEquals(3L, event.episodeId)
-        assertEquals(4L, event.seriesLinkId)
-        assertEquals(event, (decoded(fields + ("method" to "eventAdd")) as HtspEventAddMessage).event)
-        assertEquals(event, (decoded(fields + ("method" to "eventUpdate")) as HtspEventUpdateMessage).event)
-        assertEquals(listOf(event), reply(GetEventsRequest(), mapOf("events" to listOf(fields))).events)
-        assertEquals(listOf(event), (reply(EpgQueryRequest("title", full = true), mapOf("events" to listOf(fields)))
-            as EpgQueryResponse.Events).events)
+        listOf(36L, 41L, 44L).forEach { version ->
+            val event = reply(GetEventRequest(1L), fields, version).event
+            assertEquals(7L, event.seasonNumber)
+            assertEquals(8L, event.episodeNumber)
+            assertEquals("series", event.seriesLinkUri)
+            assertEquals("episode", event.episodeUri)
+            assertEquals(event, (decoded(fields + ("method" to "eventAdd"), version) as HtspEventAddMessage).event)
+            assertEquals(event, (decoded(fields + ("method" to "eventUpdate"), version) as HtspEventUpdateMessage).event)
+            assertEquals(listOf(event), reply(GetEventsRequest(), mapOf("events" to listOf(fields)), version).events)
+            assertEquals(listOf(event), (reply(EpgQueryRequest("title", full = true),
+                mapOf("events" to listOf(fields)), version) as EpgQueryResponse.Events).events)
+            assertEquals(HtspResult.MalformedReply,
+                classifyHtspReply(HtspWireReply(fields - "start" + ("startTime" to 2L)), GetEventRequest(1L), version))
+        }
+    }
+
+    @Test
+    fun removedNamesAreIgnoredInFullSnapshotsAndCannotSupplyRequiredFields() {
+        val aliases = mapOf(
+            "channel" to mapOf("tags" to listOf("tagIds", "channelTags"),
+                "channelNumber" to listOf("lcn", "channelNum", "channelno", "number")),
+            "tag" to mapOf("tagId" to listOf("id"), "tagName" to listOf("name"), "tagIndex" to listOf("index")),
+            "event" to mapOf("eventId" to listOf("id"), "start" to listOf("startTime"), "stop" to listOf("stopTime")),
+            "dvrEntry" to mapOf("id" to listOf("dvrId"), "state" to listOf("status")),
+        )
+        aliases.forEach { (family, fields) ->
+            listOf("Add", "Update").forEach { suffix ->
+                listOf(36L, 44L).forEach { version ->
+                    val full = metadataFixture(family + suffix)
+                    fields.forEach { (canonical, names) -> names.forEach { alias ->
+                        assertEquals(entity(decoded(full, version)), entity(decoded(full + (alias to Any()), version)), alias)
+                        malformed((full - canonical) + (alias to full[canonical]), version)
+                    } }
+                }
+            }
+        }
+        val optionalAliases = mapOf(
+            "event" to mapOf("channel" to 9L, "content" to 10L, "eventTitle" to "title", "name" to "title",
+                "genre" to "genre", "episodeId" to 11L, "serieslinkId" to 12L, "seriesLinkId" to 13L,
+                "episode" to mapOf("season" to 1L, "number" to 2L, "count" to 3L, "part" to 4L, "partCount" to 5L),
+                "season" to 6L, "part" to 7L),
+            "dvrEntry" to mapOf("channelId" to 9L, "statusError" to "error", "playCount" to 10L, "playPosition" to 11L),
+        )
+        optionalAliases.forEach { (family, fields) -> listOf("Add", "Update").forEach { suffix ->
+            val full = metadataFixture(family + suffix)
+            assertEquals(entity(decoded(full)), entity(decoded(full + fields)))
+        } }
+        malformed(metadataFixture("eventAdd") + ("category" to "not-a-list"))
+        val dvr = decoded(metadataFixture("dvrEntryAdd") + ("files" to listOf(mapOf("path" to "ignored"))))
+            as HtspDvrEntryAddMessage
+        assertNull(dvr.entry.files!!.single().path)
+    }
+
+    @Test
+    fun seasonCountOnlyComesFromItsOwnFlatField() {
+        val fields = (metadataFixture("eventAdd") - "method") + mapOf(
+            "episodeCount" to 8L, "episode" to mapOf("count" to 99L),
+        )
+        listOf(36L, 44L).forEach { version ->
+            assertNull(reply(GetEventRequest(1L), fields, version).event.seasonCount)
+            assertEquals(8L, reply(GetEventRequest(1L), fields, version).event.episodeCount)
+            assertEquals(2L, reply(GetEventRequest(1L), fields + ("seasonCount" to 2L), version).event.seasonCount)
+            malformed(fields + mapOf("method" to "eventAdd", "seasonCount" to "invalid"), version)
+        }
+    }
+
+    @Test
+    fun deletesAndSubscriptionMessagesRequireTheirOwnCanonicalNames() {
+        listOf(Triple("tagDelete", "tagId", "id"), Triple("eventDelete", "eventId", "id"),
+            Triple("dvrEntryDelete", "id", "dvrId")).forEach { (method, canonical, alias) ->
+            malformed(mapOf("method" to method, alias to 1L))
+            decoded(mapOf("method" to method, canonical to 1L, alias to "ignored"))
+        }
+        listOf("subscriptionStart", "subscriptionStop", "subscriptionStatus").forEach { method ->
+            malformed(mapOf("method" to method, "id" to 1L))
+            assertEquals(decoded(mapOf("method" to method, "subscriptionId" to 1L)),
+                decoded(mapOf("method" to method, "subscriptionId" to 1L, "state" to "ignored", "error" to "ignored")))
+        }
+    }
+
+    @Test
+    fun autorecUnsetTimesAreNullAndSetTimesAreMinutesSinceMidnight() {
+        listOf("autorecEntryAdd", "autorecEntryUpdate").forEach { method ->
+            listOf(36L, 44L).forEach { version ->
+                val full = metadataFixture(method)
+                listOf("approxTime", "start", "startWindow").forEach { field ->
+                    listOf(0L, 1439L).forEach { decoded(full + (field to it), version) }
+                    listOf(-2L, 1440L, Int.MIN_VALUE.toLong(), Int.MAX_VALUE.toLong()).forEach {
+                        malformed(full + (field to it), version)
+                    }
+                }
+                val unset = entity(decoded(full + mapOf("approxTime" to -1L, "start" to -1L, "startWindow" to -1L), version))
+                    as at.bernhardberger.tvheadend.htsp.model.HtspAutorecEntry
+                assertNull(unset.approximateStartMinutesSinceMidnight)
+                assertNull(unset.startMinutesSinceMidnight)
+                assertNull(unset.startWindowEndMinutesSinceMidnight)
+            }
+        }
     }
 
     private fun decoded(fields: Map<String, Any?>, version: Long = 44): HtspServerMessage {

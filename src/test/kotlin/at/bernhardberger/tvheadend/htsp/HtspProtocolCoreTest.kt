@@ -1167,14 +1167,13 @@ class HtspProtocolCoreTest {
     }
 
     @Test
-    fun addDvrEntryReplyUsesStrictIdThenCompatibilityDvrId() = runTest {
+    fun addDvrEntryReplyRequiresCanonicalIdAndIgnoresDvrId() = runTest {
         val transport = FakeProtocolTransport(version = 44)
         val connection = HtspTypedRequestCaller(transport)
         val request = AddDvrEntryRequest(AddDvrEntrySelector.Event(1L))
 
         listOf(
             linkedMapOf("success" to 1L, "id" to 11L) to 11L,
-            linkedMapOf("success" to 1L, "dvrId" to 12L) to 12L,
             linkedMapOf("success" to 1L, "id" to 13L, "dvrId" to 14L) to 13L,
             linkedMapOf("success" to 1L, "id" to 15L, "dvrId" to "ignored") to 15L,
         ).forEach { (fields, expectedEntryId) ->
@@ -1187,6 +1186,7 @@ class HtspProtocolCoreTest {
 
         listOf(
             linkedMapOf("success" to 1L, "id" to "11", "dvrId" to 12L),
+            linkedMapOf("success" to 1L, "dvrId" to 12L),
             linkedMapOf("success" to 1L, "dvrId" to -1L),
             linkedMapOf("success" to 1L, "dvrId" to 0x1_0000_0000L),
         ).forEach { fields ->

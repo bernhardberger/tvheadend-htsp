@@ -30,11 +30,13 @@ public data class HtspChannelNowNextMessage(
         requireU32("currentEventId", currentEventId)
         requireU32("nextEventId", nextEventId)
     }
+    override fun toString(): String = "HtspChannelNowNextMessage(<redacted>)"
 }
 
 /** Carries the complete unsigned [channelId] reported by a channel-delete message. */
 public data class HtspChannelDeleteMessage(public val channelId: Long) : HtspMetadataMessage {
     init { requireU32("channelId", channelId) }
+    override fun toString(): String = "HtspChannelDeleteMessage(<redacted>)"
 }
 
 /** Adds tag metadata (pinned htsp_server.c:932–958). */
@@ -52,4 +54,5 @@ public data class HtspTagUpdateMessage(
 /** Carries the complete unsigned [tagId] reported by a channel-tag delete message. */
 public data class HtspTagDeleteMessage(public val tagId: Long) : HtspMetadataMessage {
     init { requireU32("tagId", tagId) }
+    override fun toString(): String = "HtspTagDeleteMessage(<redacted>)"
 }

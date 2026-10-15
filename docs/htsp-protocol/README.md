@@ -337,8 +337,8 @@ to `epg_object_serialize` there rather than expanded in the HTSP sender.
   use Kotlin maps. The public list can represent repeated names without a later API change.
   All paths require `eventId`, `start`, and `stop`; channel is conditional
   (`src/htsp_server.c:1339–1343`). Full updates replace the previous event,
-  including absent optional fields. Legacy `genre`, `episodeId`, and
-  `seriesLinkId` observations are retained and now decode on request paths too.
+  including absent optional fields. All paths pass the negotiated version to
+  the shared entity decoder and accept only evidenced field names (see below).
 - The 39 canonical request extensions mirror constructors, add timeout and
   generation controls, construct one request, and delegate once to `execute`.
   `fileClose` accepts optional recording position and play-count values. DVR
@@ -368,8 +368,8 @@ silently ignore it and may still answer Ok.
   `protocol` are optional and strict, with wire `from` exposed as `source`.
   `HtspService` publishes it through the matching registered subscription
   stream rather than global metadata events. Full metadata Add and Update use
-  identical requiredness from the builders (table below). DVR files choose the
-  first `filename`/`path` alias in that order. Autorec `broadcastType` is nullable:
+  identical requiredness from the builders (table below). DVR files use
+  `filename` for their path. Autorec `broadcastType` is nullable:
   it was introduced in HTSP 39 (`fc5a1672`, 2024-08-25), and is absent on
   v36–v38 servers, but required when negotiating v39+. Autorec `comment` is nullable: v36
   `htsp_build_autorecentry` does not send it at all
@@ -437,14 +437,21 @@ clear their corresponding old observations, leaving non-statistics fields alone.
 Missing discriminators with other full fields and unexpected sparse fields are
 malformed. RPC `seq` envelopes are classified before this dispatch.
 
-Historical aliases remain for compatibility, without pinned-emitter evidence:
-channel `number/lcn/channelNum/channelno`, `tagIds/channelTags`; tag `id/name/index`;
-event `id/channel/startTime/stopTime/eventTitle/name/content`, string `category`
-as `genre`, `genre/episodeId/serieslinkId/seriesLinkId`, flat `season/part` and
-nested `episode` ordinals; DVR `dvrId/channel/status/statusError/playPosition/playCount`
-and file `path` as fallback for `filename`. First-present alias precedence stays
-strict. Stats also retain `dvrId/status/statusError` aliases. No aliases were
-silently removed by sharing the request and message decoders.
+Decoders accept only field names emitted for that entity/message by a supported
+server. The audit compares minimum-supported v36 (`81403634`) and pinned v44
+(`f082b430`), both `src/htsp_server.c`; no dual-name aliases are needed. DVR
+`channel` is canonical (v36 :969; v44 :983), whereas events use `channelId`
+(v36 :1255; v44 :1341). Recording files use `filename` (v36 :1055–1058;
+v44 :1129–1132); only the enclosing DVR entity uses `path` (:1077 / :1151).
+Unknown keys are ignored in full snapshots, but cannot replace required fields;
+the exact sparse shapes above reject unknown keys. Event `category` is a list,
+and episode ordinals/counts are flat, separately named fields (:706–725 / :711–730).
+
+Autorec `approxTime`, `start`, and `startWindow` are required wire s32 values;
+`-1` means unset and decodes to null, otherwise valid minutes are `0..1439`
+(v36 :1151–1163; v44 :1228–1240). `approxTime` is the circular midpoint of a
+set start/window pair, or unset when either bound is unset. This matches timerec
+entity unset-time semantics.
 
 ## Maintenance
 

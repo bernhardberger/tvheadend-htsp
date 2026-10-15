@@ -52,6 +52,7 @@ public data class HtspDvrEntryDeleteMessage(
     public val entryId: Long,
 ) : HtspMetadataMessage {
     init { requireU32("entryId", entryId) }
+    override fun toString(): String = "HtspDvrEntryDeleteMessage(<redacted>)"
 }
 
 /** Full automatic-rule add (pinned htsp_server.c:1209–1268). */
@@ -70,7 +71,9 @@ public data class HtspAutorecEntryUpdateMessage(
 public data class HtspAutorecEntryDeleteMessage(
     /** Rule UUID. */
     public val id: String,
-) : HtspMetadataMessage
+) : HtspMetadataMessage {
+    override fun toString(): String = "HtspAutorecEntryDeleteMessage(<redacted>)"
+}
 
 /** Full time-rule add (pinned htsp_server.c:1275–1311). */
 public data class HtspTimerecEntryAddMessage(
@@ -88,4 +91,6 @@ public data class HtspTimerecEntryUpdateMessage(
 public data class HtspTimerecEntryDeleteMessage(
     /** Rule UUID. */
     public val id: String,
-) : HtspMetadataMessage
+) : HtspMetadataMessage {
+    override fun toString(): String = "HtspTimerecEntryDeleteMessage(<redacted>)"
+}

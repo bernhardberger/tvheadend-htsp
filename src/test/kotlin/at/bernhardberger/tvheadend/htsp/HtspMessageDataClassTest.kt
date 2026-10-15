@@ -95,9 +95,12 @@ class HtspMessageDataClassTest {
             { channel.copy(currentEventId = -1L) }, { channel.copy(tagIds = listOf(-1L)) },
             { tag.copy(tagIndex = -1L) }, { tag.copy(channelIds = listOf(-1L)) },
             { event.copy(eventId = -1L) }, { event.copy(contentType = -1L) },
-            { event.copy(episodeId = -1L) }, { event.copy(seriesLinkId = 0x1_0000_0000L) },
+            { event.copy(episodeNumber = -1L) }, { event.copy(seasonCount = 0x1_0000_0000L) },
             { dvr.copy(entryId = -1L) }, { dvr.copy(channelId = -1L) },
             { autorec.copy(maximumRecordingCount = -1L) }, { autorec.copy(channelId = -1L) },
+            { autorec.copy(approximateStartMinutesSinceMidnight = -1) },
+            { autorec.copy(startMinutesSinceMidnight = 1440) },
+            { autorec.copy(startWindowEndMinutesSinceMidnight = -2) },
             { timerec.copy(channelId = -1L) }, { timerec.copy(channelId = 0x1_0000_0000L) },
             { timerec.copy(startMinutesSinceMidnight = -1) }, { timerec.copy(stopMinutesSinceMidnight = 1440) },
         ).forEach { invalid -> assertThrows(IllegalArgumentException::class.java) { invalid() } }
@@ -107,7 +110,7 @@ class HtspMessageDataClassTest {
     fun entityCopiesRetainAllComponentsAndHideSnapshotMarker() {
         val entities = listOf(
             decoder.channel(metadataFixture("channelAdd")), decoder.tag(metadataFixture("tagAdd")),
-            decoder.event(metadataFixture("eventAdd") + mapOf("genre" to "Drama", "episodeId" to 42L, "serieslinkId" to 43L)),
+            decoder.event(metadataFixture("eventAdd") + mapOf("category" to listOf("Drama"), "episodeNumber" to 42L)),
             decoder.dvrEntry(metadataFixture("dvrEntryAdd") + mapOf("seasonCount" to 4L, "episode" to "S1E2")),
             decoder.autorecEntry(metadataFixture("autorecEntryAdd")), decoder.timerecEntry(metadataFixture("timerecEntryAdd")),
         )
@@ -152,7 +155,7 @@ class HtspMessageDataClassTest {
         val entities = listOf(
             decoder.channel(metadataFixture("channelAdd")).copy(channelName = secret),
             decoder.tag(metadataFixture("tagAdd")).copy(tagName = secret),
-            decoder.event(metadataFixture("eventAdd")).copy(title = secret, genre = secret),
+            decoder.event(metadataFixture("eventAdd")).copy(title = secret, episodeUri = secret),
             decoder.dvrEntry(metadataFixture("dvrEntryAdd")).copy(path = secret, error = secret),
             decoder.autorecEntry(metadataFixture("autorecEntryAdd")).copy(owner = secret, dvrConfigUuid = secret),
             decoder.timerecEntry(metadataFixture("timerecEntryAdd")).copy(directory = secret, dvrConfigUuid = secret),
@@ -164,7 +167,7 @@ class HtspMessageDataClassTest {
             assertTrue(it.toString().contains("redacted", ignoreCase = true))
         }
         assertEquals("HtspSubscriptionStartMessage(<redacted>)",
-            HtspSubscriptionStartMessage(456L, status = secret, subscriptionError = secret).toString())
+            HtspSubscriptionStartMessage(456L).toString())
     }
 
     private fun <T> assertUnmodifiable(values: List<T>) {

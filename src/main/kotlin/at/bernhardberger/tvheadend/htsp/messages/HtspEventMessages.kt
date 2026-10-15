@@ -18,6 +18,7 @@ public data class HtspEventUpdateMessage(
 /** Carries the complete unsigned [eventId] reported by an EPG-event delete message. */
 public data class HtspEventDeleteMessage(public val eventId: Long) : HtspMetadataMessage {
     init { requireU32("eventId", eventId) }
+    override fun toString(): String = "HtspEventDeleteMessage(<redacted>)"
 }
 
 /** Fieldless server marker reporting completion of the initial asynchronous metadata snapshot. */

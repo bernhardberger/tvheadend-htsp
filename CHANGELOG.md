@@ -62,11 +62,20 @@
 - **BREAKING:** full Add/Update messages share builder-based requiredness for
   HTSP 36–44. UUIDs are required from v41 and autorec `broadcastType` from v39;
   conditional fields remain nullable. Timerec wire `start`/`stop` are required,
-  with -1 represented as null.
+  with -1 represented as null. Autorec entity `approxTime`, `start`, and
+  `startWindow` also map -1 to nullable `Int` properties; set times use `0..1439`.
 - **BREAKING:** autorec/timerec entity `configId` is now `dvrConfigUuid`, matching
-  the DVR entity. `HtspEvent` gains `genre`, `episodeId`, and `seriesLinkId`, with
-  identical decoding across pushed events, `getEvent`, `getEvents`, and full
-  `epgQuery` replies.
+  the DVR entity.
+- **BREAKING:** remove unevidenced entity/message aliases; only field names
+  emitted by supported v36/v44 servers are decoded. This includes sparse and
+  delete messages and DVR-add replies. DVR channel identity uses `channel`;
+  recording files use `filename`. Event categories must be lists and episode
+  ordinals/counts must use their canonical flat names.
+- **BREAKING:** remove `HtspEvent.genre`, `episodeId`, and `seriesLinkId`, and
+  `HtspSubscriptionStartMessage.status` / `subscriptionError`: neither supported
+  source emits those fields for those messages. Keep event `seriesLinkUri` and
+  `episodeUri`. Event replies now pass the negotiated version to the shared decoder.
+- Redact identifiers in now/next and all metadata-delete message rendering.
 
 ## [1.0.0-beta.1] - 2026-10-11
 

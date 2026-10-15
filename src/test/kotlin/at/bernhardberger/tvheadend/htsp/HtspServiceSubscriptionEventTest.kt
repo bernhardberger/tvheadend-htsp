@@ -2282,7 +2282,7 @@ internal class HtspServiceSubscriptionEventTest : HtspServiceLifecycleFixture() 
 
     private fun statusFields(subscriptionId: Long, status: String): Map<String, Any?> = mapOf(
         "subscriptionId" to subscriptionId,
-        "state" to status,
+        "status" to status,
     )
 
     private fun subscriptionResources(service: HtspService): SubscriptionResources {

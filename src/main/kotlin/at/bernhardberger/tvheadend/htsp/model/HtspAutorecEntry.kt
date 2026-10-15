@@ -19,12 +19,12 @@ public data class HtspAutorecEntry private constructor(
     public val removalDays: Long,
     /** Weekday bitmask (:1227). */
     public val daysOfWeekMask: Long,
-    /** Approximate time; -1 means unset (:1236–1238). */
-    public val approximateStartMinutesSinceMidnight: Int,
-    /** Start time; -1 means unset (:1239). */
-    public val startMinutesSinceMidnight: Int,
-    /** Window end; -1 means unset (:1240). */
-    public val startWindowEndMinutesSinceMidnight: Int,
+    /** Approximate time in 0..1439; null means wire -1, unset (:1236–1238). */
+    public val approximateStartMinutesSinceMidnight: Int?,
+    /** Start time in 0..1439; null means wire -1, unset (:1239). */
+    public val startMinutesSinceMidnight: Int?,
+    /** Window end in 0..1439; null means wire -1, unset (:1240). */
+    public val startWindowEndMinutesSinceMidnight: Int?,
     /** Priority code (:1241). */
     public val priority: Long,
     /** Pre-recording padding (:1242). */
@@ -70,9 +70,9 @@ public data class HtspAutorecEntry private constructor(
         retentionDays: Long,
         removalDays: Long,
         daysOfWeekMask: Long,
-        approximateStartMinutesSinceMidnight: Int,
-        startMinutesSinceMidnight: Int,
-        startWindowEndMinutesSinceMidnight: Int,
+        approximateStartMinutesSinceMidnight: Int?,
+        startMinutesSinceMidnight: Int?,
+        startWindowEndMinutesSinceMidnight: Int?,
         priority: Long,
         startExtraMinutes: Long,
         stopExtraMinutes: Long,
@@ -106,9 +106,9 @@ public data class HtspAutorecEntry private constructor(
         retentionDays: Long = this.retentionDays,
         removalDays: Long = this.removalDays,
         daysOfWeekMask: Long = this.daysOfWeekMask,
-        approximateStartMinutesSinceMidnight: Int = this.approximateStartMinutesSinceMidnight,
-        startMinutesSinceMidnight: Int = this.startMinutesSinceMidnight,
-        startWindowEndMinutesSinceMidnight: Int = this.startWindowEndMinutesSinceMidnight,
+        approximateStartMinutesSinceMidnight: Int? = this.approximateStartMinutesSinceMidnight,
+        startMinutesSinceMidnight: Int? = this.startMinutesSinceMidnight,
+        startWindowEndMinutesSinceMidnight: Int? = this.startWindowEndMinutesSinceMidnight,
         priority: Long = this.priority,
         startExtraMinutes: Long = this.startExtraMinutes,
         stopExtraMinutes: Long = this.stopExtraMinutes,
@@ -134,6 +134,9 @@ public data class HtspAutorecEntry private constructor(
     )
 
     init {
+        listOfNotNull(
+            approximateStartMinutesSinceMidnight, startMinutesSinceMidnight, startWindowEndMinutesSinceMidnight,
+        ).forEach { require(it in 0..1439) { "automatic rule time must be in 0..1439" } }
         listOfNotNull(
             maxDurationSeconds, minDurationSeconds, retentionDays, removalDays, daysOfWeekMask,
             priority, duplicateDetection, maximumRecordingCount, broadcastType, channelId,

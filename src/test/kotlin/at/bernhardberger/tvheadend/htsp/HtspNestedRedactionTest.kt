@@ -15,7 +15,7 @@ internal class HtspNestedRedactionTest {
     @Test
     fun subscriptionMessagesAndTheirEventsRedactSensitiveLeaves() {
         val messagesAndEvents = listOf(
-            HtspSubscriptionStartMessage(subscriptionId, status = secret, subscriptionError = secret, codecMetadata = payload)
+            HtspSubscriptionStartMessage(subscriptionId, codecMetadata = payload)
                 .let { it to HtspSubscriptionEvent.Started(it) },
             HtspMuxPacketMessage(subscriptionId, HtspFrameType.I, 0L, null, null, 1L, payload)
                 .let { it to HtspSubscriptionEvent.Packet(it) },
@@ -41,6 +41,20 @@ internal class HtspNestedRedactionTest {
         for ((message, event) in messagesAndEvents) {
             assertRedacted(message, secret, subscriptionId.toString())
             assertRedacted(event, secret, subscriptionId.toString())
+        }
+    }
+
+    @Test
+    fun sparseAndDeleteMetadataMessagesRedactIdentifiers() {
+        listOf(
+            HtspChannelNowNextMessage(subscriptionId, subscriptionId, subscriptionId),
+            HtspChannelDeleteMessage(subscriptionId), HtspTagDeleteMessage(subscriptionId),
+            HtspEventDeleteMessage(subscriptionId), HtspDvrEntryDeleteMessage(subscriptionId),
+            HtspAutorecEntryDeleteMessage(secret), HtspTimerecEntryDeleteMessage(secret),
+        ).forEach {
+            assertEquals("${it.javaClass.simpleName}(<redacted>)", it.toString())
+            assertRedacted(it, secret, subscriptionId.toString())
+            assertRedacted(HtspTransportEvent.ServerMessage(it, HtspConnectionGeneration(), 1L), secret, subscriptionId.toString())
         }
     }
 

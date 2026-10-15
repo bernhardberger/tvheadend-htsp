@@ -3,14 +3,9 @@ package at.bernhardberger.tvheadend.htsp.messages
 import at.bernhardberger.tvheadend.htsp.model.HtspEntityDecoder
 import at.bernhardberger.tvheadend.htsp.wire.*
 
-private val SUBSCRIPTION_ID_KEYS = listOf("subscriptionId", "id")
-private val STATUS_KEYS = listOf("state", "status")
-private val SUBSCRIPTION_ERROR_KEYS = listOf("subscriptionError", "error")
 private val NOW_NEXT_FIELDS = setOf("method", "channelId", "eventId", "nextEventId")
 private val DVR_STATS_FIELDS = setOf(
     "method", "id", "idStr", "state", "duplicate", "error", "subscriptionError", "streamErrors", "dataErrors", "dataSize",
-    // Retained historical aliases; not emitted by the pinned builder.
-    "dvrId", "status", "statusError",
 )
 
 private class `HtspServerMessageMappingException-internal` : IllegalArgumentException()
@@ -45,7 +40,7 @@ internal fun decodeTagUpdate(fields: Map<String, Any?>, version: Long): HtspServ
 
 @JvmSynthetic
 internal fun decodeTagDelete(fields: Map<String, Any?>): HtspServerMessage =
-    HtspTagDeleteMessage(fields.requiredAliasU32(listOf("tagId", "id")))
+    HtspTagDeleteMessage(fields.server().requiredU32("tagId"))
 
 @JvmSynthetic
 internal fun decodeDvrEntryAdd(fields: Map<String, Any?>, version: Long): HtspServerMessage =
@@ -57,10 +52,10 @@ internal fun decodeDvrEntryUpdate(fields: Map<String, Any?>, version: Long): Hts
     if (fields.keys.any { it !in DVR_STATS_FIELDS }) malformed()
     return fields.server().run {
         HtspDvrEntryStatsMessage(
-            entryId = fields.requiredAliasU32(listOf("id", "dvrId")),
+            entryId = requiredU32("id"),
             entryUuid = if (version >= 41) requiredString("idStr") else optionalString("idStr"),
-            state = fields.optionalAliasString(STATUS_KEYS) ?: malformed(), duplicate = optionalFlag("duplicate"),
-            error = fields.optionalAliasString(listOf("error", "statusError")),
+            state = requiredString("state"), duplicate = optionalFlag("duplicate"),
+            error = optionalString("error"),
             subscriptionError = optionalString("subscriptionError"), streamErrors = optionalU32("streamErrors"),
             dataErrors = optionalU32("dataErrors"), dataSizeBytes = optionalS64("dataSize"),
         )
@@ -69,7 +64,7 @@ internal fun decodeDvrEntryUpdate(fields: Map<String, Any?>, version: Long): Hts
 
 @JvmSynthetic
 internal fun decodeDvrEntryDelete(fields: Map<String, Any?>): HtspServerMessage =
-    HtspDvrEntryDeleteMessage(fields.requiredAliasU32(listOf("id", "dvrId")))
+    HtspDvrEntryDeleteMessage(fields.server().requiredU32("id"))
 
 @JvmSynthetic
 internal fun decodeAutorecEntryAdd(fields: Map<String, Any?>, version: Long): HtspServerMessage =
@@ -105,7 +100,7 @@ internal fun decodeEventUpdate(fields: Map<String, Any?>, version: Long): HtspSe
 
 @JvmSynthetic
 internal fun decodeEventDelete(fields: Map<String, Any?>): HtspServerMessage =
-    HtspEventDeleteMessage(fields.requiredAliasU32(listOf("eventId", "id")))
+    HtspEventDeleteMessage(fields.server().requiredU32("eventId"))
 
 @JvmSynthetic
 internal fun decodeInitialSyncCompleted(fields: Map<String, Any?>): HtspServerMessage = HtspInitialSyncCompletedMessage
@@ -168,21 +163,22 @@ internal fun decodeSubscriptionStart(
     timestampClockForSubscription: (Long) -> HtspTimestampClock = { HtspTimestampClock.MICROSECONDS },
 ): HtspServerMessage = fields.server().run {
     HtspSubscriptionStartMessage(
-        subscriptionId = fields.requiredAliasU32(SUBSCRIPTION_ID_KEYS),
+        subscriptionId = requiredU32("subscriptionId"),
         streams = optionalObjectList("streams") {
-            decodeSubscriptionStream(it, timestampClockForSubscription(fields.requiredAliasU32(SUBSCRIPTION_ID_KEYS)))
+            decodeSubscriptionStream(it, timestampClockForSubscription(requiredU32("subscriptionId")))
         },
         sourceInfo = if (contains("sourceinfo")) decodeSubscriptionSourceInfo(requiredObject("sourceinfo")) else null,
-        codecMetadata = optionalBinary("meta")?.let(::HtspBinary), status = fields.optionalAliasString(STATUS_KEYS),
-        subscriptionError = fields.optionalAliasString(SUBSCRIPTION_ERROR_KEYS),
+        codecMetadata = optionalBinary("meta")?.let(::HtspBinary),
     )
 }
 
 @JvmSynthetic
-internal fun decodeSubscriptionStop(fields: Map<String, Any?>): HtspServerMessage = HtspSubscriptionStopMessage(
-    subscriptionId = fields.requiredAliasU32(SUBSCRIPTION_ID_KEYS), status = fields.optionalAliasString(STATUS_KEYS),
-    subscriptionError = fields.optionalAliasString(SUBSCRIPTION_ERROR_KEYS),
-)
+internal fun decodeSubscriptionStop(fields: Map<String, Any?>): HtspServerMessage = fields.server().run {
+    HtspSubscriptionStopMessage(
+        subscriptionId = requiredU32("subscriptionId"), status = optionalString("status"),
+        subscriptionError = optionalString("subscriptionError"),
+    )
+}
 
 @JvmSynthetic
 internal fun decodeSubscriptionGrace(fields: Map<String, Any?>): HtspServerMessage = fields.server().run {
@@ -190,10 +186,12 @@ internal fun decodeSubscriptionGrace(fields: Map<String, Any?>): HtspServerMessa
 }
 
 @JvmSynthetic
-internal fun decodeSubscriptionStatus(fields: Map<String, Any?>): HtspServerMessage = HtspSubscriptionStatusMessage(
-    subscriptionId = fields.requiredAliasU32(SUBSCRIPTION_ID_KEYS), status = fields.optionalAliasString(STATUS_KEYS),
-    subscriptionError = fields.optionalAliasString(SUBSCRIPTION_ERROR_KEYS),
-)
+internal fun decodeSubscriptionStatus(fields: Map<String, Any?>): HtspServerMessage = fields.server().run {
+    HtspSubscriptionStatusMessage(
+        subscriptionId = requiredU32("subscriptionId"), status = optionalString("status"),
+        subscriptionError = optionalString("subscriptionError"),
+    )
+}
 
 @JvmSynthetic
 internal fun decodeSignalStatus(fields: Map<String, Any?>): HtspServerMessage = fields.server().run {
@@ -266,7 +264,3 @@ private fun decodeSubscriptionSourceInfo(fields: Map<*, *>): HtspSubscriptionSou
 }
 
 private fun Map<*, *>.server(): HtspFieldReader = HtspFieldReader(this, ::malformed)
-private fun Map<*, *>.requiredAliasU32(names: List<String>): Long =
-    server().requiredU32(names.firstOrNull(::containsKey) ?: malformed())
-private fun Map<*, *>.optionalAliasString(names: List<String>): String? =
-    names.firstOrNull(::containsKey)?.let { server().requiredString(it) }

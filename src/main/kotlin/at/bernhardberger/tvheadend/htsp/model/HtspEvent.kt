@@ -22,8 +22,6 @@ public data class HtspEvent private constructor(
     public val summary: String? = null,
     /** Localized description, omitted in basic output mode (:1349–1370). */
     public val description: String? = null,
-    /** Legacy genre text; retained compatibility field, not emitted by the pinned builder. */
-    public val genre: String? = null,
     /** Category list when supplied outside basic output mode (:1375–1376). */
     public val categories: List<String>? = null,
     /** Keyword list when supplied outside basic output mode (:1377–1378). */
@@ -66,10 +64,6 @@ public data class HtspEvent private constructor(
     public val partCount: Long? = null,
     /** Episode display text when set (:714–730,1438–1439). */
     public val episodeOnscreen: String? = null,
-    /** Legacy episode identity; retained compatibility field, not emitted by the pinned builder. */
-    public val episodeId: Long? = null,
-    /** Legacy series identity; retained compatibility field, not emitted by the pinned builder. */
-    public val seriesLinkId: Long? = null,
     /** Image URI when nonempty (:1440–1441). */
     public val image: String? = null,
     /** Accessible recording identity when linked (:1443–1452). */
@@ -90,7 +84,6 @@ public data class HtspEvent private constructor(
         subtitle: String? = null,
         summary: String? = null,
         description: String? = null,
-        genre: String? = null,
         categories: List<String>? = null,
         keywords: List<String>? = null,
         seriesLinkUri: String? = null,
@@ -112,8 +105,6 @@ public data class HtspEvent private constructor(
         partNumber: Long? = null,
         partCount: Long? = null,
         episodeOnscreen: String? = null,
-        episodeId: Long? = null,
-        seriesLinkId: Long? = null,
         image: String? = null,
         dvrId: Long? = null,
         nextEventId: Long? = null,
@@ -127,7 +118,6 @@ public data class HtspEvent private constructor(
         subtitle = subtitle,
         summary = summary,
         description = description,
-        genre = genre,
         categories = categories?.immutableSnapshot(),
         keywords = keywords?.immutableSnapshot(),
         seriesLinkUri = seriesLinkUri,
@@ -149,8 +139,6 @@ public data class HtspEvent private constructor(
         partNumber = partNumber,
         partCount = partCount,
         episodeOnscreen = episodeOnscreen,
-        episodeId = episodeId,
-        seriesLinkId = seriesLinkId,
         image = image,
         dvrId = dvrId,
         nextEventId = nextEventId,
@@ -168,7 +156,6 @@ public data class HtspEvent private constructor(
         subtitle: String? = this.subtitle,
         summary: String? = this.summary,
         description: String? = this.description,
-        genre: String? = this.genre,
         categories: List<String>? = this.categories,
         keywords: List<String>? = this.keywords,
         seriesLinkUri: String? = this.seriesLinkUri,
@@ -190,8 +177,6 @@ public data class HtspEvent private constructor(
         partNumber: Long? = this.partNumber,
         partCount: Long? = this.partCount,
         episodeOnscreen: String? = this.episodeOnscreen,
-        episodeId: Long? = this.episodeId,
-        seriesLinkId: Long? = this.seriesLinkId,
         image: String? = this.image,
         dvrId: Long? = this.dvrId,
         nextEventId: Long? = this.nextEventId,
@@ -205,7 +190,6 @@ public data class HtspEvent private constructor(
         subtitle = subtitle,
         summary = summary,
         description = description,
-        genre = genre,
         categories = categories,
         keywords = keywords,
         seriesLinkUri = seriesLinkUri,
@@ -227,8 +211,6 @@ public data class HtspEvent private constructor(
         partNumber = partNumber,
         partCount = partCount,
         episodeOnscreen = episodeOnscreen,
-        episodeId = episodeId,
-        seriesLinkId = seriesLinkId,
         image = image,
         dvrId = dvrId,
         nextEventId = nextEventId,
@@ -250,8 +232,6 @@ public data class HtspEvent private constructor(
         episodeCount?.let { requireU32("episodeCount", it) }
         partNumber?.let { requireU32("partNumber", it) }
         partCount?.let { requireU32("partCount", it) }
-        episodeId?.let { requireU32("episodeId", it) }
-        seriesLinkId?.let { requireU32("seriesLinkId", it) }
         dvrId?.let { requireU32("dvrId", it) }
         nextEventId?.let { requireU32("nextEventId", it) }
     }
