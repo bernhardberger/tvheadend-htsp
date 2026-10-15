@@ -83,6 +83,7 @@ documentation site beyond the API reference Dokka generates from the KDoc.
   introductions live in [`dokka/module.md`](dokka/module.md).
   `./tools/verify dokkaGeneratePublicationHtml` renders both to
   `build/dokka/html` for review; the same output ships as the javadoc jar.
+  Its styling and logo are in [`dokka/brand/`](dokka/brand/README.md).
 
 Check every claim against the code and tests in the same change; documentation
 never promises behavior the library does not test. The optional skills under

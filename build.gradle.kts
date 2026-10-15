@@ -27,6 +27,23 @@ dokka {
     dokkaSourceSets.configureEach {
         includes.from("docs/dokka/module.md")
     }
+    pluginsConfiguration.html {
+        customStyleSheets.from(
+            "docs/dokka/brand/logo-styles.css",
+            "docs/dokka/brand/tvheadend-htsp.css",
+        )
+        customAssets.from(
+            "docs/dokka/brand/logo-icon.svg",
+            "docs/dokka/brand/Outfit-550.ttf",
+            "docs/dokka/brand/Outfit-OFL.txt",
+        )
+        homepageLink.set("https://github.com/bernhardberger/tvheadend-htsp")
+        footerMessage.set(
+            "© 2026 Bernhard Berger · " +
+                "<a href=\"https://github.com/bernhardberger/tvheadend-htsp/blob/main/LICENSE\">GPLv3</a> · " +
+                "Not affiliated with or endorsed by the TVHeadend project",
+        )
+    }
 }
 
 group = "at.bernhardberger.tvheadend"

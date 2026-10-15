@@ -1,0 +1,57 @@
+/*
+ * API reference theme from the Tvheadend Player brand: dark field #0F1014,
+ * cyan #00BCFA with its darker theme tones for text, orange #FA7F00 as the only
+ * accent, and Outfit 550 for titles. Provenance is in README.md beside this file.
+ */
+
+@font-face {
+    font-family: Outfit;
+    font-style: normal;
+    font-weight: 550;
+    font-display: swap;
+    src: url('../images/Outfit-550.ttf') format('truetype');
+}
+
+:root {
+    --brand-heading-font: Outfit, var(--font-family-default);
+    --brand-link-color: #006689;
+
+    --color-background-nav: #0F1014;
+    --color-background-nav-dt: #0F1014;
+    --color-background-page-dt: #111416;
+    --color-background-footer-dt: #191C1E;
+    --color-text-dt: #E1E2E5;
+    --color-key-blue: #006689;
+    --color-key-blue-hover: #00759D;
+    --color-key-blue-50: rgba(0, 188, 250, 0.5);
+    --active-tab-border-color: #FA7F00;
+}
+
+:root.theme-dark {
+    --brand-link-color: #79D1FF;
+    --background-color: #111416;
+    --color-dark: #282A2C;
+    --default-font-color: #E1E2E5;
+    --active-tab-border-color: #FA7F00;
+    --footer-background: #191C1E;
+}
+
+.main-content a:not([data-name]),
+.main-content a:not([data-name]):active,
+.main-content a:not([data-name]):focus,
+.main-content a:not([data-name]):hover {
+    color: var(--brand-link-color);
+}
+
+.filter-section .platform-tag.jvm-like[data-active],
+.platform-tags .platform-tag.jvm-like {
+    --platform-tag-color: #79D1FF;
+}
+
+.main-content h1,
+.main-content h2,
+.main-content h3,
+.library-name--link {
+    font-family: var(--brand-heading-font);
+    font-weight: 550;
+}

@@ -1,0 +1,10 @@
+/*
+ * Replaces Dokka's logo-styles.css so the header shows the Tvheadend Player
+ * symbol (logo-icon.svg) at the largest size Dokka's header allows.
+ */
+
+:root {
+    --dokka-logo-image-url: url('../images/logo-icon.svg');
+    --dokka-logo-height: 36px;
+    --dokka-logo-width: 36px;
+}

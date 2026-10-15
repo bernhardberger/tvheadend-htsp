@@ -41,3 +41,8 @@ The library uses Kotlin and Kotlin coroutines. Their own copyright and license
 terms continue to apply. Exact versions are recorded in the root build. The
 repository's Gradle wrapper and the vendored `.opencode/skills` are Apache-2.0
 under their own notices and are not part of the published artifacts.
+
+The API reference in the javadoc jar uses the Tvheadend Player symbol (GPL-3.0,
+from the same author) and the Outfit font, Copyright 2021 The Outfit Project
+Authors, under the SIL Open Font License 1.1, whose text ships beside it as
+`images/Outfit-OFL.txt`. Provenance is in `docs/dokka/brand/README.md`.
