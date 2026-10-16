@@ -1,5 +1,19 @@
 # Changelog
 
+## [Unreleased]
+
+- **BREAKING:** `enableAsyncMetadataAwaitingInitialSync` now times out on lack of
+  progress instead of total time. The new last parameter `idleTimeoutMs` (default
+  30 s) returns `Timeout` only when that long passes without the acknowledgement or
+  a metadata event of this generation; it also bounds the acknowledgement.
+  `timeoutMs` keeps its position but is now an optional overall cap of type `Long?`
+  that defaults to `null`, no cap. On slow links the server's post-acknowledgement
+  lineup and EPG push outlasted the old single 30 s budget, so the sync never reached
+  its marker and every reconnect restarted it. Callers that passed `timeoutMs` to
+  lengthen the wait should drop it or pass `idleTimeoutMs` instead, because it is
+  now a hard overall cap; compiled callers must be rebuilt, since the parameter's
+  JVM type changed from `long` to `java.lang.Long`.
+
 ## [1.0.0-beta.3] - 2026-10-16
 
 Third pre-release of the 1.0 line. It adds `eventBatches` and `awaitTermination`

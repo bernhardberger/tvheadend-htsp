@@ -399,8 +399,11 @@ Consumers must handle repeated `Started` and reconfigure their decoding pipeline
 Use `enableAsyncMetadataAwaitingInitialSync` to enable metadata and wait for the
 unsequenced `initialSyncCompleted` marker. It installs its generation-scoped
 observer before sending the request, so a marker adjacent to or preceding the
-acknowledgement is retained. One timeout covers both phases and returns
-`HtspResult.Timeout`; caller cancellation remains
+acknowledgement is retained. It returns `HtspResult.Timeout` once `idleTimeoutMs`
+(default 30 s) passes without progress: the Ok acknowledgement or a metadata event
+of this generation queued for `events` collectors. The idle limit also bounds the
+acknowledgement. The optional `timeoutMs` caps both phases together and defaults to
+`null`, no cap. Caller cancellation remains
 cancellation; a stale generation returns `TransportUnavailable`. Because the marker has no request sequence, callers must serialize
 this orchestration within a connection generation.
 

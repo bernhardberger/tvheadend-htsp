@@ -98,9 +98,18 @@ collector, so it cannot overflow. The helper returns an `HtspResult<Unit>`:
 | Result | Meaning |
 |---|---|
 | `Ok` | acknowledged, and the marker for this generation arrived |
-| `Timeout` | no acknowledgement and marker within `timeoutMs`; the default is 30 s, one budget for both |
+| `Timeout` | no progress for `idleTimeoutMs` (default 30 s), or the optional overall `timeoutMs` passed |
 | `TransportUnavailable` | the connection or its generation ended, or a stale `expectedGeneration` was passed |
 | other failures | the acknowledgement itself failed, for example `AccessDenied` |
+
+The server acknowledges the request first and then pushes the whole lineup and
+EPG, which can take minutes on a slow link. So the wait is bounded by progress,
+not by total time: it times out only after `idleTimeoutMs` passes with nothing
+new. The acknowledgement and every metadata event of this generation count as
+progress, including `MalformedMetadata` reports; subscription packets and other
+generations' events do not. The acknowledgement must also arrive within
+`idleTimeoutMs`. `timeoutMs` is an optional cap on the whole operation and
+defaults to `null`, no cap.
 
 For custom `HtspConnection` implementations, the helper still collects `events`
 and returns `TransportUnavailable` if that observer's generation overflows.

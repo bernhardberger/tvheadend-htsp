@@ -80,12 +80,22 @@ internal open class `HtspService-internal`(
 
     internal fun registerInitialSyncObserver(generation: HtspConnectionGeneration): HtspInitialSyncObserver =
         attemptMonitor.withAttemptLock {
-            HtspInitialSyncObserver(generation).also { initialSyncObservers.add(it) }
+            HtspInitialSyncObserver(generation, nanoTime).also { initialSyncObservers.add(it) }
         }
 
     internal fun unregisterInitialSyncObserver(observer: HtspInitialSyncObserver) {
         attemptMonitor.withAttemptLock { initialSyncObservers.remove(observer) }
     }
+
+    internal fun recordInitialSyncProgress(observer: HtspInitialSyncObserver) {
+        attemptMonitor.withAttemptLock { observer.recordProgress() }
+    }
+
+    internal fun initialSyncProgressCount(observer: HtspInitialSyncObserver): Long =
+        attemptMonitor.withAttemptLock { observer.progressCount }
+
+    internal fun initialSyncProgressCount(): Long =
+        attemptMonitor.withAttemptLock { initialSyncObservers.sumOf { it.progressCount } }
 
     internal fun metadataCollectorCount(): Int = attemptMonitor.withAttemptLock { metadataCollectors.size }
     internal fun initialSyncObserverCount(): Int = attemptMonitor.withAttemptLock { initialSyncObservers.size }
@@ -1113,12 +1123,9 @@ internal open class `HtspService-internal`(
 
     private fun offerMetadataEventLocked(event: HtspTransportEvent, frameBodyBytes: Long) {
         metadataCollectors.forEach { it.offer(event, frameBodyBytes) }
-        if (event is HtspTransportEvent.ConnectionFailure ||
-            event is HtspTransportEvent.ServerMessage && event.message === HtspInitialSyncCompletedMessage
-        ) {
-            initialSyncObservers.forEach { observer ->
-                if (observer.offer(event)) attemptMonitor.queueWakeup(observer.changed)
-            }
+        // Every metadata event stamps idle progress; only the marker or a failure queues a wakeup.
+        initialSyncObservers.forEach { observer ->
+            if (observer.offer(event)) attemptMonitor.queueWakeup(observer.changed)
         }
     }
 

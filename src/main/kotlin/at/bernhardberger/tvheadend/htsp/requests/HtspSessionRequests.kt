@@ -7,6 +7,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.async
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
@@ -289,8 +290,17 @@ public suspend fun HtspConnection.enableAsyncMetadata(
 
 /**
  * Enables asynchronous metadata after installing an initial-sync observer for the
- * current generation. Callers must serialize this unsequenced orchestration per generation.
- * [timeoutMs] is one deadline covering both the acknowledgement and sync marker.
+ * current generation, then waits for that generation's sync marker. Callers must serialize this
+ * unsequenced orchestration per generation.
+ *
+ * The wait is bounded by progress, not by total duration: it returns [HtspResult.Timeout] once
+ * [idleTimeoutMs] passes without progress, counted from the call. Progress is the Ok
+ * acknowledgement and each metadata event of this generation that the connection queues for
+ * [HtspConnection.events] collectors ([HtspTransportEvent.ServerMessage] and
+ * [HtspTransportEvent.MalformedMetadata]); subscription packets and other generations' events do
+ * not count. The same idle limit bounds the acknowledgement. [timeoutMs], when set, also caps the
+ * whole operation however steady the progress.
+ *
  * On library-created connections the helper watches for the marker internally, without a
  * second [HtspConnection.events] collector, so it cannot overflow. Custom connections use an events
  * collector; overflow of that observer's generation returns [HtspResult.TransportUnavailable].
@@ -302,6 +312,9 @@ public suspend fun HtspConnection.enableAsyncMetadata(
  * @param lastUpdateEpochSeconds HTSP `lastUpdate`, epoch seconds; 0 means never synchronized, so the server sends all eligible metadata; null omits it.
  * @param epgMaxTimeEpochSeconds HTSP `epgMaxTime`, epoch seconds; sets a rolling EPG window, see
  * [EnableAsyncMetadataRequest.epgMaxTimeEpochSeconds]; null omits it.
+ * @param timeoutMs optional overall limit in milliseconds for the acknowledgement and marker together;
+ * must be positive; null, the default, sets no overall limit.
+ * @param idleTimeoutMs longest wait in milliseconds without progress, 30 s by default; must be positive.
  * See [EnableAsyncMetadataRequest] for pinned source evidence.
  */
 public suspend fun HtspConnection.enableAsyncMetadataAwaitingInitialSync(
@@ -309,111 +322,146 @@ public suspend fun HtspConnection.enableAsyncMetadataAwaitingInitialSync(
     lastUpdateEpochSeconds: Long? = null,
     epgMaxTimeEpochSeconds: Long? = null,
     language: String? = null,
-    timeoutMs: Long = 30_000L,
+    timeoutMs: Long? = null,
     expectedGeneration: HtspConnectionGeneration? = null,
+    idleTimeoutMs: Long = 30_000L,
 ): HtspResult<Unit> {
-    require(timeoutMs > 0L) { "timeoutMs must be positive" }
+    require(timeoutMs == null || timeoutMs > 0L) { "timeoutMs must be positive or null" }
+    require(idleTimeoutMs > 0L) { "idleTimeoutMs must be positive" }
     currentCoroutineContext().ensureActive()
     val generation = (connectionState.value as? HtspConnectionState.Connected)?.connection?.generation
         ?: return HtspResult.TransportUnavailable
     if (expectedGeneration != null && expectedGeneration !== generation) {
         return HtspResult.TransportUnavailable
     }
-
+    val request = EnableAsyncMetadataRequest(
+        epg = epg,
+        lastUpdateEpochSeconds = lastUpdateEpochSeconds,
+        epgMaxTimeEpochSeconds = epgMaxTimeEpochSeconds,
+        language = language,
+    )
+    if (timeoutMs == null) return awaitInitialSync(request, generation, idleTimeoutMs, idleTimeoutMs)
     return withTimeoutOrNull(timeoutMs) {
-        val service = this@enableAsyncMetadataAwaitingInitialSync as? HtspService
-        val internalObserver = service?.registerInitialSyncObserver(generation)
-        try {
-            coroutineScope {
-                val marker = CompletableDeferred<Unit>()
-                val terminal = CompletableDeferred<HtspResult<Unit>>()
-                val eventObserver = launch(start = CoroutineStart.UNDISPATCHED) {
-                    if (internalObserver != null) {
-                        while (true) {
-                            internalObserver.changed.receive()
-                            if (internalObserver.failed) terminal.complete(HtspResult.TransportUnavailable)
-                            if (internalObserver.completed) marker.complete(Unit)
-                        }
-                    } else {
-                        events.collect { event ->
-                            when (event) {
-                                is HtspTransportEvent.ServerMessage -> {
-                                    if (
-                                        event.generation === generation &&
-                                        event.message === HtspInitialSyncCompletedMessage
-                                    ) {
-                                        marker.complete(Unit)
-                                    }
+        awaitInitialSync(request, generation, idleTimeoutMs, minOf(idleTimeoutMs, timeoutMs))
+    } ?: HtspResult.Timeout
+}
+
+private enum class InitialSyncWake { TERMINAL, ACKNOWLEDGEMENT, MARKER, PROGRESS }
+
+private suspend fun HtspConnection.awaitInitialSync(
+    request: EnableAsyncMetadataRequest,
+    generation: HtspConnectionGeneration,
+    idleTimeoutMs: Long,
+    acknowledgementTimeoutMs: Long,
+): HtspResult<Unit> {
+    val service = this as? HtspService
+    val internalObserver = service?.registerInitialSyncObserver(generation)
+    try {
+        return coroutineScope {
+            val marker = CompletableDeferred<Unit>()
+            val terminal = CompletableDeferred<HtspResult<Unit>>()
+            // Custom connections only: the internal observer stamps progress without waking anyone.
+            val progress = if (internalObserver == null) Channel<Unit>(Channel.CONFLATED) else null
+            val eventObserver = launch(start = CoroutineStart.UNDISPATCHED) {
+                if (internalObserver != null) {
+                    while (true) {
+                        internalObserver.changed.receive()
+                        if (internalObserver.failed) terminal.complete(HtspResult.TransportUnavailable)
+                        if (internalObserver.completed) marker.complete(Unit)
+                    }
+                } else {
+                    events.collect { event ->
+                        when (event) {
+                            is HtspTransportEvent.ServerMessage -> {
+                                if (event.generation === generation) {
+                                    if (event.message === HtspInitialSyncCompletedMessage) marker.complete(Unit)
+                                    progress?.trySend(Unit)
                                 }
-                                is HtspTransportEvent.ConnectionFailure -> {
-                                    if (event.generation === generation) {
-                                        terminal.complete(HtspResult.TransportUnavailable)
-                                    }
+                            }
+                            is HtspTransportEvent.MalformedMetadata -> {
+                                if (event.generation === generation) progress?.trySend(Unit)
+                            }
+                            is HtspTransportEvent.ConnectionFailure -> {
+                                if (event.generation === generation) {
+                                    terminal.complete(HtspResult.TransportUnavailable)
                                 }
-                                is HtspTransportEvent.MetadataOverflow -> {
-                                    if (event.generation === generation) terminal.complete(HtspResult.TransportUnavailable)
-                                }
-                                else -> Unit
+                            }
+                            is HtspTransportEvent.MetadataOverflow -> {
+                                if (event.generation === generation) terminal.complete(HtspResult.TransportUnavailable)
                             }
                         }
                     }
                 }
-                val generationObserver = launch(start = CoroutineStart.UNDISPATCHED) {
-                    connectionState.first { state ->
-                        (state as? HtspConnectionState.Connected)?.connection?.generation !== generation
-                    }
-                    terminal.complete(HtspResult.TransportUnavailable)
+            }
+            val generationObserver = launch(start = CoroutineStart.UNDISPATCHED) {
+                connectionState.first { state ->
+                    (state as? HtspConnectionState.Connected)?.connection?.generation !== generation
                 }
-                val acknowledgement = async(start = CoroutineStart.UNDISPATCHED) {
-                    enableAsyncMetadata(
-                        epg = epg,
-                        lastUpdateEpochSeconds = lastUpdateEpochSeconds,
-                        epgMaxTimeEpochSeconds = epgMaxTimeEpochSeconds,
-                        language = language,
-                        timeoutMs = timeoutMs,
-                        expectedGeneration = generation,
-                    )
-                }
+                terminal.complete(HtspResult.TransportUnavailable)
+            }
+            val acknowledgement = async(start = CoroutineStart.UNDISPATCHED) {
+                execute(request = request, timeoutMs = acknowledgementTimeoutMs, expectedGeneration = generation)
+            }
 
-                try {
-                    val terminalBeforeAcknowledgement = select<Boolean> {
-                        terminal.onAwait { true }
-                        acknowledgement.onAwait { false }
+            try {
+                var acknowledged = false
+                var outcome: HtspResult<Unit>? = null
+                while (outcome == null) {
+                    // The internal deadline is the last progress stamp plus the idle limit; a custom
+                    // connection restarts a full idle wait after each progress signal instead.
+                    val progressBefore = if (internalObserver != null) service.initialSyncProgressCount(internalObserver) else null
+                    val waitMs = internalObserver?.remainingIdleMs(idleTimeoutMs) ?: idleTimeoutMs
+                    val wake = if (waitMs <= 0L) null else withTimeoutOrNull(waitMs) {
+                        select<InitialSyncWake> {
+                            terminal.onAwait { InitialSyncWake.TERMINAL }
+                            if (acknowledged) {
+                                marker.onAwait { InitialSyncWake.MARKER }
+                            } else {
+                                acknowledgement.onAwait { InitialSyncWake.ACKNOWLEDGEMENT }
+                            }
+                            if (progress != null) progress.onReceive { InitialSyncWake.PROGRESS }
+                        }
                     }
-                    if (terminalBeforeAcknowledgement) {
-                        terminal.await()
-                    } else {
-                        when (val result = acknowledgement.await()) {
+                    outcome = when (wake) {
+                        // Re-arm only when frames recorded progress during the wait; otherwise the
+                        // limit passed, whatever the progress clock says.
+                        null -> if (
+                            internalObserver != null && waitMs > 0L &&
+                            service.initialSyncProgressCount(internalObserver) != progressBefore
+                        ) {
+                            null
+                        } else {
+                            HtspResult.Timeout
+                        }
+                        InitialSyncWake.TERMINAL -> terminal.await()
+                        InitialSyncWake.ACKNOWLEDGEMENT -> when (val result = acknowledgement.await()) {
                             is HtspResult.Ok -> {
-                                val terminalBeforeMarker = select<Boolean> {
-                                    terminal.onAwait { true }
-                                    marker.onAwait { false }
-                                }
-                                if (terminalBeforeMarker) {
-                                    terminal.await()
-                                } else if ((connectionState.value as? HtspConnectionState.Connected)?.connection?.generation !== generation) {
-                                    HtspResult.TransportUnavailable
-                                } else if (internalObserver?.failed == true) {
-                                    HtspResult.TransportUnavailable
-                                } else if (terminal.isCompleted) {
-                                    terminal.await()
-                                } else {
-                                    HtspResult.Ok(Unit)
-                                }
+                                acknowledged = true
+                                if (internalObserver != null) service.recordInitialSyncProgress(internalObserver)
+                                null
                             }
                             is HtspFailure -> result
                         }
+                        InitialSyncWake.MARKER -> when {
+                            (connectionState.value as? HtspConnectionState.Connected)?.connection?.generation !== generation ->
+                                HtspResult.TransportUnavailable
+                            internalObserver?.failed == true -> HtspResult.TransportUnavailable
+                            terminal.isCompleted -> terminal.await()
+                            else -> HtspResult.Ok(Unit)
+                        }
+                        InitialSyncWake.PROGRESS -> null
                     }
-                } finally {
-                    acknowledgement.cancel()
-                    eventObserver.cancel()
-                    generationObserver.cancel()
                 }
+                outcome
+            } finally {
+                acknowledgement.cancel()
+                eventObserver.cancel()
+                generationObserver.cancel()
             }
-        } finally {
-            if (internalObserver != null) service.unregisterInitialSyncObserver(internalObserver)
         }
-    } ?: HtspResult.Timeout
+    } finally {
+        if (internalObserver != null) service.unregisterInitialSyncObserver(internalObserver)
+    }
 }
 
 /**

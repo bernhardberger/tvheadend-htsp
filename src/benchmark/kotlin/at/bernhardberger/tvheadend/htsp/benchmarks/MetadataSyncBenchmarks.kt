@@ -106,7 +106,7 @@ public class MetadataSyncBenchmarks {
                 }
                 val result = when (mode) {
                     "events", "batches", "batchesWithWatcher" -> connection.enableAsyncMetadata(epg = true, timeoutMs = 30_000)
-                    "syncHelper", "batchesSyncHelper" -> connection.enableAsyncMetadataAwaitingInitialSync(epg = true, timeoutMs = 30_000)
+                    "syncHelper", "batchesSyncHelper" -> connection.enableAsyncMetadataAwaitingInitialSync(epg = true)
                     else -> error("Unknown metadata benchmark mode: $mode")
                 }
                 check(result is HtspResult.Ok) { "Metadata request failed: $result" }
