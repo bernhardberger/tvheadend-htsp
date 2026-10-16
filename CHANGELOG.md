@@ -1,6 +1,14 @@
 # Changelog
 
-## [Unreleased]
+## [1.0.0-beta.4] - 2026-10-16
+
+Fourth pre-release of the 1.0 line. It lets the initial metadata sync finish on
+slow links: the sync wait now ends after a period without progress instead of after
+a fixed total time. Like every pre-release, it makes no compatibility promise toward
+later pre-releases or `1.0.0`; see
+[`docs/versioning.md`](https://github.com/bernhardberger/tvheadend-htsp-kotlin/blob/v1.0.0-beta.4/docs/versioning.md).
+Upgrading from `1.0.0-beta.3` can need source changes: read the **BREAKING**
+entry below.
 
 - **BREAKING:** `enableAsyncMetadataAwaitingInitialSync` now times out on lack of
   progress instead of total time. The new last parameter `idleTimeoutMs` (default
