@@ -193,8 +193,10 @@ public sealed interface HtspTransportEvent {
      * Malformed metadata skipped on [generation], whose consumer state is now incomplete.
      * The connection stays live. Carries only [generation] and the positive skipped-message
      * [count], never method names, fields, identifiers or server text; [toString] redacts generation.
-     * Adjacent pending reports for the same generation coalesce without crossing other queued
-     * events. Each report occupies one metadata event slot and retains no frame bytes.
+     * Reports coalesce only with the same generation's report at the queued tail. Once that tail
+     * is drained into a collector's chunk, a subsequent report needs its own slot and may overflow
+     * while the drained report is still in flight. Each entry occupies one metadata event slot
+     * and retains no frame bytes.
      * If it cannot fit, [MetadataOverflow] counts the loss before later admitted messages.
      */
     public data class MalformedMetadata(

@@ -237,8 +237,10 @@ this as **this generation's state is incomplete**. Later valid metadata still ar
 Envelope faults and malformed subscription controls still close the connection;
 malformed mux packets keep their ordered `Dropped` behavior.
 
-Adjacent pending malformed reports for the same generation coalesce into one queue
-entry, without crossing other queued events. Each entry consumes one metadata event
+Adjacent queued malformed reports for the same generation coalesce into one queue
+entry, without crossing other queued events. Once the tail report is drained into
+a collector's in-flight chunk, a subsequent report needs its own slot and may
+overflow while the drained report is still in flight. Each entry consumes one metadata event
 slot and zero frame bytes because the malformed payload is not retained. Coalescing
 requires no additional budget, even when the queue is full. A report that cannot fit
 is discarded into `MetadataOverflow`, adding its skipped-message count to
@@ -291,8 +293,9 @@ for `initialSyncCompleted`: it is the last sync message and may have been droppe
 A second `enableAsyncMetadata` on a live connection only resends EPG; full
 recovery requires consumer-owned reconnect plus full sync, with backoff. The
 library never reconnects or re-requests data automatically. Initial-sync wait
-helpers return `TransportUnavailable` promptly when their own generation's queue
-overflows: synchronization is incomplete even if the transport remains live.
+helpers on library-created connections watch for the marker internally without a
+second event collector, so they cannot overflow. Custom `HtspConnection` implementations retain an events-collecting
+observer that returns `TransportUnavailable` if its generation overflows.
 
 This includes queue-delay normalization overflow: an s64 `delay` that cannot
 fit in microseconds is a malformed subscription control, not a dropped packet.
@@ -345,7 +348,7 @@ collector must already be active: it receives malformed reports (or `MetadataOve
 if its queue fills) before any later admitted marker. Stateful consumers must observe
 these events and treat that generation's state as incomplete, before and after initial
 sync. The helper does not wait for the caller's collector to process them. If the
-helper's own observer overflows, it still returns `TransportUnavailable`. Reconnecting
+caller's collector overflows, the helper can still return `Ok`. Reconnecting
 alone may encounter the same deterministic bad metadata again; recovery policy belongs
 to the consumer.
 

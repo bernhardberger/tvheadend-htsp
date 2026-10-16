@@ -59,15 +59,19 @@ suspend fun syncChannels(connection: HtspConnection, live: HtspLiveConnection): 
 
 `enableAsyncMetadataAwaitingInitialSync` sends `enableAsyncMetadata` and returns
 once the server has acknowledged it and sent `initialSyncCompleted`, the marker
-that follows the last piece of the first sync. It runs its own collector, so
-yours and the helper's are independent. Its result is an `HtspResult<Unit>`:
+that follows the last piece of the first sync. On connections created by the
+library, the helper watches for the marker internally, without a second event
+collector, so it cannot overflow. The helper returns an `HtspResult<Unit>`:
 
 | Result | Meaning |
 |---|---|
 | `Ok` | acknowledged, and the marker for this generation arrived |
 | `Timeout` | no acknowledgement and marker within `timeoutMs`; the default is 30 s, one budget for both |
-| `TransportUnavailable` | the connection or its generation ended, a stale `expectedGeneration` was passed, or this generation's queue overflowed |
+| `TransportUnavailable` | the connection or its generation ended, or a stale `expectedGeneration` was passed |
 | other failures | the acknowledgement itself failed, for example `AccessDenied` |
+
+For custom `HtspConnection` implementations, the helper still collects `events`
+and returns `TransportUnavailable` if that observer's generation overflows.
 
 Metadata that the library could not decode does not fail the helper. It still
 returns `Ok` when the marker arrives, and the skipped messages are reported as
@@ -305,9 +309,11 @@ name, fields, identifiers or server text, and `toString()` hides the generation.
 Later valid metadata still arrives.
 
 As with overflow, a stateful consumer must treat it as: this generation's state
-is incomplete. Reports that follow each other for the same generation merge
-into one entry that uses one queue slot and no frame bytes. If even that does not
-fit, the skipped messages are added to the overflow marker at the same position.
+is incomplete. A report merges with the same generation's report at the end of
+the queue, using one queue slot and no frame bytes. Once that last report has
+been drained into the collector's chunk, a new report needs its own slot and may
+overflow while the drained report is still waiting to be delivered. If it does
+not fit, the skipped messages are added to the overflow marker at the same position.
 So you see either a malformed report or an overflow marker before any later
 message, including `initialSyncCompleted`.
 
@@ -365,8 +371,9 @@ when you are done with the connection.
 `resync` returns the session as soon as the helper does, so show its directory
 only once `directory.ready` is true. Do not wait for `initialSyncCompleted`
 after an overflow, though. It is the last message of the sync, so it may be one of the
-dropped ones. The sync helper does not wait: it returns `TransportUnavailable`
-as soon as its own generation overflows.
+dropped ones. The internal sync observer cannot overflow, so the helper may return
+`Ok` even when your collector lost metadata or its completion marker. Recovery
+must react to your collector's overflow event.
 
 ## Large EPG syncs
 

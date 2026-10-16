@@ -291,8 +291,9 @@ public suspend fun HtspConnection.enableAsyncMetadata(
  * Enables asynchronous metadata after installing an initial-sync observer for the
  * current generation. Callers must serialize this unsequenced orchestration per generation.
  * [timeoutMs] is one deadline covering both the acknowledgement and sync marker.
- * Overflow of this observer's generation returns [HtspResult.TransportUnavailable]
- * promptly: the sync is incomplete even though the transport may remain live.
+ * On library-created connections the helper watches for the marker internally, without a
+ * second [HtspConnection.events] collector, so it cannot overflow. Custom connections use an events
+ * collector; overflow of that observer's generation returns [HtspResult.TransportUnavailable].
  * Skipped malformed metadata does not fail this wait: an Ok acknowledgement and this
  * generation's sync marker return Ok. In the caller's already-active [HtspConnection.events]
  * collector, [HtspTransportEvent.MalformedMetadata] (or [HtspTransportEvent.MetadataOverflow]
@@ -320,81 +321,97 @@ public suspend fun HtspConnection.enableAsyncMetadataAwaitingInitialSync(
     }
 
     return withTimeoutOrNull(timeoutMs) {
-        coroutineScope {
-            val marker = CompletableDeferred<Unit>()
-            val terminal = CompletableDeferred<HtspResult<Unit>>()
-            val eventObserver = launch(start = CoroutineStart.UNDISPATCHED) {
-                events.collect { event ->
-                    when (event) {
-                        is HtspTransportEvent.ServerMessage -> {
-                            if (
-                                event.generation === generation &&
-                                event.message === HtspInitialSyncCompletedMessage
-                            ) {
-                                marker.complete(Unit)
+        val service = this@enableAsyncMetadataAwaitingInitialSync as? HtspService
+        val internalObserver = service?.registerInitialSyncObserver(generation)
+        try {
+            coroutineScope {
+                val marker = CompletableDeferred<Unit>()
+                val terminal = CompletableDeferred<HtspResult<Unit>>()
+                val eventObserver = launch(start = CoroutineStart.UNDISPATCHED) {
+                    if (internalObserver != null) {
+                        while (true) {
+                            internalObserver.changed.receive()
+                            if (internalObserver.failed) terminal.complete(HtspResult.TransportUnavailable)
+                            if (internalObserver.completed) marker.complete(Unit)
+                        }
+                    } else {
+                        events.collect { event ->
+                            when (event) {
+                                is HtspTransportEvent.ServerMessage -> {
+                                    if (
+                                        event.generation === generation &&
+                                        event.message === HtspInitialSyncCompletedMessage
+                                    ) {
+                                        marker.complete(Unit)
+                                    }
+                                }
+                                is HtspTransportEvent.ConnectionFailure -> {
+                                    if (event.generation === generation) {
+                                        terminal.complete(HtspResult.TransportUnavailable)
+                                    }
+                                }
+                                is HtspTransportEvent.MetadataOverflow -> {
+                                    if (event.generation === generation) terminal.complete(HtspResult.TransportUnavailable)
+                                }
+                                else -> Unit
                             }
                         }
-                        is HtspTransportEvent.ConnectionFailure -> {
-                            if (event.generation === generation) {
-                                terminal.complete(HtspResult.TransportUnavailable)
-                            }
-                        }
-                        is HtspTransportEvent.MetadataOverflow -> {
-                            if (event.generation === generation) terminal.complete(HtspResult.TransportUnavailable)
-                        }
-                        else -> Unit
                     }
                 }
-            }
-            val generationObserver = launch(start = CoroutineStart.UNDISPATCHED) {
-                connectionState.first { state ->
-                    (state as? HtspConnectionState.Connected)?.connection?.generation !== generation
+                val generationObserver = launch(start = CoroutineStart.UNDISPATCHED) {
+                    connectionState.first { state ->
+                        (state as? HtspConnectionState.Connected)?.connection?.generation !== generation
+                    }
+                    terminal.complete(HtspResult.TransportUnavailable)
                 }
-                terminal.complete(HtspResult.TransportUnavailable)
-            }
-            val acknowledgement = async(start = CoroutineStart.UNDISPATCHED) {
-                enableAsyncMetadata(
-                    epg = epg,
-                    lastUpdateEpochSeconds = lastUpdateEpochSeconds,
-                    epgMaxTimeEpochSeconds = epgMaxTimeEpochSeconds,
-                    language = language,
-                    timeoutMs = timeoutMs,
-                    expectedGeneration = generation,
-                )
-            }
+                val acknowledgement = async(start = CoroutineStart.UNDISPATCHED) {
+                    enableAsyncMetadata(
+                        epg = epg,
+                        lastUpdateEpochSeconds = lastUpdateEpochSeconds,
+                        epgMaxTimeEpochSeconds = epgMaxTimeEpochSeconds,
+                        language = language,
+                        timeoutMs = timeoutMs,
+                        expectedGeneration = generation,
+                    )
+                }
 
-            try {
-                val terminalBeforeAcknowledgement = select<Boolean> {
-                    terminal.onAwait { true }
-                    acknowledgement.onAwait { false }
-                }
-                if (terminalBeforeAcknowledgement) {
-                    terminal.await()
-                } else {
-                    when (val result = acknowledgement.await()) {
-                        is HtspResult.Ok -> {
-                            val terminalBeforeMarker = select<Boolean> {
-                                terminal.onAwait { true }
-                                marker.onAwait { false }
-                            }
-                            if (terminalBeforeMarker) {
-                                terminal.await()
-                            } else if ((connectionState.value as? HtspConnectionState.Connected)?.connection?.generation !== generation) {
-                                HtspResult.TransportUnavailable
-                            } else if (terminal.isCompleted) {
-                                terminal.await()
-                            } else {
-                                HtspResult.Ok(Unit)
-                            }
-                        }
-                        is HtspFailure -> result
+                try {
+                    val terminalBeforeAcknowledgement = select<Boolean> {
+                        terminal.onAwait { true }
+                        acknowledgement.onAwait { false }
                     }
+                    if (terminalBeforeAcknowledgement) {
+                        terminal.await()
+                    } else {
+                        when (val result = acknowledgement.await()) {
+                            is HtspResult.Ok -> {
+                                val terminalBeforeMarker = select<Boolean> {
+                                    terminal.onAwait { true }
+                                    marker.onAwait { false }
+                                }
+                                if (terminalBeforeMarker) {
+                                    terminal.await()
+                                } else if ((connectionState.value as? HtspConnectionState.Connected)?.connection?.generation !== generation) {
+                                    HtspResult.TransportUnavailable
+                                } else if (internalObserver?.failed == true) {
+                                    HtspResult.TransportUnavailable
+                                } else if (terminal.isCompleted) {
+                                    terminal.await()
+                                } else {
+                                    HtspResult.Ok(Unit)
+                                }
+                            }
+                            is HtspFailure -> result
+                        }
+                    }
+                } finally {
+                    acknowledgement.cancel()
+                    eventObserver.cancel()
+                    generationObserver.cancel()
                 }
-            } finally {
-                acknowledgement.cancel()
-                eventObserver.cancel()
-                generationObserver.cancel()
             }
+        } finally {
+            if (internalObserver != null) service.unregisterInitialSyncObserver(internalObserver)
         }
     } ?: HtspResult.Timeout
 }

@@ -44,6 +44,7 @@ import kotlin.math.min
 import kotlin.text.Charsets.UTF_8
 
 private class HtspEventPublicationException : Exception("HTSP event publication failed")
+private const val METADATA_DRAIN_CHUNK_SIZE = 256
 
 internal open class `HtspService-internal`(
     private val ioDispatcher: CoroutineDispatcher,
@@ -72,14 +73,40 @@ internal open class `HtspService-internal`(
     override val connectionState: StateFlow<HtspConnectionState> = attemptMonitor.connectionState
 
     private val metadataCollectors = mutableSetOf<HtspMetadataEventBuffer>()
+    private val initialSyncObservers = mutableSetOf<HtspInitialSyncObserver>()
+
+    internal fun registerInitialSyncObserver(generation: HtspConnectionGeneration): HtspInitialSyncObserver =
+        attemptMonitor.withAttemptLock {
+            HtspInitialSyncObserver(generation).also { initialSyncObservers.add(it) }
+        }
+
+    internal fun unregisterInitialSyncObserver(observer: HtspInitialSyncObserver) {
+        attemptMonitor.withAttemptLock { initialSyncObservers.remove(observer) }
+    }
+
+    internal fun metadataCollectorCount(): Int = attemptMonitor.withAttemptLock { metadataCollectors.size }
+    internal fun initialSyncObserverCount(): Int = attemptMonitor.withAttemptLock { initialSyncObservers.size }
+
     override val events: Flow<HtspTransportEvent> = flow {
         val buffer = HtspMetadataEventBuffer(metadataEventBufferCapacity, eventBufferOptions.metadataQueueBytes, attemptMonitor::queueWakeup)
         attemptMonitor.withAttemptLock { metadataCollectors.add(buffer) }
         try {
             while (true) {
                 currentCoroutineContext().ensureActive()
-                val event = attemptMonitor.withAttemptLock { buffer.poll() }
-                if (event == null) withContext(ioDispatcher) { buffer.eventsAvailable.receive() } else emit(event)
+                val chunk = attemptMonitor.withAttemptLock { buffer.drain(METADATA_DRAIN_CHUNK_SIZE) }
+                if (chunk.isEmpty()) {
+                    withContext(ioDispatcher) { buffer.eventsAvailable.receive() }
+                } else {
+                    while (chunk.isNotEmpty()) {
+                        // removeFirst clears the chunk's slot before emit can suspend.
+                        val entry = chunk.removeFirst()
+                        val event = if (entry.isOverflow) {
+                            attemptMonitor.withAttemptLock { buffer.eventForEmission(entry) }
+                        } else entry.event
+                        buffer.emitting()
+                        emit(event)
+                    }
+                }
             }
         } finally {
             attemptMonitor.withAttemptLock { metadataCollectors.remove(buffer) }
@@ -837,7 +864,7 @@ internal open class `HtspService-internal`(
                                             typedEvent.message, typedEvent.generation, typedEvent.messageSequence,
                                         )
                                         afterPublicationCurrencyCheck(metadataEvent)
-                                        metadataCollectors.forEach { it.offer(metadataEvent, frameBodyBytes) }
+                                        offerMetadataEventLocked(metadataEvent, frameBodyBytes)
                                     }
                                 }
                                 HtspServerMessageMalformedKnownMessage -> {
@@ -850,7 +877,7 @@ internal open class `HtspService-internal`(
                                         null -> {
                                             val event = HtspTransportEvent.MalformedMetadata(currentGeneration.token, 1L)
                                             afterPublicationCurrencyCheck(event)
-                                            metadataCollectors.forEach { it.offer(event, 0L) }
+                                            offerMetadataEventLocked(event, 0L)
                                         }
                                     }
                                 }
@@ -1003,7 +1030,18 @@ internal open class `HtspService-internal`(
         attemptMonitor.withAttemptLock {
             if (connectionAttempt == attemptId && event.matchesCurrentGenerationLocked()) {
                 afterPublicationCurrencyCheck(event)
-                metadataCollectors.forEach { it.offer(event, frameBodyBytes) }
+                offerMetadataEventLocked(event, frameBodyBytes)
+            }
+        }
+    }
+
+    private fun offerMetadataEventLocked(event: HtspTransportEvent, frameBodyBytes: Long) {
+        metadataCollectors.forEach { it.offer(event, frameBodyBytes) }
+        if (event is HtspTransportEvent.ConnectionFailure ||
+            event is HtspTransportEvent.ServerMessage && event.message === HtspInitialSyncCompletedMessage
+        ) {
+            initialSyncObservers.forEach { observer ->
+                if (observer.offer(event)) attemptMonitor.queueWakeup(observer.changed)
             }
         }
     }

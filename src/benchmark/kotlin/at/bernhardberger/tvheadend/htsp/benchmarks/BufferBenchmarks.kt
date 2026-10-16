@@ -54,13 +54,13 @@ public class BufferBenchmarks {
         val retained = mutableListOf<Any?>()
         metadataBatch(metadata) { retained.add(it) }
         check(retained.filterIsInstance<HtspTransportEvent>() == List(8) { channel })
-        check(metadata.poll() == null)
+        check(metadata.drain(256).isEmpty())
         val overflowed = mutableListOf<Any?>()
         metadataBatch(overflowingMetadata) { overflowed.add(it) }
         check(overflowed.filterIsInstance<HtspTransportEvent>() == listOf(
             channel, channel, HtspTransportEvent.MetadataOverflow(channel.generation, 6),
         ))
-        check(overflowingMetadata.poll() == null)
+        check(overflowingMetadata.drain(256).isEmpty())
     }
 
     /** One packet and one control, including the real conflated-channel wakeups. */
@@ -96,7 +96,12 @@ public class BufferBenchmarks {
 
     private inline fun metadataBatch(buffer: HtspMetadataEventBuffer, consume: (Any?) -> Unit) {
         repeat(8) { buffer.offer(channel, 350) }
-        while (true) consume(buffer.poll() ?: break)
+        val chunk = buffer.drain(256)
+        while (chunk.isNotEmpty()) {
+            val event = buffer.eventForEmission(chunk.removeFirst())
+            buffer.emitting()
+            consume(event)
+        }
         consume(buffer.eventsAvailable.tryReceive())
     }
 }

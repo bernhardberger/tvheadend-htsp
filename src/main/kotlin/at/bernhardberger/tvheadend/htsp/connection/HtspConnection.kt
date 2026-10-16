@@ -40,9 +40,11 @@ public interface HtspConnection {
      * before later admitted events; connection failures and overflow markers are unbudgeted.
      * At most one pending overflow marker per generation coalesces only that generation's losses.
      * [HtspTransportEvent.MalformedMetadata] reports skipped metadata without closing the connection;
-     * stateful consumers must treat that generation's state as incomplete. Adjacent pending reports
-     * for the same generation coalesce, consuming one event slot and no frame bytes. If full, the
-     * queue counts their skipped messages in its overflow marker instead.
+     * stateful consumers must treat that generation's state as incomplete. Reports coalesce only
+     * with the same generation's report at the queued tail, consuming one event slot and no frame
+     * bytes. Once that tail is drained into a collector's chunk, a subsequent report needs its own
+     * slot and may overflow while the drained report is still in flight. If full, the queue counts
+     * their skipped messages in its overflow marker instead.
      * Budget defaults may change; pass [HtspEventBufferOptions] for fixed limits.
      * Recovery (including reconnect and full sync with backoff) belongs to the consumer.
      */

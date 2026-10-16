@@ -29,6 +29,25 @@ import org.junit.jupiter.api.Test
 
 internal class HtspInitialSyncOrchestrationTest {
     @Test
+    fun customConnectionStillFailsOnItsObserverOverflowOrConnectionFailure() = runTest {
+        val generation = HtspConnectionGeneration()
+        for (event in listOf(
+            HtspTransportEvent.MetadataOverflow(generation, 1L),
+            HtspTransportEvent.ConnectionFailure(HtspTransportFailure(HtspTransportFailureKind.TRANSPORT_UNAVAILABLE), generation),
+        )) {
+            val connection = ScriptedConnection(generation)
+            connection.executeScript = { _, _, _ ->
+                assertEquals(1, eventSource.subscriptionCount.value)
+                eventSource.emit(event)
+                emitInitialSync(generation)
+                HtspResult.Ok(HtspEmptyResponse)
+            }
+            assertSame(HtspResult.TransportUnavailable, connection.enableAsyncMetadataAwaitingInitialSync())
+            assertEquals(0, connection.eventSource.subscriptionCount.value)
+        }
+    }
+
+    @Test
     fun sameTickMarkerCannotBeMissedAndAcknowledgementParametersArePreserved() = runTest {
         val generation = HtspConnectionGeneration()
         val connection = ScriptedConnection(generation)

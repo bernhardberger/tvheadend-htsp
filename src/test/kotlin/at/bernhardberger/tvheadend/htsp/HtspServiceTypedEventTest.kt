@@ -24,12 +24,141 @@ import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import java.lang.ref.WeakReference
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 
 internal class HtspServiceTypedEventTest : HtspServiceLifecycleFixture() {
+
+    @Test
+    fun emittedPayloadIsReleasedWhileLaterEmissionWaitsAndCancellationUnregistersMidChunk() = runBlocking {
+        val publication = (1L..7L).associateWith { CompletableDeferred<Unit>() }
+        FakeHtspServer(respondToHello = true).use { server ->
+            val service = service(
+                metadataEventBufferCapacity = 4,
+                afterPublicationCurrencyCheck = { event ->
+                    val message = (event as? HtspTransportEvent.ServerMessage)?.message as? HtspChannelAddMessage
+                    message?.let { publication.getValue(it.channel.channelId).complete(Unit) }
+                },
+            )
+            service.connect(HtspEndpoint("127.0.0.1", server.port))
+            val firstReceived = CompletableDeferred<Unit>()
+            val laterReceived = CompletableDeferred<Unit>()
+            val releaseFirst = CompletableDeferred<Unit>()
+            val releaseLater = CompletableDeferred<Unit>()
+            var emittedPayload: WeakReference<HtspChannelAddMessage>? = null
+            val collector = launch(start = CoroutineStart.UNDISPATCHED) {
+                service.events.collect { event ->
+                    val message = (event as HtspTransportEvent.ServerMessage).message as HtspChannelAddMessage
+                    when (message.channel.channelId) {
+                        1L -> { firstReceived.complete(Unit); releaseFirst.await() }
+                        2L -> emittedPayload = WeakReference(message)
+                        3L -> { laterReceived.complete(Unit); releaseLater.await() }
+                    }
+                }
+            }
+            try {
+                withTimeout(5_000L) {
+                    server.sendServerMessage("channelAdd", channelFixture(1L))
+                    firstReceived.await()
+                    for (id in 2L..4L) server.sendServerMessage("channelAdd", channelFixture(id))
+                    publication.getValue(4L).await()
+                    assertEquals(1, service.metadataCollectorCount()) // Fence admission under the attempt lock.
+                    releaseFirst.complete(Unit)
+                    laterReceived.await() // 2 was emitted; 3 is suspended; 4 is still waiting in this chunk.
+                    for (id in 5L..7L) server.sendServerMessage("channelAdd", channelFixture(id))
+                    publication.getValue(7L).await()
+                    assertEquals(1, service.metadataCollectorCount())
+                    val reference = checkNotNull(emittedPayload)
+                    repeat(50) {
+                        if (reference.get() != null) {
+                            System.gc()
+                            delay(20L)
+                        }
+                    }
+                    assertNull(reference.get(), "An emitted payload must not survive in buffer or chunk state")
+                    collector.cancelAndJoin()
+                    assertEquals(0, service.metadataCollectorCount())
+                }
+            } finally {
+                collector.cancelAndJoin()
+                service.close()
+            }
+        }
+    }
+
+    @Test
+    fun suspendedEmissionReleasesOnlyCurrentEntryAndKeepsWaitingChunkCharged() = runBlocking {
+        for (limitBytes in listOf(false, true)) {
+            val padding = if (limitBytes) ByteArray(600_000) else ByteArray(0)
+            val fields = (1L..5L).associateWith { channelFixture(it) + ("padding" to padding) }
+            val frameBodyBytes = HtspCodec.encode("channelAdd", fields.getValue(1L)).size - Int.SIZE_BYTES
+            fields.values.forEach {
+                assertEquals(frameBodyBytes, HtspCodec.encode("channelAdd", it).size - Int.SIZE_BYTES)
+            }
+            val publication = (1L..5L).associateWith { CompletableDeferred<Unit>() }
+            FakeHtspServer(respondToHello = true).use { server ->
+                val service = service(
+                    metadataEventBufferCapacity = if (limitBytes) 100 else 2,
+                    eventBufferOptions = HtspEventBufferOptions(
+                        metadataQueueBytes = if (limitBytes) 2L * frameBodyBytes else 8L * 1024 * 1024,
+                    ),
+                    afterPublicationCurrencyCheck = { event ->
+                        val message = (event as? HtspTransportEvent.ServerMessage)?.message as? HtspChannelAddMessage
+                        message?.let { publication.getValue(it.channel.channelId).complete(Unit) }
+                    },
+                )
+                val connected = service.connect(HtspEndpoint("127.0.0.1", server.port)) as HtspConnectOutcome.Connected
+                val firstReceived = CompletableDeferred<Unit>()
+                val secondReceived = CompletableDeferred<Unit>()
+                val releaseFirst = CompletableDeferred<Unit>()
+                val releaseSecond = CompletableDeferred<Unit>()
+                val overflowReceived = CompletableDeferred<Unit>()
+                val events = mutableListOf<HtspTransportEvent>()
+                val collector = launch(start = CoroutineStart.UNDISPATCHED) {
+                    service.events.collect { event ->
+                        events += event
+                        val message = (event as? HtspTransportEvent.ServerMessage)?.message as? HtspChannelAddMessage
+                        when (message?.channel?.channelId) {
+                            1L -> { firstReceived.complete(Unit); releaseFirst.await() }
+                            2L -> { secondReceived.complete(Unit); releaseSecond.await() }
+                        }
+                        if (event is HtspTransportEvent.MetadataOverflow) overflowReceived.complete(Unit)
+                    }
+                }
+                try {
+                    withTimeout(5_000L) {
+                        server.sendServerMessage("channelAdd", fields.getValue(1L))
+                        firstReceived.await()
+                        server.sendServerMessage("channelAdd", fields.getValue(2L))
+                        server.sendServerMessage("channelAdd", fields.getValue(3L))
+                        publication.getValue(3L).await()
+                        // The hook runs before offer under the lock. Reacquiring it fences admission.
+                        assertEquals(1, service.metadataCollectorCount())
+                        releaseFirst.complete(Unit)
+                        secondReceived.await()
+                        // The next chunk contains 2 and 3. While emit(2) is suspended, only 3
+                        // remains charged: 4 fits, but 5 exceeds the count or byte budget.
+                        server.sendServerMessage("channelAdd", fields.getValue(4L))
+                        server.sendServerMessage("channelAdd", fields.getValue(5L))
+                        publication.getValue(5L).await()
+                        assertEquals(1, service.metadataCollectorCount())
+                        releaseSecond.complete(Unit)
+                        overflowReceived.await()
+                    }
+                    assertEquals(listOf(1L, 2L, 3L, 4L), events.filterIsInstance<HtspTransportEvent.ServerMessage>().map {
+                        (it.message as HtspChannelAddMessage).channel.channelId
+                    })
+                    assertEquals(HtspTransportEvent.MetadataOverflow(connected.connection.generation, 1L), events.last())
+                } finally {
+                    collector.cancelAndJoin()
+                    service.close()
+                }
+            }
+        }
+    }
 
     @Test
     fun metadataEnvelopeClassificationCoversEveryGlobalTypedMessage() {
@@ -157,8 +286,8 @@ internal class HtspServiceTypedEventTest : HtspServiceLifecycleFixture() {
     }
 
     @Test
-    fun malformedMetadataBeforeMarkerSucceedsUnlessObserverOverflowsAndReachesCallerInOrder() = runBlocking {
-        listOf(1 to HtspResult.TransportUnavailable, 3 to HtspResult.Ok(Unit)).forEach { (capacity, expected) ->
+    fun malformedMetadataBeforeMarkerSucceedsDespiteCallerOverflowAndReachesCallerInOrder() = runBlocking {
+        listOf(1, 3).forEach { capacity ->
             FakeHtspServer(respondToHello = true, postHandshakeReplyPlan = listOf(emptyMap())).use { server ->
                 val queued = CountDownLatch(3)
                 val service = service(
@@ -175,12 +304,15 @@ internal class HtspServiceTypedEventTest : HtspServiceLifecycleFixture() {
                     service.enableAsyncMetadataAwaitingInitialSync()
                 }
                 try {
+                    assertEquals(1, service.metadataCollectorCount())
+                    assertEquals(1, service.initialSyncObserverCount())
                     // Hold the observer's dispatcher until all three publications have begun.
                     server.sendServerMessage("channelAdd", channelFixture(71L))
                     server.sendServerMessage("channelAdd", mapOf("channelId" to "malformed"))
                     server.sendServerMessage("initialSyncCompleted")
                     assertTrue(queued.await(2L, TimeUnit.SECONDS))
-                    assertEquals(expected, withTimeout(2_000L) { sync.await() })
+                    assertEquals(HtspResult.Ok(Unit), withTimeout(2_000L) { sync.await() })
+                    assertEquals(0, service.initialSyncObserverCount())
                     if (capacity == 3) {
                         withTimeout(2_000L) {
                             while (events.size < 3) delay(1L)
@@ -190,6 +322,9 @@ internal class HtspServiceTypedEventTest : HtspServiceLifecycleFixture() {
                         val marker = events[2] as HtspTransportEvent.ServerMessage
                         assertSame(HtspInitialSyncCompletedMessage, marker.message)
                         assertSame(generation, marker.generation)
+                    } else {
+                        withTimeout(2_000L) { while (events.size < 2) delay(1L) }
+                        assertEquals(HtspTransportEvent.MetadataOverflow(checkNotNull(generation), 2L), events[1])
                     }
                     assertSame(generation, service.currentLiveConnection?.generation)
                 } finally {

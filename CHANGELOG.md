@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+- **BREAKING:** Initial-sync waits on library-created connections watch for the marker
+  internally, without a second `events` collector, and no longer report their own
+  observer's overflow as `TransportUnavailable`. Callers must still handle their
+  active collector's overflow; custom connections retain the events-collecting fallback.
+  Malformed reports now coalesce only with the same generation's report at the queued
+  tail. Once that tail is drained into a collector's chunk, a subsequent report needs
+  its own slot and may overflow while the drained report is still in flight.
+- Metadata collectors drain bounded chunks and wake only on empty-to-nonempty queue
+  transitions, reducing initial-sync overhead while preserving message count/byte
+  budget boundaries. Each entry's charge is released immediately before its `emit`.
 - Fixed the API reference (javadoc jar) rendering without styles or scripts on
   every package and declaration page: the module name `Kotlin/JVM` added a
   directory level that the pages' relative asset links did not account for. The

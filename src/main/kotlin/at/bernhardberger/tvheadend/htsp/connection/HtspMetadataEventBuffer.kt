@@ -3,7 +3,14 @@ package at.bernhardberger.tvheadend.htsp.connection
 import kotlinx.coroutines.channels.Channel
 import java.util.ArrayDeque
 
-/** Every operation is serialized by the owning service's [HtspAttemptMonitor.withAttemptLock]. */
+/**
+ * Queue and accounting operations are serialized by [HtspAttemptMonitor.withAttemptLock].
+ * The collector owns the drained chunk and calls [emitting] outside the lock. It also reads
+ * [Entry.isOverflow] and non-overflow [Entry.event] there: non-overflow entries are never
+ * mutated after drain. Overflow snapshots still require the lock via [eventForEmission].
+ * Malformed reports coalesce only with the queued tail, never with a drained entry;
+ * a subsequent report needs its own slot and may overflow while that entry is in flight.
+ */
 internal class HtspMetadataEventBuffer(
     private val capacity: Int,
     private val byteCapacity: Long,
@@ -14,8 +21,15 @@ internal class HtspMetadataEventBuffer(
     private var size = 0
     private var bytes = 0L
     private var overflow: Entry? = null
+    // Accounting only: the collector exclusively owns drained payload references.
+    // Negative values mark unbudgeted entries; zero includes budgeted malformed reports.
+    private var inFlightBytes = LongArray(0)
+    @Volatile private var emittedCount = 0
+    private var releasedCount = 0
 
     internal fun offer(event: HtspTransportEvent, frameBodyBytes: Long) {
+        releaseEmitted()
+        val wasEmpty = queue.isEmpty()
         val retainedBytes = if (event is HtspTransportEvent.ServerMessage) frameBodyBytes else 0L
         val tail = queue.peekLast()
         val malformed = tail?.event as? HtspTransportEvent.MalformedMetadata
@@ -37,7 +51,9 @@ internal class HtspMetadataEventBuffer(
                 }
             }
         }
-        wakeup(eventsAvailable)
+        // A conflated signal survives the gap between the locked empty check and receive.
+        // Offers and drains are serialized; another signal is needed only after a new transition.
+        if (wasEmpty && queue.isNotEmpty()) wakeup(eventsAvailable)
     }
 
     private fun recordOverflow(generation: HtspConnectionGeneration, count: Long) {
@@ -50,18 +66,52 @@ internal class HtspMetadataEventBuffer(
         }
     }
 
-    internal fun poll(): HtspTransportEvent? {
-        val entry = queue.pollFirst() ?: return null
-        if (entry === overflow) overflow = null
-        if (entry.event.isBudgeted()) {
-            size--
-            bytes -= entry.bytes
+    /** Moves a bounded chunk without releasing its count or byte charges. One chunk per collector. */
+    internal fun drain(limit: Int): kotlin.collections.ArrayDeque<Entry> {
+        require(limit > 0)
+        releaseEmitted()
+        check(releasedCount == inFlightBytes.size)
+        val count = minOf(limit, queue.size)
+        val chunk = kotlin.collections.ArrayDeque<Entry>(count)
+        inFlightBytes = LongArray(count) {
+            val entry = queue.removeFirst()
+            chunk.addLast(entry)
+            if (entry.event.isBudgeted()) entry.bytes else -1L
         }
+        emittedCount = 0
+        releasedCount = 0
+        return chunk
+    }
+
+    /** Only overflow entries remain mutable after draining; snapshot them under the attempt lock. */
+    internal fun eventForEmission(entry: Entry): HtspTransportEvent {
+        if (entry === overflow) overflow = null
         return entry.event
+    }
+
+    /**
+     * Releases the current entry immediately before handing it to emit, not after delivery.
+     * The single collector calls this outside the lock; the rest of its chunk stays charged.
+     */
+    internal fun emitting() {
+        emittedCount++
+    }
+
+    private fun releaseEmitted() {
+        val completed = emittedCount
+        while (releasedCount < completed) {
+            val retainedBytes = inFlightBytes[releasedCount++]
+            if (retainedBytes >= 0L) {
+                size--
+                bytes -= retainedBytes
+            }
+        }
     }
 
     private fun HtspTransportEvent.isBudgeted(): Boolean =
         this is HtspTransportEvent.ServerMessage || this is HtspTransportEvent.MalformedMetadata
 
-    private class Entry(var event: HtspTransportEvent, val bytes: Long)
+    internal class Entry(var event: HtspTransportEvent, val bytes: Long) {
+        val isOverflow = event is HtspTransportEvent.MetadataOverflow
+    }
 }

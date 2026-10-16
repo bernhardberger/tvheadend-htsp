@@ -453,18 +453,21 @@ internal class HtspReviewDeliveryRegressionTest : HtspServiceLifecycleFixture() 
     }
 
     @Test
-    fun initialSyncOverflowAtCapacityOneFinishesWithoutWaitingForTimeout(): Unit = runBlocking {
+    fun initialSyncAtCapacityOneUsesAnUnbudgetedObserver(): Unit = runBlocking {
         val queued = CountDownLatch(3)
         FakeHtspServer(respondToHello = true, postHandshakeReplyPlan = listOf(emptyMap())).use { server ->
             val service = service(metadataEventBufferCapacity = 1, afterPublicationCurrencyCheck = { queued.countDown() })
             service.connect(HtspEndpoint("127.0.0.1", server.port))
             val sync = async(start = CoroutineStart.UNDISPATCHED) { service.enableAsyncMetadataAwaitingInitialSync(timeoutMs = 30_000L) }
             try {
-                // Keep the collector's dispatcher blocked until the final publication starts.
+                assertEquals(0, service.metadataCollectorCount())
+                assertEquals(1, service.initialSyncObserverCount())
+                // Keep the helper's dispatcher blocked through a burst larger than the event budget.
                 repeat(3) { server.sendServerMessage("channelAdd", channelFixture(it.toLong())) }
                 assertTrue(queued.await(2, TimeUnit.SECONDS))
-                // Polling the queue takes the lock, so collection waits for that publication to finish.
-                assertSame(HtspResult.TransportUnavailable, withTimeout(2_000L) { sync.await() })
+                server.sendServerMessage("initialSyncCompleted")
+                assertEquals(HtspResult.Ok(Unit), withTimeout(2_000L) { sync.await() })
+                assertEquals(0, service.initialSyncObserverCount())
                 assertNotNull(service.currentLiveConnection)
             } finally {
                 sync.cancelAndJoin()
