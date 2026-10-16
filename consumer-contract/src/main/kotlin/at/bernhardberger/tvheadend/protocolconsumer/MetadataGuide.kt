@@ -94,6 +94,15 @@ class ChannelDirectory(private val generation: HtspConnectionGeneration) {
 }
 // endregion
 
+// region collect-batches
+fun CoroutineScope.collectMetadataBatches(connection: HtspConnection, directory: ChannelDirectory): Job =
+    launch(start = CoroutineStart.UNDISPATCHED) {
+        connection.eventBatches(maxBatchSize = 512).collect { batch ->
+            for (event in batch) directory.accept(event)
+        }
+    }
+// endregion
+
 // region now-next
 sealed interface Programme {
     /** The channel has no such event; the server sent id zero. */

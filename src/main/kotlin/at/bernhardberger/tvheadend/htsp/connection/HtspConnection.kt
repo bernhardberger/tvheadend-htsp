@@ -6,8 +6,11 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.withTimeoutOrNull
+
+internal const val MAXIMUM_METADATA_BATCH_SIZE = 4096
 
 /** Opaque identity of one current HTSP transport generation, whether live or gone. */
 public class HtspConnectionGeneration {
@@ -49,6 +52,40 @@ public interface HtspConnection {
      * Recovery (including reconnect and full sync with backoff) belongs to the consumer.
      */
     public val events: Flow<HtspTransportEvent>
+
+    /**
+     * Metadata and connection failures in ordered, non-empty, read-only lists of at most
+     * [maxBatchSize] events (default 512). The limit must be in `1..4096`; validation happens when
+     * this function is called, before collection. Loosening this range in a later release is
+     * compatible. Batches contain what is currently queued, without waiting to fill.
+     * Each collection has replay zero and its own queue, with the
+     * same capacity, byte budget, overflow and queued-tail malformed coalescing as [events].
+     * Collect before enabling metadata. Cancellation propagates and unregisters the collector.
+     *
+     * A batch never spans a generation; batches split wherever the event generation changes.
+     * [HtspTransportEvent.MetadataOverflow] and [HtspTransportEvent.MalformedMetadata] stay in
+     * order inside the lists. Overflow counts are snapshotted under the queue lock before
+     * emission. The library never mutates an emitted list or retains it in the queue buffer.
+     *
+     * All entries of a batch leave the count and byte budgets immediately before `emit(batch)`,
+     * even if delivery suspends. While the collector processes it, the queue keeps filling and
+     * can overflow; losses are reported in order before later admitted events, as with [events].
+     * Consumer-held batches are outside those budgets. While processing one batch, allow for
+     * the queue's budget plus one consumer-owned batch of at most [maxBatchSize] entries.
+     * An empty queue waits on the connection's I/O dispatcher, as [events] does; consumer code
+     * runs outside the queue lock.
+     *
+     * The default implementation for custom connections wraps each [events] emission in a
+     * singleton list, inheriting that implementation's queue and lifecycle behavior.
+     * An implementation that overrides [events], such as an interceptor delegating with `by`,
+     * should override [eventBatches] too; otherwise batch consumers can bypass that override.
+     */
+    public fun eventBatches(maxBatchSize: Int = 512): Flow<List<HtspTransportEvent>> {
+        require(maxBatchSize in 1..MAXIMUM_METADATA_BATCH_SIZE) {
+            "maxBatchSize must be in 1..$MAXIMUM_METADATA_BATCH_SIZE"
+        }
+        return events.map { listOf(it) }
+    }
 
     /**
      * Returns a cold ordered stream for one client-selected unsigned-u32 subscription id.

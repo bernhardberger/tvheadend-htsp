@@ -88,24 +88,51 @@ internal open class `HtspService-internal`(
     internal fun initialSyncObserverCount(): Int = attemptMonitor.withAttemptLock { initialSyncObservers.size }
 
     override val events: Flow<HtspTransportEvent> = flow {
+        collectMetadata(METADATA_DRAIN_CHUNK_SIZE) { buffer, chunk ->
+            while (chunk.isNotEmpty()) {
+                // removeFirst clears the chunk's slot before emit can suspend.
+                val entry = chunk.removeFirst()
+                val event = if (entry.isOverflow) {
+                    attemptMonitor.withAttemptLock { buffer.eventForEmission(entry) }
+                } else entry.event
+                buffer.emitting()
+                emit(event)
+            }
+        }
+    }
+
+    override fun eventBatches(maxBatchSize: Int): Flow<List<HtspTransportEvent>> {
+        require(maxBatchSize in 1..MAXIMUM_METADATA_BATCH_SIZE) {
+            "maxBatchSize must be in 1..$MAXIMUM_METADATA_BATCH_SIZE"
+        }
+        return flow {
+            collectMetadata(maxBatchSize, singleGeneration = true) { buffer, chunk ->
+                val batch = attemptMonitor.withAttemptLock {
+                    buildList(chunk.size) {
+                        while (chunk.isNotEmpty()) add(buffer.eventForEmission(chunk.removeFirst()))
+                    }
+                }
+                buffer.emitting(batch.size)
+                emit(batch)
+            }
+        }
+    }
+
+    private suspend inline fun collectMetadata(
+        maxDrainSize: Int,
+        singleGeneration: Boolean = false,
+        consume: (HtspMetadataEventBuffer, ArrayDeque<HtspMetadataEventBuffer.Entry>) -> Unit,
+    ) {
         val buffer = HtspMetadataEventBuffer(metadataEventBufferCapacity, eventBufferOptions.metadataQueueBytes, attemptMonitor::queueWakeup)
         attemptMonitor.withAttemptLock { metadataCollectors.add(buffer) }
         try {
             while (true) {
                 currentCoroutineContext().ensureActive()
-                val chunk = attemptMonitor.withAttemptLock { buffer.drain(METADATA_DRAIN_CHUNK_SIZE) }
+                val chunk = attemptMonitor.withAttemptLock { buffer.drain(maxDrainSize, singleGeneration) }
                 if (chunk.isEmpty()) {
                     withContext(ioDispatcher) { buffer.eventsAvailable.receive() }
                 } else {
-                    while (chunk.isNotEmpty()) {
-                        // removeFirst clears the chunk's slot before emit can suspend.
-                        val entry = chunk.removeFirst()
-                        val event = if (entry.isOverflow) {
-                            attemptMonitor.withAttemptLock { buffer.eventForEmission(entry) }
-                        } else entry.event
-                        buffer.emitting()
-                        emit(event)
-                    }
+                    consume(buffer, chunk)
                 }
             }
         } finally {

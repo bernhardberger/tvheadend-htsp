@@ -66,12 +66,12 @@ internal class HtspMetadataEventBuffer(
         }
     }
 
-    /** Moves a bounded chunk without releasing its count or byte charges. One chunk per collector. */
-    internal fun drain(limit: Int): kotlin.collections.ArrayDeque<Entry> {
+    /** Moves a bounded chunk without releasing its charges, optionally stopping at a generation change. */
+    internal fun drain(limit: Int, singleGeneration: Boolean = false): kotlin.collections.ArrayDeque<Entry> {
         require(limit > 0)
         releaseEmitted()
         check(releasedCount == inFlightBytes.size)
-        val count = minOf(limit, queue.size)
+        val count = if (singleGeneration) generationPrefixSize(limit) else minOf(limit, queue.size)
         val chunk = kotlin.collections.ArrayDeque<Entry>(count)
         inFlightBytes = LongArray(count) {
             val entry = queue.removeFirst()
@@ -83,6 +83,16 @@ internal class HtspMetadataEventBuffer(
         return chunk
     }
 
+    private fun generationPrefixSize(limit: Int): Int {
+        val generation = queue.peekFirst()?.event?.generation
+        var count = 0
+        for (entry in queue) {
+            if (count == limit || entry.event.generation !== generation) break
+            count++
+        }
+        return count
+    }
+
     /** Only overflow entries remain mutable after draining; snapshot them under the attempt lock. */
     internal fun eventForEmission(entry: Entry): HtspTransportEvent {
         if (entry === overflow) overflow = null
@@ -90,11 +100,11 @@ internal class HtspMetadataEventBuffer(
     }
 
     /**
-     * Releases the current entry immediately before handing it to emit, not after delivery.
-     * The single collector calls this outside the lock; the rest of its chunk stays charged.
+     * Releases a prefix immediately before handing it to emit, not after delivery.
+     * The single collector calls this outside the lock; any remaining entries stay charged.
      */
-    internal fun emitting() {
-        emittedCount++
+    internal fun emitting(count: Int = 1) {
+        emittedCount += count
     }
 
     private fun releaseEmitted() {

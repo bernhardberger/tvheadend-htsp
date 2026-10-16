@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+- Added `HtspConnection.eventBatches(maxBatchSize = 512)` for ordered, generation-scoped
+  metadata batches with the same per-collector queues as `events`. Custom connections
+  inherit a singleton-list implementation; existing implementations remain compatible.
 - **BREAKING:** Initial-sync waits on library-created connections watch for the marker
   internally, without a second `events` collector, and no longer report their own
   observer's overflow as `TransportUnavailable`. Callers must still handle their

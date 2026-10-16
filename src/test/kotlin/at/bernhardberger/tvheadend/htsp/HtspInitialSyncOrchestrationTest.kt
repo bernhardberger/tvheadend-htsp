@@ -19,15 +19,39 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.flow.take
+import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertSame
+import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 internal class HtspInitialSyncOrchestrationTest {
+    @Test
+    fun customConnectionDefaultsToSingletonBatchesAndValidatesBeforeCollection() = runTest {
+        val generation = HtspConnectionGeneration()
+        val connection = ScriptedConnection(generation)
+        for (invalid in listOf(0, -1, Int.MIN_VALUE, 4097, Int.MAX_VALUE)) {
+            assertThrows(IllegalArgumentException::class.java) { connection.eventBatches(invalid) }
+        }
+        val flow = connection.eventBatches(4096)
+        assertEquals(0, connection.eventSource.subscriptionCount.value)
+        val expected = listOf(
+            HtspTransportEvent.MalformedMetadata(generation, 2L),
+            HtspTransportEvent.MetadataOverflow(generation, 1L),
+            HtspTransportEvent.ServerMessage(HtspInitialSyncCompletedMessage, HtspConnectionGeneration(), 1L),
+        )
+        val collector = async(start = CoroutineStart.UNDISPATCHED) { flow.take(expected.size).toList() }
+        assertEquals(1, connection.eventSource.subscriptionCount.value)
+        expected.forEach { connection.eventSource.emit(it) }
+        assertEquals(expected.map { listOf(it) }, collector.await())
+        assertEquals(0, connection.eventSource.subscriptionCount.value)
+    }
+
     @Test
     fun customConnectionStillFailsOnItsObserverOverflowOrConnectionFailure() = runTest {
         val generation = HtspConnectionGeneration()

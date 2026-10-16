@@ -38,6 +38,38 @@ messages never appear here; they have [their own flows](subscriptions.md). Minor
 releases may add subtypes, and the same holds for `HtspTransportEvent`, so keep
 an `else` branch when you match.
 
+### Consume batches
+
+For a large sync, use `eventBatches` to process several queued events per flow
+emission. Start this collector before enabling metadata, just as with `events`:
+
+<!-- source: consumer-contract/src/main/kotlin/at/bernhardberger/tvheadend/protocolconsumer/MetadataGuide.kt#collect-batches -->
+```kotlin
+fun CoroutineScope.collectMetadataBatches(connection: HtspConnection, directory: ChannelDirectory): Job =
+    launch(start = CoroutineStart.UNDISPATCHED) {
+        connection.eventBatches(maxBatchSize = 512).collect { batch ->
+            for (event in batch) directory.accept(event)
+        }
+    }
+```
+
+Each fresh, read-only list is non-empty and contains at most `maxBatchSize` events
+in order, including overflow and malformed reports. The default limit is 512;
+the accepted range is `1..4096`. Values outside that range throw
+`IllegalArgumentException` immediately when `eventBatches` is called. Loosening
+this range in a later release is compatible. Batches never wait to fill. A batch
+never spans a generation; batches split wherever the event generation changes.
+
+Each collection has the same independent queue and budgets as `events`. The
+whole batch leaves those budgets immediately before delivery, so the queue keeps
+filling while you process it and can still overflow. Consumer-held batches are
+outside the budgets. While processing one batch, allow for the queue's budget
+plus one consumer-owned batch of at most `maxBatchSize` entries. Overflow counts
+are snapshotted before delivery and the library never changes an emitted list.
+Process every marker in order, and cancel
+the collector when finished. Custom connections inherit singleton batches unless
+they override this method.
+
 ## Run the initial sync
 
 Start the collector first, then enable metadata. Starting it with
@@ -264,7 +296,7 @@ described in [Large EPG syncs](#large-epg-syncs).
 
 ## Buffers and overflow
 
-Every collector of `events` has its own bounded queue. Decoded messages are
+Every collector of `events` or `eventBatches` has its own bounded queue. Decoded messages are
 immutable, so one message may sit in several queues at once. When a queue is
 full, the library drops the newest metadata for that collector only, and reports
 the loss with a `MetadataOverflow` marker.
@@ -418,8 +450,8 @@ suspend fun upcomingEventCount(
     ).let { result -> (result as? HtspResult.Ok)?.value?.events?.size }
 ```
 
-**Keep the collector fast.** Copy each message into your own bounded queue and
-batch the work elsewhere.
+**Keep the collector fast.** Use [batch consumption](#consume-batches) to reduce
+flow handoffs, and keep expensive work off the collecting coroutine.
 
 **Raise the queue budgets**, within the limits above, if you have the memory.
 

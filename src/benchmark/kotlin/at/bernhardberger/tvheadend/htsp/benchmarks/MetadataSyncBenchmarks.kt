@@ -27,8 +27,8 @@ private const val EVENT_COUNT = 33_100
 @State(Scope.Thread)
 @BenchmarkMode(Mode.AverageTime)
 public class MetadataSyncBenchmarks {
-    /** The helper adds its own metadata collector alongside the application consumer. */
-    @Param("events", "syncHelper")
+    /** Compare single-event and batch handoff, with either acknowledgement or initial-sync waiting. */
+    @Param("events", "syncHelper", "batches", "batchesSyncHelper")
     public var mode: String = "events"
 
     private var peer: MetadataSyncPeer? = null
@@ -41,7 +41,7 @@ public class MetadataSyncBenchmarks {
             val peer = MetadataSyncPeer(metadataSyncBytes()).also { this@MetadataSyncBenchmarks.peer = it }
             val connection = createHtspConnection(
                 ioDispatcher = Dispatchers.IO,
-                // Admit an entire replay even if either collector is temporarily descheduled.
+                // Admit an entire replay even if the collector is temporarily descheduled.
                 eventBufferOptions = HtspEventBufferOptions(
                     metadataQueueEvents = CHANNEL_COUNT + EVENT_COUNT + 1,
                     metadataQueueBytes = 64L * 1024 * 1024,
@@ -68,7 +68,7 @@ public class MetadataSyncBenchmarks {
                 val consumer = async(Dispatchers.Default, start = CoroutineStart.UNDISPATCHED) {
                     var channels = 0
                     var events = 0
-                    connection.events.takeWhile { event ->
+                    fun consume(event: HtspTransportEvent): Boolean {
                         blackhole?.consume(event)
                         check(event is HtspTransportEvent.ServerMessage) { "Unexpected metadata event: $event" }
                         when (event.message) {
@@ -78,16 +78,25 @@ public class MetadataSyncBenchmarks {
                                 check(channels == CHANNEL_COUNT && events == EVENT_COUNT) {
                                     "Incomplete typed replay: $channels channels, $events events"
                                 }
-                                return@takeWhile false
+                                return false
                             }
                             else -> error("Unexpected metadata message: ${event.message}")
                         }
-                        true
-                    }.collect()
+                        return true
+                    }
+                    if (mode == "batches" || mode == "batchesSyncHelper") {
+                        connection.eventBatches().takeWhile { batch ->
+                            var more = true
+                            for (event in batch) if (!consume(event)) more = false
+                            more
+                        }.collect()
+                    } else {
+                        connection.events.takeWhile { consume(it) }.collect()
+                    }
                 }
                 val result = when (mode) {
-                    "events" -> connection.enableAsyncMetadata(epg = true, timeoutMs = 30_000)
-                    "syncHelper" -> connection.enableAsyncMetadataAwaitingInitialSync(epg = true, timeoutMs = 30_000)
+                    "events", "batches" -> connection.enableAsyncMetadata(epg = true, timeoutMs = 30_000)
+                    "syncHelper", "batchesSyncHelper" -> connection.enableAsyncMetadataAwaitingInitialSync(epg = true, timeoutMs = 30_000)
                     else -> error("Unknown metadata benchmark mode: $mode")
                 }
                 check(result is HtspResult.Ok) { "Metadata request failed: $result" }

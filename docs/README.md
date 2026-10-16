@@ -122,6 +122,12 @@ include allocations from the competing coroutine's RPCs. It exercises the privat
 reader dispatch/connection lock through the public API without changing production
 visibility. Buffer results are per offer/drain batch, not per event.
 
+`MetadataSyncBenchmarks` replays 143 channels and 33,100 EPG events plus the
+initial-sync marker over loopback. Its `events` and `batches` modes use the plain
+enable acknowledgement; `syncHelper` and `batchesSyncHelper` also await initial
+sync. Every mode consumes all events and checks the replay counts. Results are
+per replay, including decoding and collector handoff, rather than per message.
+
 Results are machine-specific, not a CI performance gate. Compare runs on the same
 idle machine/JDK; retain the JSON and note the commit and machine. Local baselines
 may be copied to `build/review/benchmarks/baseline-<commit>/` (untracked), but copy

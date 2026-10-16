@@ -248,6 +248,35 @@ is discarded into `MetadataOverflow`, adding its skipped-message count to
 or an overflow marker is observed before any later admitted message, including
 `initialSyncCompleted`. Different generations never share a malformed report.
 
+`HtspConnection.eventBatches(maxBatchSize = 512)` offers the same event stream in
+non-empty, read-only lists of at most `maxBatchSize` entries. The limit must be in
+`1..4096`; values outside that range throw `IllegalArgumentException` when the
+function is called, before collection. Loosening this range in a later release
+is compatible.
+Each collection registers its own replay-zero queue and uses the same capacity,
+byte budget, overflow placement and queued-tail malformed coalescing as `events`.
+Start collection before enabling metadata. Cancellation propagates and removes
+that collector in `finally`; an empty queue uses the same I/O-dispatcher wait as
+`events`. Neither flow ends merely because the generation changes.
+
+Batches contain whatever is queued at the drain, without waiting to fill. They
+preserve event order, including `MetadataOverflow` and `MalformedMetadata` inside
+the lists. A batch never spans a generation; batches split wherever the event
+generation changes. Overflow counts are snapshotted under the queue lock before
+emission. Each batch is a fresh list;
+the library never mutates it afterwards or retains it in the buffer.
+
+For `events`, an entry leaves the count and byte budgets immediately before its
+`emit`. For `eventBatches`, **all entries of the batch** leave those budgets
+immediately before `emit(batch)`, even if delivery suspends. The queue continues
+filling while the collector processes a batch and can overflow at its usual limits.
+Loss markers still precede later admitted events. Consumer-held batches are outside
+the queue budgets. While processing one batch, allow for the queue's budget plus
+one consumer-owned batch of at most `maxBatchSize` entries. Different collection
+speeds can therefore produce different loss counts. Custom `HtspConnection`
+implementations inherit a default that wraps each `events` emission in a singleton
+list, preserving their own stream behavior.
+
 Pass `HtspEventBufferOptions` to `createHtspConnection`, not to `connect`.
 Defaults are 8 MiB and 8192 events per metadata collector and per subscription.
 Bytes count retained server frame bodies, not exact heap usage. Byte limits are

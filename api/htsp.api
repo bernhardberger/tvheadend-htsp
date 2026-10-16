@@ -71,6 +71,8 @@ public abstract interface class at/bernhardberger/tvheadend/htsp/connection/Htsp
 	public static synthetic fun connect$default (Lat/bernhardberger/tvheadend/htsp/connection/HtspConnection;Lat/bernhardberger/tvheadend/htsp/connection/HtspEndpoint;Lat/bernhardberger/tvheadend/htsp/connection/HtspConnectOptions;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
 	public abstract fun disconnect (Lat/bernhardberger/tvheadend/htsp/connection/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public static synthetic fun disconnect$default (Lat/bernhardberger/tvheadend/htsp/connection/HtspConnection;Lat/bernhardberger/tvheadend/htsp/connection/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+	public fun eventBatches (I)Lkotlinx/coroutines/flow/Flow;
+	public static synthetic fun eventBatches$default (Lat/bernhardberger/tvheadend/htsp/connection/HtspConnection;IILjava/lang/Object;)Lkotlinx/coroutines/flow/Flow;
 	public abstract fun execute (Lat/bernhardberger/tvheadend/htsp/requests/HtspRequest;JLat/bernhardberger/tvheadend/htsp/connection/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public static synthetic fun execute$default (Lat/bernhardberger/tvheadend/htsp/connection/HtspConnection;Lat/bernhardberger/tvheadend/htsp/requests/HtspRequest;JLat/bernhardberger/tvheadend/htsp/connection/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
 	public abstract fun getConnectionState ()Lkotlinx/coroutines/flow/StateFlow;
@@ -84,6 +86,8 @@ public final class at/bernhardberger/tvheadend/htsp/connection/HtspConnection$De
 	public static synthetic fun close$default (Lat/bernhardberger/tvheadend/htsp/connection/HtspConnection;Lat/bernhardberger/tvheadend/htsp/connection/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
 	public static synthetic fun connect$default (Lat/bernhardberger/tvheadend/htsp/connection/HtspConnection;Lat/bernhardberger/tvheadend/htsp/connection/HtspEndpoint;Lat/bernhardberger/tvheadend/htsp/connection/HtspConnectOptions;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
 	public static synthetic fun disconnect$default (Lat/bernhardberger/tvheadend/htsp/connection/HtspConnection;Lat/bernhardberger/tvheadend/htsp/connection/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+	public static fun eventBatches (Lat/bernhardberger/tvheadend/htsp/connection/HtspConnection;I)Lkotlinx/coroutines/flow/Flow;
+	public static synthetic fun eventBatches$default (Lat/bernhardberger/tvheadend/htsp/connection/HtspConnection;IILjava/lang/Object;)Lkotlinx/coroutines/flow/Flow;
 	public static synthetic fun execute$default (Lat/bernhardberger/tvheadend/htsp/connection/HtspConnection;Lat/bernhardberger/tvheadend/htsp/requests/HtspRequest;JLat/bernhardberger/tvheadend/htsp/connection/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
 }
 
