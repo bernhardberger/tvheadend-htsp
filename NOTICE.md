@@ -1,6 +1,6 @@
 # Notices and attribution
 
-Tvheadend HTSP for Kotlin
+Tvheadend HTSP Client for Kotlin
 Copyright (C) 2026 Bernhard Berger
 
 SPDX-License-Identifier: GPL-3.0-only

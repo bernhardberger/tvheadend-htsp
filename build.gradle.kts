@@ -260,7 +260,7 @@ publishing {
             from(components["java"])
             artifactId = "htsp"
             pom {
-                name.set("Tvheadend HTSP for Kotlin")
+                name.set("Tvheadend HTSP Client for Kotlin")
                 description.set("An independently maintained, unofficial Kotlin/JVM client library for the Tvheadend HTSP protocol; not affiliated with the Tvheadend project.")
                 url.set("https://github.com/bernhardberger/tvheadend-htsp")
                 licenses {

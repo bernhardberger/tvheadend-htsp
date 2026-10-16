@@ -1,4 +1,4 @@
-# Tvheadend HTSP for Kotlin
+# Tvheadend HTSP Client for Kotlin
 
 [![CI](https://github.com/bernhardberger/tvheadend-htsp/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/bernhardberger/tvheadend-htsp/actions/workflows/ci.yml)
 [![Maven Central](https://img.shields.io/maven-central/v/at.bernhardberger.tvheadend/htsp)](https://central.sonatype.com/artifact/at.bernhardberger.tvheadend/htsp)

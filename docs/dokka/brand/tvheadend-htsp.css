@@ -52,7 +52,7 @@
 }
 
 .library-name--link::after {
-    content: "Tvheadend HTSP for Kotlin" / "";
+    content: "Tvheadend HTSP Client for Kotlin" / "";
     font: 550 16px/24px var(--brand-heading-font);
 }
 
