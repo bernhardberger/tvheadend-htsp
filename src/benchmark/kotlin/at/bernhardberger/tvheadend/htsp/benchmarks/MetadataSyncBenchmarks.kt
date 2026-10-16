@@ -27,8 +27,11 @@ private const val EVENT_COUNT = 33_100
 @State(Scope.Thread)
 @BenchmarkMode(Mode.AverageTime)
 public class MetadataSyncBenchmarks {
-    /** Compare single-event and batch handoff, with either acknowledgement or initial-sync waiting. */
-    @Param("events", "syncHelper", "batches", "batchesSyncHelper")
+    /**
+     * Compare single-event and batch handoff, with either acknowledgement or initial-sync waiting.
+     * `batchesWithWatcher` adds a second batch collector that keeps only connection failures.
+     */
+    @Param("events", "syncHelper", "batches", "batchesSyncHelper", "batchesWithWatcher")
     public var mode: String = "events"
 
     private var peer: MetadataSyncPeer? = null
@@ -65,6 +68,13 @@ public class MetadataSyncBenchmarks {
         peer.checkHealthy()
         withTimeout(30_000) {
             coroutineScope {
+                val watcher = if (mode == "batchesWithWatcher") {
+                    launch(Dispatchers.Default, start = CoroutineStart.UNDISPATCHED) {
+                        connection.eventBatches().collect { batch ->
+                            for (event in batch) if (event is HtspTransportEvent.ConnectionFailure) blackhole?.consume(event)
+                        }
+                    }
+                } else null
                 val consumer = async(Dispatchers.Default, start = CoroutineStart.UNDISPATCHED) {
                     var channels = 0
                     var events = 0
@@ -84,7 +94,7 @@ public class MetadataSyncBenchmarks {
                         }
                         return true
                     }
-                    if (mode == "batches" || mode == "batchesSyncHelper") {
+                    if (mode.startsWith("batches")) {
                         connection.eventBatches().takeWhile { batch ->
                             var more = true
                             for (event in batch) if (!consume(event)) more = false
@@ -95,12 +105,13 @@ public class MetadataSyncBenchmarks {
                     }
                 }
                 val result = when (mode) {
-                    "events", "batches" -> connection.enableAsyncMetadata(epg = true, timeoutMs = 30_000)
+                    "events", "batches", "batchesWithWatcher" -> connection.enableAsyncMetadata(epg = true, timeoutMs = 30_000)
                     "syncHelper", "batchesSyncHelper" -> connection.enableAsyncMetadataAwaitingInitialSync(epg = true, timeoutMs = 30_000)
                     else -> error("Unknown metadata benchmark mode: $mode")
                 }
                 check(result is HtspResult.Ok) { "Metadata request failed: $result" }
                 consumer.await()
+                watcher?.cancelAndJoin()
             }
         }
         peer.checkHealthy()
