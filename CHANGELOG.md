@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+- Fixed cancellation of a fresh connect after `Connected` was published leaving
+  its transport open. The attempt now retires like a local disconnect: subscription
+  streams end with `Terminated(LOCAL_RETIREMENT)`, in-flight requests return
+  `TransportUnavailable`, and `awaitTermination` returns `Disconnected`.
+  Cancellation while reusing a live connection leaves it intact.
 - Added `HtspConnection.awaitTermination(generation)` to await a generation's end
   without collecting metadata. Library-created connections latch `Failed(failure)`
   or `Disconnected`; custom connections inherit a best-effort state-based default.

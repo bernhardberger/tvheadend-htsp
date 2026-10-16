@@ -421,7 +421,12 @@ internal open class `HtspService-internal`(
             return connected
         } catch (cancelled: CancellationException) {
             retireAdmissionTransport(attemptId)
-            publishConnectionState(attemptId, HtspConnectionState.Disconnected)
+            disconnectInternal(
+                t = cancelled,
+                attemptId = attemptId,
+                publishState = true,
+                termination = HtspSubscriptionTermination.LOCAL_RETIREMENT,
+            )
             throw cancelled
         }
     }

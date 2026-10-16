@@ -144,6 +144,10 @@ Owner close does not emit `ConnectionFailure`.
 Cleanup completes even for an already-cancelled caller, then propagates caller cancellation.
 A connect superseded by another connect, disconnect, or owner close
 returns `HtspConnectOutcome.Failed` with `SUPERSEDED`, not cancellation.
+Cancelling a fresh connect after it published `Connected` retires that attempt like
+a local disconnect: its subscription streams end with `Terminated(LOCAL_RETIREMENT)`,
+in-flight requests return `TransportUnavailable`, and `awaitTermination` returns
+`Disconnected`. Cancelling a connect that reuses the live connection leaves it intact.
 
 `execute` uses one timeout budget for generation capture, handshake serialization,
 request encoding/admission, write serialization, socket write/flush, and the reply
