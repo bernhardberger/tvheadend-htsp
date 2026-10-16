@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+- The repository moved to
+  [`bernhardberger/tvheadend-htsp-kotlin`](https://github.com/bernhardberger/tvheadend-htsp-kotlin).
+  GitHub redirects the old URLs. The Maven coordinate and the Kotlin packages are
+  unchanged.
 - Cancelling an ordinary request no longer drops the connection when its frame is
   only partly written. The library finishes writing the frame, then rethrows the
   cancellation. If the write cannot finish within the request's timeout, the
@@ -43,16 +47,16 @@
 Second pre-release of the 1.0 line. It gives channels, tags, events, DVR
 entries and recording rules one shared entity type each in the new `model`
 package, and sets out how full and sparse updates apply; the reasoning is in
-[ADR 0002](https://github.com/bernhardberger/tvheadend-htsp/blob/v1.0.0-beta.2/docs/adr/0002-entity-model-and-update-semantics.md).
+[ADR 0002](https://github.com/bernhardberger/tvheadend-htsp-kotlin/blob/v1.0.0-beta.2/docs/adr/0002-entity-model-and-update-semantics.md).
 Like every pre-release, it makes no compatibility promise toward later
 pre-releases or `1.0.0`; see
-[`docs/versioning.md`](https://github.com/bernhardberger/tvheadend-htsp/blob/v1.0.0-beta.2/docs/versioning.md).
+[`docs/versioning.md`](https://github.com/bernhardberger/tvheadend-htsp-kotlin/blob/v1.0.0-beta.2/docs/versioning.md).
 Upgrading from `1.0.0-beta.1` needs source changes: read the **BREAKING**
 entries below.
 
 - Add usage guides for connecting, metadata, live subscriptions, DVR, the JSON
   API and troubleshooting in
-  [`docs/guides/`](https://github.com/bernhardberger/tvheadend-htsp/tree/v1.0.0-beta.2/docs/guides),
+  [`docs/guides/`](https://github.com/bernhardberger/tvheadend-htsp-kotlin/tree/v1.0.0-beta.2/docs/guides),
   with samples compiled against the library. Every public property now has
   KDoc, and the API reference has module and package overviews.
 
@@ -159,7 +163,7 @@ entries below.
 
 First pre-release of the 1.0 line. Like every pre-release, it makes no
 compatibility promise toward later pre-releases or `1.0.0`; see
-[`docs/versioning.md`](https://github.com/bernhardberger/tvheadend-htsp/blob/v1.0.0-beta.1/docs/versioning.md). Upgrading from `0.10.0` needs source
+[`docs/versioning.md`](https://github.com/bernhardberger/tvheadend-htsp-kotlin/blob/v1.0.0-beta.1/docs/versioning.md). Upgrading from `0.10.0` needs source
 changes: read the **BREAKING** entries below.
 
 - **BREAKING:** add `HtspResult.MalformedReply` to the closed request result type.
@@ -234,7 +238,7 @@ changes: read the **BREAKING** entries below.
 **BREAKING (API/ABI):** quantity names now expose their units;
 matching convenience parameters and data-class copy parameters follow them.
 HTSP field names and integer widths are unchanged. Full wire-field and pinned
-source evidence is in [the units table](https://github.com/bernhardberger/tvheadend-htsp/blob/v1.0.0-beta.1/docs/htsp-protocol/README.md#units).
+source evidence is in [the units table](https://github.com/bernhardberger/tvheadend-htsp-kotlin/blob/v1.0.0-beta.1/docs/htsp-protocol/README.md#units).
 
 | Surface | Old → new |
 |---|---|

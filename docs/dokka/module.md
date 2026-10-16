@@ -5,10 +5,10 @@ functions that return typed outcomes, server events arrive on flows, and
 cancelling the calling coroutine cancels the call.
 
 Start with the
-[README](https://github.com/bernhardberger/tvheadend-htsp#readme) and the
-[guides](https://github.com/bernhardberger/tvheadend-htsp/tree/main/docs/guides).
+[README](https://github.com/bernhardberger/tvheadend-htsp-kotlin#readme) and the
+[guides](https://github.com/bernhardberger/tvheadend-htsp-kotlin/tree/main/docs/guides).
 The exact rules for outcomes, cancellation and event streams are in
-[API behavior](https://github.com/bernhardberger/tvheadend-htsp/blob/main/docs/public-api.md).
+[API behavior](https://github.com/bernhardberger/tvheadend-htsp-kotlin/blob/main/docs/public-api.md).
 For a ready-made state layer on top of this protocol client, see the
 [Tvheadend Kotlin SDK](https://github.com/bernhardberger/tvheadend-sdk).
 

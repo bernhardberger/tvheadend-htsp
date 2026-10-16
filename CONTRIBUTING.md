@@ -64,11 +64,11 @@ full rules are under
 ## Reporting problems
 
 - Bugs: use the
-  [bug report form](https://github.com/bernhardberger/tvheadend-htsp/issues/new?template=bug_report.yml).
+  [bug report form](https://github.com/bernhardberger/tvheadend-htsp-kotlin/issues/new?template=bug_report.yml).
   Redact credentials, hostnames, IP addresses, tickets and recording paths from
   anything you attach.
 - Feature requests: use the
-  [feature request form](https://github.com/bernhardberger/tvheadend-htsp/issues/new?template=feature_request.yml).
+  [feature request form](https://github.com/bernhardberger/tvheadend-htsp-kotlin/issues/new?template=feature_request.yml).
   The library covers what HTSP offers; user interfaces, playback and caching
   belong to applications built on it.
 - Vulnerabilities: follow [`SECURITY.md`](SECURITY.md) and report privately,

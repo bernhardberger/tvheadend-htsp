@@ -37,10 +37,10 @@ dokka {
             "docs/dokka/brand/Outfit-550.ttf",
             "docs/dokka/brand/Outfit-OFL.txt",
         )
-        homepageLink.set("https://github.com/bernhardberger/tvheadend-htsp")
+        homepageLink.set("https://github.com/bernhardberger/tvheadend-htsp-kotlin")
         footerMessage.set(
             "© 2026 Bernhard Berger · " +
-                "<a href=\"https://github.com/bernhardberger/tvheadend-htsp/blob/main/LICENSE\">GPLv3</a> · " +
+                "<a href=\"https://github.com/bernhardberger/tvheadend-htsp-kotlin/blob/main/LICENSE\">GPLv3</a> · " +
                 "Not affiliated with or endorsed by the Tvheadend project",
         )
     }
@@ -262,7 +262,7 @@ publishing {
             pom {
                 name.set("Tvheadend HTSP Client for Kotlin")
                 description.set("An independently maintained, unofficial Kotlin/JVM client library for the Tvheadend HTSP protocol; not affiliated with the Tvheadend project.")
-                url.set("https://github.com/bernhardberger/tvheadend-htsp")
+                url.set("https://github.com/bernhardberger/tvheadend-htsp-kotlin")
                 licenses {
                     license {
                         name.set("GPL-3.0-only")
@@ -278,14 +278,14 @@ publishing {
                     }
                 }
                 scm {
-                    connection.set("scm:git:https://github.com/bernhardberger/tvheadend-htsp.git")
-                    developerConnection.set("scm:git:ssh://git@github.com/bernhardberger/tvheadend-htsp.git")
-                    url.set("https://github.com/bernhardberger/tvheadend-htsp")
+                    connection.set("scm:git:https://github.com/bernhardberger/tvheadend-htsp-kotlin.git")
+                    developerConnection.set("scm:git:ssh://git@github.com/bernhardberger/tvheadend-htsp-kotlin.git")
+                    url.set("https://github.com/bernhardberger/tvheadend-htsp-kotlin")
                     tag.set(if (version.toString().endsWith("-SNAPSHOT")) "HEAD" else "v$version")
                 }
                 issueManagement {
                     system.set("GitHub Issues")
-                    url.set("https://github.com/bernhardberger/tvheadend-htsp/issues")
+                    url.set("https://github.com/bernhardberger/tvheadend-htsp-kotlin/issues")
                 }
                 properties.put("tvheadend.htsp.predecessor.name", "TVHStream")
                 properties.put("tvheadend.htsp.predecessor.url", "https://github.com/Preclikos/tvhstream")

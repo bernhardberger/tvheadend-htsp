@@ -5,6 +5,9 @@ Status: accepted before standalone extraction.
 - **D1 — identity.** Repository name `tvheadend-htsp`, coordinate
   `at.bernhardberger.tvheadend:htsp`, unchanged package root
   `at.bernhardberger.tvheadend.htsp`, independently maintained and unofficial.
+  Amended 2026-10-16: the repository is now `tvheadend-htsp-kotlin`, leaving room
+  for implementations in other languages; the coordinate and package root are
+  unchanged.
 - **D2 — package taxonomy.** Exactly five shallow packages: `wire`, `requests`,
   `messages`, `connection`, and `jsonapi`; no flat-root or deeper compatibility
   packages.

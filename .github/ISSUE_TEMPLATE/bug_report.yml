@@ -6,7 +6,7 @@ body:
       value: |
         **Don't paste credentials, hostnames, IP addresses, tickets or recording paths.** Redact logs and stack traces before you attach them.
 
-        For a security problem, use the [security policy](https://github.com/bernhardberger/tvheadend-htsp/security/policy) instead of an issue.
+        For a security problem, use the [security policy](https://github.com/bernhardberger/tvheadend-htsp-kotlin/security/policy) instead of an issue.
   - type: input
     id: library-version
     attributes:

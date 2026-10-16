@@ -3,7 +3,7 @@
 ## Reporting a vulnerability
 
 Report vulnerabilities privately through GitHub: open the repository's
-[Security tab](https://github.com/bernhardberger/tvheadend-htsp/security) and
+[Security tab](https://github.com/bernhardberger/tvheadend-htsp-kotlin/security) and
 choose **Report a vulnerability**. Please don't open a public issue or pull
 request for a suspected vulnerability. The maintainer will respond in the
 advisory.
@@ -35,4 +35,4 @@ Only the latest release line receives security fixes. Older lines don't.
 - Behaviour of an application built on this library, such as how it stores the
   credentials it passes in.
 - Ordinary bugs that expose nothing. Use the
-  [bug report form](https://github.com/bernhardberger/tvheadend-htsp/issues/new?template=bug_report.yml).
+  [bug report form](https://github.com/bernhardberger/tvheadend-htsp-kotlin/issues/new?template=bug_report.yml).

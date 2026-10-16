@@ -28,7 +28,7 @@ library remains a derivative work of tvhstream. The dated
 ## Corresponding Source
 
 The complete Corresponding Source for each release, including its build
-scripts, is the repository <https://github.com/bernhardberger/tvheadend-htsp>
+scripts, is the repository <https://github.com/bernhardberger/tvheadend-htsp-kotlin>
 at the release tag `v<version>`.
 
 ## Independence and third-party components

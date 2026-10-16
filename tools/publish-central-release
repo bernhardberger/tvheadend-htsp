@@ -28,7 +28,7 @@ from typing import Callable
 
 
 ROOT = Path(__file__).resolve().parents[1]
-REPOSITORY = "bernhardberger/tvheadend-htsp"
+REPOSITORY = "bernhardberger/tvheadend-htsp-kotlin"
 GROUP = "at.bernhardberger.tvheadend"
 ARTIFACT = "htsp"
 FINGERPRINT = "EAB02E488E7B944EAA6D65814BF0412FD2A3B741"
@@ -1081,7 +1081,7 @@ def workflow_step(workflow: str, name: str) -> str:
 def release_job_guard_errors(workflow: str) -> list[str]:
     tokens = (
         "    if: >-",
-        "      github.repository == 'bernhardberger/tvheadend-htsp' &&",
+        "      github.repository == 'bernhardberger/tvheadend-htsp-kotlin' &&",
         "      github.ref_type == 'tag' &&",
         "      startsWith(github.ref, 'refs/tags/v')",
     )
@@ -1648,7 +1648,7 @@ def self_test() -> list[str]:
     guard_fixture = """jobs:
   release:
     if: >-
-      github.repository == 'bernhardberger/tvheadend-htsp' &&
+      github.repository == 'bernhardberger/tvheadend-htsp-kotlin' &&
       github.ref_type == 'tag' &&
       startsWith(github.ref, 'refs/tags/v')
     environment: central

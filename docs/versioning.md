@@ -13,10 +13,10 @@ with its [repository files](https://repo1.maven.org/maven2/at/bernhardberger/tvh
 available directly. Publication and availability remain independently verified
 external state for every release.
 
-The [exact-tag release workflow](https://github.com/bernhardberger/tvheadend-htsp/actions/runs/38798859262)
+The [exact-tag release workflow](https://github.com/bernhardberger/tvheadend-htsp-kotlin/actions/runs/38798859262)
 passed on `c183c1b1bad2e60dcc3604585644bd7383f76800`, verifying all 20 signed and
 checksummed Central members and both
-[GitHub prerelease assets](https://github.com/bernhardberger/tvheadend-htsp/releases/tag/v1.0.0-beta.2).
+[GitHub prerelease assets](https://github.com/bernhardberger/tvheadend-htsp-kotlin/releases/tag/v1.0.0-beta.2).
 The public manifest identifies that commit and the dedicated signing fingerprint
 `EAB02E488E7B944EAA6D65814BF0412FD2A3B741`. A separate public Central JAR download
 on 2026-10-15 matched its manifest SHA-256:

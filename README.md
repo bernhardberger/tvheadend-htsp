@@ -1,6 +1,6 @@
 # Tvheadend HTSP Client for Kotlin
 
-[![CI](https://github.com/bernhardberger/tvheadend-htsp/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/bernhardberger/tvheadend-htsp/actions/workflows/ci.yml)
+[![CI](https://github.com/bernhardberger/tvheadend-htsp-kotlin/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/bernhardberger/tvheadend-htsp-kotlin/actions/workflows/ci.yml)
 [![Maven Central](https://img.shields.io/maven-central/v/at.bernhardberger.tvheadend/htsp)](https://central.sonatype.com/artifact/at.bernhardberger.tvheadend/htsp)
 [![javadoc](https://javadoc.io/badge2/at.bernhardberger.tvheadend/htsp/javadoc.svg)](https://javadoc.io/doc/at.bernhardberger.tvheadend/htsp)
 [![License: GPLv3](https://img.shields.io/badge/license-GPLv3-blue.svg)](LICENSE)
