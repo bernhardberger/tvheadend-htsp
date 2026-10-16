@@ -1,6 +1,15 @@
 # Changelog
 
-## [Unreleased]
+## [1.0.0-beta.3] - 2026-10-16
+
+Third pre-release of the 1.0 line. It adds `eventBatches` and `awaitTermination`
+for applications that keep their own metadata state, hands metadata to collectors
+in chunks during the initial sync, keeps the connection when a caller cancels a
+request mid-write, and fixes the unstyled API reference. Like every pre-release,
+it makes no compatibility promise toward later pre-releases or `1.0.0`; see
+[`docs/versioning.md`](https://github.com/bernhardberger/tvheadend-htsp-kotlin/blob/v1.0.0-beta.3/docs/versioning.md).
+Upgrading from `1.0.0-beta.2` can need source changes: read the **BREAKING**
+entry below.
 
 - The repository moved to
   [`bernhardberger/tvheadend-htsp-kotlin`](https://github.com/bernhardberger/tvheadend-htsp-kotlin).
