@@ -57,16 +57,16 @@ At runtime the artifact needs only the Kotlin standard library and
 ## Installation
 
 The library is on
-[Maven Central](https://central.sonatype.com/artifact/at.bernhardberger.tvheadend/htsp/1.0.0-beta.2)
-as `at.bernhardberger.tvheadend:htsp:1.0.0-beta.2`:
+[Maven Central](https://central.sonatype.com/artifact/at.bernhardberger.tvheadend/htsp/1.0.0-beta.3)
+as `at.bernhardberger.tvheadend:htsp:1.0.0-beta.3`:
 
 ```kotlin
 dependencies {
-    implementation("at.bernhardberger.tvheadend:htsp:1.0.0-beta.2")
+    implementation("at.bernhardberger.tvheadend:htsp:1.0.0-beta.3")
 }
 ```
 
-`1.0.0-beta.2` is a pre-release of `1.0.0`, and its API may still change before
+`1.0.0-beta.3` is a pre-release of `1.0.0`, and its API may still change before
 the final release. See [versioning and compatibility](docs/versioning.md) and
 the [change history](CHANGELOG.md).
 

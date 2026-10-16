@@ -11,7 +11,7 @@ body:
     id: library-version
     attributes:
       label: Library version
-      description: For example `1.0.0-beta.2`, or the commit if you build from source.
+      description: For example `1.0.0-beta.3`, or the commit if you build from source.
     validations:
       required: true
   - type: input
