@@ -2,10 +2,12 @@ package at.bernhardberger.tvheadend.htsp.connection
 
 import at.bernhardberger.tvheadend.htsp.requests.*
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.withTimeoutOrNull
@@ -14,7 +16,24 @@ internal const val MAXIMUM_METADATA_BATCH_SIZE = 4096
 
 /** Opaque identity of one current HTSP transport generation, whether live or gone. */
 public class HtspConnectionGeneration {
+    @get:JvmSynthetic
+    @set:JvmSynthetic
+    internal var termination: HtspGenerationTerminationLatch? = null
+
     override fun toString(): String = "HtspConnectionGeneration"
+}
+
+/** The token owns its result; neither the owner key nor the latch retains the service. */
+internal class HtspGenerationTerminationLatch(val owner: Any) {
+    @Volatile var result: HtspGenerationTermination? = null
+    val available = CompletableDeferred<Unit>()
+
+    suspend fun await(): HtspGenerationTermination {
+        currentCoroutineContext().ensureActive()
+        result?.let { return it }
+        available.await()
+        return checkNotNull(result)
+    }
 }
 
 /**
@@ -34,6 +53,39 @@ public interface HtspConnection {
      * atomically; Closed is terminal and never emits a ConnectionFailure for the owner close.
      */
     public val connectionState: StateFlow<HtspConnectionState>
+
+    /**
+     * Awaits the end of [generation]'s live transport.
+     *
+     * Library-created connections latch exactly one result per generation. Call
+     * before or after its end; later calls return the stored result immediately, even after
+     * replacement. [HtspGenerationTermination.Failed] carries the same failure as that
+     * generation's [HtspTransportEvent.ConnectionFailure]; other teardown returns
+     * [HtspGenerationTermination.Disconnected]. Cancelling a caller cancels only its await.
+     * A generation that never reached [HtspConnectionState.Connected] ends as
+     * [HtspGenerationTermination.Disconnected].
+     *
+     * This out-of-band signal may resume before a collector drains earlier metadata.
+     * [HtspTransportEvent.ConnectionFailure] in [events] and [eventBatches] remains the
+     * in-order signal for metadata consumers.
+     * [connectionState] is published separately: the result may become visible before that
+     * state reflects the end.
+     *
+     * Library-created connections throw [IllegalArgumentException] before suspending for a
+     * token they did not create, including a publicly constructed token. The default for custom
+     * connections only waits until [connectionState] is no longer [HtspConnectionState.Connected]
+     * with this generation. It maps [HtspConnectionState.Error] to [HtspGenerationTermination.Failed]
+     * and everything else to [HtspGenerationTermination.Disconnected]. This best-effort fallback
+     * cannot check ownership, latch past results, or attribute an error precisely to a generation.
+     */
+    public suspend fun awaitTermination(generation: HtspConnectionGeneration): HtspGenerationTermination {
+        currentCoroutineContext().ensureActive()
+        val state = connectionState.first {
+            it !is HtspConnectionState.Connected || it.connection.generation !== generation
+        }
+        return if (state is HtspConnectionState.Error) HtspGenerationTermination.Failed(state.failure)
+        else HtspGenerationTermination.Disconnected
+    }
 
     /**
      * Metadata and connection failures with replay zero and one bounded queue per collector.

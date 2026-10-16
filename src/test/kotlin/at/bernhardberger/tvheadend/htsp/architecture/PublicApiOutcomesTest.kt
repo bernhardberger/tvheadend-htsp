@@ -27,7 +27,7 @@ class PublicApiOutcomesTest {
     // Server round trips return typed outcomes; conditional lifecycle teardown returns Boolean.
     @Test
     fun `public suspending calls return typed outcomes`() {
-        val acceptedReturnTypes = setOf("HtspConnectOutcome", "HtspResult", "Unit")
+        val acceptedReturnTypes = setOf("HtspConnectOutcome", "HtspGenerationTermination", "HtspResult", "Unit")
 
         Konsist
             .scopeFromDirectory("src/main/kotlin")

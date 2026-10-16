@@ -182,6 +182,14 @@ internal open class `HtspService-internal`(
     @Volatile
     private var protocolGeneration: ServiceProtocolGeneration? = null
 
+    private val generationOwner = Any()
+
+    override suspend fun awaitTermination(generation: HtspConnectionGeneration): HtspGenerationTermination {
+        val latch = generation.termination
+        require(latch != null && latch.owner === generationOwner) { "Generation belongs to another connection" }
+        return latch.await()
+    }
+
     private val typedRequestCaller = HtspTypedRequestCaller(this)
 
     private var liveServerFacts: HtspServerFacts? = null
@@ -1028,7 +1036,10 @@ internal open class `HtspService-internal`(
                     )
                 }
             terminateSubscriptionStreamsLocked(protocolGeneration, termination)
-            captureCurrentTransportLocked(failure).also {
+            captureCurrentTransportLocked(
+                failure,
+                typedEvent?.let { HtspGenerationTermination.Failed(it.failure) } ?: HtspGenerationTermination.Disconnected,
+            ).also {
                 typedEvent?.let { event ->
                     publishMetadataEvent(attemptId, event)
                 }
@@ -1261,6 +1272,9 @@ internal open class `HtspService-internal`(
                 termination,
             )
             transportRetirement = termination
+            if (termination == HtspSubscriptionTermination.LOCAL_RETIREMENT) {
+                completeGenerationTerminationLocked(HtspGenerationTermination.Disconnected)
+            }
             liveTransportAttempt = null
             liveServerFacts = null
             liveConnectionIdentity = null
@@ -1311,7 +1325,7 @@ internal open class `HtspService-internal`(
                         attemptMonitor.recordStateLocked(HtspConnectionState.Error(typedFailure))
                         val event = HtspTransportEvent.ConnectionFailure(typedFailure, serviceGeneration.token)
                         publishMetadataEvent(serviceGeneration.attemptId, event)
-                        unsupportedRetirement = captureCurrentTransportLocked(failure)
+                        unsupportedRetirement = captureCurrentTransportLocked(failure, HtspGenerationTermination.Failed(typedFailure))
                         unsupportedFailure = failure
                         return@withAttemptLock
                     }
@@ -1426,7 +1440,7 @@ internal open class `HtspService-internal`(
         liveTransportAttempt = attemptId
         transportRetirement = null
         if (protocolGeneration?.attemptId != attemptId) {
-            protocolGeneration = ServiceProtocolGeneration(attemptId)
+            protocolGeneration = ServiceProtocolGeneration(attemptId, generationOwner)
         }
         liveServerFacts = null
         liveConnectionIdentity = null
@@ -1443,6 +1457,9 @@ internal open class `HtspService-internal`(
                     termination,
                 )
                 transportRetirement = termination
+                if (termination == HtspSubscriptionTermination.LOCAL_RETIREMENT) {
+                    completeGenerationTerminationLocked(HtspGenerationTermination.Disconnected)
+                }
                 liveTransportAttempt = null
                 liveServerFacts = null
                 liveConnectionIdentity = null
@@ -1503,7 +1520,7 @@ internal open class `HtspService-internal`(
         val cancellation = CancellationException("Superseded connection attempt")
         val retirement = captureCurrentTransportLocked(cancellation)
         attemptMonitor.recordStateLocked(HtspConnectionState.Disconnected)
-        protocolGeneration = ServiceProtocolGeneration(attemptId)
+        protocolGeneration = ServiceProtocolGeneration(attemptId, generationOwner)
         admissionRetirements[attemptId] = retirement
         return attemptId
     }
@@ -1519,12 +1536,13 @@ internal open class `HtspService-internal`(
 
     private fun captureCurrentTransportLocked(
         cancellation: Throwable,
+        termination: HtspGenerationTermination = HtspGenerationTermination.Disconnected,
     ): AdmissionRetirement {
         val retirement = AdmissionRetirement(
             cancellation = cancellation,
             pending = pending.values.toList(),
             readerJob = connectionOwner.reader,
-            transport = detachCurrentTransportLocked(),
+            transport = detachCurrentTransportLocked(termination),
         )
         pending.clear()
         lateReplyObservers.values.forEach { it.expiry.cancel() }
@@ -1535,7 +1553,18 @@ internal open class `HtspService-internal`(
 
     private val admissionRetirements = mutableMapOf<Long, AdmissionRetirement>()
 
-    private fun detachCurrentTransportLocked(): TransportSnapshot {
+    private fun completeGenerationTerminationLocked(termination: HtspGenerationTermination) {
+        val generation = protocolGeneration ?: return
+        val latch = checkNotNull(generation.token.termination)
+        if (latch.result != null) return
+        // Commit once under the attempt lock; wake awaiters after its outermost exit so
+        // even Unconfined consumer code cannot run under the lifecycle lock.
+        latch.result = termination
+        attemptMonitor.queueTermination(latch.available)
+    }
+
+    private fun detachCurrentTransportLocked(termination: HtspGenerationTermination): TransportSnapshot {
+        completeGenerationTerminationLocked(termination)
         val transport = installedTransport
         val snapshot = TransportSnapshot(connectingSocket, transport?.socket, transport?.input, transport?.output)
         connectingSocket = null
@@ -1587,8 +1616,9 @@ internal open class `HtspService-internal`(
 
     private class ServiceProtocolGeneration(
         val attemptId: Long,
-        val token: HtspConnectionGeneration = HtspConnectionGeneration(),
+        owner: Any,
     ) {
+        val token = HtspConnectionGeneration().apply { termination = HtspGenerationTerminationLatch(owner) }
         var established = false
         val collectedSubscriptionIds = mutableSetOf<Long>()
         val subscriptionStreams = mutableMapOf<Long, HtspSubscriptionEventBuffer>()

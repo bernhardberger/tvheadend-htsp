@@ -65,6 +65,7 @@ public final class at/bernhardberger/tvheadend/htsp/connection/HtspConnectOutcom
 }
 
 public abstract interface class at/bernhardberger/tvheadend/htsp/connection/HtspConnection {
+	public fun awaitTermination (Lat/bernhardberger/tvheadend/htsp/connection/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public abstract fun close (Lat/bernhardberger/tvheadend/htsp/connection/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public static synthetic fun close$default (Lat/bernhardberger/tvheadend/htsp/connection/HtspConnection;Lat/bernhardberger/tvheadend/htsp/connection/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
 	public abstract fun connect (Lat/bernhardberger/tvheadend/htsp/connection/HtspEndpoint;Lat/bernhardberger/tvheadend/htsp/connection/HtspConnectOptions;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
@@ -83,6 +84,7 @@ public abstract interface class at/bernhardberger/tvheadend/htsp/connection/Htsp
 }
 
 public final class at/bernhardberger/tvheadend/htsp/connection/HtspConnection$DefaultImpls {
+	public static fun awaitTermination (Lat/bernhardberger/tvheadend/htsp/connection/HtspConnection;Lat/bernhardberger/tvheadend/htsp/connection/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public static synthetic fun close$default (Lat/bernhardberger/tvheadend/htsp/connection/HtspConnection;Lat/bernhardberger/tvheadend/htsp/connection/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
 	public static synthetic fun connect$default (Lat/bernhardberger/tvheadend/htsp/connection/HtspConnection;Lat/bernhardberger/tvheadend/htsp/connection/HtspEndpoint;Lat/bernhardberger/tvheadend/htsp/connection/HtspConnectOptions;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
 	public static synthetic fun disconnect$default (Lat/bernhardberger/tvheadend/htsp/connection/HtspConnection;Lat/bernhardberger/tvheadend/htsp/connection/HtspConnectionGeneration;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
@@ -188,6 +190,27 @@ public final class at/bernhardberger/tvheadend/htsp/connection/HtspEventBufferOp
 }
 
 public abstract interface class at/bernhardberger/tvheadend/htsp/connection/HtspFailure : at/bernhardberger/tvheadend/htsp/connection/HtspResult {
+}
+
+public abstract interface class at/bernhardberger/tvheadend/htsp/connection/HtspGenerationTermination {
+}
+
+public final class at/bernhardberger/tvheadend/htsp/connection/HtspGenerationTermination$Disconnected : at/bernhardberger/tvheadend/htsp/connection/HtspGenerationTermination {
+	public static final field INSTANCE Lat/bernhardberger/tvheadend/htsp/connection/HtspGenerationTermination$Disconnected;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class at/bernhardberger/tvheadend/htsp/connection/HtspGenerationTermination$Failed : at/bernhardberger/tvheadend/htsp/connection/HtspGenerationTermination {
+	public fun <init> (Lat/bernhardberger/tvheadend/htsp/connection/HtspTransportFailure;)V
+	public final fun component1 ()Lat/bernhardberger/tvheadend/htsp/connection/HtspTransportFailure;
+	public final fun copy (Lat/bernhardberger/tvheadend/htsp/connection/HtspTransportFailure;)Lat/bernhardberger/tvheadend/htsp/connection/HtspGenerationTermination$Failed;
+	public static synthetic fun copy$default (Lat/bernhardberger/tvheadend/htsp/connection/HtspGenerationTermination$Failed;Lat/bernhardberger/tvheadend/htsp/connection/HtspTransportFailure;ILjava/lang/Object;)Lat/bernhardberger/tvheadend/htsp/connection/HtspGenerationTermination$Failed;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getFailure ()Lat/bernhardberger/tvheadend/htsp/connection/HtspTransportFailure;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
 }
 
 public final class at/bernhardberger/tvheadend/htsp/connection/HtspLiveConnection {

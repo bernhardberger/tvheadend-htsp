@@ -1,5 +1,27 @@
 package at.bernhardberger.tvheadend.htsp.connection
 
+/**
+ * Describes how one generation's transport ended.
+ *
+ * Library-created connections latch exactly one result, available through
+ * [HtspConnection.awaitTermination] before or after the end. That call checks token ownership
+ * before suspending. A generation that never reached [HtspConnectionState.Connected] ends as
+ * [Disconnected]. The out-of-band result may precede delivery of earlier metadata;
+ * [HtspTransportEvent.ConnectionFailure] in [HtspConnection.events] remains the in-order signal.
+ * Custom connections inherit a best-effort state-based default without latching, ownership
+ * checks, or precise error attribution. Minor releases may add subtypes; keep an `else` branch.
+ */
+public sealed interface HtspGenerationTermination {
+    /**
+     * Reports the same unsolicited failure as this generation's [HtspTransportEvent.ConnectionFailure].
+     * @property failure the transport failure
+     */
+    public data class Failed(public val failure: HtspTransportFailure) : HtspGenerationTermination
+
+    /** Ends through owner disconnect, close, replacement, or another teardown without a failure event. */
+    public data object Disconnected : HtspGenerationTermination
+}
+
 /** Connection lifecycle state exposed as finite typed snapshots. */
 public sealed class HtspConnectionState {
     /** No transport is currently connected or connecting. */

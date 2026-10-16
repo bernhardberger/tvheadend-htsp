@@ -182,6 +182,28 @@ is checked at socket-read timeout boundaries, so a long socket-read timeout also
 delays detection. A connection with neither pending work nor a partial frame may
 remain idle indefinitely.
 
+## Await a generation's end
+
+`HtspConnection.awaitTermination(generation)` waits for the live transport to end
+without collecting metadata. Library-created connections latch exactly one result:
+`HtspGenerationTermination.Failed(failure)` carries the same failure as that
+generation's `ConnectionFailure`; `Disconnected` covers disconnect, close,
+replacement, and other teardown without a failure event. Call before or after the
+end, including after replacement. Cancelling an await leaves the result usable.
+Foreign or publicly constructed tokens throw `IllegalArgumentException` before
+suspending. An ended transport can still have the current generation identity.
+A generation that never reached `Connected` ends as `Disconnected`, including a
+token received through metadata during a failed handshake.
+
+This is an out-of-band signal: it may resume before a collector drains earlier
+metadata. The result may also become visible before `connectionState` reflects
+the end; that state is published separately. `ConnectionFailure` in `events` and
+`eventBatches` remains the in-order
+signal for metadata consumers. The default for custom connections waits until
+`connectionState` leaves `Connected` with the given generation, maps `Error` to
+`Failed`, and otherwise returns `Disconnected`. It cannot check ownership, latch
+past results, or attribute an error precisely to a generation.
+
 ## Metadata and subscription event streams
 
 `HtspConnection.connectionState` exposes the service-owned current lifecycle as

@@ -311,6 +311,41 @@ class HtspConnectionSocketFactoryTest {
     }
 
     @Test
+    fun requestWriteFailureLatchesThePublishedTransportUnavailableFailure() = runBlocking {
+        val socket = ScriptedSocket(
+            expectedHost = "127.0.0.1",
+            expectedPort = 9_982,
+            responses = listOf(
+                loadHtspGoldenFrame("scripted-hello-response.hex"),
+                loadHtspGoldenFrame("scripted-authenticate-response.hex"),
+            ),
+            beforePostHandshakeWrite = { throw IOException("Scripted partial write") },
+        )
+        val connection = createHtspConnection(Dispatchers.IO, socketFactory = { socket })
+        val failure = async(start = CoroutineStart.UNDISPATCHED) {
+            connection.events.filterIsInstance<HtspTransportEvent.ConnectionFailure>().first()
+        }
+        try {
+            withTimeout(5_000L) {
+                val live = connection.connect(HtspEndpoint("127.0.0.1", 9_982)) as HtspConnectOutcome.Connected
+                val generation = live.connection.generation
+                val termination = async(start = CoroutineStart.UNDISPATCHED) { connection.awaitTermination(generation) }
+                assertSame(HtspResult.TransportUnavailable, connection.getSysTime())
+                val result = termination.await() as HtspGenerationTermination.Failed
+                val event = failure.await()
+                assertSame(generation, event.generation)
+                assertEquals(HtspTransportFailureKind.TRANSPORT_UNAVAILABLE, result.failure.kind)
+                assertSame(event.failure, result.failure)
+                assertSame(result, connection.awaitTermination(generation))
+                assertEquals(1, socket.postHandshakeWriteAttempts.get())
+            }
+        } finally {
+            failure.cancelAndJoin()
+            connection.close()
+        }
+    }
+
+    @Test
     fun failedWriteRetiresSocketBeforeAnotherRequestCanReuseBufferedFrame() = runBlocking {
         val socket = ScriptedSocket(
             expectedHost = "127.0.0.1",

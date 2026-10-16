@@ -288,13 +288,14 @@ suspend fun freeBytesOrNull(connection: HtspConnection, live: HtspLiveConnection
 
 ## Watch the connection
 
-Three signals describe a connection, and each answers a different question.
+These signals describe a connection, and each answers a different question.
 
 | Question | Signal |
 |---|---|
 | Did this connect attempt work? | the `HtspConnectOutcome` it returned |
 | Is the connection usable right now? | `connectionState` |
 | Did a live connection just fail? | `HtspTransportEvent.ConnectionFailure` on `events` |
+| How did this generation end? | `awaitTermination(generation)` |
 
 `connectionState` is a `StateFlow<HtspConnectionState>`:
 
@@ -314,7 +315,7 @@ goes straight to `Error` without passing through `Disconnected`.
 
 Treat the flow as current state, not as a log. It conflates quick transitions,
 a synchronous `value` read may briefly lag, and a newer snapshot is never
-replaced by an older one. To wait until a generation is over, wait for any state
+replaced by an older one. To observe the state leaving a generation, wait for any state
 that is not `Connected` with that generation:
 
 <!-- source: consumer-contract/src/main/kotlin/at/bernhardberger/tvheadend/protocolconsumer/ConnectingGuide.kt#watch-state -->
@@ -325,6 +326,10 @@ suspend fun awaitGenerationEnd(connection: HtspConnection, generation: HtspConne
     }
 }
 ```
+
+Use `awaitTermination(generation)` for a latched result without collecting metadata,
+even after the transport ends; see [await a generation's end](../public-api.md#await-a-generations-end)
+for ownership, ordering, and custom-connection behavior.
 
 `ConnectionFailure` reports unsolicited failures of established live
 connections, each with its generation and a failure kind. It is the

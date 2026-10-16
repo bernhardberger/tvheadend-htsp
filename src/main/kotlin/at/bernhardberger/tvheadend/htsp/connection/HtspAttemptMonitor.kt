@@ -17,6 +17,7 @@ internal class HtspAttemptMonitor(
     private val connectionAttemptLock = Any()
     private val pendingWakeups = linkedSetOf<Channel<Unit>>()
     private val pendingReplies = mutableListOf<Pair<CompletableDeferred<HtspWireMessage>, HtspWireMessage>>()
+    private val pendingTerminations = mutableListOf<CompletableDeferred<Unit>>()
     internal data class StateSnapshot(val version: Long, val state: HtspConnectionState) {
         val live: HtspLiveConnection? get() = (state as? HtspConnectionState.Connected)?.connection
     }
@@ -57,11 +58,17 @@ internal class HtspAttemptMonitor(
         pendingReplies.add(reply to message)
     }
 
+    fun queueTermination(available: CompletableDeferred<Unit>) {
+        check(Thread.holdsLock(connectionAttemptLock))
+        pendingTerminations.add(available)
+    }
+
     /** Snapshot every deferred effect at the outermost exit, including exceptional exits. */
     inline fun <T> withAttemptLock(block: () -> T): T {
         val outermost = !Thread.holdsLock(connectionAttemptLock)
         var wakeups: List<Channel<Unit>> = emptyList()
         var replies: List<Pair<CompletableDeferred<HtspWireMessage>, HtspWireMessage>> = emptyList()
+        var terminations: List<CompletableDeferred<Unit>> = emptyList()
         var state: StateSnapshot? = null
         try {
             return kotlin.synchronized(connectionAttemptLock) {
@@ -71,6 +78,8 @@ internal class HtspAttemptMonitor(
                         pendingWakeups.clear()
                         replies = pendingReplies.toList()
                         pendingReplies.clear()
+                        terminations = pendingTerminations.toList()
+                        pendingTerminations.clear()
                         state = pendingState
                         pendingState = null
                     }
@@ -86,7 +95,11 @@ internal class HtspAttemptMonitor(
                 try {
                     replies.forEach { (reply, message) -> reply.complete(message) }
                 } finally {
-                    wakeups.forEach { it.trySend(Unit) }
+                    try {
+                        terminations.forEach { it.complete(Unit) }
+                    } finally {
+                        wakeups.forEach { it.trySend(Unit) }
+                    }
                 }
             }
         }

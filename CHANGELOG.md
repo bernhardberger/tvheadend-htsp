@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+- Added `HtspConnection.awaitTermination(generation)` to await a generation's end
+  without collecting metadata. Library-created connections latch `Failed(failure)`
+  or `Disconnected`; custom connections inherit a best-effort state-based default.
 - Added `HtspConnection.eventBatches(maxBatchSize = 512)` for ordered, generation-scoped
   metadata batches with the same per-collector queues as `events`. Custom connections
   inherit a singleton-list implementation; existing implementations remain compatible.
