@@ -1,26 +1,26 @@
 # Versioning and compatibility
 
 The current immutable release coordinate is
-`at.bernhardberger.tvheadend:htsp:1.0.0-beta.3`, the third pre-release of
-`1.0.0`. It adds API to `1.0.0-beta.2` and changes how initial-sync waits report
-overflow; the release notes mark that change as breaking. Like every pre-release
-it makes no compatibility promise toward later pre-releases or `1.0.0`. Published
-release bytes are immutable and must never be replaced.
+`at.bernhardberger.tvheadend:htsp:1.0.0-beta.4`, the fourth pre-release of
+`1.0.0`. It changes the timeout of the initial-sync wait to an idle limit; the
+release notes mark that change as breaking. Like every pre-release it makes no
+compatibility promise toward later pre-releases or `1.0.0`. Published release
+bytes are immutable and must never be replaced.
 
-The `1.0.0-beta.3` coordinate is available from
-[Maven Central](https://central.sonatype.com/artifact/at.bernhardberger.tvheadend/htsp/1.0.0-beta.3),
-with its [repository files](https://repo1.maven.org/maven2/at/bernhardberger/tvheadend/htsp/1.0.0-beta.3/)
+The `1.0.0-beta.4` coordinate is available from
+[Maven Central](https://central.sonatype.com/artifact/at.bernhardberger.tvheadend/htsp/1.0.0-beta.4),
+with its [repository files](https://repo1.maven.org/maven2/at/bernhardberger/tvheadend/htsp/1.0.0-beta.4/)
 available directly. Publication and availability remain independently verified
 external state for every release.
 
-The [exact-tag release workflow](https://github.com/bernhardberger/tvheadend-htsp-kotlin/actions/runs/38894502091)
-passed on `972e26b1d7dc7c1f742570c1761e6c83f276de6d`, verifying all 20 signed and
+The [exact-tag release workflow](https://github.com/bernhardberger/tvheadend-htsp-kotlin/actions/runs/38954709848)
+passed on `088994ced6a3eb15410955ae38ac9d6e63cecf0b`, verifying all 20 signed and
 checksummed Central members and both
-[GitHub prerelease assets](https://github.com/bernhardberger/tvheadend-htsp-kotlin/releases/tag/v1.0.0-beta.3).
+[GitHub prerelease assets](https://github.com/bernhardberger/tvheadend-htsp-kotlin/releases/tag/v1.0.0-beta.4).
 The public manifest identifies that commit and the dedicated signing fingerprint
 `EAB02E488E7B944EAA6D65814BF0412FD2A3B741`. A separate public Central JAR download
 on 2026-10-16 matched its manifest SHA-256:
-`35d36e14ab493e019ce6d605065cc06a5605f3d81b8cfa05668b09b29503826e`.
+`7987c531c85fd013e2584ec6a200a2a2941c0130c0cf22d831fdd15148891558`.
 
 ## Provisional 0.x policy
 
