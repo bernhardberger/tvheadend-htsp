@@ -8,6 +8,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
@@ -68,6 +69,8 @@ internal open class `HtspService-internal`(
     private val subscriptionEventBufferCapacity: Int = eventBufferOptions.subscriptionQueueEvents,
     private val nanoTime: () -> Long = System::nanoTime,
     private val requestNanoTime: () -> Long = System::nanoTime,
+    private val writeDeadlineDispatcher: CoroutineDispatcher = Dispatchers.Default,
+    private val beforeWriteDeadlineRetirement: () -> Unit = {},
 ) : HtspRequestTransport, HtspConnection {
     private val attemptMonitor = HtspAttemptMonitor(beforeStatePublication)
     override val connectionState: StateFlow<HtspConnectionState> = attemptMonitor.connectionState
@@ -644,6 +647,8 @@ internal open class `HtspService-internal`(
         val frameStarted = AtomicBoolean()
         val frameComplete = AtomicBoolean()
         var writeAborted = false
+        var writeFinished = false
+        var writeDeadline: Job? = null
         val isHandshake = method == "hello" || method == "authenticate"
 
         return try {
@@ -655,14 +660,36 @@ internal open class `HtspService-internal`(
                 }
                 frameWriter.withLock {
                     blockingSocketIo(onCancellation = { cause ->
+                        val ownedTimeout = cause is TimeoutCancellationException && requestContext.isActive
+                        var deadline: Job? = null
                         val retire = attemptMonitor.withAttemptLock {
                             writeAborted = true
-                            frameStarted.get() && (!frameComplete.get() || isHandshake)
+                            if (!frameStarted.get() || (writeFinished || frameComplete.get()) && !isHandshake) {
+                                false
+                            } else if (ownedTimeout || isHandshake) {
+                                true // Owned timeout or a started handshake must retire immediately.
+                            } else {
+                                // The caller no longer owns a running timeout. Keep the frame
+                                // intact, but bound its blocking worker by the original budget.
+                                // Retain service ownership without competing with blocking reader/writer IO.
+                                deadline = scope.launch(writeDeadlineDispatcher, start = CoroutineStart.LAZY) {
+                                    val remaining = remainingMs()
+                                    if (remaining > 0L) kotlinx.coroutines.delay(remaining)
+                                    beforeWriteDeadlineRetirement()
+                                    markTransportGone(admission.socket, HtspSubscriptionTermination.TIMEOUT) {
+                                        installedTransport?.socket === admission.socket && liveTransportAttempt != null &&
+                                            !writeFinished && !frameComplete.get()
+                                    }
+                                }
+                                writeDeadline = deadline
+                                false
+                            }
                         }
+                        deadline?.start()
                         if (retire) {
                             markTransportGone(
                                 admission.socket,
-                                if (cause is TimeoutCancellationException && requestContext.isActive) {
+                                if (ownedTimeout) {
                                     HtspSubscriptionTermination.TIMEOUT
                                 } else {
                                     HtspSubscriptionTermination.LOCAL_RETIREMENT
@@ -683,13 +710,19 @@ internal open class `HtspService-internal`(
                         try {
                             admission.output.write(HtspCodec.encode(method, msgFields))
                             admission.output.flush()
-                            frameComplete.set(true)
+                            attemptMonitor.withAttemptLock { frameComplete.set(true) }
                             afterRequestFrameWritten(method)
                             pending[s]?.sentAtNanos = nanoTime()
                         } catch (failure: IOException) {
                             // A failed write may have sent a prefix; never reuse this stream.
                             markTransportGone(admission.socket, HtspSubscriptionTermination.IO_FAILURE)
                             throw failure
+                        } finally {
+                            val deadline = attemptMonitor.withAttemptLock {
+                                writeFinished = true
+                                writeDeadline.also { writeDeadline = null }
+                            }
+                            deadline?.cancel()
                         }
                     }
                 }
@@ -1454,8 +1487,16 @@ internal open class `HtspService-internal`(
     private fun markTransportGone(
         target: Socket?,
         termination: HtspSubscriptionTermination,
+    ) = markTransportGone(target, termination) { true }
+
+    private fun markTransportGone(
+        target: Socket?,
+        termination: HtspSubscriptionTermination,
+        shouldRetire: () -> Boolean,
     ) {
         attemptMonitor.withAttemptLock {
+            // Internal write-state checks and retirement must share the completion lock.
+            if (!shouldRetire()) return
             if (installedTransport?.socket === target && liveTransportAttempt != null) {
                 terminateSubscriptionStreamsLocked(
                     protocolGeneration,

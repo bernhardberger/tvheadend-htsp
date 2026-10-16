@@ -17,16 +17,19 @@ import java.net.Socket
 import java.net.SocketAddress
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
+import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
@@ -403,7 +406,7 @@ class HtspConnectionSocketFactoryTest {
     }
 
     @Test
-    fun blockedWriteAndFlushAbortOnOwnedTimeoutOrCallerCancellation() = runBlocking {
+    fun blockedWriteAndFlushRetireAtRequestDeadlineEvenAfterCallerCancellation() = runBlocking {
         for (blockFlush in listOf(false, true)) {
             for ((ownedTimeout, callerTimeout) in listOf(false to false, false to true, true to false)) {
                 val started = CountDownLatch(1)
@@ -423,52 +426,311 @@ class HtspConnectionSocketFactoryTest {
                     onClose = released::countDown,
                 )
                 val connection = createHtspConnection(Dispatchers.IO, socketFactory = { socket })
-                val states = CopyOnWriteArrayList<HtspConnectionState>()
-                val events = CopyOnWriteArrayList<HtspTransportEvent>()
-                val stateCollector = launch(Dispatchers.Unconfined) { connection.connectionState.collect(states::add) }
-                val eventCollector = launch(Dispatchers.Unconfined) { connection.events.collect(events::add) }
+                val failureEvent = async(start = CoroutineStart.UNDISPATCHED) {
+                    connection.events.filterIsInstance<HtspTransportEvent.ConnectionFailure>().first()
+                }
                 try {
                     assertTrue(connection.connect(HtspEndpoint("127.0.0.1", 9_982)) is HtspConnectOutcome.Connected)
+                    val generation = requireNotNull(connection.currentLiveConnection).generation
                     val reader = serviceReaderJob(connection)
                     val call = async(start = CoroutineStart.UNDISPATCHED) {
                         if (callerTimeout) {
-                            withTimeout(100L) { connection.getSysTime(timeoutMs = 2_000L) }
+                            withTimeout(100L) { connection.getSysTime(timeoutMs = 500L) }
                         } else {
-                            connection.getSysTime(timeoutMs = if (ownedTimeout) 100L else 2_000L)
+                            connection.getSysTime(timeoutMs = if (ownedTimeout) 100L else 500L)
                         }
                     }
                     assertTrue(started.await(1, TimeUnit.SECONDS))
                     if (ownedTimeout) {
-                        assertSame(HtspResult.Timeout, withTimeout(1_000L) { call.await() })
+                        assertSame(HtspResult.Timeout, withTimeout(5_000L) { call.await() })
                     } else if (callerTimeout) {
-                        val failure = withTimeout(1_000L) { runCatching { call.await() }.exceptionOrNull() }
+                        val failure = withTimeout(5_000L) { runCatching { call.await() }.exceptionOrNull() }
                         assertTrue(failure is TimeoutCancellationException)
                     } else {
-                        withTimeout(1_000L) { call.cancelAndJoin() }
+                        call.cancel()
+                        assertFalse(socket.isClosed)
+                        assertFalse(call.isCompleted)
+                        withTimeout(5_000L) { call.join() }
                         assertTrue(runCatching { call.await() }.exceptionOrNull() is CancellationException)
                     }
                     assertTrue(socket.isClosed)
                     assertNull(connection.currentLiveConnection)
                     assertSame(HtspResult.TransportUnavailable, connection.getSysTime())
                     withTimeout(1_000L) { reader.join() }
-                    if (!ownedTimeout) {
-                        assertTrue(states.none { it is HtspConnectionState.Error })
-                        assertTrue(events.none { it is HtspTransportEvent.ConnectionFailure })
-                    } else {
-                        withTimeout(1_000L) {
-                            while (events.none { it is HtspTransportEvent.ConnectionFailure }) delay(1L)
-                        }
-                        assertEquals(
-                            HtspTransportFailureKind.CONNECTION_TIMEOUT,
-                            events.filterIsInstance<HtspTransportEvent.ConnectionFailure>().single().failure.kind,
-                        )
-                    }
+                    val failure = withTimeout(1_000L) { failureEvent.await() }
+                    assertSame(generation, failure.generation)
+                    assertEquals(HtspTransportFailureKind.CONNECTION_TIMEOUT, failure.failure.kind)
+                    assertEquals(HtspConnectionState.Error(failure.failure), connection.connectionState.value)
+                    val termination = withTimeout(1_000L) { connection.awaitTermination(generation) }
+                    assertSame(failure.failure, (termination as HtspGenerationTermination.Failed).failure)
                 } finally {
                     released.countDown()
                     connection.close()
-                    stateCollector.cancelAndJoin()
-                    eventCollector.cancelAndJoin()
+                    failureEvent.cancelAndJoin()
                 }
+            }
+        }
+    }
+
+    @Test
+    fun cancelledWriteFinishesAndDiscardsLateReplyWithoutEndingGeneration() = runBlocking {
+        for (blockFlush in listOf(false, true)) {
+            val started = CountDownLatch(1)
+            val released = CountDownLatch(1)
+            val block = {
+                started.countDown()
+                check(released.await(5, TimeUnit.SECONDS))
+            }
+            val socket = ScriptedSocket(
+                "127.0.0.1", 9_982,
+                listOf(
+                    loadHtspGoldenFrame("scripted-hello-response.hex"),
+                    loadHtspGoldenFrame("scripted-authenticate-response.hex"),
+                    null,
+                    HtspCodec.encode("getSysTime", mapOf("seq" to 4L, "time" to 1L, "timezone" to 0L)),
+                ),
+                beforePostHandshakeWrite = { if (!blockFlush) block() },
+                beforePostHandshakeFlush = { if (blockFlush) block() },
+                onClose = released::countDown,
+            )
+            val connection = createHtspConnection(Dispatchers.IO, socketFactory = { socket })
+            val events = CopyOnWriteArrayList<HtspTransportEvent>()
+            val batches = CopyOnWriteArrayList<HtspTransportEvent>()
+            val eventMarker = CompletableDeferred<Unit>()
+            val batchMarker = CompletableDeferred<Unit>()
+            val eventCollector = launch(start = CoroutineStart.UNDISPATCHED) {
+                connection.events.collect {
+                    events.add(it)
+                    if (it is HtspTransportEvent.ServerMessage) eventMarker.complete(Unit)
+                }
+            }
+            val batchCollector = launch(start = CoroutineStart.UNDISPATCHED) {
+                connection.eventBatches().collect {
+                    batches.addAll(it)
+                    if (it.any { event -> event is HtspTransportEvent.ServerMessage }) batchMarker.complete(Unit)
+                }
+            }
+            var termination: Job? = null
+            try {
+                withTimeout(5_000L) {
+                    val connected = connection.connect(HtspEndpoint("127.0.0.1", 9_982)) as HtspConnectOutcome.Connected
+                    val generation = connected.connection.generation
+                    termination = async(start = CoroutineStart.UNDISPATCHED) { connection.awaitTermination(generation) }
+                    val call = async(start = CoroutineStart.UNDISPATCHED) { connection.getSysTime(timeoutMs = 4_000L) }
+                    assertTrue(started.await(1, TimeUnit.SECONDS))
+                    call.cancel()
+                    assertFalse(socket.isClosed)
+                    assertFalse(call.isCompleted)
+                    released.countDown()
+                    call.join()
+                    assertTrue(runCatching { call.await() }.exceptionOrNull() is CancellationException)
+                    // A late reply is discarded before the following metadata marker.
+                    socket.sendResponse(HtspCodec.encode("getSysTime", mapOf("seq" to 3L, "time" to 1L, "timezone" to 0L)))
+                    socket.sendResponse(HtspCodec.encode("initialSyncCompleted", emptyMap()))
+                    assertTrue(connection.getSysTime() is HtspResult.Ok)
+                    eventMarker.await()
+                    batchMarker.await()
+                    assertEquals(1, events.size)
+                    assertEquals(events.toList(), batches.toList())
+                    assertFalse(socket.isClosed)
+                    assertSame(generation, (connection.connectionState.value as HtspConnectionState.Connected).connection.generation)
+                    assertFalse(requireNotNull(termination).isCompleted)
+                    assertEquals(listOf("hello", "authenticate", "getSysTime", "getSysTime"), socket.requests().map { it.method })
+                    requireNotNull(termination).cancelAndJoin()
+                }
+            } finally {
+                released.countDown()
+                termination?.cancelAndJoin()
+                connection.close()
+                eventCollector.cancelAndJoin()
+                batchCollector.cancelAndJoin()
+            }
+        }
+    }
+
+    @Test
+    fun ownerTeardownUnblocksCancelledWriteAndRunningDeadlineCannotRetireReplacement() = runBlocking {
+        for (ownerAction in listOf("disconnect", "close", "replace")) {
+            val started = CountDownLatch(1)
+            val released = CountDownLatch(1)
+            val deadlineEntered = CompletableDeferred<Unit>()
+            val releaseDeadline = CountDownLatch(1)
+            val deadlineJob = CompletableDeferred<Job>()
+            val deadlineDispatcher = object : CoroutineDispatcher() {
+                override fun dispatch(context: CoroutineContext, block: Runnable) {
+                    deadlineJob.complete(requireNotNull(context[Job]))
+                    Dispatchers.Default.dispatch(context, block)
+                }
+            }
+            val first = ScriptedSocket(
+                "127.0.0.1", 9_982,
+                listOf(loadHtspGoldenFrame("scripted-hello-response.hex"), loadHtspGoldenFrame("scripted-authenticate-response.hex")),
+                beforePostHandshakeWrite = {
+                    started.countDown()
+                    check(released.await(10, TimeUnit.SECONDS))
+                },
+                onClose = released::countDown,
+            )
+            val replacement = ScriptedSocket(
+                "127.0.0.1", 9_982,
+                listOf(
+                    HtspCodec.encode("hello", mapOf("seq" to 4L, "htspversion" to 43L, "challenge" to ByteArray(32))),
+                    HtspCodec.encode("authenticate", mapOf("seq" to 5L)),
+                    HtspCodec.encode("getSysTime", mapOf("seq" to 6L, "time" to 1L, "timezone" to 0L)),
+                ),
+            )
+            val sockets = listOf(first, replacement).iterator()
+            val connection = HtspService(
+                Dispatchers.IO,
+                socketFactory = { sockets.next() },
+                writeDeadlineDispatcher = deadlineDispatcher,
+                beforeWriteDeadlineRetirement = {
+                    deadlineEntered.complete(Unit)
+                    check(releaseDeadline.await(10, TimeUnit.SECONDS))
+                },
+            )
+            val events = CopyOnWriteArrayList<HtspTransportEvent>()
+            val collector = launch(Dispatchers.Unconfined) { connection.events.collect(events::add) }
+            try {
+                withTimeout(10_000L) {
+                    val endpoint = HtspEndpoint("127.0.0.1", 9_982)
+                    val connected = connection.connect(endpoint) as HtspConnectOutcome.Connected
+                    val generation = connected.connection.generation
+                    val call = async(start = CoroutineStart.UNDISPATCHED) { connection.getSysTime(timeoutMs = 1_000L) }
+                    assertTrue(started.await(5, TimeUnit.SECONDS))
+                    call.cancel()
+                    deadlineEntered.await()
+                    assertFalse(first.isClosed)
+                    assertFalse(call.isCompleted)
+                    var closeCall: kotlinx.coroutines.Deferred<Boolean>? = null
+                    when (ownerAction) {
+                        "disconnect" -> assertTrue(connection.disconnect())
+                        "close" -> closeCall = async(start = CoroutineStart.UNDISPATCHED) { connection.close() }
+                        "replace" -> assertTrue(
+                            connection.connect(endpoint, HtspConnectOptions(forceReconnect = true)) is HtspConnectOutcome.Connected,
+                        )
+                    }
+                    call.join()
+                    assertTrue(runCatching { call.await() }.exceptionOrNull() is CancellationException)
+                    assertTrue(first.isClosed)
+                    assertSame(HtspGenerationTermination.Disconnected, connection.awaitTermination(generation))
+                    if (ownerAction == "disconnect") {
+                        assertSame(HtspConnectionState.Disconnected, connection.connectionState.value)
+                        assertTrue(connection.connect(endpoint) is HtspConnectOutcome.Connected)
+                    }
+                    val replacementGeneration = connection.currentLiveConnection?.generation
+                    if (ownerAction != "close") assertNotSame(generation, requireNotNull(replacementGeneration))
+                    // The body already passed delay and is running, not a cancelled queued
+                    // runnable. Release it after teardown/reconnect, then join its retirement check.
+                    val timer = deadlineJob.await()
+                    assertFalse(timer.isCompleted)
+                    releaseDeadline.countDown()
+                    timer.join()
+                    if (ownerAction == "close") {
+                        assertTrue(requireNotNull(closeCall).await())
+                        assertSame(HtspConnectionState.Closed, connection.connectionState.value)
+                    } else {
+                        assertSame(replacementGeneration, (connection.connectionState.value as HtspConnectionState.Connected).connection.generation)
+                        assertTrue(connection.getSysTime() is HtspResult.Ok)
+                        assertFalse(replacement.isClosed)
+                    }
+                    assertTrue(events.none { it is HtspTransportEvent.ConnectionFailure })
+                    assertSame(HtspGenerationTermination.Disconnected, connection.awaitTermination(generation))
+                }
+            } finally {
+                releaseDeadline.countDown()
+                released.countDown()
+                connection.close()
+                collector.cancelAndJoin()
+            }
+        }
+    }
+
+    @Test
+    fun cancelledWriteDeadlineRunsWhenBothIoThreadsAreBlocked() = runBlocking {
+        Executors.newFixedThreadPool(2).asCoroutineDispatcher().use { dispatcher ->
+            val readerStarted = CompletableDeferred<Unit>()
+            val readerReleased = CountDownLatch(1)
+            val writerStarted = CompletableDeferred<Unit>()
+            val writerReleased = CountDownLatch(1)
+            val reads = AtomicInteger()
+            val socket = ScriptedSocket(
+                "127.0.0.1", 9_982,
+                listOf(loadHtspGoldenFrame("scripted-hello-response.hex"), loadHtspGoldenFrame("scripted-authenticate-response.hex")),
+                beforePostHandshakeWrite = {
+                    writerStarted.complete(Unit)
+                    check(writerReleased.await(10, TimeUnit.SECONDS))
+                },
+                onClose = {
+                    readerReleased.countDown()
+                    writerReleased.countDown()
+                },
+            )
+            val connection = HtspService(dispatcher, socketFactory = { socket }, beforeFrameRead = {
+                if (reads.incrementAndGet() == 3) {
+                    readerStarted.complete(Unit)
+                    check(readerReleased.await(10, TimeUnit.SECONDS))
+                }
+            })
+            val failureEvent = async(start = CoroutineStart.UNDISPATCHED) {
+                connection.events.filterIsInstance<HtspTransportEvent.ConnectionFailure>().first()
+            }
+            try {
+                withTimeout(5_000L) {
+                    val connected = connection.connect(HtspEndpoint("127.0.0.1", 9_982)) as HtspConnectOutcome.Connected
+                    readerStarted.await()
+                    val call = async(start = CoroutineStart.UNDISPATCHED) { connection.getSysTime(timeoutMs = 1_000L) }
+                    writerStarted.await()
+                    // Cancellation is on runBlocking's thread; both IO threads remain occupied
+                    // until retirement closes the socket and releases their latches.
+                    call.cancel()
+                    assertFalse(socket.isClosed)
+                    assertFalse(call.isCompleted)
+                    call.join()
+                    assertTrue(runCatching { call.await() }.exceptionOrNull() is CancellationException)
+                    assertTrue(socket.isClosed)
+                    val failure = failureEvent.await().failure
+                    assertEquals(HtspTransportFailureKind.CONNECTION_TIMEOUT, failure.kind)
+                    assertEquals(HtspConnectionState.Error(failure), connection.connectionState.value)
+                    assertEquals(HtspGenerationTermination.Failed(failure), connection.awaitTermination(connected.connection.generation))
+                }
+            } finally {
+                readerReleased.countDown()
+                writerReleased.countDown()
+                connection.close()
+                failureEvent.cancelAndJoin()
+            }
+        }
+    }
+
+    @Test
+    fun cancellingDirectHandshakeMidWriteStillRetiresLocally() = runBlocking {
+        for (hello in listOf(false, true)) {
+            val started = CountDownLatch(1)
+            val released = CountDownLatch(1)
+            val socket = ScriptedSocket(
+                "127.0.0.1", 9_982,
+                listOf(loadHtspGoldenFrame("scripted-hello-response.hex"), loadHtspGoldenFrame("scripted-authenticate-response.hex")),
+                beforePostHandshakeWrite = { started.countDown(); check(released.await(5, TimeUnit.SECONDS)) },
+                onClose = released::countDown,
+            )
+            val connection = createHtspConnection(Dispatchers.IO, socketFactory = { socket })
+            try {
+                withTimeout(5_000L) {
+                    val connected = connection.connect(HtspEndpoint("127.0.0.1", 9_982)) as HtspConnectOutcome.Connected
+                    val call = async(start = CoroutineStart.UNDISPATCHED) {
+                        if (hello) connection.hello(protocolVersion = 44L, clientName = "test") else connection.authenticate()
+                    }
+                    assertTrue(started.await(1, TimeUnit.SECONDS))
+                    call.cancelAndJoin()
+                    assertTrue(runCatching { call.await() }.exceptionOrNull() is CancellationException)
+                    assertTrue(socket.isClosed)
+                    assertSame(HtspGenerationTermination.Disconnected, connection.awaitTermination(connected.connection.generation))
+                    assertSame(HtspConnectionState.Disconnected, connection.connectionState.value)
+                }
+            } finally {
+                released.countDown()
+                connection.close()
             }
         }
     }
@@ -886,5 +1148,10 @@ class HtspConnectionSocketFactoryTest {
         }
 
         fun requests(): List<HtspWireMessage> = requestMessages.toList()
+
+        fun sendResponse(frame: ByteArray) {
+            responseOutput.write(frame)
+            responseOutput.flush()
+        }
     }
 }

@@ -128,7 +128,11 @@ That has two practical consequences:
 
 A single request that times out before the silence check fires is a different
 case: it ends in `Timeout` and leaves the connection live, unless the timeout
-struck while the request was only partly written. See
+struck while the request was only partly written. Cancelling an ordinary request
+lets a started frame finish within that same request timeout. If it cannot finish,
+the connection ends with `CONNECTION_TIMEOUT`; the caller still gets cancellation.
+Cancelling `hello` or `authenticate` after any part is written drops the connection
+immediately. See
 [what ends a connection](connecting.md#what-ends-a-connection).
 
 ## My state looks incomplete

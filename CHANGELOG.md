@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+- Cancelling an ordinary request no longer drops the connection when its frame is
+  only partly written. The library finishes writing the frame, then rethrows the
+  cancellation. If the write cannot finish within the request's timeout, the
+  connection ends with a `CONNECTION_TIMEOUT` failure. Cancelling a started
+  `hello` or `authenticate` still drops the connection.
 - Fixed cancellation of a fresh connect after `Connected` was published leaving
   its transport open. The attempt now retires like a local disconnect: subscription
   streams end with `Terminated(LOCAL_RETIREMENT)`, in-flight requests return

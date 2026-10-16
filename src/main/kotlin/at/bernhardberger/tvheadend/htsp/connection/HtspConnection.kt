@@ -173,7 +173,14 @@ public interface HtspConnection {
     /**
      * Executes one typed request. [timeoutMs] covers handshake/write serialization,
      * dispatch, socket write/flush, and the reply wait. Caller cancellation propagates;
-     * a stale [expectedGeneration] before dispatch returns [HtspResult.TransportUnavailable].
+     * a started ordinary frame finishes first, leaving the connection live. This takes
+     * at most the remaining request budget plus scheduling delay. A write that cannot
+     * finish in that budget ends the connection with a timeout failure; the caller still
+     * gets cancellation. Cancelling hello/authenticate after any part is written retires
+     * the connection immediately.
+     * A very large [timeoutMs] can delay cancellation if the peer stops reading.
+     * Other requests queue behind that unfinished write.
+     * A stale [expectedGeneration] before dispatch returns [HtspResult.TransportUnavailable].
      * A closed client also returns TransportUnavailable; inspect [connectionState] for Closed.
      * A completed reply is returned unchanged even after generation replacement.
      */

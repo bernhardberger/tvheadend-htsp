@@ -121,8 +121,9 @@ acknowledged `deleteDvrEntry` can leave the entry in place; see
 
 Cancelling the calling coroutine cancels the in-flight call, which propagates
 CancellationException like any other suspending Kotlin code. Cancellation never
-shows up disguised as a failure outcome or a transport-failure event. A stale
-generation fence before request dispatch instead returns `HtspResult.TransportUnavailable`.
+shows up disguised as a failure outcome. Cancellation itself does not emit a
+transport-failure event; a started write that exceeds its request deadline does.
+A stale generation fence before request dispatch instead returns `HtspResult.TransportUnavailable`.
 `disconnect` and `close` return Boolean: true means this call changed state, false
 means a stale fence or nothing to do. Disconnect retires an attempt/transport or
 clears sticky Error to Disconnected; already disconnected or closed returns false.
@@ -152,9 +153,13 @@ in-flight requests return `TransportUnavailable`, and `awaitTermination` returns
 `execute` uses one timeout budget for generation capture, handshake serialization,
 request encoding/admission, write serialization, socket write/flush, and the reply
 wait. A timeout or cancellation while queued does not retire the connection.
-Once an ordinary frame has been completely written, cancelling its reply wait also leaves the connection
-live. Aborting an incomplete write retires the exact socket because its frame may
-be partial. A started direct handshake is retired on cancellation or timeout even
+Cancelling an ordinary request leaves the connection live. A started frame finishes
+writing before cancellation is rethrown. This wait lasts at most the remaining
+request timeout budget, plus scheduling delay. If the write cannot finish by that
+deadline, the exact socket retires with `CONNECTION_TIMEOUT`, including a failed
+generation termination and a `ConnectionFailure` event. The caller still gets
+cancellation. A completed frame's late reply does not enter metadata event flows.
+A started direct handshake is retired on cancellation or timeout even
 after the frame is written, because its server-side state may have changed.
 An enclosing coroutine timeout is caller cancellation, not the request's owned
 timeout. A completed reply is returned unchanged even if its generation loses the
@@ -169,8 +174,11 @@ application-owned serialization.
 
 Socket creation, DNS resolution, connect, and writes run on the supplied I/O
 dispatcher; it must accommodate concurrent blocking reader and writer work, such
-as `Dispatchers.IO`. Blocking socket operations are caller-owned and cancellation
-closes their captured raw socket before waiting for the worker to finish. System
+as `Dispatchers.IO`. Cancelling connection setup closes its captured raw socket
+before waiting for the worker to finish. Ordinary request writes instead finish
+within their remaining request budget as described above. Owner disconnect,
+close, and connection replacement close the socket immediately, including while
+a cancelled caller's write is finishing. System
 DNS and arbitrary application factories cannot be reliably interrupted; their
 workers must return before cancellation completes. `connectTimeoutMs` bounds TCP
 connect, not DNS or factory execution. Late factory sockets are closed rather than

@@ -232,7 +232,7 @@ Three of these deserve a closer look.
 - `Timeout` covers the whole call: capturing the connection, writing the
   request, and waiting for the reply. A timeout of an ordinary request leaves the
   connection live, unless it strikes while the request is only partly written;
-  then the connection is dropped, as with cancellation below. An enclosing
+  then the connection ends with a timeout failure. An enclosing
   `withTimeout` is different: it cancels the call, which propagates as
   cancellation instead of returning `Timeout`.
 
@@ -245,11 +245,15 @@ recording state has already changed. Watch the DVR metadata updates for that.
 
 Cancelling the calling coroutine cancels the request and throws
 `CancellationException` like any suspending call. It never shows up as a
-failure value. If the request was only partly written when it was cancelled,
-the connection is dropped, because the stream can no longer be trusted. After a
-complete write, cancelling the wait for the reply leaves the connection live.
-`hello` and `authenticate` sent through `execute` are stricter: once any part
-was written, cancelling them drops the connection.
+failure value, and it leaves the connection live. If the request was only partly
+written, the library first finishes writing it, so the stream stays intact. That
+wait lasts at most the rest of the request's timeout; if the write still cannot
+finish, the connection ends with a timeout failure. `hello` and `authenticate`
+sent through `execute` are stricter: once any part was written, cancelling them
+drops the connection.
+
+A very large `timeoutMs` can delay cancellation if the peer stops reading.
+Other requests queue behind that unfinished write.
 
 A few things still throw, all for mistakes you can fix in code: a non-positive
 `timeoutMs`, a value outside an unsigned 32-bit field such as a channel id, and
